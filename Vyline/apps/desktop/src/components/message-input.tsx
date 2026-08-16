@@ -11,6 +11,7 @@ import {
   IconAtSign,
 } from "@/components/icons"
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel"
+import { FloatNotice } from "@/components/float-notice"
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon"
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention"
 import { mapMember } from "@/lib/mappers"
@@ -549,12 +550,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
             ))}
           </div>
         )}
-        {sendingImage && (
-          <div className="flex items-center justify-center gap-2 py-1.5 text-xs text-[var(--vy-text-dim)]">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full" style={{ background: "var(--vy-accent)" }} />
-            アップロード中…
-          </div>
-        )}
+        {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
         <div className="vy-input-row flex items-end gap-1.5 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
           <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
             <IconPaperclip size={20} />
