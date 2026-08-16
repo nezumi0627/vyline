@@ -1,28 +1,69 @@
+# ── Node / Frontend ───────────────────────────────────────────
+node_modules/
+dist/
+dist-ssr/
+*.local
+*.tsbuildinfo
+
 # Logs
-logs
+logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
-lerna-debug.log*
 
-node_modules
-dist
-dist-ssr
-*.local
+# ── Bun ──────────────────────────────────────────────────────
+.bun/
 
-# Editor directories and files
+# ── Data (tokens / E2EE keys — never commit) ─────────────────
+/backend/data/
+data/
+Vyline/backend/data/
+.env
+.env.*
+!.env.example
+**/desktop-e2ee-keys.json
+**/desktop-e2ee-dump.txt
+**/storage-*.json
+**/tokens.json
+**/chatdb-*.json
+
+# ── Editor ────────────────────────────────────────────────────
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+!.vscode/launch.json
+!.vscode/tasks.json
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
 
-# Line decompiled files
-line_decompiled_old/
-line_decompiled/
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+
+# ── Project-specific ──────────────────────────────────────────
+# リサーチ用途のため git 管理外 (リバースエンジニアリング成果物)
+/research/
+/source/
+
+# ネットワークキャプチャ
+*.har
+
+# Archive
+archive/
+
+# Wails v3 build artifacts
+**/build/bin/
+
+# Session data (user-specific, never commit)
+*.session.json
+
+# Vyline-Search tools data (binaries, dumps, outputs)
+tools/data/
+*.exe
+*.dll
+*.pdb

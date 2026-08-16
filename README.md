@@ -1,630 +1,167 @@
-# Vyline
+<p align="center">
+  <img src="docs/assets/vyline-banner.png" alt="Vyline" width="100%" />
+</p>
 
-### *Vision Beyond Limits.*
+<h1 align="center">Vyline</h1>
 
-#### あなたのコミュニケーションを、その先へ。
+<p align="center">
+  <strong>Vision Beyond Limits.</strong><br/>
+  自前プロトコルで動く、LINE サードパーティクライアント（Web / React）
+</p>
 
----
+<p align="center">
+  <img alt="version" src="https://img.shields.io/badge/version-0.4.0--beta-a78bfa?style=flat-square" />
+  <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
+  <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
+  <img alt="stack" src="https://img.shields.io/badge/stack-Hono%20%2B%20React-0ea5e9?style=flat-square" />
+  <img alt="state" src="https://img.shields.io/badge/state-beta-a78bfa?style=flat-square" />
+  <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square" />
+</p>
 
-## Table of Contents
-
-- [Overview](#overview)
-- [Project Vision](#project-vision)
-- [Core Philosophy](#core-philosophy)
-- [Technology Stack](#technology-stack)
-- [System Architecture](#system-architecture)
-- [Layer Design](#layer-design)
-- [Performance Design](#performance-design)
-- [Security Design](#security-design)
-- [Future Features](#future-features)
-- [Open Source Philosophy](#open-source-philosophy)
-- [Legal Policy](#legal-policy)
-- [Getting Started](#getting-started)
-- [Development](#development)
-- [Contributing](#contributing)
-- [License](#license)
+> ⚠️ **Beta 版です。** LINE 非公式のサードパーティクライアントで、利用はすべて自己責任です。
+> アカウント停止のリスクがあるため、**メインアカウントでの利用は推奨しません**。
 
 ---
 
-## Overview
+## What is Vyline?
 
-Vyline は、単なるメッセージングクライアントではなく、
+**Vyline** は LINE にログインしてメッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行うサードパーティクライアントです。
 
-> "Composable Communication Platform"
+外部 `@evex/linejs` に依存せず、**自前の LINE プロトコルスタック `@vyline/nezuline`（NezuLINE）** で動作します。公式クライアントの解析成果を活用し、E2EE（Letter Sealing）の復号・送信まで対応しています。
 
-を目指します。
-
-従来の固定化されたメッセージング体験ではなく、ユーザー自身が UI・機能・挙動を自由に構築できる、拡張型コミュニケーション環境として設計します。
-
----
-
-## Project Vision
-
-Vyline は以下の特徴を持つ次世代コミュニケーションプラットフォームです：
-
-- **拡張性**: Plugin System による無限の機能拡張
-- **カスタマイズ**: Theme System による完全な UI カスタマイズ
-- **パフォーマンス**: 軽量かつ高速な動作
-- **安全性**: セキュアなアーキテクチャ
-- **オープン性**: オープンソースによる透明性
+| | |
+|---|---|
+| **誰向け** | LINE の UI を自分好みにしたい人・開発者 |
+| **なにが違う** | 公式にない体験: NezuTheme / 密度制御 / メンション / LINE 絵文字 / ローカル最適化 |
+| **ライセンス** | MIT |
+| **状態** | Beta（開発中） |
 
 ---
 
-## Core Philosophy
+## Key Features
 
-### 1. Lightweight First
-
-Vyline は、近年の肥大化した Electron ベースアプリケーションとは異なり、以下を最優先に設計します：
-
-- **起動速度**: 数秒以内の起動
-- **レスポンス速度**: 60 FPS 以上のスムーズな操作
-- **メモリ効率**: 最小限のメモリ使用量
-- **GPU 効率**: ハードウェアアクセラレーションの最適化
-
-### 2. Modular First
-
-全機能をモジュール単位で分離し、必要な機能だけをロード可能にします。
-
-**目的:**
-- 軽量化
-- Fork 容易化
-- テスト容易化
-- Plugin 対応
-- Hot Reload 対応
-
-### 3. UI as Platform
-
-UI を固定されたものではなく、"構築可能なシステム" として扱います。
-
-**特徴:**
-- CSS 変数ベースのテーマシステム
-- Dynamic Theme
-- Runtime UI Reload
-- Component Isolation
+- **ログイン** — QR / Email ログイン、マルチアカウント、セッション復元
+- **メッセージ** — 送受信 / 返信 / 取り消し / 既読制御 / 再送
+- **メンション** — `@ALL` / `@名前`（LINE Desktop 準拠の `MENTION` metadata）
+- **LINE 絵文字（sticon）** — 文中挿入・送受信描画
+- **メディア** — 画像・動画・音声送受信（画像はクライアント側で自動圧縮）
+- **スタンプ** — 所持パック / プレミアム / アニメーション / くっつき
+- **Flex / Rich** — 公式準拠の描画、カルーセルのマウスドラッグ
+- **リアクション** — 1 クリック、公式バッジ、既読者一覧
+- **チャット管理** — ピン / 非表示 / ミュート / ブロック / MID コピー / グループ作成・招待
+- **NezuTheme** — フルカスタマイズテーマ、文字サイズ、密度、プロフィール背景
+- **プライバシー** — ストリーマーモード、PIN ロック
+- **その他** — トーク保存（TXT エクスポート）/ 設定の初期化 / 更新チェック
 
 ---
 
-## Technology Stack
+## Version
 
-### Frontend Layer
-
-#### Tauri + React + TypeScript
-
-**採用理由:**
-
-- **Tauri**: Electron より軽量、Rust Backend と高相性
-- **React**: 豊富なエコシステム、コンポーネント指向
-- **TypeScript**: 型安全、大規模開発に適
-
-**利点:**
-- クロスプラットフォーム性
-- ネイティブ性能
-- 高速描画
-- 小さいバンドルサイズ
-
-### Core Layer
-
-#### Rust Core
-
-Vyline の中核処理は Rust で構築します。
-
-**Rust 採用理由:**
-
-- **メモリ安全**: コンパイル時の安全性保証
-- **高速**: ゼロコスト抽象化
-- **マルチスレッド性能**: 安全な並列処理
-- **クロスプラットフォーム**: 一貫した動作
-- **Native 実装可能**: システムレベルのアクセス
-- **長期保守性**: 安定した言語仕様
+バージョンは `store.ts` / `package.json` / `README.md` の 3 箇所を同一に揃えます。リリース時は `docs/distribution.md` のチェックリストを参照。beta は非公開テスト段階です。
 
 ---
 
-## System Architecture
-
-### Overall Architecture
-
-```
-┌─────────────────────────────────────────────────────────┐
-│                    Frontend Layer                        │
-│              React / TypeScript / CSS                    │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │   UI Components│  │  State Mgmt  │  │  Theme Engine│  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-└──────────────────────────┬──────────────────────────────┘
-                           │ IPC Bridge
-┌──────────────────────────▼──────────────────────────────┐
-│                    Tauri Core                            │
-│              (IPC / Window Management)                   │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│                    Rust Engine                           │
-├─────────────────────────────────────────────────────────┤
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │Network Layer│  │Storage Layer │  │Plugin Layer │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  │
-│  │Theme Engine  │  │IPC Manager   │  │Event Bus    │  │
-│  └──────────────┘  └──────────────┘  └──────────────┘  │
-│  ┌──────────────┐  ┌──────────────┐                      │
-│  │Cache System  │  │Security Layer│                      │
-│  └──────────────┘  └──────────────┘                      │
-└─────────────────────────────────────────────────────────┘
-```
-
-### Data Flow
-
-```
-User Input → UI Component → State Management → IPC → Rust Engine → Network/Storage
-                ↓                    ↓                ↓
-            Theme Engine        Event Bus        Plugin Layer
-```
-
----
-
-## Layer Design
-
-### 5.1 UI Layer
-
-**役割:**
-- 描画
-- アニメーション
-- 状態表示
-- テーマ適用
-- レイアウト
-
-**設計思想:**
-UI は「完全分離」します。
-
-**特徴:**
-- CSS 変数ベース
-- Dynamic Theme
-- Runtime UI Reload
-- Component Isolation
-
-**技術スタック:**
-- React 18+
-- TypeScript
-- TailwindCSS
-- Framer Motion (アニメーション)
-
-### 5.2 Network Layer
-
-**役割:**
-通信処理を完全分離します。
-
-**目的:**
-- 将来的な通信切替
-- API 変更耐性
-- テスト容易化
-- キャッシュ最適化
-
-**機能:**
-- Request Queue
-- Retry System (Exponential Backoff)
-- Rate Limit Control
-- Compression (gzip, brotli)
-- Packet Optimization
-- Session Management
-- WebSocket Support
-
-**実装技術:**
-- Rust: reqwest, tokio, tungstenite
-
-### 5.3 Storage Layer
-
-**構想:**
-高速ローカル DB を採用。
-
-**候補:**
-- **SQLite**: 軽量、広く採用
-- **RocksDB**: 高性能、Key-Value
-- **SurrealDB**: マルチモデル（研究中）
-
-**保存対象:**
-- キャッシュ
-- メッセージ
-- 設定
-- テーマ
-- Plugin State
-- セッション情報
-
-**技術スタック:**
-- Rust: rusqlite, rocksdb
-
-### 5.4 Plugin Layer
-
-Vyline の最重要要素。
-
-**Plugin System:**
-ユーザーが自由に機能追加可能。
-
-**想定機能:**
-- UI 拡張
-- コマンド追加
-- RPC 追加
-- 通知制御
-- 独自テーマ
-- AI 連携
-- 独自タブ
-- Overlay
-
-**Plugin API:**
-
-```typescript
-interface VyPlugin {
-  name: string;
-  version: string;
-  author: string;
-  description?: string;
-  
-  onLoad(api: PluginAPI): void | Promise<void>;
-  onUnload(): void | Promise<void>;
-}
-
-interface PluginAPI {
-  ui: UIAPI;
-  theme: ThemeAPI;
-  message: MessagingAPI;
-  events: EventAPI;
-  storage: StorageAPI;
-  rpc: RPCAPI;
-  network: NetworkAPI;
-  permissions: PermissionsAPI;
-}
-```
-
-詳細は [docs/plugin-theme-system.md](docs/plugin-theme-system.md) を参照してください。
-
-### 5.5 Theme Engine
-
-**テーマシステム:**
-CSS 変数ベースで設計。
-
-**目標:**
-- リアルタイム切替
-- Hot Reload
-- Community Theme
-- Fine Customization
-
-**CSS 変数例:**
-
-```css
-:root {
-  --accent-color: #5865f2;
-  --background-primary: #101114;
-  --background-secondary: #1b1d23;
-  --text-primary: #ffffff;
-  --text-secondary: #b5bac1;
-  --message-radius: 16px;
-  --sidebar-width: 280px;
-  --font-family: "Inter";
-}
-```
-
-詳細は [docs/plugin-theme-system.md](docs/plugin-theme-system.md) を参照してください。
-
-### 5.6 Event Bus
-
-**構想:**
-全システムを Event Driven 化。
-
-**目的:**
-- 疎結合
-- Plugin 連携
-- 拡張性
-- 非同期最適化
-
-**イベント例:**
-
-```typescript
-// Message events
-'message.received'
-'message.sent'
-'message.edited'
-'message.deleted'
-
-// User events
-'user.online'
-'user.offline'
-'user.typing'
-
-// System events
-'theme.changed'
-'plugin.loaded'
-'plugin.unloaded'
-'settings.updated'
-```
-
-**実装技術:**
-- Rust: tokio::sync::broadcast
-- TypeScript: EventEmitter pattern
-
----
-
-## Performance Design
-
-### 6.1 Rendering Optimization
-
-**目標:**
-- 60 FPS 以上の安定したフレームレート
-- 低遅延の操作応答
-- 高速スクロール（大量メッセージ対応）
-
-**実装案:**
-- **Virtual List**: 表示領域のみのレンダリング
-- **GPU Rendering**: CSS transform, opacity の活用
-- **Memoization**: React.memo, useMemo の適切な使用
-- **Incremental Rendering**: 段階的なレンダリング
-- **RequestAnimationFrame**: アニメーションの最適化
-
-### 6.2 Memory Optimization
-
-**目標:**
-重いクライアントから脱却。
-
-**実装案:**
-- **Lazy Load**: 必要なリソースのみ読み込み
-- **Object Pool**: オブジェクトの再利用
-- **Shared Cache**: 共有キャッシュの活用
-- **Incremental Fetch**: 段階的なデータ取得
-- **Memory Monitoring**: メモリ使用量の監視
-
-### 6.3 Network Optimization
-
-**実装案:**
-- **Connection Pooling**: 接続の再利用
-- **HTTP/2**: マルチプレックス化
-- **Compression**: データ圧縮
-- **Delta Updates**: 差分更新
-- **Offline Support**: オフライン対応
-
----
-
-## Security Design
-
-### 方針
-
-Vyline は安全性を重視します。
-
-### 予定
-
-- **Sandbox Plugin**: プラグインのサンドボックス化
-- **Permission System**: 権限ベースのアクセス制御
-- **Signed Plugin**: プラグインの署名検証
-- **Isolated IPC**: IPC の分離
-- **Secure Storage**: 暗号化ストレージ
-- **Input Validation**: 入力値の検証
-- **XSS Protection**: XSS 対策
-- **CSRF Protection**: CSRF 対策
-
-### Security Best Practices
-
-- 依存関係の定期的な更新
-- セキュリティ監査の実施
-- 脆弱性報告プロセスの確立
-- セキュアなデフォルト設定
-
----
-
-## Future Features
-
-### AI Integration
-
-**構想:**
-AI を単なる Bot ではなく、UI/UX 補助として統合。
-
-**例:**
-- メッセージ要約
-- リアルタイム翻訳
-- Smart Reply
-- Auto Tagging
-- Context Search
-- Sentiment Analysis
-
-### Multi Account System
-
-**構想:**
-複数アカウントを完全分離管理。
-
-**機能:**
-- アカウント切り替え
-- 独立設定
-- 通知フィルタリング
-
-### Sync System
-
-**構想:**
-軽量なクラウド同期。
-
-**機能:**
-- 設定同期
-- テーマ同期
-- Plugin State 同期
-- エンドツーエンド暗号化
-
-### Developer SDK
-
-**構想:**
-誰でも拡張開発可能。
-
-**提供予定:**
-- CLI Tools
-- Type Definitions
-- Documentation
-- Example Templates
-- Debug Tools
-
----
-
-## Open Source Philosophy
-
-Vyline は MIT License を採用します。
-
-### 目的
-
-- **Fork 自由化**: 自由なフォークと改良
-- **技術共有**: 知識と技術の共有
-- **透明性**: 開発プロセスの透明化
-- **コミュニティ主導開発**: コミュニティによる開発
-
-### 許可される内容
-
-- Fork
-- 改造
-- 商用利用
-- 独自ビルド
-- 派生プロジェクト開発
-
----
-
-## Legal Policy
-
-Vyline は、トラブルや権利侵害を目的としたプロジェクトではありません。
-
-### Disclaimer
-
-- 本ソフトウェア利用による問題について、開発者は責任を負いません。
-- 利用は自己責任で行ってください。
-- 外部サービス仕様変更により動作不能になる可能性があります。
-
-### 削除要請について
-
-正式な削除要請があった場合、内容確認後、速やかに対応します。
-
-Vyline は対立を目的としたプロジェクトではありません。
-
----
-
-## Getting Started
-
-### Prerequisites
-
-- Node.js 18+
-- Rust 1.70+
-- pnpm (推奨) または npm
-
-### Installation
+## Quick Start
 
 ```bash
-# Clone repository
-git clone https://github.com/yourusername/vyline.git
-cd vyline
-
-# Install dependencies
-pnpm install
-
-# Setup Rust
-cargo build
-
-# Run development server
-pnpm dev
+bun install
+bun run dev          # backend :3001 + frontend :5173
 ```
 
-### Build
+ブラウザで `http://localhost:5173` を開きます。
 
-```bash
-# Build for development
-pnpm build
+| コマンド | 内容 |
+|---|---|
+| `bun run dev:backend` | backend のみ（:3001） |
+| `bun run dev:frontend` | frontend のみ（:5173） |
+| `bun run typecheck` | 型チェック（全ワークスペース） |
+| `bun run lint` | Biome lint |
+| `bun run build` | frontend 本番ビルド |
 
-# Build for production
-pnpm build:prod
-
-# Build specific platform
-pnpm build:windows
-pnpm build:macos
-pnpm build:linux
-```
+詳細: [docs/onboarding.md](docs/onboarding.md) · [docs/development.md](docs/development.md) · [AGENTS.md](AGENTS.md)
 
 ---
 
-## Development
-
-### Project Structure
+## Architecture
 
 ```
-vyline/
-├── src-tauri/           # Rust backend
-│   ├── src/
-│   │   ├── network/     # Network layer
-│   │   ├── storage/     # Storage layer
-│   │   ├── plugin/      # Plugin system
-│   │   └── theme/       # Theme engine
-│   └── Cargo.toml
-├── src/                 # React frontend
-│   ├── components/      # UI components
-│   ├── hooks/          # Custom hooks
-│   ├── store/          # State management
-│   ├── styles/         # Global styles
-│   └── utils/          # Utilities
-├── docs/               # Documentation
-│   ├── plugin-theme-system.md
-│   └── architecture.md
-├── .agents/            # Agent context
-├── AGENTS.md           # Agent guide
-└── README.md           # This file
+┌─ Frontend (React + Vite) ── apps/desktop ──┐
+│  store / mappers / sync / NezuTheme UI     │
+├─ Backend (Hono on Bun) ───── backend ─────┤
+│  BFF routes → lineService → clientManager  │
+├─ NezuLINE ──────────── packages/nezuline ──┤
+│  domain / dictionary / E2EE / Thrift stack │
+└─ LINE Servers ────────────────────────────┘
 ```
 
-### Development Workflow
+| パス | 役割 |
+|---|---|
+| `Vyline/apps/desktop` | React UI |
+| `Vyline/backend` | Hono BFF |
+| `Vyline/packages/nezuline` | プロトコル本体（NezuLINE） |
+| `Vyline/packages/line-types` | Thrift 型（vendored） |
 
-1. Feature branch を作成
-2. 変更をコミット
-3. Pull Request を作成
-4. Code Review
-5. Merge
+---
 
-### Coding Standards
+## 🔎 vyline-search（解析ツールキット）
 
-- TypeScript: ESLint + Prettier
-- Rust: rustfmt + clippy
-- Conventional Commits
+Vyline の LINE 逆解析基盤は独立リポジトリとして公開しています:
+
+**[github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search)**
+
+Desktop LINE（Themida 保護）の **unpack / ネイティブシンボル検索 / 逆コンパイル** を行うツールキットです。教育・研究目的で、`findNativeSymbol` による文字列 xref 解析と Ghidra decompile をワンコマンドで実行できます。
+
+---
+
+## E2EE / Desktop 鍵
+
+過去メッセージの復号には、公式 LINE Desktop から抽出した**自己鍵一式**が必要です。
+
+1. LINE.exe 起動状態で鍵を抽出（[docs/analysis/](docs/analysis/)）
+2. `Vyline/backend/data/desktop-e2ee-keys.json` に配置（**gitignore・コミット禁止**）
+3. backend 起動時に自動 import
 
 ---
 
 ## Contributing
 
-貢献を歓迎します！
+Issue / PR テンプレートは `.github/` に用意しています。
 
-### How to Contribute
+- 🐛 [Bug report](.github/ISSUE_TEMPLATE/bug_report.md)
+- ✨ [Feature request](.github/ISSUE_TEMPLATE/feature_request.md)
+- 📝 [Pull request](.github/pull_request_template.md)
 
-1. Fork the repository
-2. Create your feature branch (`git checkout -b feature/amazing-feature`)
-3. Commit your changes (`git commit -m 'Add some amazing feature'`)
-4. Push to the branch (`git push origin feature/amazing-feature`)
-5. Open a Pull Request
+貢献フロー: [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)
 
-### Contribution Guidelines
+**注意:** このプロジェクトは LINE の規約・利用条件に抵触する可能性があります。PR には解析対象ソフトウェアの実体・鍵・トークンなどを含めないでください。
 
-- コードは既存のスタイルに従ってください
-- テストを追加してください
-- ドキュメントを更新してください
-- コミットメッセージは明確にしてください
+---
 
-### Reporting Issues
+## Docs
 
-バグ報告や機能リクエストは GitHub Issues にてお願いします。
+| リンク | 内容 |
+|---|---|
+| [docs/README.md](docs/README.md) | ドキュメント索引 |
+| [docs/onboarding.md](docs/onboarding.md) | 初日チェックリスト |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 貢献フロー |
+| [docs/architecture.md](docs/architecture.md) | 層構造 |
+| [docs/development.md](docs/development.md) | 開発コマンド |
+| [docs/protocol/dictionary.md](docs/protocol/dictionary.md) | RPC 辞書 |
+| [AGENTS.md](AGENTS.md) | エージェント向けガイド |
+| [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |
+
+---
+
+## Legal / Disclaimer
+
+本ソフトウェアは **LINE の公式製品ではありません**。LINE の利用規約に違反する可能性があり、利用によりアカウント停止等のリスクがあります。本ソフトウェア利用による一切の問題について、開発者は責任を負いません。
+
+- 教育・学習・個人利用の範囲でご利用ください
+- 第三者への迷惑行為・不正利用は禁止です
+- 外部サービス仕様変更により動作不能になる可能性があります
 
 ---
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
----
-
-## Final Vision
-
-> "Vision Beyond Limits."
-
-Vyline は、既存のメッセージングクライアントという枠組みを超え、
-
-- **自由**: ユーザーによる完全なカスタマイズ
-- **高速**: 軽量かつパワフルなパフォーマンス
-- **美しさ**: モダンで美しい UI
-- **拡張性**: 無限の拡張可能性
-
-を兼ね備えた、次世代コミュニケーションプラットフォームを目指します。
-
----
-
-*Made with ❤️ by the Vyline Community*
+MIT — see [LICENSE](LICENSE)

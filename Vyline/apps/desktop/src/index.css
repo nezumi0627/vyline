@@ -1,0 +1,404 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+  NezuTheme (Telegram Night default). ThemeApplier が実行時に上書き。
+  Tailwind v3 — @tailwind base/components/utilities
+*/
+:root {
+  color-scheme: dark;
+  font-size: calc(100% * var(--vy-font-scale, 1));
+
+  --vy-bg: #0e1621;
+  --vy-surface: #17212b;
+  --vy-surface-2: #202b36;
+  --vy-sidebar: #17212b;
+  --vy-text: #eef3f8;
+  --vy-text-dim: #7f91a4;
+  --vy-accent: #2aabee;
+  --vy-accent-contrast: #ffffff;
+  --vy-border: rgba(255, 255, 255, 0.07);
+  --vy-danger: #e5484d;
+  --vy-msg-in: #182533;
+  --vy-msg-out: #2b5278;
+  --vy-msg-in-text: #eef3f8;
+  --vy-msg-out-text: #ffffff;
+  --vy-radius: 0.9rem;
+  --vy-chat-bg: #0e1621;
+  --vy-chat-pattern: 1;
+
+  /* Legacy aliases (tailwind.config / 既存コンポーネント互換) */
+  --vy-accent-primary: var(--vy-accent);
+  --vy-accent-secondary: #229ed9;
+  --vy-accent-hover: #3bb8f5;
+  --vy-accent-muted: rgba(42, 171, 238, 0.15);
+  --vy-surface-0: var(--vy-bg);
+  --vy-surface-1: var(--vy-surface);
+  --vy-surface-3: #2c3949;
+  --vy-surface-active: #2b5278;
+  --vy-bg-primary: var(--vy-bg);
+  --vy-bg-secondary: var(--vy-surface);
+  --vy-bg-tertiary: var(--vy-surface-2);
+  --vy-bg-hover: var(--vy-surface-3);
+  --vy-bg-chat: var(--vy-chat-bg);
+  --vy-bg-active: var(--vy-surface-active);
+  --vy-text-primary: var(--vy-text);
+  --vy-text-secondary: var(--vy-text-dim);
+  --vy-text-muted: #6d7f8f;
+  --vy-border-primary: #0f1a24;
+  --vy-border-subtle: rgba(255, 255, 255, 0.06);
+  --vy-message-radius: 14px;
+  --vy-sidebar-width: 360px;
+  --vy-topbar-height: 0px;
+  --vy-font-family: "IBM Plex Sans JP", "IBM Plex Sans", "Segoe UI", "Hiragino Sans",
+    "Noto Sans JP", sans-serif;
+}
+
+@layer base {
+  * {
+    border-color: var(--vy-border);
+  }
+  body {
+    font-family: var(--vy-font-family);
+    background-color: var(--vy-bg);
+    color: var(--vy-text);
+    margin: 0;
+    -webkit-font-smoothing: antialiased;
+  }
+  ::selection {
+    background: color-mix(in oklab, var(--vy-accent) 40%, transparent);
+  }
+}
+
+/* --- Scrollbars --- */
+.vy-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: var(--vy-border) transparent;
+  overscroll-behavior: contain;
+}
+.vy-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.vy-scroll::-webkit-scrollbar-thumb {
+  background: color-mix(in oklab, var(--vy-text-dim) 40%, transparent);
+  border-radius: 999px;
+}
+.vy-scroll::-webkit-scrollbar-thumb:hover {
+  background: color-mix(in oklab, var(--vy-text-dim) 65%, transparent);
+}
+.vy-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* --- Chat surface pattern --- */
+.vy-chat-surface {
+  background-color: var(--vy-chat-bg);
+  background-image: radial-gradient(
+    circle at 1px 1px,
+    color-mix(in oklab, var(--vy-text) 8%, transparent) 1px,
+    transparent 0
+  );
+  background-size: 22px 22px;
+}
+.vy-chat-surface[data-pattern="0"] {
+  background-image: none;
+}
+.vy-chat-surface[data-image] {
+  background-image: var(--vy-chat-image);
+  background-size: cover;
+  background-position: center;
+}
+
+/* Legacy alias */
+.vy-chat-canvas {
+  background-color: var(--vy-chat-bg);
+  background-image: var(
+    --vy-chat-bg-image,
+    radial-gradient(
+      circle at 1px 1px,
+      color-mix(in oklab, var(--vy-text) 8%, transparent) 1px,
+      transparent 0
+    )
+  );
+  background-size: var(--vy-chat-bg-image, 22px 22px);
+  background-position: center;
+  background-repeat: var(--vy-chat-bg-image, repeat);
+}
+
+/* --- Motion --- */
+@keyframes vy-pop-in {
+  0% {
+    transform: scale(0.6);
+    opacity: 0;
+  }
+  60% {
+    transform: scale(1.08);
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.vy-pop-in {
+  animation: vy-pop-in 0.32s cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+@keyframes vy-msg-in {
+  from {
+    transform: translateY(8px);
+    opacity: 0;
+  }
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+.vy-msg-enter {
+  animation: vy-msg-in 0.22s ease-out;
+}
+
+@keyframes vy-drawer-in {
+  from {
+    transform: translateX(24px);
+    opacity: 0;
+  }
+  to {
+    transform: translateX(0);
+    opacity: 1;
+  }
+}
+.vy-drawer-in {
+  animation: vy-drawer-in 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+@keyframes vy-fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.vy-fade-in {
+  animation: vy-fade-in 0.2s ease-out;
+}
+
+@keyframes vy-scale-in {
+  from {
+    transform: scale(0.96);
+    opacity: 0;
+  }
+  to {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+.vy-scale-in {
+  animation: vy-scale-in 0.16s ease-out;
+}
+
+@keyframes vy-shake {
+  0%,
+  100% {
+    transform: translateX(0);
+  }
+  25% {
+    transform: translateX(-8px);
+  }
+  75% {
+    transform: translateX(8px);
+  }
+}
+
+/* Legacy drawer panel class */
+.vy-drawer-panel {
+  animation: vy-drawer-in 0.26s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Emoji / sticker message extras */
+.vy-emoji-only {
+  font-size: 3.25rem;
+  line-height: 1.15;
+  letter-spacing: 0.04em;
+}
+
+@keyframes vy-emoji-pop {
+  0% {
+    transform: scale(0.72);
+    opacity: 0.4;
+  }
+  60% {
+    transform: scale(1.06);
+    opacity: 1;
+  }
+  100% {
+    transform: scale(1);
+  }
+}
+.vy-emoji-pop {
+  animation: vy-emoji-pop 280ms cubic-bezier(0.2, 0.8, 0.2, 1);
+}
+
+@keyframes vy-sticker-pop {
+  0% {
+    transform: scale(0.85) translateY(6px);
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(1) translateY(0);
+    opacity: 1;
+  }
+}
+.vy-sticker-pop {
+  animation: vy-sticker-pop 220ms ease-out;
+}
+
+.rounded-msg {
+  border-radius: var(--vy-message-radius, 14px);
+}
+
+/* --- NezuCursor --- */
+html.nezu-cursor-on,
+html.nezu-cursor-on * {
+  cursor: none !important;
+}
+.nezu-cursor-layer {
+  position: fixed;
+  inset: 0;
+  z-index: 99999;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+.nezu-cursor-dot {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  will-change: transform;
+  pointer-events: none;
+  transition: scale 80ms ease, opacity 120ms ease;
+  box-shadow: 0 0 8px color-mix(in oklab, var(--vy-accent) 50%, transparent);
+}
+.nezu-cursor-ring {
+  position: fixed;
+  top: 0;
+  left: 0;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in oklab, var(--vy-accent) 70%, transparent);
+  will-change: transform, width, height;
+  pointer-events: none;
+  transition:
+    width 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    height 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    background 160ms ease,
+    border-color 160ms ease,
+    scale 80ms ease,
+    opacity 120ms ease;
+}
+
+/* --- Typography / density / radius (settings) --- */
+:root {
+  --vy-font-scale: 1;
+  --vy-msg-pad-y: 0.5rem;
+  --vy-msg-pad-x: 0.875rem;
+  --vy-sidebar-row-pad-y: 0.625rem;
+  --vy-header-pad-y: 0.625rem;
+  --vy-input-pad-y: 0.375rem;
+}
+html.vy-compact {
+  --vy-msg-pad-y: 0.22rem;
+  --vy-msg-pad-x: 0.55rem;
+  --vy-sidebar-row-pad-y: 0.3rem;
+  --vy-header-pad-y: 0.3rem;
+  --vy-input-pad-y: 0.15rem;
+  font-size: calc(94% * var(--vy-font-scale, 1));
+}
+html.vy-compact .vy-msg-stack-gap {
+  margin-top: 0.2rem !important;
+}
+html.vy-compact .vy-msg-stack-gap-tight {
+  margin-top: 0.02rem !important;
+}
+html.vy-compact .vy-bubble-pad {
+  padding: var(--vy-msg-pad-y) var(--vy-msg-pad-x) !important;
+}
+html.vy-compact .vy-sidebar-row {
+  padding-top: var(--vy-sidebar-row-pad-y) !important;
+  padding-bottom: var(--vy-sidebar-row-pad-y) !important;
+}
+html.vy-compact header {
+  padding-top: var(--vy-header-pad-y) !important;
+  padding-bottom: var(--vy-header-pad-y) !important;
+}
+html.vy-compact .vy-input-row {
+  padding-top: var(--vy-input-pad-y) !important;
+  padding-bottom: var(--vy-input-pad-y) !important;
+}
+/* smooth transition when toggling compact */
+html.vy-compact .vy-bubble-pad,
+html.vy-compact .vy-sidebar-row,
+.vy-bubble-pad,
+header,
+.vy-input-row {
+  transition: padding 180ms ease;
+}
+.vy-msg-text,
+.vy-chat-text,
+.vy-input-text,
+.vy-sidebar-preview {
+  font-size: calc(0.95rem * var(--vy-font-scale, 1)) !important;
+  line-height: 1.45;
+}
+.vy-chat-header-title {
+  font-size: calc(1.15rem * var(--vy-font-scale, 1)) !important;
+  line-height: 1.35;
+}
+.vy-chat-messages {
+  font-size: calc(1rem * var(--vy-font-scale, 1));
+}
+/* コンパクト時はアバターも少し小さく */
+html.vy-compact .vy-sidebar-row {
+  gap: 0.55rem !important;
+}
+html.vy-compact .vy-sidebar-row .truncate.text-sm {
+  font-size: 0.8125rem;
+}
+html.vy-compact .vy-chat-messages .vy-msg-stack-gap {
+  margin-top: 0.2rem !important;
+}
+html.vy-compact .vy-chat-messages .mt-3 {
+  margin-top: 0.35rem !important;
+}
+html.vy-compact .vy-chat-messages .mt-0\.5 {
+  margin-top: 0.06rem !important;
+}
+.vy-bubble-pad {
+  padding: var(--vy-msg-pad-y) var(--vy-msg-pad-x);
+}
+/* Theme radius drives common rounded utilities used in UI chrome */
+.rounded-xl {
+  border-radius: max(0.5rem, calc(var(--vy-radius, 0.9rem) * 0.85)) !important;
+}
+.rounded-2xl {
+  border-radius: var(--vy-radius, 0.9rem) !important;
+}
+.rounded-3xl {
+  border-radius: calc(var(--vy-radius, 0.9rem) * 1.25) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vy-pop-in,
+  .vy-msg-enter,
+  .vy-drawer-in,
+  .vy-drawer-panel,
+  .vy-fade-in,
+  .vy-scale-in,
+  .vy-emoji-pop,
+  .vy-sticker-pop {
+    animation: none;
+  }
+}

@@ -1,0 +1,357 @@
+/**
+
+ * LINE API ↔ Vyline store ブリッジ
+
+ */
+
+
+
+import { useEffect, useRef } from "react";
+
+import { useAuthStore } from "../stores/authStore.js";
+
+import { useLineData } from "../hooks/useLineData.js";
+
+import { useHiddenChats } from "../hooks/useHiddenChats.js";
+
+import { useStore } from "../lib/store.js";
+
+
+
+function eventsPollIntervalMs(): number {
+
+  if (typeof document === "undefined") return 4_000;
+
+  if (document.visibilityState === "hidden") return 60_000;
+
+  if (!document.hasFocus()) return 12_000;
+
+  return 4_000;
+
+}
+
+
+
+function chatsPollIntervalMs(): number {
+
+  if (typeof document === "undefined") return 120_000;
+
+  if (document.visibilityState === "hidden") return 0;
+
+  return 120_000;
+
+}
+
+
+
+/** @param enabled bootstrap 完了かつログイン済みのときだけ同期 */
+
+export function useVylineSync(enabled = true) {
+
+  const accountId = useAuthStore((s) => s.activeAccountId);
+
+
+
+  const setAccountId = useStore((s) => s.setAccountId);
+
+  const hydrateLineData = useStore((s) => s.hydrateLineData);
+
+  const storeChatId = useStore((s) => s.activeChatId);
+
+  const setScreen = useStore((s) => s.setScreen);
+
+  const pinEnabled = useStore((s) => s.settings.pinEnabled);
+
+  const unlocked = useStore((s) => s.unlocked);
+
+  const showUpdateNote = useStore((s) => s.showUpdateNote);
+
+
+
+  const line = useLineData({ accountId: enabled ? accountId : null });
+
+  const { hiddenSet } = useHiddenChats(enabled ? accountId : null);
+
+  const syncingChat = useRef(false);
+
+  const refreshReadReceipts = useStore((s) => s.refreshReadReceipts);
+
+  const pollIncoming = useStore((s) => s.pollIncoming);
+
+  const pollMessagesDelta = useStore((s) => s.pollMessagesDelta);
+
+  const refreshChatsSilently = useStore((s) => s.refreshChatsSilently);
+
+  const activeChatId = useStore((s) => s.activeChatId);
+
+  const readReceiptsEnabled = useStore((s) => s.settings.readReceipts);
+
+
+
+  useEffect(() => {
+
+    if (!enabled || !accountId) return;
+
+
+
+    let eventsTimer: ReturnType<typeof setTimeout> | undefined;
+
+    let chatsTimer: ReturnType<typeof setTimeout> | undefined;
+
+    let cancelled = false;
+
+
+
+    const scheduleEventsPoll = () => {
+
+      if (cancelled) return;
+
+      const ms = eventsPollIntervalMs();
+
+      eventsTimer = setTimeout(async () => {
+
+        if (document.visibilityState !== "hidden") {
+
+          await pollIncoming();
+
+        }
+
+        scheduleEventsPoll();
+
+      }, ms);
+
+    };
+
+
+
+    const scheduleChatsPoll = () => {
+
+      if (cancelled) return;
+
+      const ms = chatsPollIntervalMs();
+
+      if (ms <= 0) {
+
+        chatsTimer = setTimeout(scheduleChatsPoll, 60_000);
+
+        return;
+
+      }
+
+      chatsTimer = setTimeout(async () => {
+
+        if (document.visibilityState !== "hidden") {
+
+          await refreshChatsSilently();
+
+        }
+
+        scheduleChatsPoll();
+
+      }, ms + Math.random() * 25_000);
+
+    };
+
+
+
+    void pollIncoming();
+
+    scheduleEventsPoll();
+
+    scheduleChatsPoll();
+
+
+
+    const onVisibility = () => {
+
+      if (document.visibilityState === "visible") {
+
+        void pollIncoming();
+        // アクティブチャットの差分も即時取得
+        const { activeChatId: aid } = useStore.getState();
+        if (aid) void pollMessagesDelta(aid);
+
+      }
+
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+
+
+
+    return () => {
+
+      cancelled = true;
+
+      if (eventsTimer) clearTimeout(eventsTimer);
+
+      if (chatsTimer) clearTimeout(chatsTimer);
+
+      document.removeEventListener("visibilitychange", onVisibility);
+
+    };
+
+  }, [enabled, accountId, pollIncoming, pollMessagesDelta, refreshChatsSilently]);
+
+
+
+  useEffect(() => {
+
+    if (!enabled || !accountId || !activeChatId || !readReceiptsEnabled) return;
+
+    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+
+
+
+    // 既読者一覧を追い続けるため、既読済みでも直近 15 分の自分のメッセージがあればポーリングする
+    const shouldPoll = () => {
+
+      const messages = useStore.getState().messages;
+
+      const now = Date.now();
+
+      return messages.some(
+
+        (m) =>
+
+          m.chatId === activeChatId &&
+
+          m.authorId === "me" &&
+
+          m.id &&
+
+          !m.id.startsWith("pending_") &&
+
+          !m.revoked &&
+
+          now - m.createdAt < 15 * 60_000,
+
+      );
+
+    };
+
+
+
+    const tick = () => {
+
+      if (document.visibilityState === "hidden") return;
+
+      if (shouldPoll()) void refreshReadReceipts(activeChatId);
+
+    };
+
+
+
+    tick();
+
+    const t = setInterval(tick, 10_000);
+
+    return () => clearInterval(t);
+
+  }, [enabled, accountId, activeChatId, readReceiptsEnabled, refreshReadReceipts]);
+
+
+
+  useEffect(() => {
+
+    if (!enabled) return;
+
+    setAccountId(accountId);
+
+    if (accountId && pinEnabled && !unlocked) {
+
+      setScreen("lock");
+
+      return;
+
+    }
+
+    if (accountId && unlocked && !showUpdateNote) {
+
+      const screen = useStore.getState().screen;
+
+      if (screen === "home") setScreen("chat");
+
+    }
+
+  }, [enabled, accountId, setAccountId, pinEnabled, unlocked, setScreen, showUpdateNote]);
+
+
+
+  useEffect(() => {
+
+    if (!enabled || !accountId) return;
+
+    // 空配列で既存一覧を潰さない（bootstrap / load 前の race）
+
+    if (!line.chats.length && useStore.getState().chats.length > 0) return;
+
+
+
+    hydrateLineData({
+
+      profile: line.profile
+
+        ? {
+
+            displayName: line.profile.displayName,
+
+            statusMessage: line.profile.statusMessage,
+
+            thumbnailUrl: line.profile.thumbnailUrl,
+
+          }
+
+        : null,
+
+      chats: line.chats,
+
+      messages: line.messages,
+
+      hiddenMids: hiddenSet,
+
+      contactCache: line.contactCache,
+
+    });
+
+  }, [
+
+    enabled,
+
+    accountId,
+
+    line.profile,
+
+    line.chats,
+
+    line.messages,
+
+    line.contactCache,
+
+    hiddenSet,
+
+    hydrateLineData,
+
+  ]);
+
+
+
+  useEffect(() => {
+
+    if (!enabled || !storeChatId || syncingChat.current) return;
+
+    if (storeChatId !== line.selectedChatMid) {
+
+      syncingChat.current = true;
+
+      line.setSelectedChatMid(storeChatId);
+
+      syncingChat.current = false;
+
+    }
+
+  }, [enabled, storeChatId, line.selectedChatMid, line.setSelectedChatMid]);
+
+}
+
+

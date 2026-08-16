@@ -1,0 +1,194 @@
+{
+  "generatedAt": "2026-07-26T06:53:10.913Z",
+  "platform": "win32",
+  "lineRoot": "C:\\Users\\ren11\\AppData\\Local\\LINE",
+  "installed": {
+    "found": true,
+    "version": "26.3.0.3916",
+    "exePath": "C:\\Users\\ren11\\AppData\\Local\\LINE\\bin\\26.3.0.3916\\LINE.exe",
+    "exeSha256": "8d26fbf87ba4cfe303649cf702213bada2145530705e9e2db7f979c5de32154d",
+    "exeSize": 30398400,
+    "iniPath": "C:\\Users\\ren11\\AppData\\Local\\LINE\\Data\\LINE.ini",
+    "updateLogPath": "C:\\Users\\ren11\\AppData\\Local\\LINE\\bin\\update_log.txt",
+    "osHint": {
+      "appVersion": "26.3.0.3916",
+      "osVersion": "10.0.0.26100"
+    }
+  },
+  "cached": {
+    "found": true,
+    "profilePath": "E:\\projects\\Vyline\\Vyline\\backend\\data\\nezuline\\desktop-profile.json",
+    "appVersion": "26.3.0.3916",
+    "exeSha256": "8d26fbf87ba4cfe303649cf702213bada2145530705e9e2db7f979c5de32154d",
+    "detectionMethod": "scan",
+    "userAgent": "DESKTOP:WINDOWS:10.0.26100-11NT(26.3.0.3916)",
+    "xLineApplication": "DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT",
+    "source": "cache"
+  },
+  "delta": {
+    "versionChanged": false,
+    "shaChanged": false,
+    "previousVersion": "26.3.0.3916",
+    "currentVersion": "26.3.0.3916",
+    "status": "unchanged"
+  },
+  "localAppDataPaths": {
+    "lineRoot": "C:\\Users\\ren11\\AppData\\Local\\LINE",
+    "bin": "C:\\Users\\ren11\\AppData\\Local\\LINE\\bin",
+    "data": "C:\\Users\\ren11\\AppData\\Local\\LINE\\Data",
+    "ini": "C:\\Users\\ren11\\AppData\\Local\\LINE\\Data\\LINE.ini",
+    "updateLog": "C:\\Users\\ren11\\AppData\\Local\\LINE\\bin\\update_log.txt",
+    "exe": "C:\\Users\\ren11\\AppData\\Local\\LINE\\bin\\26.3.0.3916\\LINE.exe",
+    "versionDir": "C:\\Users\\ren11\\AppData\\Local\\LINE\\bin\\26.3.0.3916"
+  },
+  "suggestedModules": [
+    {
+      "id": "login-qr",
+      "title": "QR ログイン",
+      "priority": "high",
+      "vylineFiles": [
+        "Vyline/packages/nezuline/src/login/patchLogin.ts",
+        "Vyline/packages/nezuline/src/login/pcIdentity.ts",
+        "Vyline/packages/nezuline/src/client/NezuClient.ts",
+        "Vyline/backend/src/line/clientManager.ts",
+        "Vyline/backend/src/api/auth.ts"
+      ],
+      "desktopSearchStrings": [
+        "createSession",
+        "createQrCodeForSecure",
+        "checkQrCodeVerified",
+        "qrCodeLoginV2ForSecure",
+        "/acct/lgn/sq/v1",
+        "/acct/lp/lgn/sq/v1"
+      ],
+      "analysisDocs": [
+        "docs/login-flow.md",
+        "docs/analysis/login-qr.md"
+      ]
+    },
+    {
+      "id": "login-email",
+      "title": "メールログイン (E2EE)",
+      "priority": "high",
+      "vylineFiles": [
+        "Vyline/packages/nezuline/src/login/patchLogin.ts",
+        "Vyline/packages/nezuline/src/login/patchTransport.ts",
+        "Vyline/packages/nezuline/src/login/pcIdentity.ts",
+        "Vyline/packages/nezuline/src/client/NezuClient.ts",
+        "Vyline/backend/src/line/clientManager.ts",
+        "Vyline/backend/src/api/auth.ts"
+      ],
+      "desktopSearchStrings": [
+        "getRSAKeyInfo",
+        "loginV2",
+        "confirmE2EELogin",
+        "/api/v3/TalkService.do",
+        "/api/v3p/rs",
+        "/LF1",
+        "e2eeData"
+      ],
+      "analysisDocs": [
+        "docs/login-flow.md",
+        "docs/analysis/login-email.md"
+      ]
+    },
+    {
+      "id": "headers-transport",
+      "title": "ヘッダー / トランスポート",
+      "priority": "high",
+      "vylineFiles": [
+        "Vyline/packages/nezuline/src/login/patchTransport.ts",
+        "Vyline/packages/nezuline/src/desktop/identity.ts",
+        "Vyline/packages/nezuline/src/desktop/extract.ts",
+        "Vyline/packages/nezuline/src/desktop/version.ts",
+        "Vyline/packages/nezuline/src/updater/NezuUpdater.ts",
+        "Vyline/backend/src/nezu/profileBridge.ts"
+      ],
+      "desktopSearchStrings": [
+        "DESKTOPWIN",
+        "DESKTOP:WINDOWS",
+        "x-line-application",
+        "user-agent",
+        "x-lap",
+        "x-lpv",
+        "legy-jp.line-apps.com",
+        "/S4",
+        "/api/v3p/rs"
+      ],
+      "analysisDocs": [
+        "docs/login-flow.md",
+        "docs/analysis/headers-transport.md",
+        "docs/tools/desktop-delta.md"
+      ]
+    },
+    {
+      "id": "e2ee-keys",
+      "title": "E2EE 鍵管理",
+      "priority": "high",
+      "vylineFiles": [
+        "Vyline/packages/nezuline/src/login/ensureE2EE.ts",
+        "Vyline/packages/nezuline/src/login/importDesktopE2EE.ts",
+        "Vyline/packages/nezuline/src/login/patchLogin.ts",
+        "Vyline/backend/src/api/debug.ts"
+      ],
+      "desktopSearchStrings": [
+        "decodeE2EEKeyV1",
+        "encryptedKeyChain",
+        "negotiateE2EEPublicKey",
+        "registerE2EEPublicKey",
+        "e2eeKeys"
+      ],
+      "analysisDocs": [
+        "docs/login-flow.md",
+        "docs/analysis/e2ee-keys.md"
+      ]
+    },
+    {
+      "id": "e2ee-send",
+      "title": "E2EE 送信",
+      "priority": "high",
+      "vylineFiles": [
+        "Vyline/packages/nezuline/src/login/ensureE2EE.ts",
+        "Vyline/packages/nezuline/src/client/NezuClient.ts",
+        "Vyline/backend/src/service/lineService.ts",
+        "Vyline/backend/src/api/line.ts"
+      ],
+      "desktopSearchStrings": [
+        "encryptE2EEMessage",
+        "sendMessage",
+        "E2EE_UPDATE_SENDER_KEY",
+        "negotiateE2EEPublicKey"
+      ],
+      "analysisDocs": [
+        "docs/analysis/e2ee-send.md",
+        "docs/login-flow.md"
+      ]
+    },
+    {
+      "id": "e2ee-decrypt",
+      "title": "E2EE 復号",
+      "priority": "high",
+      "vylineFiles": [
+        "Vyline/packages/nezuline/src/login/ensureE2EE.ts",
+        "Vyline/packages/nezuline/src/login/importDesktopE2EE.ts",
+        "Vyline/backend/src/service/lineService.ts",
+        "Vyline/backend/src/api/debug.ts"
+      ],
+      "desktopSearchStrings": [
+        "decryptE2EEMessage",
+        "decryptE2EEDataMessage",
+        "tryRegisterE2EEGroupKey",
+        "BAD_DECRYPT"
+      ],
+      "analysisDocs": [
+        "docs/analysis/e2ee-decrypt.md",
+        "docs/login-flow.md"
+      ]
+    }
+  ],
+  "notes": [
+    "キャッシュとインストール版は一致 (差分なし)",
+    "差分なしのため high priority モジュールのみ列挙 (全件は --all 相当で status=updated 時)"
+  ],
+  "cdnUpdateInfoUrl": "https://desktop.line-scdn.net/win/v2/real/update_info.json"
+}

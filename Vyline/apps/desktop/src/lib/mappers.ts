@@ -1,0 +1,369 @@
+import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
+import {
+  extractStickerId,
+  lineStickerUrl,
+} from "../utils/lineMedia.js";
+import {
+  contentTypeLabel,
+  isAudioContent,
+  isCallContent,
+  isImageContent,
+  isStickerContent,
+  isSystemLikeContent,
+  isVideoContent,
+  systemEventLabel,
+} from "../utils/format.js";
+import {
+  altTextFromMeta,
+  isFlexContentType,
+  isRichContentType,
+  parseFlexContainer,
+  parseRichMarkup,
+  richDownloadUrl,
+} from "./flex/parse.js";
+import { parseSticonReplace } from "../utils/lineSticon.js";
+import { parseMentions } from "../utils/mention.js";
+import type { Chat, Member, Message, MessageKind, MessageStatus } from "./store-types.js";
+
+const COLORS = [
+  "#2aabee",
+  "#06c755",
+  "#f0728f",
+  "#7c5cff",
+  "#f5a623",
+  "#2dd4bf",
+  "#a78bfa",
+];
+
+/** LINE mid っぽい文字列（u/c/r + hex32） */
+export function looksLikeMid(value: string | null | undefined): boolean {
+  if (!value) return false;
+  return /^[ucr][0-9a-f]{32}$/i.test(value.trim());
+}
+
+export type ContactInfo = {
+  name?: string;
+  thumbnailUrl?: string;
+};
+
+function colorForId(id: string): string {
+  let h = 0;
+  for (let i = 0; i < id.length; i++) h = (h * 31 + id.charCodeAt(i)) >>> 0;
+  return COLORS[h % COLORS.length]!;
+}
+
+function initial(name: string): string {
+  const t = (name || "?").trim();
+  if (!t || looksLikeMid(t)) return "?";
+  return t.charAt(0).toUpperCase();
+}
+
+function sanitizeText(text: string | null | undefined): string | undefined {
+  if (text == null) return undefined;
+  if (typeof text !== "string") return String(text);
+  const cleaned = text.replace(/\uFFFD/g, "").trim();
+  return cleaned || undefined;
+}
+
+function resolveDisplayName(
+  raw: string | null | undefined,
+  fallbackMid: string,
+  contact?: ContactInfo,
+): string {
+  const fromContact = contact?.name?.trim();
+  if (fromContact && !looksLikeMid(fromContact)) return fromContact;
+  const fromApi = raw?.trim();
+  if (fromApi && !looksLikeMid(fromApi) && fromApi !== "(No Name)") return fromApi;
+  return fallbackMid;
+}
+
+export function mapChat(
+  c: LineChat,
+  hidden = false,
+  contactCache?: Map<string, ContactInfo>,
+): Chat {
+  const isGroup = c.kind === "group" || c.kind === "room";
+  const contact = contactCache?.get(c.mid);
+  const name = resolveDisplayName(c.name, c.mid, contact);
+  const avatarUrl = c.thumbnailUrl || contact?.thumbnailUrl;
+  const left = Boolean(c.left);
+  return {
+    id: c.mid,
+    type: isGroup ? "group" : "friend",
+    name,
+    avatar: initial(name),
+    avatarUrl,
+    color: colorForId(c.mid),
+    status: left ? "退出済み" : isGroup ? "グループ" : "",
+    isOfficial: c.isOfficial,
+    statusMessage: !isGroup ? c.statusMessage : undefined,
+    backgroundUrl: c.backgroundUrl,
+    left,
+    unread: c.unreadCount ?? 0,
+    hidden,
+    lastMessagePreview: c.lastMessagePreview,
+    lastMessageTime: c.lastMessageTime > 0 ? c.lastMessageTime : undefined,
+  };
+}
+
+export function mapMember(mid: string, name?: string, avatarUrl?: string): Member {
+  const resolved =
+    name && !looksLikeMid(name) ? name : looksLikeMid(mid) ? mid : name || mid;
+  // MIDのままの場合は短く表示（u7c6ea... 形式）
+  const displayName = resolved.length > 14 && looksLikeMid(resolved)
+    ? resolved.slice(0, 12) + "..."
+    : resolved;
+  return {
+    id: mid,
+    name: displayName,
+    avatar: initial(resolved),
+    avatarUrl,
+    color: colorForId(mid),
+  };
+}
+
+function messageStatus(m: LineMessage): MessageStatus {
+  if (m.contentType === "UNSENT" || m.contentType === "UNSEND") return "read";
+  if (m.isMyMessage) {
+    if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
+    return "sent";
+  }
+  return "read";
+}
+
+function messageKind(m: LineMessage): MessageKind {
+  const ct = m.contentType;
+  if (ct === "E2EE_UNAVAILABLE") return "system";
+  if (isCallContent(ct)) return "call";
+  if (isSystemLikeContent(ct)) return "system";
+  if (isStickerContent(ct) || Boolean(extractStickerId(m.contentMetadata ?? null))) return "sticker";
+  if (isVideoContent(ct)) return "video";
+  if (isImageContent(ct)) return "image";
+  if (isAudioContent(ct)) return "audio";
+  if (isFlexContentType(ct)) return "flex";
+  if (isRichContentType(ct)) return "rich";
+  const text = sanitizeText(m.text);
+  // text が Flex JSON のときは flex 扱い（メタ欠落・誤 contentType 対策）
+  if (text?.startsWith("{") && /"type"\s*:\s*"(bubble|carousel)"/.test(text)) {
+    return "flex";
+  }
+  if (text && /^(\p{Emoji_Presentation}|\p{Extended_Pictographic}){1,3}$/u.test(text)) {
+    return "emoji";
+  }
+  return "text";
+}
+
+/**
+ * CHATEVENT の LOC_KEY / LOC_ARGS を日本語テキストに変換する。
+ * 例: C_ML → 「れんやさんが退出しました」 / C_MI → 「れんやさん、○○さんが参加しました」
+ */
+export function chatEventText(
+  contentType: string,
+  meta?: Record<string, unknown> | null,
+  resolveName?: (mid: string) => string | undefined,
+): string | null {
+  if (String(contentType).toUpperCase() !== "CHATEVENT") return null;
+  const lk = String(meta?.LOC_KEY ?? "").trim();
+  if (!lk) return null;
+  const args = String(meta?.LOC_ARGS ?? "")
+    .split(/[\x1e\x1f]+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const display = (mid: string) => {
+    const n = resolveName?.(mid);
+    return n && !looksLikeMid(n) ? n : mid.slice(0, 12);
+  };
+  const joinNames = () => args.map((a) => `${display(a)}さん`).join("、");
+
+  switch (lk) {
+    case "C_ML":
+    case "A_ML":
+      return args[0] ? `${display(args[0])}さんが退出しました` : "メンバーが退出しました";
+    case "C_MI":
+    case "A_MI":
+      return args.length ? `${joinNames()}が参加しました` : "メンバーが参加しました";
+    case "C_GI":
+      return args.length ? `${joinNames()}を招待しました` : "メンバーを招待しました";
+    case "C_MJ":
+    case "A_MJ":
+      return args.length ? `${joinNames()}がグループに参加しました` : "メンバーが参加しました";
+    case "C_MR":
+    case "A_MR":
+      return args[0] ? `${display(args[0])}さんが退会させられました` : "メンバーが退会させられました";
+    case "C_IC":
+    case "A_IC":
+      return args[0] ? `${display(args[0])}さんが招待を辞退しました` : "メンバーが招待を辞退しました";
+    case "C_PN":
+      return args[0] ? `グループ名が「${args[0]}」に変更されました` : "グループ名が変更されました";
+    case "C_PI":
+      return "グループのプロフィール画像が変更されました";
+    case "C_PL":
+      return "グループの制限が解除されました";
+    case "C_MA":
+      return "メッセージがアナウンスされました";
+    case "C_OL":
+      return "グループのメンバー上限に達したため招待できませんでした";
+    case "C_BG":
+    case "C_SN":
+      return "招待リンクでの参加が許可されました";
+    case "C_SP":
+      return "招待リンクでの参加が無効化されました";
+    default:
+      return null;
+  }
+}
+
+function parseAudioDuration(meta?: Record<string, string | undefined> | null): number | undefined {
+  if (!meta) return undefined;
+  const raw = meta.AUDLEN ?? meta.DURATION ?? meta.duration;
+  if (!raw) return undefined;
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  return n > 1000 ? Math.round(n / 1000) : Math.round(n);
+}
+
+export function mapMessage(
+  m: LineMessage,
+  chatId: string,
+  accountId: string,
+  _contactCache?: Map<string, ContactInfo>,
+): Message {
+  const kind = messageKind(m);
+  const revoked = m.contentType === "UNSENT" || m.contentType === "UNSEND";
+  const stickerId = extractStickerId(m.contentMetadata ?? null);
+  const authorId = m.isMyMessage ? "me" : m.from;
+
+  let imageSrc: string | undefined;
+  let audioSrc: string | undefined;
+  if ((kind === "image" || kind === "video") && accountId) {
+    imageSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=1`;
+  }
+  if (kind === "audio" && accountId) {
+    audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
+  }
+
+  const read =
+    m.isMyMessage
+      ? Boolean(m.seen || (m.readCount != null && m.readCount > 0))
+      : true;
+
+  let text = sanitizeText(m.text);
+  if (kind === "system") {
+    if (m.contentType === "E2EE_UNAVAILABLE") {
+      text = contentTypeLabel("E2EE_UNAVAILABLE");
+    } else {
+      // CHATEVENT は LOC_KEY/LOC_ARGS から実テキストを組み立てる
+      const chatEvent = chatEventText(
+        String(m.contentType),
+        m.contentMetadata as Record<string, unknown> | null,
+        (mid) => _contactCache?.get(mid)?.name,
+      );
+      text = chatEvent ?? (text || systemEventLabel(m.contentType, m.contentMetadata ?? null));
+    }
+  }
+
+  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
+  const altText = altTextFromMeta(meta);
+  if ((kind === "flex" || kind === "rich") && !text && altText) {
+    text = altText;
+  }
+  // Flex JSON が text に入っているときはバブルに出さない
+  if (kind === "flex" && text?.startsWith("{") && /"type"\s*:/.test(text)) {
+    text = altText || undefined;
+  }
+
+  const flexJson =
+    kind === "flex" ? parseFlexContainer(meta, sanitizeText(m.text) ?? null) : undefined;
+  const richMarkup = kind === "rich" ? parseRichMarkup(meta) : undefined;
+
+  return {
+    id: m.id,
+    chatId,
+    authorId,
+    kind,
+    text,
+    sticker: kind === "sticker" && stickerId ? lineStickerUrl(stickerId) : kind === "sticker" ? "🎴" : undefined,
+    imageSrc,
+    audioSrc,
+    audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
+    altText,
+    flexJson,
+    richMarkup,
+    richImageUrl: kind === "rich" ? richDownloadUrl(meta) : undefined,
+    sticons:
+      kind === "text" || kind === "emoji"
+        ? parseSticonReplace(m.contentMetadata ?? null)
+        : undefined,
+    mentions:
+      kind === "text"
+        ? parseMentions(m.contentMetadata as Record<string, unknown> | null)
+        : undefined,
+    callMeta: kind === "call" ? parseCallMeta(m.contentType, meta) : undefined,
+    createdAt: m.createdTime,
+    status: messageStatus(m),
+    read,
+    readBy: m.readBy,
+    revoked,
+    replyToId: m.relatedMessageId ?? undefined,
+    reactions: m.reactions?.filter((r) => Number.isFinite(r.type)).map((r) => ({
+      fromMid: r.fromMid,
+      atMillis: r.atMillis,
+      type: r.type,
+    })),
+    stickerAnimated: m.stickerAnimated,
+    stickerSticky: m.stickerSticky,
+  };
+}
+
+function parseCallMeta(
+  contentType: string,
+  meta: Record<string, unknown> | null,
+): import("./store-types.js").CallMessageMeta {
+  const u = contentType.toUpperCase();
+  const typeHint = String(meta?.CALL_TYPE ?? meta?.TYPE ?? "").toUpperCase();
+  const video =
+    (u.includes("VIDEO") && u.includes("CALL")) ||
+    typeHint.includes("VIDEO") ||
+    typeHint === "1";
+  const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
+  const durationRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.duration;
+  let durationSec: number | undefined;
+  if (typeof durationRaw === "string" || typeof durationRaw === "number") {
+    const n = Number(durationRaw);
+    if (Number.isFinite(n) && n > 0) {
+      durationSec = n > 10_000 ? Math.round(n / 1000) : Math.round(n);
+    }
+  }
+  const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();
+  let outcome: import("./store-types.js").CallMessageMeta["outcome"] = "ended";
+  if (result.includes("cancel") || result.includes("miss") || result === "3") {
+    outcome = "missed";
+  } else if (result.includes("decline") || result.includes("reject") || result === "2") {
+    outcome = "declined";
+  } else if (result.includes("busy")) {
+    outcome = "busy";
+  } else if (!durationSec && !result) {
+    outcome = "ended";
+  }
+  return { video, group, durationSec, outcome };
+}
+
+export function buildMembersFromMessages(
+  messages: LineMessage[],
+  contactCache?: Map<string, ContactInfo>,
+): Member[] {
+  const map = new Map<string, Member>();
+  for (const m of messages) {
+    if (m.isMyMessage || !m.from || map.has(m.from)) continue;
+    const contact = contactCache?.get(m.from);
+    map.set(
+      m.from,
+      mapMember(
+        m.from,
+        contact?.name && !looksLikeMid(contact.name) ? contact.name : undefined,
+        contact?.thumbnailUrl,
+      ),
+    );
+  }
+  return [...map.values()];
+}
