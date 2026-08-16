@@ -1,0 +1,23 @@
+---
+description: Nezu BOT (LINE) inbox を毎ターン確認して指示を処理する
+alwaysApply: true
+---
+
+# Nezu BOT 指示チャネル（必須）
+
+ユーザーがチャットで何も言っていなくても、**ターン開始時に必ず** Nezu BOT inbox を確認する。
+
+## 手順
+
+1. `bun tools/nezu-bot/pollInbox.ts --json`（または pending 一覧）を実行する
+2. `status: "pending"` のテキスト／画像があれば **最優先で処理**する（チャット上の別話題より優先）
+3. 着手時: `bun tools/nezu-bot/pollInbox.ts --ack <id>`
+4. 完了時: `bun tools/nezu-bot/pollInbox.ts --done <id>` のあと `bun tools/nezu-bot/pushReply.ts "…"` で結果を返す
+5. 詳細は `docs/tools/nezu-bot-agent.md`
+
+## 禁止・注意
+
+- ひなちゃんなど連絡先へ勝手に送らない。テスト送信はユーザー指定の相手のみ
+- `broadcast_*` は明示時以外使わない
+- Webhook / トンネルが落ちていたら直してから続ける
+- inbox に指示があるのに無視して別作業だけ進めるのは禁止

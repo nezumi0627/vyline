@@ -1,0 +1,80 @@
+# Vyline ドキュメント索引
+
+最終更新: 2026-07-31
+
+新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
+エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
+
+---
+
+## はじめに
+
+| ドキュメント | 内容 |
+|---|---|
+| [../AGENTS.md](../AGENTS.md) | **エージェント向け全体ガイド**（検索ツール・linejs参照・最新修正） |
+| [onboarding.md](./onboarding.md) | 初日チェックリスト（環境・コード地図・Desktop ツール） |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 機能追加フロー（辞書 → Desktop → domain → BFF） |
+| [development.md](./development.md) | 開発コマンド・環境変数 |
+| [architecture.md](./architecture.md) | 層構造・データフロー |
+| [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順 |
+| [../CHANGELOG.md](../CHANGELOG.md) | 変更履歴 |
+
+---
+
+## プロトコル・LINE 連携
+
+| ドキュメント | 内容 |
+|---|---|
+| [protocol/dictionary.md](./protocol/dictionary.md) | RPC 辞書・Desktop 検証表・API 早見 |
+| [login-flow.md](./login-flow.md) | QR / Email E2EE ログインフロー |
+| [analysis/README.md](./analysis/README.md) | 機能別解析メモ索引 |
+| [analysis/stickers.md](./analysis/stickers.md) | スタンプ/絵文字 API 解析 |
+| [analysis/line-emoji.md](./analysis/line-emoji.md) | LINE 絵文字 (sticon) 解析 |
+
+## 検索・参照ツール
+
+| リソース | 内容 |
+|---|---|
+| [../Vyline/packages/nezuline/src/dictionary/rpcMap.ts](../Vyline/packages/nezuline/src/dictionary/rpcMap.ts) | **RPC_DICTIONARY** — linejs名→Desktop証拠→実装の対応表 |
+| [tools/find-native-symbol.md](./tools/find-native-symbol.md) | Desktop LINE.exe 内 RPC 名検索 (`bun run nezu:find-native`) |
+| `@evex/linejs` | **参考元**（外部依存なし）。メソッド名・構造パターンのみ参照 |
+
+---
+
+## タスク・進捗
+
+| ドキュメント | 内容 |
+|---|---|
+| [tasks/STATUS.md](./tasks/STATUS.md) | マスター進捗ボード |
+| [tasks/PHASES.md](./tasks/PHASES.md) | フェーズ目標・受け入れ条件 |
+
+---
+
+## ツール
+
+| ドキュメント | 内容 |
+|---|---|
+| [tools/find-native-symbol.md](./tools/find-native-symbol.md) | Desktop 内 RPC 名検索 |
+| [tools/desktop-delta.md](./tools/desktop-delta.md) | Desktop 更新時の差分調査 |
+| [tools/focus-recovered-source.md](./tools/focus-recovered-source.md) | 復元ソースのピンポイント表示 |
+| [tools/nezu-bot-agent.md](./tools/nezu-bot-agent.md) | Nezu BOT 指示チャネル |
+
+---
+
+## パッケージ README
+
+| パス | 内容 |
+|---|---|
+| [../Vyline/packages/nezuline/README.md](../Vyline/packages/nezuline/README.md) | NezuLINE（identity / E2EE / domain） |
+| [../Vyline/packages/nezuline/stack/README.md](../Vyline/packages/nezuline/stack/README.md) | 内部 RPC stack |
+
+---
+
+## 読む順（おすすめ）
+
+```
+AGENTS.md → onboarding → architecture → CONTRIBUTING → protocol/dictionary
+  → nezuline/src/dictionary/rpcMap.ts（検索ツール）
+  → 担当機能の docs/analysis/<feature>.md
+  → nezuline/src/modules.map.ts（機能→ファイル地図）
+```

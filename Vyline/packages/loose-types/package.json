@@ -1,0 +1,9 @@
+{
+  "name": "@vyline/loose-types",
+  "version": "1.0.1",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./mod.ts"
+  }
+}

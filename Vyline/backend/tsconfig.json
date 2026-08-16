@@ -1,0 +1,19 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "skipLibCheck": true,
+    "outDir": "dist",
+    "rootDir": "src",
+    "types": ["bun"],
+    "paths": {
+      "@vyline/types": ["../../packages/types/src/index.ts"],
+      "@vyline/nezuline": ["../../packages/nezuline/src/index.ts"]
+    }
+  },
+  "include": ["src/**/*"]
+}

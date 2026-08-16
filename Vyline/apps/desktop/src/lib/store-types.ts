@@ -1,0 +1,195 @@
+export type Screen = "lock" | "home" | "chat" | "settings" | "login";
+
+export type NezuTheme = {
+  id: string;
+  name: string;
+  accent: string;
+  accentContrast: string;
+  bg: string;
+  surface: string;
+  surface2: string;
+  sidebar: string;
+  text: string;
+  textDim: string;
+  border: string;
+  msgIn: string;
+  msgOut: string;
+  msgInText: string;
+  msgOutText: string;
+  radius: number;
+  chatBg: string;
+  chatImage?: string;
+  pattern: 0 | 1;
+};
+
+export type MessageReaction = {
+  fromMid: string;
+  atMillis: number;
+  /** MessageReactionType: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7 */
+  type: number;
+};
+
+/** LINE メンション（contentMetadata.MENTION） */
+export type MentionInfo = {
+  /** 対象 mid（@ALL のときは undefined） */
+  mid?: string;
+  /** true なら @ALL */
+  all?: boolean;
+  /** 本文中の開始オフセット（UTF-16 code units） */
+  S: number;
+  /** 終了オフセット */
+  E: number;
+};
+
+export type MessageStatus = "sending" | "sent" | "read" | "failed";
+export type MessageKind =
+  | "text"
+  | "sticker"
+  | "emoji"
+  | "image"
+  | "video"
+  | "audio"
+  | "system"
+  | "call"
+  | "flex"
+  | "rich";
+
+export type CallMessageMeta = {
+  video: boolean;
+  group: boolean;
+  durationSec?: number;
+  outcome: "ended" | "missed" | "declined" | "busy";
+};
+
+export type LinkPreview = {
+  url: string;
+  title: string;
+  description: string;
+  thumb: string;
+  site: string;
+};
+
+export type Message = {
+  id: string;
+  chatId: string;
+  authorId: string;
+  kind: MessageKind;
+  text?: string;
+  sticker?: string;
+  imageSrc?: string;
+  audioSrc?: string;
+  audioSeconds?: number;
+  /** Flex / RICH の ALT_TEXT（プレビュー・コピー用） */
+  altText?: string;
+  /** contentMetadata.FLEX_JSON をパースしたコンテナ */
+  flexJson?: import("./flex/types.js").FlexContainer | null;
+  /** contentMetadata.MARKUP_JSON（RICH） */
+  richMarkup?: import("./flex/types.js").RichMarkup | null;
+  /** RICH の DOWNLOAD_URL */
+  richImageUrl?: string;
+  /** LINE sticon（contentMetadata.REPLACE） */
+  sticons?: import("../utils/lineSticon.js").SticonResource[];
+  /** LINE メンション（contentMetadata.MENTION） */
+  mentions?: MentionInfo[];
+  /** 通話イベント用 */
+  callMeta?: CallMessageMeta;
+  createdAt: number;
+  status: MessageStatus;
+  read: boolean;
+  readBy?: string[];
+  readCount?: number;
+  revoked?: boolean;
+  replyToId?: string;
+  /** 絵文字リアクション（type は MessageReactionType 数値） */
+  reactions?: MessageReaction[];
+  /** 動くスタンプ（STKOPT="A"） */
+  stickerAnimated?: boolean;
+  /** くっつきスタンプ（位置固定マーカーあり） */
+  stickerSticky?: boolean;
+  linkPreview?: LinkPreview;
+  /** 失敗時の再送に使う送信意図（楽観メッセージに保持） */
+  retry?: RetryIntent;
+};
+
+export type RetryIntent =
+  | {
+      kind: "text";
+      text: string;
+      relatedMessageId?: string;
+      contentMetadata?: Record<string, string>;
+    }
+  | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
+  | { kind: "emoji"; packageId: string; sticonId: string };
+
+export type Member = {
+  id: string;
+  name: string;
+  avatar: string;
+  avatarUrl?: string;
+  color: string;
+};
+
+export type ChatType = "friend" | "group";
+
+export type Chat = {
+  id: string;
+  type: ChatType;
+  name: string;
+  localName?: string;
+  avatar: string;
+  avatarUrl?: string;
+  color: string;
+  status: string;
+  online?: boolean;
+  /** 公式アカウント（userType=BOT） */
+  isOfficial?: boolean;
+  /** ステータスメッセージ（直接トーク相手） */
+  statusMessage?: string;
+  /** プロフィール背景 URL */
+  backgroundUrl?: string;
+  members?: Member[];
+  hidden?: boolean;
+  pinned?: boolean;
+  muted?: boolean;
+  /** 退出・キック済みグループ */
+  left?: boolean;
+  unread: number;
+  /** 一覧用プレビュー（API） */
+  lastMessagePreview?: string;
+  /** API からの最終メッセージ時刻 (ms) — Desktop getMessageBoxes 準拠 */
+  lastMessageTime?: number;
+};
+
+export type ChatSort = "recent" | "unread" | "custom";
+
+export type Settings = {
+  readReceipts: boolean;
+  showReaderList: boolean;
+  streamerMode: boolean;
+  compactDensity: boolean;
+  fontScale: number;
+  enterToSend: boolean;
+  pinEnabled: boolean;
+  pin: string;
+  chatSort: ChatSort;
+  customCursor: boolean;
+  bubbleTail: boolean;
+  /** ヘッダーに相手のステータスメッセージを表示 */
+  showStatusMessage: boolean;
+  /** トーク背景に相手のプロフィール背景を表示 */
+  showBackground: boolean;
+  /** HTTP/SOCKS プロキシ（例: http://127.0.0.1:7890） */
+  proxyEnabled: boolean;
+  proxyUrl: string;
+};
+
+export type SelfProfile = {
+  name: string;
+  avatar: string;
+  avatarUrl?: string;
+  status: string;
+  musicProfile?: string;
+  birthday?: string;
+  backgroundUrl?: string;
+  mid?: string;
+};
