@@ -23,6 +23,10 @@ Vyline/backend/data/
 .env
 .env.*
 !.env.example
+# 安全な placeholder（秘密情報なし）。バックエンド初回起動用に追跡する
+# (ガイレコのトリック: 先にディレキシを unignore しないとファイルの negation が効かない)
+!Vyline/packages/protocol/data/
+!Vyline/packages/protocol/data/desktop-profile.fallback.json
 **/desktop-e2ee-keys.json
 **/desktop-e2ee-dump.txt
 **/storage-*.json

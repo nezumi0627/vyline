@@ -1,0 +1,53 @@
+{
+  "schemaVersion": 1,
+  "source": {
+    "platform": "win32",
+    "exePath": "",
+    "exeSha256": "",
+    "exeSize": 0,
+    "iniPath": "",
+    "detectedAt": "1970-01-01T00:00:00.000Z",
+    "detectionMethod": "fallback"
+  },
+  "identity": {
+    "appVersion": "26.3.0.3916",
+    "device": "DESKTOPWIN",
+    "systemName": "WINDOWS",
+    "systemVersion": "10.0.26100",
+    "ntSuffix": "11NT",
+    "userAgent": "DESKTOP:WINDOWS:10.0.26100-11NT(26.3.0.3916)",
+    "xLineApplication": "DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT"
+  },
+  "hosts": {
+    "legy": "legy-jp.line-apps.com",
+    "front": "front.line-apps.com",
+    "updateInfo": "https://desktop.line-scdn.net/win/v2/real/update_info.json"
+  },
+  "defaultHeaders": {
+    "user-agent": "DESKTOP:WINDOWS:10.0.26100-11NT(26.3.0.3916)",
+    "x-line-application": "DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT",
+    "x-lal": "ja_JP",
+    "x-lpv": "1",
+    "x-lap": "5",
+    "content-type": "application/x-thrift",
+    "accept-encoding": "gzip"
+  },
+  "fingerprints": {
+    "endpoints": [],
+    "headerNames": [],
+    "strings": {},
+    "runtimeSamples": []
+  },
+  "quality": {
+    "complete": false,
+    "missing": ["source.exePath", "source.exeSha256", "source.exeSize", "source.iniPath"],
+    "mergedFromPrevious": false,
+    "notes": [
+      "リポジトリ配布用の安全な placeholder プロファイルです（トークン・E2EE鍵・個人情報は含みません）。",
+      "identity のバージョン/OS値は実際のLINE Desktopから検出されるまでの仮値です。",
+      "Windows環境で公式LINE Desktopがインストールされていれば、初回起動時に自動的に実プロファイルへ更新されます。",
+      "非Windows環境やLINE Desktop未検出時はこのfallbackがそのまま使われるため、ログイン等が正しく動作しない場合があります。",
+      "その場合は `bun run vyline:find-native` 等のツールを使い、実機から生成したプロファイルで置き換えてください。"
+    ]
+  }
+}

@@ -6,7 +6,7 @@
 .claude
 .cursor
 
-# ── データ（トークン / E2EE 鍵 / 履歴 — コンテナに含めない） ──
+# ── データ（トーキン / E2EE 鍵 / 履歴 — コンテナに含めない） ──
 **/data/
 data/
 Vyline/backend/data/
@@ -15,6 +15,9 @@ Vyline/backend/data/
 *.local
 .env
 .env.*
+# 安全な placeholder（秘密情報なし）のみ例外。バックエンド初回起動に必須
+!Vyline/packages/protocol/data/
+!Vyline/packages/protocol/data/desktop-profile.fallback.json
 
 # ── ビルド・依存 ───────────────────────────
 node_modules/
