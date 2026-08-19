@@ -1,7 +1,9 @@
 # Vyline タスク状況ボード
 
-最終更新: 2026-07-31  
-規則: **git push/commit しない** / **連絡先へ勝手送信しない**
+最終更新: 2026-08-20  
+規則: **ブランチを切れば commit / push 可（main への直接 push は不可）** / **連絡先へ勝手送信しない**
+
+このファイルが進捗の唯一の正本。ルート `AGENTS.md` に Phase 表を重複させないこと。
 
 ---
 
@@ -16,6 +18,9 @@
 | 3b    | プロトコル層再構成（linejs 排除・domain・辞書） | ✅ 2026-07-29 完了                |
 | 4     | Telegram 風 UI                                  | 🔧 シェル基盤済・継続改善中       |
 | 5     | 品質・速度・stack                               | 🔧 継続改善中                     |
+| 6     | Beta 公開準備                                   | 🔧 継続中                         |
+| 7     | Electron 化（macOS/Win/Linux 対応）            | 🔧 基盤実装済・[electron.md](../electron.md) |
+| 8     | Knot/LEINs/PrivateLEIN 機能移植監査          | 🔧 一次監査完了・[feature-parity-knot-leins.md](./feature-parity-knot-leins.md) |
 
 ---
 
@@ -66,12 +71,31 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 
 ---
 
+## 2026-08-20 完了タスク（Electron/macOS 対応 第1ラウンド）
+
+| 領域 | 成果 |
+| --- | --- |
+| Electron シェル | `Vyline/apps/electron/` 新規作成。main/preload/backendProcess、mac メニュー・外部リンク委譲・権限・単一インスタンス |
+| backend 単一実行ファイル化 | `bun build --compile` で mac(arm64/x64)/win/linux 向けスタンドアロンバイナリ化（`scripts/buildBackend.ts`） |
+| macOS パッケージ検証 | `.app`（単一arch/universal）を実際に起動し healthz/フロント/QRログインフローまで確認済 |
+| バグ修正 | 既存バグ 5件修正（tsconfig 型リーク / pino-pretty クラッシュ / Desktop profile fallback 欠落（**mac で必需**）/ Bun.spawn ENOENT / electron-builder 設定源誤認識 / **LSMinimumSystemVersion 型不一致による起動時即クラッシュ**）。詳細: [electron.md](../electron.md) |
+| 機能移植監査 | Knot/LEINs/PrivateLEIN の全機能を FunctionLIST.md 基準で一次監査し、実装済/部分/未実装/対象外を分類。[feature-parity-knot-leins.md](./feature-parity-knot-leins.md) |
+
+**重要**: 未実装（❌）項目が多数残っている（自動返信・既読を付けないモード・送信取り消しローカル保持・リアクション通知・検索フィルター・カスタムフォントなど）。
+目標（「まずは機能を全て移植」）に対しては**まだ達成していない**。
+
+---
+
 ## 次（優先順）
 
-1. 既読者表示の完全修繕（メンバー名解決の事前取得済→表示検証）
-2. 通話品質改善（acquireCallRoute エラー処理済→実通話テスト）
-3. UI 細部改善（継続）
-4. stack RPC の Desktop 準拠への段階的置換
+1. **自動返信（AutoReply）** — LEINs/PrivateLEIN の代表機能。未実装
+2. **既読を付けないモード** — プライバシー系の目玉機能。未実装
+3. **送信取り消しメッセージのローカル保持**（Knot の看板機能） — 未実装
+4. 既読者表示の完全修繕（メンバー名解決の事前取得済→表示検証）
+5. 通話品質改善（acquireCallRoute エラー処理済→実通話テスト）
+6. UI 細部改善（継続）
+7. stack RPC の Desktop 準拠への段階的置換
+8. Electron 自動更新・codesign/notarize（mac）・Windows/Linux 実機ビルド確認
 
 ---
 
@@ -94,3 +118,5 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 | [protocol/dictionary.md](../protocol/dictionary.md) | RPC 辞書                 |
 | [architecture.md](../architecture.md)               | 層構造・lineService 接点 |
 | [tools/](../tools/)                                 | Vyline-Search 検索ツール |
+| [electron.md](../electron.md)                       | Electron デスクトップシェル（macOS 対応） |
+| [feature-parity-knot-leins.md](./feature-parity-knot-leins.md) | Knot/LEINs/PrivateLEIN 機能移植監査 |

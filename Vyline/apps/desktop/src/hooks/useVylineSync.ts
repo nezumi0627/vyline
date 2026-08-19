@@ -14,6 +14,8 @@ import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
 import { useStore } from "../lib/store.js";
 
+import { ensureNotificationPermission, onNotificationAction } from "../lib/notify.js";
+
 function eventsPollIntervalMs(): number {
   if (typeof document === "undefined") return 2_000;
 
@@ -71,6 +73,21 @@ export function useVylineSync(enabled = true) {
 
   useEffect(() => {
     if (!enabled || !accountId) return;
+
+    // デスクトップ通知の許可を一度だけリクエスト（既に決定済みなら no-op）
+    void ensureNotificationPermission();
+
+    // 通知アクションボタン（既読にする/コピー）を Service Worker から受け取って実行
+    const offNotificationAction = onNotificationAction((msg) => {
+      if (msg.action === "mark-read" && msg.chatId) {
+        void useStore.getState().markChatRead(msg.chatId);
+      } else if (msg.action === "copy" && msg.text) {
+        void navigator.clipboard?.writeText(msg.text).catch(() => undefined);
+      } else if (msg.chatId) {
+        useStore.getState().setScreen("chat");
+        useStore.getState().openChat(msg.chatId);
+      }
+    });
 
     let eventsTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -135,6 +152,8 @@ export function useVylineSync(enabled = true) {
 
     return () => {
       cancelled = true;
+
+      offNotificationAction();
 
       if (eventsTimer) clearTimeout(eventsTimer);
 

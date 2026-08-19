@@ -41,8 +41,7 @@ bun test
 cd Vyline/packages/protocol && bun run stack:types
 
 # Desktop 調査
-bun run vyline:dump-desktop              # インストール一式 → source/desktop/
-bun run vyline:dump-desktop -- --full    # Data/bin ミラー + exe 文字列
+bun run vyline:unpack                    # Themida 保護された LINE.exe を unpack
 bun run vyline:find-native -- sendMessage --list-only --skip-setup
 bun run vyline:delta
 bun run vyline:focus-recovered -- sendMessage

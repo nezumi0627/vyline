@@ -5,6 +5,14 @@ dist-ssr/
 *.local
 *.tsbuildinfo
 
+# Electron shell build artifacts (compiled per-OS backend binaries + packaged app output)
+Vyline/apps/electron/release/
+Vyline/apps/electron/resources/backend-bin/
+
+# 参考入力（サードパーティのチェック済み LINE APK のローカルコピー。第三者の著作権物を含むため
+# git 履歴には絶対に含めない）
+line_droid/
+
 # Logs
 logs/
 *.log

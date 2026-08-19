@@ -1,6 +1,11 @@
 # Vyline 配布ガイド（Windows exe）
 
-最終更新: 2026-07-31
+最終更新: 2026-08-20
+
+> **2026-08-20 追記**: mac ・Windows・Linux を共通の Electron シェルでカバーする実装が
+> `Vyline/apps/electron/` に入った（下記「実装オプション」2 の electron-builder を採用）。
+> 詳細は **[electron.md](./electron.md)**。このページは Windows 向けの旧設計メモとして残してあるが、
+> 実際のビルド手順は electron.md を参照。
 
 ## 目的
 

@@ -28,6 +28,16 @@ import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import {
+  getAutoReplyConfig,
+  updateAutoReplyConfig,
+  setAutoReplyChatOverride,
+} from "../storage/autoReplyStore.js";
+import {
+  listScheduledMessages,
+  addScheduledMessage,
+  removeScheduledMessage,
+} from "../storage/scheduledMessageStore.js";
+import {
   fetchProfile,
   fetchContactProfile,
   markAsRead,
@@ -70,6 +80,7 @@ import {
   stopDirectCall,
   getDirectCallStatus,
   listDirectCalls,
+  resetReadRangeCache,
   CallNotAllowedError,
   NotLoggedInError,
 } from "../service/lineService.js";
@@ -695,6 +706,22 @@ lineRouter.get("/:accountId/vyline/cache", async (c) => {
   }
 });
 
+// ─── POST /line/:accountId/read/reset-cache ─────────
+// ローカルの既読キャッシュ（readRangeCache）を破棄。body に chatMid を指定すればそのチャットのみ、省略でアカウント全体
+
+lineRouter.post("/:accountId/read/reset-cache", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const body = await c.req
+      .json<{ chatMid?: string }>()
+      .catch(() => ({}) as { chatMid?: string });
+    const cleared = resetReadRangeCache(accountId, body.chatMid);
+    return c.json({ ok: true, cleared });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 // ─── DELETE /line/:accountId/vyline/cache ─────────
 // メディア一時キャッシュ（data/media-cache）を削除
 
@@ -942,6 +969,69 @@ lineRouter.delete("/:accountId/feature-locks/create-group-ban", async (c) => {
       createGroupBannedReason: locks.createGroupBannedReason ?? null,
     },
   });
+});
+
+// ── 自動返信 (AutoReply) ─────────────────────────────────────────
+
+lineRouter.get("/:accountId/autoreply", async (c) => {
+  const accountId = c.req.param("accountId");
+  const config = await getAutoReplyConfig(accountId);
+  return c.json({ ok: true, config });
+});
+
+lineRouter.put("/:accountId/autoreply", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    enabled?: boolean;
+    message?: string;
+    cooldownMinutes?: number;
+    includeGroups?: boolean;
+  }>();
+  const config = await updateAutoReplyConfig(accountId, body);
+  return c.json({ ok: true, config });
+});
+
+lineRouter.put("/:accountId/autoreply/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const body = await c.req.json<{ enabled?: boolean; message?: string }>();
+  const config = await setAutoReplyChatOverride(accountId, chatMid, body);
+  return c.json({ ok: true, config });
+});
+
+lineRouter.delete("/:accountId/autoreply/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const config = await setAutoReplyChatOverride(accountId, chatMid, null);
+  return c.json({ ok: true, config });
+});
+
+// ── メッセージの予約送信 ─────────────────────────────────────────
+
+lineRouter.get("/:accountId/scheduled-messages", async (c) => {
+  const accountId = c.req.param("accountId");
+  const items = await listScheduledMessages(accountId);
+  return c.json({ ok: true, items });
+});
+
+lineRouter.post("/:accountId/scheduled-messages", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ chatMid?: string; text?: string; sendAt?: number }>();
+  if (!body.chatMid || !body.text?.trim() || !body.sendAt) {
+    return c.json({ ok: false, error: "chatMid, text, sendAt required" }, 400);
+  }
+  if (body.sendAt <= Date.now()) {
+    return c.json({ ok: false, error: "sendAt must be in the future" }, 400);
+  }
+  const item = await addScheduledMessage(accountId, body.chatMid, body.text, body.sendAt);
+  return c.json({ ok: true, item });
+});
+
+lineRouter.delete("/:accountId/scheduled-messages/:id", async (c) => {
+  const accountId = c.req.param("accountId");
+  const id = c.req.param("id");
+  const removed = await removeScheduledMessage(accountId, id);
+  return c.json({ ok: true, removed });
 });
 
 lineRouter.post("/:accountId/chats/:chatMid/invite", async (c) => {

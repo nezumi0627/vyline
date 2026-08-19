@@ -13,9 +13,12 @@ import {
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type { DesktopProfile } from "./types.js";
+// 静的 JSON import。fs パス解決ではなくバンドラに埋め込ませることで、
+// `bun build --compile` の単一実行ファイル（Electron 同梱バックエンドなど）でも
+// 仮想 FS 上のパスズレ（ /$bunfs/... が "../.. " で ルートに崩れる）なしに読める。
+import fallbackProfileJson from "../../data/desktop-profile.fallback.json" with { type: "json" };
 
 const _here = dirname(fileURLToPath(import.meta.url));
-const FALLBACK_PATH = join(_here, "../../data/desktop-profile.fallback.json");
 
 export function defaultVylineDataDir(override?: string): string {
   if (override) return override;
@@ -35,7 +38,7 @@ export function profileJsonPath(dataDir: string): string {
 }
 
 export function loadFallbackProfile(): DesktopProfile {
-  return JSON.parse(readFileSync(FALLBACK_PATH, "utf8")) as DesktopProfile;
+  return fallbackProfileJson as unknown as DesktopProfile;
 }
 
 export function loadCachedProfile(dataDir: string): DesktopProfile | null {

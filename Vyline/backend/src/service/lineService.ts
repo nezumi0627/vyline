@@ -30,6 +30,7 @@ import {
   clearTalkEvents,
   type TalkPollEvent,
 } from "../line/talkEventBuffer.js";
+import { maybeAutoReply } from "./autoReplyService.js";
 import type { VylineClient } from "@vyline/protocol";
 import { peerPubCacheKey, selfPubCacheKey } from "@vyline/protocol/e2ee/pubCacheKeys";
 import {
@@ -489,7 +490,27 @@ async function decryptE2EEMessageSafe(
       const peerKeyId = isSelf ? receiverKeyId : senderKeyId;
       const groupKeyId = isGroupLike ? groupKeyIdFromMessage(msg) : null;
       try {
-        if (!isGroupLike) {
+        if (isGroupLike) {
+          if (senderKeyId !== null) {
+            await client.base.storage.delete(selfPubCacheKey(senderKeyId));
+            await client.base.storage.delete(`e2eePublicKeys:${senderKeyId}`);
+          }
+          // グループ専用。USER チャットで呼ぶと disallowed chatType: USER になる
+          const isGroup = chatMid.startsWith("c") || chatMid.startsWith("r");
+          if (isGroup) {
+            await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`);
+            groupKeyWarm.delete(chatMid);
+            groupKeyWarmFailed.delete(chatMid);
+            if (groupKeyId == null) {
+              await ensureGroupE2EEKey(client, chatMid);
+            } else {
+              await client.base.storage
+                .delete(`e2eeGroupKeys:${chatMid}:${groupKeyId}`)
+                .catch(() => undefined);
+              await ensureGroupKeyById(client, chatMid, groupKeyId);
+            }
+          }
+        } else {
           const clearKey = `dm:${chatMid}`;
           if (!dmPubKeyCleared.has(clearKey)) {
             if (peerMid.startsWith("u") && peerKeyId !== null) {
@@ -504,26 +525,6 @@ async function decryptE2EEMessageSafe(
               invalidatePeerPubCache(client, peerMid, receiverKeyId);
             }
             dmPubKeyCleared.add(clearKey);
-          }
-        } else {
-          if (senderKeyId !== null) {
-            await client.base.storage.delete(selfPubCacheKey(senderKeyId));
-            await client.base.storage.delete(`e2eePublicKeys:${senderKeyId}`);
-          }
-          // グループ専用。USER チャットで呼ぶと disallowed chatType: USER になる
-          const isGroup = chatMid.startsWith("c") || chatMid.startsWith("r");
-          if (isGroup) {
-            await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`);
-            groupKeyWarm.delete(chatMid);
-            groupKeyWarmFailed.delete(chatMid);
-            if (groupKeyId != null) {
-              await client.base.storage
-                .delete(`e2eeGroupKeys:${chatMid}:${groupKeyId}`)
-                .catch(() => undefined);
-              await ensureGroupKeyById(client, chatMid, groupKeyId);
-            } else {
-              await ensureGroupE2EEKey(client, chatMid);
-            }
           }
         }
       } catch (cacheErr) {
@@ -1514,13 +1515,13 @@ export async function fetchChatMembersDetailed(
   // メンバー名がすべてMIDのままならキャッシュを汚染しない（要再試行）
   const resolvedCount = members.filter((m) => !/^[ucr][0-9a-f]{32}$/i.test(m.displayName)).length;
   const allUnresolved = memberMids.length > 0 && resolvedCount === 0;
-  if (!allUnresolved) {
-    void vylinePutGroup(accountId, groupPut);
-  } else {
+  if (allUnresolved) {
     log.debug(
       { accountId, chatMid, memberMids: memberMids.length },
       "fetchChatMembersDetailed: all profiles unresolved — skip cache write",
     );
+  } else {
+    void vylinePutGroup(accountId, groupPut);
   }
 
   const result: {
@@ -1911,6 +1912,32 @@ export async function markAsRead(
  * 既読レンジ取得。DM の seen 判定やグループ既読補強に使う。
  * 失敗しても空配列（呼び出し側で無視可）。
  */
+/**
+ * 既読キャッシュリセット（「既読データリセット」）。
+ * chatMid 指定ならそのチャットのみ、未指定ならアカウント全体の既読キャッシュを破棄。
+ * 次回取得時に LINE サーバーへ強制再取得させる。
+ */
+export function resetReadRangeCache(accountId: string, chatMid?: string): number {
+  let cleared = 0;
+  if (chatMid) {
+    const key = `${accountId}:${chatMid}`;
+    if (readRangeCache.delete(key)) cleared++;
+    readRangeBgAt.delete(key);
+    return cleared;
+  }
+  const prefix = `${accountId}:`;
+  for (const key of [...readRangeCache.keys()]) {
+    if (key.startsWith(prefix)) {
+      readRangeCache.delete(key);
+      cleared++;
+    }
+  }
+  for (const key of [...readRangeBgAt.keys()]) {
+    if (key.startsWith(prefix)) readRangeBgAt.delete(key);
+  }
+  return cleared;
+}
+
 export async function fetchReadRanges(
   accountId: string,
   chatMid: string,
@@ -2310,7 +2337,7 @@ function boxMeta(
     Array.isArray(box.lastMessages) && box.lastMessages.length > 0
       ? box.lastMessages[0]
       : undefined;
-  const fromMsg = last?.deliveredTime != null ? Number(last.deliveredTime) : 0;
+  const fromMsg = last?.deliveredTime == null ? 0 : Number(last.deliveredTime);
   const fromBox = Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
   const boxId = box.lastDeliveredMessageId?.messageId;
   const meta: {
@@ -2975,6 +3002,10 @@ async function ingestPushMessage(accountId: string, raw: Record<string, unknown>
     { ...message, chatMid, savedAt: new Date().toISOString() },
   ]);
   logMessageAsync(accountId, chatMid, message);
+  // 自動返信（設定有効時のみ、クールダウン内部判定あり）。メインパスの受信処理をブロックしないよう fire-and-forget
+  void maybeAutoReply(accountId, chatMid, message, sendMessage).catch((err) => {
+    log.debug({ accountId, chatMid, err }, "auto-reply hook failed");
+  });
 }
 
 const pushBridgeAttached = new Set<string>();
@@ -4171,9 +4202,9 @@ export async function updateMyProfile(
       birthday: birthday
         ? formatBirthdayDisplay({
             day: birthday.day,
-            ...(birthday.year !== undefined ? { year: birthday.year } : {}),
-            ...(birthday.yearEnabled !== undefined ? { yearEnabled: birthday.yearEnabled } : {}),
-            ...(birthday.dayEnabled !== undefined ? { dayEnabled: birthday.dayEnabled } : {}),
+            ...(birthday.year === undefined ? {} : { year: birthday.year }),
+            ...(birthday.yearEnabled === undefined ? {} : { yearEnabled: birthday.yearEnabled }),
+            ...(birthday.dayEnabled === undefined ? {} : { dayEnabled: birthday.dayEnabled }),
           })
         : null,
     };
@@ -4732,7 +4763,7 @@ export async function getGroupCallStatus(
     };
     if (gc.hostMid) status.hostMid = String(gc.hostMid);
     if (gc.mediaType != null) status.mediaType = String(gc.mediaType);
-    const started = gc.started != null ? Number(gc.started) : NaN;
+    const started = gc.started == null ? NaN : Number(gc.started);
     if (Number.isFinite(started)) status.started = started;
     groupCallStatusCache.set(key, { at: Date.now(), status });
     return status;

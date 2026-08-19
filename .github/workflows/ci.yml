@@ -6,6 +6,11 @@ on:
   push:
     branches: [main]
 
+# 既定の GITHUB_TOKEN 権限を最小限（read-only）に絞る。各ジョブは checkout とビルドのみで、
+# リポジトリへの書き戻し・Release 作成等は行わないためこれで十分。
+permissions:
+  contents: read
+
 jobs:
   typecheck:
     name: TypeScript
@@ -39,3 +44,136 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+
+  # Electron パッケージを各 OS の実ランナー上でビルド・起動・healthz 確認まで行う。
+  # ローカル（macOS サンドボックス）では確認できない Windows/Linux 実機起動をここで補完する。
+  electron-smoke-test:
+    name: Electron (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-latest
+            platform: mac
+          - os: windows-latest
+            platform: win
+          - os: ubuntu-latest
+            platform: linux
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun install
+
+      - name: Install Linux GUI deps (Xvfb + AppImage runtime libs)
+        if: matrix.platform == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb libgtk-3-0 libnotify4 libnss3 libxss1 libasound2t64 libgbm1
+
+      - name: Build backend (host target only — native build, no cross-compile needed)
+        working-directory: Vyline/apps/electron
+        run: bun run build:backend
+
+      - name: Build frontend
+        working-directory: Vyline/apps/electron
+        run: bun run build:frontend
+
+      - name: Build main process
+        working-directory: Vyline/apps/electron
+        run: bun run build:main
+
+      - name: Package (mac, --dir, unsigned)
+        if: matrix.platform == 'mac'
+        working-directory: Vyline/apps/electron
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: bunx electron-builder --mac --arm64 --dir
+
+      - name: Package (win, --dir)
+        if: matrix.platform == 'win'
+        working-directory: Vyline/apps/electron
+        run: bunx electron-builder --win --dir
+
+      - name: Package (linux, --dir)
+        if: matrix.platform == 'linux'
+        working-directory: Vyline/apps/electron
+        run: bunx electron-builder --linux --dir
+
+      - name: Launch + healthz smoke test (mac)
+        if: matrix.platform == 'mac'
+        working-directory: Vyline/apps/electron
+        run: |
+          set -e
+          APP="release/mac-arm64/Vyline.app/Contents/MacOS/Vyline"
+          "$APP" > app.log 2>&1 &
+          PID=$!
+          OK=0
+          for _retry in $(seq 1 20); do
+            sleep 1
+            BEPID="$(pgrep -f "backend-bin/vyline-backend-darwin" | head -1)"
+            PORT=""
+            if [ -n "$BEPID" ]; then
+              PORT=$(lsof -nP -iTCP -sTCP:LISTEN -a -p "$BEPID" 2>/dev/null | awk 'NR==2{print $9}' | sed 's/.*://')
+            fi
+            if [ -n "$PORT" ]; then
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/healthz" || true)
+              if [ "$CODE" = "200" ]; then OK=1; break; fi
+            fi
+          done
+          kill $PID 2>/dev/null || true
+          cat app.log || true
+          if [ "$OK" != "1" ]; then echo "::error::mac packaged app never became healthy"; exit 1; fi
+
+      - name: Launch + healthz smoke test (linux)
+        if: matrix.platform == 'linux'
+        working-directory: Vyline/apps/electron
+        run: |
+          set -e
+          # electron-builder の Linux 実行ファイル名は productName を小文字化したものになる規約があり、
+          # ハードコードすると実際とズレるリスクがあるため find で実際の実行ファイルを動的に探す。
+          BINARY=$(find release/linux-unpacked -maxdepth 1 -type f -executable ! -name "*.so*" | head -1)
+          if [ -z "$BINARY" ]; then echo "::error::could not locate linux-unpacked executable"; ls -la release/linux-unpacked; exit 1; fi
+          echo "resolved linux binary: $BINARY"
+          xvfb-run -a --server-args="-screen 0 1280x1024x24" \
+            "$BINARY" > app.log 2>&1 &
+          PID=$!
+          OK=0
+          for _retry in $(seq 1 20); do
+            sleep 1
+            PORT=$(ss -ltnp 2>/dev/null | grep vyline-backend | grep -oE ':[0-9]+' | head -1 | tr -d ':')
+            if [ -n "$PORT" ]; then
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "http://127.0.0.1:$PORT/healthz" || true)
+              if [ "$CODE" = "200" ]; then OK=1; break; fi
+            fi
+          done
+          kill $PID 2>/dev/null || true
+          cat app.log || true
+          if [ "$OK" != "1" ]; then echo "::error::linux packaged app never became healthy"; exit 1; fi
+
+      - name: Launch + healthz smoke test (windows)
+        if: matrix.platform == 'win'
+        shell: pwsh
+        working-directory: Vyline/apps/electron
+        run: |
+          $proc = Start-Process -FilePath "release\win-unpacked\Vyline.exe" -PassThru
+          $ok = $false
+          for ($i = 0; $i -lt 25; $i++) {
+            Start-Sleep -Seconds 1
+            $conn = Get-NetTCPConnection -State Listen -ErrorAction SilentlyContinue |
+              Where-Object { (Get-Process -Id $_.OwningProcess -ErrorAction SilentlyContinue).ProcessName -like "vyline-backend*" }
+            if ($conn) {
+              $port = $conn[0].LocalPort
+              try {
+                $resp = Invoke-WebRequest -Uri "http://127.0.0.1:$port/healthz" -UseBasicParsing -TimeoutSec 3
+                if ($resp.StatusCode -eq 200) { $ok = $true; break }
+              } catch {}
+            }
+          }
+          Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+          if (-not $ok) {
+            Write-Error "windows packaged app never became healthy"
+            exit 1
+          }

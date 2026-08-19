@@ -1,0 +1,94 @@
+appId: app.vyline.desktop
+productName: Vyline
+copyright: Copyright © Vyline
+directories:
+  output: release
+  buildResources: build
+files:
+  - dist/**/*
+  - package.json
+extraResources:
+  - from: ../desktop/dist
+    to: frontend-dist
+    filter:
+      - "**/*"
+asar: true
+asarUnpack:
+  - "**/*.node"
+
+mac:
+  category: public.app-category.social-networking
+  icon: resources/icon.icns
+  target:
+    - target: dmg
+      arch: [universal]
+    - target: zip
+      arch: [universal]
+  # プラットフォーム別に自分の backend バイナリだけを同梱（他 OS 向けを含めないことでパッケージサイズを大幅削減）
+  extraResources:
+    - from: resources/backend-bin
+      to: backend-bin
+      filter:
+        - "vyline-backend-darwin-*"
+  # backend-bin/ には arch 別のスタンドアロン実行ファイルを同梱するため、
+  # universal (arm64+x64 merge) 時にこのパス配下は「意図的に差分あり」として許可する
+  x64ArchFiles: "Contents/Resources/backend-bin/**"
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: build/entitlements.mac.plist
+  entitlementsInherit: build/entitlements.mac.plist
+  extendInfo:
+    NSMicrophoneUsageDescription: Vyline は音声・ビデオ通話でマイクを使用します。
+    NSCameraUsageDescription: Vyline はビデオ通話でカメラを使用します。
+    LSApplicationCategoryType: public.app-category.social-networking
+    # LSMinimumSystemVersion は Apple 仕様上文字列値。クォートを外すと YAML が float として解釈し、
+    # Info.plist に <real> として書かれる結果 AppKit の LaunchServices バージョン文字列パース（_LSGetVersionFromString）が
+    # NSNumber を NSString として扱もうとしてクラッシュ（ -[__NSCFNumber _getCString:...] unrecognized selector ）する。
+    LSMinimumSystemVersion: "11.0"
+dmg:
+  background: null
+  window:
+    width: 540
+    height: 380
+  contents:
+    - x: 140
+      y: 200
+      type: file
+    - x: 400
+      y: 200
+      type: link
+      path: /Applications
+
+win:
+  icon: resources/icon-256.png
+  target:
+    - target: nsis
+      arch: [x64]
+  extraResources:
+    - from: resources/backend-bin
+      to: backend-bin
+      filter:
+        - "vyline-backend-win32-*"
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+
+linux:
+  icon: resources/icon.png
+  category: Network
+  target:
+    - target: AppImage
+      arch: [x64]
+  extraResources:
+    - from: resources/backend-bin
+      to: backend-bin
+      filter:
+        - "vyline-backend-linux-*"
+
+# electron-updater (autoUpdate.ts) が参照する更新フィード先。
+# 実際の自動更新はこのリポジトリに署名済みリリース（latest*.yml 付き）が実際に公開されるまでは作動しない（静かに失敗するだけ）。
+publish:
+  provider: github
+  owner: nezumi0627
+  repo: Vyline

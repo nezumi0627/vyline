@@ -138,9 +138,68 @@ Desktop 調査フロー: [tools/find-native-symbol.md](./tools/find-native-symbo
 
 ---
 
+## 主要ファイル一覧
+
+| ファイル | 役割 |
+| --- | --- |
+| `Vyline/backend/src/service/lineService.ts` | 全ビジネスロジック。メッセージ送受信、E2EE、メディア、スタンプ、プロフィール |
+| `Vyline/apps/desktop/src/lib/store.ts` | Zustand ストア。`hydrateLineData`, `pollIncoming`, `pollMessagesDelta` |
+| `Vyline/apps/desktop/src/lib/mappers.ts` | `mapChat`, `mapMessage`, `mapMember`, `looksLikeMid` |
+| `Vyline/apps/desktop/src/api/client.ts` | backend HTTP client |
+| `Vyline/packages/protocol/src/dictionary/rpcMap.ts` | RPC_DICTIONARY（検索ツール） |
+| `Vyline/packages/protocol/stack/base/e2ee/mod.ts` | E2EE 復号エンジン |
+| `Vyline/backend/src/storage/vylineCache.ts` | プロフィール/グループキャッシュ |
+| `Vyline/backend/src/storage/featureLocks.ts` | 操作ロック管理 |
+| `Vyline/backend/src/storage/messageLog.ts` | チャット詳細ログ（JSONL、`data/logs/`） |
+| `Vyline/backend/src/service/backupService.ts` | VylineBackup スナップショット作成/復元（`data/backups/`） |
+
+---
+
+## 重要定数
+
+| 定数 | デフォルト | 場所 |
+| --- | --- | --- |
+| `CONTACT_RPC_TIMEOUT_MS` | 8_000 | `backend/src/service/lineService.ts` |
+| `CONTACT_BATCH_CHUNK` | 4 | `backend/src/service/lineService.ts` |
+| `CONTACT_INDIVIDUAL_TIMEOUT_MS` | 2_500 | `backend/src/service/lineService.ts` |
+| `MY_PROFILE_RPC_TIMEOUT_MS` | 10_000 | `backend/src/service/lineService.ts` |
+| `DELTA_POLL_MIN_MS` | 45_000 | `apps/desktop/src/lib/store.ts` |
+| `MAX_MESSAGES_PER_CHAT` | 120 | `apps/desktop/src/lib/store.ts` |
+
+---
+
+## 共通パターン
+
+### E2EE グループ鍵の重複抑制
+
+```ts
+// groupKeyWarm / groupKeyWarmFailed / groupKeyWarmInflight で三重抑制
+const groupKeyWarmInflight = new Map<string, Promise<void>>();
+// ensureGroupE2EEKey 内: inflight があればそれを返す
+```
+
+### メディアダウンロードのフォールバック
+
+```text
+groupKeyMissing? → E2EE skip → OBS plain
+E2EE decrypt → fail → OBS plain → fail
+  → (gk && e2eeFailed) → clear keys → retry
+```
+
+### メンバー名解決とキャッシュ汚染防止
+
+```text
+fetchChatMemberMids → fetchContactsBatch → individual fallback
+→ 全失敗時はMIDのまま → vylinePutGroup で skip (allUnresolved)
+→ vylineGroupNeedsRefresh がMIDキャッシュを検出して再取得
+```
+
+---
+
 ## 関連ドキュメント
 
 - [onboarding.md](./onboarding.md)
 - [CONTRIBUTING.md](./CONTRIBUTING.md)
 - [protocol/dictionary.md](./protocol/dictionary.md)
 - [development.md](./development.md)
+- [RELEASE.md](./RELEASE.md)

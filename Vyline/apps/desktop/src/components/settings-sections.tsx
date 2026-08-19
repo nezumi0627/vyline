@@ -1,1169 +1,1821 @@
-import { useState, useEffect } from "react"
-import { api } from "@/api/client"
-import { useStore, UPDATE_NOTES } from "@/lib/store"
-import { checkForUpdates, type UpdateInfo } from "@/lib/updater"
-import { cn } from "@/lib/utils"
+import { api } from "@/api/client";
+import {
+	clearCustomCallSound,
+	getCustomCallSoundName,
+	setCustomCallSound,
+} from "@/lib/callSounds";
+import {
+	clearCustomFont,
+	getCustomFontName,
+	setCustomFontFromFile,
+} from "@/lib/customFont";
+import { UPDATE_NOTES, useStore } from "@/lib/store";
+import { type UpdateInfo, checkForUpdates } from "@/lib/updater";
+import { cn } from "@/lib/utils";
+import { useEffect, useState } from "react";
 
 function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return "たった今"
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`
-  return `${Math.floor(diff / 86_400_000)}日前`
+	const diff = Date.now() - ts;
+	if (diff < 60_000) return "たった今";
+	if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`;
+	if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
+	return `${Math.floor(diff / 86_400_000)}日前`;
 }
-import { Toggle, Avatar } from "@/components/vy-ui"
-import { VyThemePanel } from "@/components/vy-theme-panel"
 import {
-  IconArrowLeft,
-  IconEye,
-  IconPalette,
-  IconShield,
-  IconSettings,
-  IconEdit,
-  IconChevron,
-  IconSpark,
-} from "@/components/icons"
+	IconArrowLeft,
+	IconChevron,
+	IconEdit,
+	IconEye,
+	IconPalette,
+	IconReply,
+	IconSettings,
+	IconShield,
+	IconSpark,
+} from "@/components/icons";
+import { VyThemePanel } from "@/components/vy-theme-panel";
+import { Avatar, Toggle } from "@/components/vy-ui";
 
-type Section = "profile" | "read" | "display" | "theme" | "privacy" | "advanced" | "info"
+type Section =
+	| "profile"
+	| "read"
+	| "display"
+	| "theme"
+	| "privacy"
+	| "autoReply"
+	| "advanced"
+	| "info";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
-  { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
-  { key: "read", label: "既読", icon: <IconEye size={18} /> },
-  { key: "display", label: "表示", icon: <IconSettings size={18} /> },
-  { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
-  { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
-  { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
-  { key: "info", label: "情報", icon: <IconSpark size={18} /> },
-]
+	{ key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
+	{ key: "read", label: "既読", icon: <IconEye size={18} /> },
+	{ key: "display", label: "表示", icon: <IconSettings size={18} /> },
+	{ key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
+	{ key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
+	{ key: "autoReply", label: "自動返信", icon: <IconReply size={18} /> },
+	{ key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+	{ key: "info", label: "情報", icon: <IconSpark size={18} /> },
+];
 
 function Row({
-  title,
-  desc,
-  children,
+	title,
+	desc,
+	children,
 }: {
-  title: string
-  desc?: string
-  children: React.ReactNode
+	title: string;
+	desc?: string;
+	children: React.ReactNode;
 }) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{title}</p>
-        {desc && <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>}
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
-  )
+	return (
+		<div className="flex items-center justify-between gap-4 py-3.5">
+			<div className="min-w-0">
+				<p className="text-sm font-medium">{title}</p>
+				{desc && (
+					<p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+						{desc}
+					</p>
+				)}
+			</div>
+			<div className="shrink-0">{children}</div>
+		</div>
+	);
 }
 
 function Card({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
-      {children}
-    </div>
-  )
+	return (
+		<div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
+			{children}
+		</div>
+	);
 }
 
 export function SettingsSections() {
-  const setScreen = useStore((s) => s.setScreen)
-  const settings = useStore((s) => s.settings)
-  const updateSetting = useStore((s) => s.updateSetting)
-  const self = useStore((s) => s.self)
-  const updateSelf = useStore((s) => s.updateSelf)
-  const accountId = useStore((s) => s.accountId)
-  const [section, setSection] = useState<Section>("read")
-  const [nameDraft, setNameDraft] = useState(self.name)
-  const [statusDraft, setStatusDraft] = useState(self.status)
-  const [birthdayDraft, setBirthdayDraft] = useState("")
-  const [profileSaving, setProfileSaving] = useState(false)
-  const [profileMsg, setProfileMsg] = useState<string | null>(null)
+	const setScreen = useStore((s) => s.setScreen);
+	const settings = useStore((s) => s.settings);
+	const updateSetting = useStore((s) => s.updateSetting);
+	const self = useStore((s) => s.self);
+	const updateSelf = useStore((s) => s.updateSelf);
+	const accountId = useStore((s) => s.accountId);
+	const [section, setSection] = useState<Section>("read");
+	const [nameDraft, setNameDraft] = useState(self.name);
+	const [statusDraft, setStatusDraft] = useState(self.status);
+	const [birthdayDraft, setBirthdayDraft] = useState("");
+	const [profileSaving, setProfileSaving] = useState(false);
+	const [profileMsg, setProfileMsg] = useState<string | null>(null);
+	const [readCacheMsg, setReadCacheMsg] = useState<string | null>(null);
+	const [readCacheResetting, setReadCacheResetting] = useState(false);
+	const [customFontName, setCustomFontName] = useState<string | null>(null);
+	const [customFontMsg, setCustomFontMsg] = useState<string | null>(null);
 
-  const saveLineProfile = async () => {
-    if (!accountId) {
-      setProfileMsg("ログインが必要です")
-      return
-    }
-    setProfileSaving(true)
-    setProfileMsg(null)
-    try {
-      const body: {
-        displayName?: string
-        statusMessage?: string
-        birthday?: { day: string; year?: string }
-      } = {
-        displayName: nameDraft.trim(),
-        statusMessage: statusDraft,
-      }
-      const bday = birthdayDraft.replace(/[^0-9]/g, "")
-      if (bday.length === 4) {
-        body.birthday = { day: bday }
-      } else if (bday.length === 8) {
-        body.birthday = { year: bday.slice(0, 4), day: bday.slice(4) }
-      }
-      const res = await api.line.updateProfile(accountId, body)
-      if (!res.ok || !res.profile) {
-        setProfileMsg(res.ok === false ? (res as { error?: string }).error ?? "更新失敗" : "更新失敗")
-        return
-      }
-      updateSelf({
-        name: res.profile.displayName || nameDraft,
-        status: res.profile.statusMessage ?? statusDraft,
-        birthday: res.profile.birthday?.display,
-        avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
-        mid: res.profile.mid,
-      })
-      setProfileMsg("LINE プロフィールを更新しました")
-    } catch (err) {
-      setProfileMsg(err instanceof Error ? err.message : String(err))
-    } finally {
-      setProfileSaving(false)
-    }
-  }
+	useEffect(() => {
+		void getCustomFontName().then(setCustomFontName);
+	}, []);
 
-  const onPickAvatar = async (file: File | null) => {
-    if (!file || !accountId) return
-    setProfileSaving(true)
-    setProfileMsg(null)
-    try {
-      const buf = await file.arrayBuffer()
-      const res = await api.line.updateProfileImage(accountId, buf, file.type || "image/jpeg")
-      if (res.ok && res.profile?.thumbnailUrl) {
-        updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` })
-        setProfileMsg("アイコンを更新しました")
-      } else {
-        setProfileMsg("アイコン更新に失敗しました")
-      }
-    } catch (err) {
-      setProfileMsg(err instanceof Error ? err.message : String(err))
-    } finally {
-      setProfileSaving(false)
-    }
-  }
+	const handleCustomFontFile = async (file: File) => {
+		setCustomFontMsg(null);
+		try {
+			await setCustomFontFromFile(file);
+			setCustomFontName(file.name);
+			setCustomFontMsg("フォントを適用しました");
+		} catch (err) {
+			setCustomFontMsg(
+				`適用に失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+	};
 
-  const onPickBackground = async (file: File | null) => {
-    if (!file || !accountId) return
-    setProfileSaving(true)
-    setProfileMsg(null)
-    try {
-      const buf = await file.arrayBuffer()
-      const res = await api.line.updateProfileBackground(accountId, buf, file.type || "image/jpeg")
-      if (res.ok) {
-        setProfileMsg("背景画像をアップロードしました")
-        // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
-        updateSelf({ backgroundUrl: self.backgroundUrl ? `${self.backgroundUrl.split("?")[0]}?t=${Date.now()}` : self.backgroundUrl })
-      } else {
-        setProfileMsg(res.error ?? "背景更新に失敗しました")
-      }
-    } catch (err) {
-      setProfileMsg(err instanceof Error ? err.message : String(err))
-    } finally {
-      setProfileSaving(false)
-    }
-  }
+	const handleClearCustomFont = async () => {
+		await clearCustomFont();
+		setCustomFontName(null);
+		setCustomFontMsg("既定フォントに戻しました");
+	};
 
-  return (
-    <div className="flex h-dvh flex-col bg-[var(--vy-bg)]">
-      {/* header */}
-      <header className="flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
-        <button
-          type="button"
-          onClick={() => setScreen("chat")}
-          aria-label="チャットに戻る"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-        >
-          <IconArrowLeft size={20} />
-        </button>
-        <h1 className="text-lg font-semibold">設定</h1>
-      </header>
+	const [ringtoneName, setRingtoneName] = useState<string | null>(null);
+	const [endSoundName, setEndSoundName] = useState<string | null>(null);
+	const [callSoundMsg, setCallSoundMsg] = useState<string | null>(null);
 
-      <div className="mx-auto flex w-full max-w-5xl flex-1 overflow-hidden">
-        {/* nav */}
-        <nav className="vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block">
-          {NAV.map((n) => (
-            <button
-              key={n.key}
-              type="button"
-              onClick={() => setSection(n.key)}
-              className={cn(
-                "mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
-                section === n.key
-                  ? "text-[var(--vy-accent-contrast)]"
-                  : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
-              )}
-              style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
-            >
-              {n.icon}
-              {n.label}
-            </button>
-          ))}
-        </nav>
+	useEffect(() => {
+		void getCustomCallSoundName("ringtone").then(setRingtoneName);
+		void getCustomCallSoundName("end").then(setEndSoundName);
+	}, []);
 
-        {/* mobile section chips */}
-        <div className="flex w-full flex-col overflow-hidden">
-          <div className="vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
-            {NAV.map((n) => (
-              <button
-                key={n.key}
-                type="button"
-                onClick={() => setSection(n.key)}
-                className={cn(
-                  "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-                  section === n.key ? "text-[var(--vy-accent-contrast)]" : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
-                )}
-                style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
-              >
-                {n.label}
-              </button>
-            ))}
-          </div>
+	const handleCallSoundFile = async (kind: "ringtone" | "end", file: File) => {
+		setCallSoundMsg(null);
+		try {
+			await setCustomCallSound(kind, file);
+			if (kind === "ringtone") setRingtoneName(file.name);
+			else setEndSoundName(file.name);
+			setCallSoundMsg("適用しました");
+		} catch (err) {
+			setCallSoundMsg(
+				`失敗しました: ${err instanceof Error ? err.message : String(err)}`,
+			);
+		}
+	};
 
-          <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            <div className="mx-auto max-w-2xl">
-              {section === "profile" && (
-                <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
-                  <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-                    <div
-                      className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
-                      style={
-                        self.backgroundUrl
-                          ? {
-                              backgroundImage: `url(${self.backgroundUrl})`,
-                              backgroundSize: "cover",
-                              backgroundPosition: "center",
-                            }
-                          : undefined
-                      }
-                    >
-                      <label className="absolute right-3 bottom-3 cursor-pointer rounded-lg bg-black/45 px-2.5 py-1 text-[0.7rem] font-medium text-white backdrop-blur hover:bg-black/60">
-                        背景を変更
-                        <input
-                          type="file"
-                          accept="image/*"
-                          className="hidden"
-                          disabled={profileSaving}
-                          onChange={(e) => void onPickBackground(e.target.files?.[0] ?? null)}
-                        />
-                      </label>
-                    </div>
-                    <div className="-mt-10 flex items-end gap-4 px-4 pb-4">
-                      <div className="relative">
-                        <Avatar
-                          glyph={self.avatar}
-                          color="var(--vy-accent)"
-                          size={72}
-                          imageUrl={self.avatarUrl}
-                        />
-                        <label className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
-                          変更
-                          <input
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            disabled={profileSaving}
-                            onChange={(e) => void onPickAvatar(e.target.files?.[0] ?? null)}
-                          />
-                        </label>
-                      </div>
-                      <div className="min-w-0 flex-1 pb-1">
-                        <p className="text-xs text-[var(--vy-text-dim)]">下の欄で表示名・ステメを編集</p>
-                      </div>
-                    </div>
-                  </div>
-                  <Card>
-                    <div className="py-3">
-                      <label className="text-sm font-medium">表示名</label>
-                      <input
-                        value={nameDraft}
-                        onChange={(e) => setNameDraft(e.target.value)}
-                        className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-                      />
-                    </div>
-                    <div className="py-3">
-                      <label className="text-sm font-medium">ステータスメッセージ</label>
-                      <input
-                        value={statusDraft}
-                        onChange={(e) => setStatusDraft(e.target.value)}
-                        className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-                      />
-                    </div>
-                    <div className="py-3">
-                      <label className="text-sm font-medium">誕生日（MMDD / YYYYMMDD・任意）</label>
-                      <input
-                        value={birthdayDraft}
-                        onChange={(e) => setBirthdayDraft(e.target.value)}
-                        placeholder={self.birthday || "0701"}
-                        className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-                      />
-                      <p className="mt-1 text-[0.7rem] text-[var(--vy-text-dim)]">
-                        一部デバイス種別では誕生日更新がサーバ拒否されることがあります
-                      </p>
-                    </div>
-                  </Card>
-                  {self.musicProfile && (
-                    <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-                      音楽（表示のみ）: {self.musicProfile.slice(0, 80)}
-                    </p>
-                  )}
-                  <button
-                    type="button"
-                    disabled={profileSaving}
-                    onClick={() => void saveLineProfile()}
-                    className="mt-4 rounded-xl px-4 py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
-                    style={{ background: "var(--vy-accent)" }}
-                  >
-                    {profileSaving ? "保存中…" : "LINE に保存"}
-                  </button>
-                  {profileMsg && (
-                    <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{profileMsg}</p>
-                  )}
-                </Section>
-              )}
+	const handleClearCallSound = async (kind: "ringtone" | "end") => {
+		await clearCustomCallSound(kind);
+		if (kind === "ringtone") setRingtoneName(null);
+		else setEndSoundName(null);
+		setCallSoundMsg("既定の合成音に戻しました");
+	};
 
-              {section === "read" && (
-                <Section title="既読" desc="既読の送信と表示をコントロールします">
-                  <Card>
-                    <Row title="既読を送る" desc="OFF にすると相手に既読が表示されません">
-                      <Toggle
-                        checked={settings.readReceipts}
-                        onChange={(v) => updateSetting("readReceipts", v)}
-                        label="既読を送る"
-                      />
-                    </Row>
-                    <Row
-                      title="既読者一覧を表示"
-                      desc="グループで、自分のメッセージを読んだ人を折りたたみで表示します"
-                    >
-                      <Toggle
-                        checked={settings.showReaderList}
-                        onChange={(v) => updateSetting("showReaderList", v)}
-                        label="既読者一覧を表示"
-                      />
-                    </Row>
-                  </Card>
-                  <p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                    DM では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
-                    「既読 3」のように人数を表示します。
-                  </p>
-                </Section>
-              )}
+	const resetReadCache = async () => {
+		if (!accountId || readCacheResetting) return;
+		setReadCacheResetting(true);
+		setReadCacheMsg(null);
+		try {
+			const res = await api.line.resetReadCache(accountId);
+			setReadCacheMsg(
+				res.ok
+					? "既読キャッシュをリセットしました"
+					: (res.error ?? "失敗しました"),
+			);
+		} catch (err) {
+			setReadCacheMsg(err instanceof Error ? err.message : String(err));
+		} finally {
+			setReadCacheResetting(false);
+		}
+	};
 
-              {section === "display" && (
-                <Section title="表示" desc="レイアウトの密度や入力挙動を調整します">
-                  <Card>
-                    <Row title="コンパクト表示" desc="吹き出しの余白を狭くして情報量を増やします">
-                      <Toggle
-                        checked={settings.compactDensity}
-                        onChange={(v) => updateSetting("compactDensity", v)}
-                        label="コンパクト表示"
-                      />
-                    </Row>
-                    <Row title="Enter で送信" desc="OFF の場合は Shift+Enter ではなく Enter で改行します">
-                      <Toggle
-                        checked={settings.enterToSend}
-                        onChange={(v) => updateSetting("enterToSend", v)}
-                        label="Enter で送信"
-                      />
-                    </Row>
-                    <Row title="ステータスメッセージ表示" desc="トークヘッダーに相手のステータスメッセージを表示します">
-                      <Toggle
-                        checked={settings.showStatusMessage}
-                        onChange={(v) => updateSetting("showStatusMessage", v)}
-                        label="ステータスメッセージ表示"
-                      />
-                    </Row>
-                    <Row title="背景表示" desc="トーク背景に相手のプロフィール背景画像を表示します">
-                      <Toggle
-                        checked={settings.showBackground}
-                        onChange={(v) => updateSetting("showBackground", v)}
-                        label="背景表示"
-                      />
-                    </Row>
-                    <Row title="吹き出しのしっぽ" desc="メッセージの吹き出しに三角形のしっぽを付けます">
-                      <Toggle
-                        checked={settings.bubbleTail}
-                        onChange={(v) => updateSetting("bubbleTail", v)}
-                        label="吹き出しのしっぽ"
-                      />
-                    </Row>
-                    <Row title="カスタムカーソル" desc="Vyline 専用のなめらかなポインターを有効にします（PC のみ）">
-                      <Toggle
-                        checked={settings.customCursor}
-                        onChange={(v) => updateSetting("customCursor", v)}
-                        label="カスタムカーソル"
-                      />
-                    </Row>
-                    <div className="py-3.5">
-                      <p className="mb-2 text-sm font-medium">トークリストの並び順</p>
-                      <div className="flex gap-2">
-                        {(["recent", "unread", "custom"] as const).map((opt) => (
-                          <button
-                            key={opt}
-                            type="button"
-                            onClick={() => updateSetting("chatSort", opt)}
-                            className={cn(
-                              "flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
-                              settings.chatSort === opt
-                                ? "border-transparent text-[var(--vy-accent-contrast)]"
-                                : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
-                            )}
-                            style={settings.chatSort === opt ? { background: "var(--vy-accent)" } : undefined}
-                          >
-                            {opt === "recent" ? "最新順" : opt === "unread" ? "未読順" : "カスタム順"}
-                          </button>
-                        ))}
-                      </div>
-                      <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                        カスタム順ではトークをドラッグして並べ替えできます。
-                      </p>
-                    </div>
-                    <div className="py-3.5">
-                      <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium">文字サイズ</p>
-                        <span className="text-xs text-[var(--vy-text-dim)]">{Math.round(settings.fontScale * 100)}%</span>
-                      </div>
-                      <input
-                        type="range"
-                        min={0.85}
-                        max={1.25}
-                        step={0.05}
-                        value={settings.fontScale}
-                        onChange={(e) => updateSetting("fontScale", Number(e.target.value))}
-                        aria-label="文字サイズ"
-                        className="mt-2 w-full accent-[var(--vy-accent)]"
-                      />
-                    </div>
-                  </Card>
-                </Section>
-              )}
+	const saveLineProfile = async () => {
+		if (!accountId) {
+			setProfileMsg("ログインが必要です");
+			return;
+		}
+		setProfileSaving(true);
+		setProfileMsg(null);
+		try {
+			const body: {
+				displayName?: string;
+				statusMessage?: string;
+				birthday?: { day: string; year?: string };
+			} = {
+				displayName: nameDraft.trim(),
+				statusMessage: statusDraft,
+			};
+			const bday = birthdayDraft.replace(/[^0-9]/g, "");
+			if (bday.length === 4) {
+				body.birthday = { day: bday };
+			} else if (bday.length === 8) {
+				body.birthday = { year: bday.slice(0, 4), day: bday.slice(4) };
+			}
+			const res = await api.line.updateProfile(accountId, body);
+			if (!res.ok || !res.profile) {
+				setProfileMsg(
+					res.ok === false
+						? ((res as { error?: string }).error ?? "更新失敗")
+						: "更新失敗",
+				);
+				return;
+			}
+			updateSelf({
+				name: res.profile.displayName || nameDraft,
+				status: res.profile.statusMessage ?? statusDraft,
+				birthday: res.profile.birthday?.display,
+				avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
+				mid: res.profile.mid,
+			});
+			setProfileMsg("LINE プロフィールを更新しました");
+		} catch (err) {
+			setProfileMsg(err instanceof Error ? err.message : String(err));
+		} finally {
+			setProfileSaving(false);
+		}
+	};
 
-              {section === "theme" && (
-                <ThemeSectionWithPreview />
-              )}
+	const onPickAvatar = async (file: File | null) => {
+		if (!file || !accountId) return;
+		setProfileSaving(true);
+		setProfileMsg(null);
+		try {
+			const buf = await file.arrayBuffer();
+			const res = await api.line.updateProfileImage(
+				accountId,
+				buf,
+				file.type || "image/jpeg",
+			);
+			if (res.ok && res.profile?.thumbnailUrl) {
+				updateSelf({
+					avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}`,
+				});
+				setProfileMsg("アイコンを更新しました");
+			} else {
+				setProfileMsg("アイコン更新に失敗しました");
+			}
+		} catch (err) {
+			setProfileMsg(err instanceof Error ? err.message : String(err));
+		} finally {
+			setProfileSaving(false);
+		}
+	};
 
-              {section === "privacy" && <PrivacySection />}
+	const onPickBackground = async (file: File | null) => {
+		if (!file || !accountId) return;
+		setProfileSaving(true);
+		setProfileMsg(null);
+		try {
+			const buf = await file.arrayBuffer();
+			const res = await api.line.updateProfileBackground(
+				accountId,
+				buf,
+				file.type || "image/jpeg",
+			);
+			if (res.ok) {
+				setProfileMsg("背景画像をアップロードしました");
+				// カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
+				updateSelf({
+					backgroundUrl: self.backgroundUrl
+						? `${self.backgroundUrl.split("?")[0]}?t=${Date.now()}`
+						: self.backgroundUrl,
+				});
+			} else {
+				setProfileMsg(res.error ?? "背景更新に失敗しました");
+			}
+		} catch (err) {
+			setProfileMsg(err instanceof Error ? err.message : String(err));
+		} finally {
+			setProfileSaving(false);
+		}
+	};
 
-              {section === "advanced" && <AdvancedSection />}
+	return (
+		<div className="flex h-dvh flex-col bg-[var(--vy-bg)]">
+			{/* header */}
+			<header className="flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
+				<button
+					type="button"
+					onClick={() => setScreen("chat")}
+					aria-label="チャットに戻る"
+					className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+				>
+					<IconArrowLeft size={20} />
+				</button>
+				<h1 className="text-lg font-semibold">設定</h1>
+			</header>
 
-              {section === "info" && <InfoSection />}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
+			<div className="mx-auto flex w-full max-w-5xl flex-1 overflow-hidden">
+				{/* nav */}
+				<nav className="vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block">
+					{NAV.map((n) => (
+						<button
+							key={n.key}
+							type="button"
+							onClick={() => setSection(n.key)}
+							className={cn(
+								"mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+								section === n.key
+									? "text-[var(--vy-accent-contrast)]"
+									: "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
+							)}
+							style={
+								section === n.key
+									? { background: "var(--vy-accent)" }
+									: undefined
+							}
+						>
+							{n.icon}
+							{n.label}
+						</button>
+					))}
+				</nav>
+
+				{/* mobile section chips */}
+				<div className="flex w-full flex-col overflow-hidden">
+					<div className="vy-scroll flex gap-2 overflow-x-auto border-b border-[var(--vy-border)] px-4 py-2 md:hidden">
+						{NAV.map((n) => (
+							<button
+								key={n.key}
+								type="button"
+								onClick={() => setSection(n.key)}
+								className={cn(
+									"shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
+									section === n.key
+										? "text-[var(--vy-accent-contrast)]"
+										: "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
+								)}
+								style={
+									section === n.key
+										? { background: "var(--vy-accent)" }
+										: undefined
+								}
+							>
+								{n.label}
+							</button>
+						))}
+					</div>
+
+					<div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
+						<div className="mx-auto max-w-2xl">
+							{section === "profile" && (
+								<Section
+									title="プロフィール"
+									desc="アイコン・背景・表示名・ステータスを編集"
+								>
+									<div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+										<div
+											className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+											style={
+												self.backgroundUrl
+													? {
+															backgroundImage: `url(${self.backgroundUrl})`,
+															backgroundSize: "cover",
+															backgroundPosition: "center",
+														}
+													: undefined
+											}
+										>
+											<label className="absolute right-3 bottom-3 cursor-pointer rounded-lg bg-black/45 px-2.5 py-1 text-[0.7rem] font-medium text-white backdrop-blur hover:bg-black/60">
+												背景を変更
+												<input
+													type="file"
+													accept="image/*"
+													className="hidden"
+													disabled={profileSaving}
+													onChange={(e) =>
+														void onPickBackground(e.target.files?.[0] ?? null)
+													}
+												/>
+											</label>
+										</div>
+										<div className="-mt-10 flex items-end gap-4 px-4 pb-4">
+											<div className="relative">
+												<Avatar
+													glyph={self.avatar}
+													color="var(--vy-accent)"
+													size={72}
+													imageUrl={self.avatarUrl}
+												/>
+												<label className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
+													変更
+													<input
+														type="file"
+														accept="image/*"
+														className="hidden"
+														disabled={profileSaving}
+														onChange={(e) =>
+															void onPickAvatar(e.target.files?.[0] ?? null)
+														}
+													/>
+												</label>
+											</div>
+											<div className="min-w-0 flex-1 pb-1">
+												<p className="text-xs text-[var(--vy-text-dim)]">
+													下の欄で表示名・ステメを編集
+												</p>
+											</div>
+										</div>
+									</div>
+									<Card>
+										<div className="py-3">
+											<label className="text-sm font-medium">表示名</label>
+											<input
+												value={nameDraft}
+												onChange={(e) => setNameDraft(e.target.value)}
+												className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+											/>
+										</div>
+										<div className="py-3">
+											<label className="text-sm font-medium">
+												ステータスメッセージ
+											</label>
+											<input
+												value={statusDraft}
+												onChange={(e) => setStatusDraft(e.target.value)}
+												className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+											/>
+										</div>
+										<div className="py-3">
+											<label className="text-sm font-medium">
+												誕生日（MMDD / YYYYMMDD・任意）
+											</label>
+											<input
+												value={birthdayDraft}
+												onChange={(e) => setBirthdayDraft(e.target.value)}
+												placeholder={self.birthday || "0701"}
+												className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+											/>
+											<p className="mt-1 text-[0.7rem] text-[var(--vy-text-dim)]">
+												一部デバイス種別では誕生日更新がサーバ拒否されることがあります
+											</p>
+										</div>
+									</Card>
+									{self.musicProfile && (
+										<p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+											音楽（表示のみ）: {self.musicProfile.slice(0, 80)}
+										</p>
+									)}
+									<button
+										type="button"
+										disabled={profileSaving}
+										onClick={() => void saveLineProfile()}
+										className="mt-4 rounded-xl px-4 py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+										style={{ background: "var(--vy-accent)" }}
+									>
+										{profileSaving ? "保存中…" : "LINE に保存"}
+									</button>
+									{profileMsg && (
+										<p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+											{profileMsg}
+										</p>
+									)}
+								</Section>
+							)}
+
+							{section === "read" && (
+								<Section
+									title="既読"
+									desc="既読の送信と表示をコントロールします"
+								>
+									<Card>
+										<Row
+											title="既読を送る"
+											desc="OFF にすると相手に既読が表示されません"
+										>
+											<Toggle
+												checked={settings.readReceipts}
+												onChange={(v) => updateSetting("readReceipts", v)}
+												label="既読を送る"
+											/>
+										</Row>
+										<Row
+											title="既読者一覧を表示"
+											desc="グループで、自分のメッセージを読んだ人を折りたたみで表示します"
+										>
+											<Toggle
+												checked={settings.showReaderList}
+												onChange={(v) => updateSetting("showReaderList", v)}
+												label="既読者一覧を表示"
+											/>
+										</Row>
+									</Card>
+									<p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+										DM
+										では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
+										「既読 3」のように人数を表示します。
+									</p>
+
+									<div className="mt-4">
+										<Card>
+											<Row
+												title="取り消されたメッセージを保持して表示"
+												desc="相手が送信を取り消しても、受信済みの元の内容をローカルに残して表示します（OFF でもサーバー側は保持し続けます）"
+											>
+												<Toggle
+													checked={settings.keepRevokedMessages}
+													onChange={(v) =>
+														updateSetting("keepRevokedMessages", v)
+													}
+													label="取り消されたメッセージを保持して表示"
+												/>
+											</Row>
+										</Card>
+									</div>
+
+									<div className="mt-4">
+										<Card>
+											<div className="py-3.5">
+												<div className="flex items-center justify-between gap-2">
+													<div>
+														<p className="text-sm font-medium">
+															既読キャッシュをリセット
+														</p>
+														<p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+															ローカルの既読情報キャッシュを破棄し、次回取得時に
+															LINE サーバーから強制再取得します
+														</p>
+													</div>
+													<button
+														type="button"
+														disabled={!accountId || readCacheResetting}
+														onClick={() => void resetReadCache()}
+														className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+													>
+														{readCacheResetting ? "リセット中…" : "リセット"}
+													</button>
+												</div>
+												{readCacheMsg && (
+													<p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+														{readCacheMsg}
+													</p>
+												)}
+											</div>
+										</Card>
+									</div>
+								</Section>
+							)}
+
+							{section === "display" && (
+								<Section
+									title="表示"
+									desc="レイアウトの密度や入力挙動を調整します"
+								>
+									<Card>
+										<Row
+											title="コンパクト表示"
+											desc="吹き出しの余白を狭くして情報量を増やします"
+										>
+											<Toggle
+												checked={settings.compactDensity}
+												onChange={(v) => updateSetting("compactDensity", v)}
+												label="コンパクト表示"
+											/>
+										</Row>
+										<Row
+											title="Enter で送信"
+											desc="OFF の場合は Shift+Enter ではなく Enter で改行します"
+										>
+											<Toggle
+												checked={settings.enterToSend}
+												onChange={(v) => updateSetting("enterToSend", v)}
+												label="Enter で送信"
+											/>
+										</Row>
+										<Row
+											title="ステータスメッセージ表示"
+											desc="トークヘッダーに相手のステータスメッセージを表示します"
+										>
+											<Toggle
+												checked={settings.showStatusMessage}
+												onChange={(v) => updateSetting("showStatusMessage", v)}
+												label="ステータスメッセージ表示"
+											/>
+										</Row>
+										<Row
+											title="背景表示"
+											desc="トーク背景に相手のプロフィール背景画像を表示します"
+										>
+											<Toggle
+												checked={settings.showBackground}
+												onChange={(v) => updateSetting("showBackground", v)}
+												label="背景表示"
+											/>
+										</Row>
+										<Row
+											title="吹き出しのしっぽ"
+											desc="メッセージの吹き出しに三角形のしっぽを付けます"
+										>
+											<Toggle
+												checked={settings.bubbleTail}
+												onChange={(v) => updateSetting("bubbleTail", v)}
+												label="吹き出しのしっぽ"
+											/>
+										</Row>
+										<Row
+											title="カスタムカーソル"
+											desc="Vyline 専用のなめらかなポインターを有効にします（PC のみ）"
+										>
+											<Toggle
+												checked={settings.customCursor}
+												onChange={(v) => updateSetting("customCursor", v)}
+												label="カスタムカーソル"
+											/>
+										</Row>
+										<div className="py-3.5">
+											<p className="mb-2 text-sm font-medium">
+												トークリストの並び順
+											</p>
+											<div className="flex gap-2">
+												{(["recent", "unread", "custom"] as const).map(
+													(opt) => (
+														<button
+															key={opt}
+															type="button"
+															onClick={() => updateSetting("chatSort", opt)}
+															className={cn(
+																"flex-1 rounded-lg border px-3 py-2 text-xs font-medium transition-colors",
+																settings.chatSort === opt
+																	? "border-transparent text-[var(--vy-accent-contrast)]"
+																	: "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
+															)}
+															style={
+																settings.chatSort === opt
+																	? { background: "var(--vy-accent)" }
+																	: undefined
+															}
+														>
+															{opt === "recent"
+																? "最新順"
+																: opt === "unread"
+																	? "未読順"
+																	: "カスタム順"}
+														</button>
+													),
+												)}
+											</div>
+											<p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+												カスタム順ではトークをドラッグして並べ替えできます。
+											</p>
+										</div>
+										<div className="py-3.5">
+											<div className="flex items-center justify-between">
+												<p className="text-sm font-medium">文字サイズ</p>
+												<span className="text-xs text-[var(--vy-text-dim)]">
+													{Math.round(settings.fontScale * 100)}%
+												</span>
+											</div>
+											<input
+												type="range"
+												min={0.85}
+												max={1.25}
+												step={0.05}
+												value={settings.fontScale}
+												onChange={(e) =>
+													updateSetting("fontScale", Number(e.target.value))
+												}
+												aria-label="文字サイズ"
+												className="mt-2 w-full accent-[var(--vy-accent)]"
+											/>
+										</div>
+									</Card>
+
+									<div className="mt-4">
+										<Card>
+											<div className="py-3.5">
+												<p className="text-sm font-medium">カスタムフォント</p>
+												<p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+													TTF/OTF
+													ファイルを選ぶとアプリ全体のフォントを差し替えます（ローカルに保存され次回起動時も適用されます）
+												</p>
+												<div className="mt-3 flex items-center gap-2">
+													<label className="cursor-pointer rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]">
+														フォントを選ぶ
+														<input
+															type="file"
+															accept=".ttf,.otf,font/ttf,font/otf,application/x-font-ttf,application/x-font-otf"
+															className="hidden"
+															onChange={(e) => {
+																const file = e.target.files?.[0];
+																if (file) void handleCustomFontFile(file);
+																e.target.value = "";
+															}}
+														/>
+													</label>
+													{customFontName && (
+														<button
+															type="button"
+															onClick={() => void handleClearCustomFont()}
+															className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)]"
+														>
+															解除
+														</button>
+													)}
+												</div>
+												{customFontName && (
+													<p className="mt-2 truncate text-xs text-[var(--vy-text-dim)]">
+														適用中: {customFontName}
+													</p>
+												)}
+												{customFontMsg && (
+													<p
+														className="mt-2 text-xs"
+														style={{ color: "var(--vy-accent)" }}
+													>
+														{customFontMsg}
+													</p>
+												)}
+											</div>
+										</Card>
+									</div>
+
+									<div className="mt-4">
+										<Card>
+											<div className="py-3.5">
+												<p className="text-sm font-medium">
+													着信音・通話終了音
+												</p>
+												<p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+													音声ファイル（mp3/wav/ogg）を選ぶと、既定の合成音の代わりに再生されます
+												</p>
+												<div className="mt-3 flex items-center gap-2">
+													<label className="cursor-pointer rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]">
+														着信音を選ぶ
+														<input
+															type="file"
+															accept="audio/*"
+															className="hidden"
+															onChange={(e) => {
+																const file = e.target.files?.[0];
+																if (file)
+																	void handleCallSoundFile("ringtone", file);
+																e.target.value = "";
+															}}
+														/>
+													</label>
+													{ringtoneName && (
+														<button
+															type="button"
+															onClick={() =>
+																void handleClearCallSound("ringtone")
+															}
+															className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)]"
+														>
+															解除
+														</button>
+													)}
+												</div>
+												{ringtoneName && (
+													<p className="mt-1 truncate text-xs text-[var(--vy-text-dim)]">
+														適用中: {ringtoneName}
+													</p>
+												)}
+
+												<div className="mt-4 flex items-center gap-2">
+													<label className="cursor-pointer rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]">
+														終了音を選ぶ
+														<input
+															type="file"
+															accept="audio/*"
+															className="hidden"
+															onChange={(e) => {
+																const file = e.target.files?.[0];
+																if (file) void handleCallSoundFile("end", file);
+																e.target.value = "";
+															}}
+														/>
+													</label>
+													{endSoundName && (
+														<button
+															type="button"
+															onClick={() => void handleClearCallSound("end")}
+															className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)]"
+														>
+															解除
+														</button>
+													)}
+												</div>
+												{endSoundName && (
+													<p className="mt-1 truncate text-xs text-[var(--vy-text-dim)]">
+														適用中: {endSoundName}
+													</p>
+												)}
+
+												{callSoundMsg && (
+													<p
+														className="mt-2 text-xs"
+														style={{ color: "var(--vy-accent)" }}
+													>
+														{callSoundMsg}
+													</p>
+												)}
+											</div>
+										</Card>
+									</div>
+								</Section>
+							)}
+
+							{section === "theme" && <ThemeSectionWithPreview />}
+
+							{section === "privacy" && <PrivacySection />}
+
+							{section === "autoReply" && <AutoReplySection />}
+
+							{section === "advanced" && <AdvancedSection />}
+
+							{section === "info" && <InfoSection />}
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	);
 }
 
 function Section({
-  title,
-  desc,
-  children,
+	title,
+	desc,
+	children,
 }: {
-  title: string
-  desc?: string
-  children: React.ReactNode
+	title: string;
+	desc?: string;
+	children: React.ReactNode;
 }) {
-  return (
-    <div className="vy-fade-in">
-      <h2 className="text-xl font-bold tracking-tight">{title}</h2>
-      {desc && <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>}
-      {children}
-    </div>
-  )
+	return (
+		<div className="vy-fade-in">
+			<h2 className="text-xl font-bold tracking-tight">{title}</h2>
+			{desc && (
+				<p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>
+			)}
+			{children}
+		</div>
+	);
 }
 
 function ThemeSectionWithPreview() {
-  const theme = useStore((s) => s.theme)
-  const fontScale = useStore((s) => s.settings.fontScale)
-  const compact = useStore((s) => s.settings.compactDensity)
-  return (
-    <div className="vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
-      <div>
-        <h2 className="text-xl font-bold tracking-tight">NezuTheme</h2>
-        <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">
-          着せ替えを選ぶ・カスタムして自分だけの Vyline に
-        </p>
-        <VyThemePanel />
-      </div>
-      <aside className="hidden lg:block">
-        <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">ライブプレビュー</p>
-        <div
-          className="sticky top-4 overflow-hidden border border-[var(--vy-border)] shadow-lg"
-          style={{
-            background: theme.chatImage
-              ? undefined
-              : theme.chatBg,
-            backgroundImage: theme.chatImage
-              ? `linear-gradient(color-mix(in oklab, ${theme.chatBg} 72%, transparent), color-mix(in oklab, ${theme.chatBg} 72%, transparent)), url(${theme.chatImage})`
-              : theme.pattern
-                ? `radial-gradient(circle at 1px 1px, color-mix(in oklab, ${theme.text} 8%, transparent) 1px, transparent 0)`
-                : undefined,
-            backgroundSize: theme.chatImage ? "cover" : theme.pattern ? "14px 14px" : undefined,
-            backgroundPosition: "center",
-            borderRadius: `${theme.radius}rem`,
-          }}
-        >
-          <div
-            className="flex items-center gap-2 border-b px-3 py-2.5 backdrop-blur-sm"
-            style={{ background: `color-mix(in oklab, ${theme.surface} 92%, transparent)`, borderColor: theme.border }}
-          >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold" style={{ background: theme.accent, color: theme.accentContrast }}>
-              V
-            </span>
-            <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold" style={{ color: theme.text }}>
-                {theme.name}
-              </p>
-              <p className="truncate text-[0.65rem]" style={{ color: theme.textDim }}>
-                オンライン · 角丸 {theme.radius.toFixed(2)}
-              </p>
-            </div>
-          </div>
-          <div
-            className="space-y-2 p-3"
-            style={{ fontSize: `${0.95 * fontScale}rem`, paddingTop: compact ? "0.55rem" : "0.75rem", paddingBottom: compact ? "0.55rem" : "0.85rem" }}
-          >
-            <div
-              className="max-w-[88%] px-3 shadow-sm"
-              style={{
-                background: theme.msgIn,
-                color: theme.msgInText,
-                borderRadius: `${theme.radius}rem`,
-                paddingTop: compact ? "0.32rem" : "0.55rem",
-                paddingBottom: compact ? "0.32rem" : "0.55rem",
-              }}
-            >
-              新しい着せ替え、どう？
-            </div>
-            <div
-              className="ml-auto max-w-[88%] px-3 shadow-sm"
-              style={{
-                background: theme.msgOut,
-                color: theme.msgOutText,
-                borderRadius: `${theme.radius}rem`,
-                paddingTop: compact ? "0.32rem" : "0.55rem",
-                paddingBottom: compact ? "0.32rem" : "0.55rem",
-              }}
-            >
-              すごくいい感じ！
-            </div>
-            <p className="text-right text-[0.7rem] font-medium" style={{ color: theme.accent }}>
-              既読
-            </p>
-            <div
-              className="mt-1 flex items-center gap-2 rounded-full border px-3 py-1.5"
-              style={{ background: theme.surface, borderColor: theme.border }}
-            >
-              <span className="flex-1 text-[0.7rem]" style={{ color: theme.textDim }}>メッセージを入力</span>
-              <span className="rounded-full px-2 py-0.5 text-[0.65rem] font-semibold" style={{ background: theme.accent, color: theme.accentContrast }}>
-                送信
-              </span>
-            </div>
-          </div>
-        </div>
-      </aside>
-    </div>
-  )
+	const theme = useStore((s) => s.theme);
+	const fontScale = useStore((s) => s.settings.fontScale);
+	const compact = useStore((s) => s.settings.compactDensity);
+	const themeSyncWithSystem = useStore((s) => s.settings.themeSyncWithSystem);
+	const updateSetting = useStore((s) => s.updateSetting);
+	return (
+		<div className="vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
+			<div>
+				<h2 className="text-xl font-bold tracking-tight">NezuTheme</h2>
+				<p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">
+					着せ替えを選ぶ・カスタムして自分だけの Vyline に
+				</p>
+				<Card>
+					<Row
+						title="OS のダーク/ライトモードと自動同期"
+						desc="ON にするとシステムのダーク/ライト切替えに合わせてテーマを自動切替えします"
+					>
+						<Toggle
+							checked={themeSyncWithSystem}
+							onChange={(v) => updateSetting("themeSyncWithSystem", v)}
+							label="OS のダーク/ライトモードと自動同期"
+						/>
+					</Row>
+				</Card>
+				<div className="mt-4" />
+				<VyThemePanel />
+			</div>
+			<aside className="hidden lg:block">
+				<p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">
+					ライブプレビュー
+				</p>
+				<div
+					className="sticky top-4 overflow-hidden border border-[var(--vy-border)] shadow-lg"
+					style={{
+						background: theme.chatImage ? undefined : theme.chatBg,
+						backgroundImage: theme.chatImage
+							? `linear-gradient(color-mix(in oklab, ${theme.chatBg} 72%, transparent), color-mix(in oklab, ${theme.chatBg} 72%, transparent)), url(${theme.chatImage})`
+							: theme.pattern
+								? `radial-gradient(circle at 1px 1px, color-mix(in oklab, ${theme.text} 8%, transparent) 1px, transparent 0)`
+								: undefined,
+						backgroundSize: theme.chatImage
+							? "cover"
+							: theme.pattern
+								? "14px 14px"
+								: undefined,
+						backgroundPosition: "center",
+						borderRadius: `${theme.radius}rem`,
+					}}
+				>
+					<div
+						className="flex items-center gap-2 border-b px-3 py-2.5 backdrop-blur-sm"
+						style={{
+							background: `color-mix(in oklab, ${theme.surface} 92%, transparent)`,
+							borderColor: theme.border,
+						}}
+					>
+						<span
+							className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold"
+							style={{ background: theme.accent, color: theme.accentContrast }}
+						>
+							V
+						</span>
+						<div className="min-w-0 flex-1">
+							<p
+								className="truncate text-sm font-semibold"
+								style={{ color: theme.text }}
+							>
+								{theme.name}
+							</p>
+							<p
+								className="truncate text-[0.65rem]"
+								style={{ color: theme.textDim }}
+							>
+								オンライン · 角丸 {theme.radius.toFixed(2)}
+							</p>
+						</div>
+					</div>
+					<div
+						className="space-y-2 p-3"
+						style={{
+							fontSize: `${0.95 * fontScale}rem`,
+							paddingTop: compact ? "0.55rem" : "0.75rem",
+							paddingBottom: compact ? "0.55rem" : "0.85rem",
+						}}
+					>
+						<div
+							className="max-w-[88%] px-3 shadow-sm"
+							style={{
+								background: theme.msgIn,
+								color: theme.msgInText,
+								borderRadius: `${theme.radius}rem`,
+								paddingTop: compact ? "0.32rem" : "0.55rem",
+								paddingBottom: compact ? "0.32rem" : "0.55rem",
+							}}
+						>
+							新しい着せ替え、どう？
+						</div>
+						<div
+							className="ml-auto max-w-[88%] px-3 shadow-sm"
+							style={{
+								background: theme.msgOut,
+								color: theme.msgOutText,
+								borderRadius: `${theme.radius}rem`,
+								paddingTop: compact ? "0.32rem" : "0.55rem",
+								paddingBottom: compact ? "0.32rem" : "0.55rem",
+							}}
+						>
+							すごくいい感じ！
+						</div>
+						<p
+							className="text-right text-[0.7rem] font-medium"
+							style={{ color: theme.accent }}
+						>
+							既読
+						</p>
+						<div
+							className="mt-1 flex items-center gap-2 rounded-full border px-3 py-1.5"
+							style={{ background: theme.surface, borderColor: theme.border }}
+						>
+							<span
+								className="flex-1 text-[0.7rem]"
+								style={{ color: theme.textDim }}
+							>
+								メッセージを入力
+							</span>
+							<span
+								className="rounded-full px-2 py-0.5 text-[0.65rem] font-semibold"
+								style={{
+									background: theme.accent,
+									color: theme.accentContrast,
+								}}
+							>
+								送信
+							</span>
+						</div>
+					</div>
+				</div>
+			</aside>
+		</div>
+	);
 }
 
-type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>
+type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
 
 function AdvancedSection() {
-  const accountId = useStore((s) => s.accountId)
-  const activeChatId = useStore((s) => s.activeChatId)
-  const pollIncoming = useStore((s) => s.pollIncoming)
-  const pollMessagesDelta = useStore((s) => s.pollMessagesDelta)
-  const refreshChatsSilently = useStore((s) => s.refreshChatsSilently)
-  const [restoring, setRestoring] = useState(false)
-  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<string | null>(null)
-  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
+	const accountId = useStore((s) => s.accountId);
+	const activeChatId = useStore((s) => s.activeChatId);
+	const pollIncoming = useStore((s) => s.pollIncoming);
+	const pollMessagesDelta = useStore((s) => s.pollMessagesDelta);
+	const refreshChatsSilently = useStore((s) => s.refreshChatsSilently);
+	const [restoring, setRestoring] = useState(false);
+	const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(
+		null,
+	);
+	const [syncing, setSyncing] = useState(false);
+	const [syncMsg, setSyncMsg] = useState<string | null>(null);
+	const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
-  const handleRestore = async () => {
-    if (!accountId) {
-      setRestoreResult({ ok: false, error: "ログインが必要です" })
-      return
-    }
-    setRestoring(true)
-    setRestoreResult(null)
-    try {
-      const res = await api.line.restoreDesktop(accountId)
-      setRestoreResult(res)
-    } catch (e) {
-      setRestoreResult({
-        ok: false,
-        error: e instanceof Error ? e.message : "復元に失敗しました",
-      })
-    } finally {
-      setRestoring(false)
-    }
-  }
+	const handleRestore = async () => {
+		if (!accountId) {
+			setRestoreResult({ ok: false, error: "ログインが必要です" });
+			return;
+		}
+		setRestoring(true);
+		setRestoreResult(null);
+		try {
+			const res = await api.line.restoreDesktop(accountId);
+			setRestoreResult(res);
+		} catch (e) {
+			setRestoreResult({
+				ok: false,
+				error: e instanceof Error ? e.message : "復元に失敗しました",
+			});
+		} finally {
+			setRestoring(false);
+		}
+	};
 
-  const handleSync = async () => {
-    if (!accountId || syncing) return
-    setSyncing(true)
-    setSyncMsg(null)
-    const start = Date.now()
-    try {
-      // 差分同期: イベントポーリング + アクティブチャットのデルタ + チャット一覧更新
-      await pollIncoming()
-      if (activeChatId) {
-        await pollMessagesDelta(activeChatId)
-      }
-      await refreshChatsSilently()
-      const elapsed = Date.now() - start
-      setLastSyncAt(Date.now())
-      setSyncMsg(`同期完了 (${elapsed}ms)`)
-    } catch (err) {
-      setSyncMsg(err instanceof Error ? err.message : "同期に失敗しました")
-    } finally {
-      setSyncing(false)
-    }
-  }
+	const handleSync = async () => {
+		if (!accountId || syncing) return;
+		setSyncing(true);
+		setSyncMsg(null);
+		const start = Date.now();
+		try {
+			// 差分同期: イベントポーリング + アクティブチャットのデルタ + チャット一覧更新
+			await pollIncoming();
+			if (activeChatId) {
+				await pollMessagesDelta(activeChatId);
+			}
+			await refreshChatsSilently();
+			const elapsed = Date.now() - start;
+			setLastSyncAt(Date.now());
+			setSyncMsg(`同期完了 (${elapsed}ms)`);
+		} catch (err) {
+			setSyncMsg(err instanceof Error ? err.message : "同期に失敗しました");
+		} finally {
+			setSyncing(false);
+		}
+	};
 
-  return (
-    <Section title="詳細・復元" desc="同期、Desktop データの復元やデバッグ導線">
-      <Card>
-        <Row title="最新を同期" desc="新着メッセージを差分で取得します（手動）">
-          <div className="flex items-center gap-2">
-            {lastSyncAt && (
-              <span className="text-[0.65rem] text-[var(--vy-text-dim)]">
-                {formatRelativeTime(lastSyncAt)}
-              </span>
-            )}
-            <button
-              type="button"
-              onClick={handleSync}
-              disabled={syncing || !accountId}
-              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              {syncing ? "同期中…" : "同期"}
-            </button>
-          </div>
-        </Row>
-        {syncMsg && (
-          <div className="py-2">
-            <p className="text-xs text-[var(--vy-text-dim)]">{syncMsg}</p>
-          </div>
-        )}
-        <Row title="Desktop データを復元" desc="以前の端末のトーク履歴・設定を読み込みます">
-          <button
-            type="button"
-            onClick={handleRestore}
-            disabled={restoring || !accountId}
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
-          >
-            {restoring ? "復元中…" : "復元"}
-          </button>
-        </Row>
-        <Row title="設定をエクスポート" desc="テーマ・非表示リスト・設定をJSONファイルに書き出します">
-          <button
-            type="button"
-            onClick={() => {
-              const state = useStore.getState()
-              const exportData = {
-                version: 1,
-                exportedAt: new Date().toISOString(),
-                theme: state.theme,
-                settings: state.settings,
-                hiddenChats: state.chats.filter((c) => c.hidden).map((c) => c.id),
-                pinnedChats: state.chats.filter((c) => c.pinned).map((c) => c.id),
-                customOrder: state.customOrder,
-                localNames: Object.fromEntries(
-                  state.chats.filter((c) => c.localName).map((c) => [c.id, c.localName]),
-                ),
-                mutedChats: state.chats.filter((c) => c.muted).map((c) => c.id),
-                sidebarWidth: state.sidebarWidth,
-              }
-              const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" })
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement("a")
-              a.href = url
-              a.download = `vyline-backup-${new Date().toISOString().slice(0, 10)}.json`
-              a.click()
-              URL.revokeObjectURL(url)
-            }}
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
-          >
-            エクスポート
-          </button>
-        </Row>
-        <Row title="設定をインポート" desc="エクスポートしたJSONファイルから設定を復元します">
-          <button
-            type="button"
-            onClick={() => {
-              const input = document.createElement("input")
-              input.type = "file"
-              input.accept = ".json"
-              input.onchange = async () => {
-                const file = input.files?.[0]
-                if (!file) return
-                try {
-                  const text = await file.text()
-                  const data = JSON.parse(text)
-                  if (!data || typeof data !== "object") throw new Error("Invalid format")
-                  const state = useStore.getState()
-                  // テーマ
-                  if (data.theme && typeof data.theme === "object") state.setTheme(data.theme)
-                  // 設定
-                  if (data.settings && typeof data.settings === "object") {
-                    for (const [k, v] of Object.entries(data.settings as Record<string, unknown>)) {
-                      state.updateSetting(k as never, v as never)
-                    }
-                  }
-                  // 非表示チャット
-                  if (Array.isArray(data.hiddenChats)) {
-                    for (const id of data.hiddenChats) state.setHidden(id, true)
-                  }
-                  // ピン留め
-                  if (Array.isArray(data.pinnedChats)) {
-                    for (const id of data.pinnedChats) {
-                      if (!state.chats.find((c) => c.id === id)?.pinned) state.togglePin(id)
-                    }
-                  }
-                  // カスタム順序
-                  if (Array.isArray(data.customOrder)) state.setCustomOrder(data.customOrder)
-                  // ローカル名
-                  if (data.localNames && typeof data.localNames === "object") {
-                    for (const [id, name] of Object.entries(data.localNames as Record<string, string>)) {
-                      state.setLocalName(id, name)
-                    }
-                  }
-                  // ミュート
-                  if (Array.isArray(data.mutedChats)) {
-                    for (const id of data.mutedChats) {
-                      if (!state.chats.find((c) => c.id === id)?.muted) state.toggleMute(id)
-                    }
-                  }
-                  // サイドバー幅
-                  if (typeof data.sidebarWidth === "number") state.setSidebarWidth(data.sidebarWidth)
-                  alert("設定をインポートしました")
-                } catch {
-                  alert("インポートに失敗しました。ファイルが破損している可能性があります。")
-                }
-              }
-              input.click()
-            }}
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
-          >
-            インポート
-          </button>
-        </Row>
-        <Row title="キャッシュを削除" desc="メディアの一時ファイルを削除します">
-          <button
-            type="button"
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
-          >
-            削除
-          </button>
-        </Row>
-        <Row title="デバッグログを表示" desc="接続状態や送受信ログを確認します（開発者向け）">
-          <button
-            type="button"
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
-          >
-            開く
-          </button>
-        </Row>
-        <Row
-          title="設定を初期化"
-          desc="テーマ・設定・表示を初期値に戻します（ログイン状態・トーク履歴は保持）"
-        >
-          <button
-            type="button"
-            onClick={() => {
-              if (
-                !window.confirm(
-                  "テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
-                )
-              )
-                return
-              useStore.getState().resetSettings()
-            }}
-            className="rounded-lg border border-[var(--vy-danger)] px-3 py-1.5 text-xs font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)]"
-          >
-            初期化
-          </button>
-        </Row>
-      </Card>
+	return (
+		<Section title="詳細・復元" desc="同期、Desktop データの復元やデバッグ導線">
+			<Card>
+				<Row title="最新を同期" desc="新着メッセージを差分で取得します（手動）">
+					<div className="flex items-center gap-2">
+						{lastSyncAt && (
+							<span className="text-[0.65rem] text-[var(--vy-text-dim)]">
+								{formatRelativeTime(lastSyncAt)}
+							</span>
+						)}
+						<button
+							type="button"
+							onClick={handleSync}
+							disabled={syncing || !accountId}
+							className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+						>
+							{syncing ? "同期中…" : "同期"}
+						</button>
+					</div>
+				</Row>
+				{syncMsg && (
+					<div className="py-2">
+						<p className="text-xs text-[var(--vy-text-dim)]">{syncMsg}</p>
+					</div>
+				)}
+				<Row
+					title="Desktop データを復元"
+					desc="以前の端末のトーク履歴・設定を読み込みます"
+				>
+					<button
+						type="button"
+						onClick={handleRestore}
+						disabled={restoring || !accountId}
+						className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+					>
+						{restoring ? "復元中…" : "復元"}
+					</button>
+				</Row>
+				<Row
+					title="設定をエクスポート"
+					desc="テーマ・非表示リスト・設定をJSONファイルに書き出します"
+				>
+					<button
+						type="button"
+						onClick={() => {
+							const state = useStore.getState();
+							const exportData = {
+								version: 1,
+								exportedAt: new Date().toISOString(),
+								theme: state.theme,
+								settings: state.settings,
+								hiddenChats: state.chats
+									.filter((c) => c.hidden)
+									.map((c) => c.id),
+								pinnedChats: state.chats
+									.filter((c) => c.pinned)
+									.map((c) => c.id),
+								customOrder: state.customOrder,
+								localNames: Object.fromEntries(
+									state.chats
+										.filter((c) => c.localName)
+										.map((c) => [c.id, c.localName]),
+								),
+								mutedChats: state.chats.filter((c) => c.muted).map((c) => c.id),
+								sidebarWidth: state.sidebarWidth,
+							};
+							const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+								type: "application/json",
+							});
+							const url = URL.createObjectURL(blob);
+							const a = document.createElement("a");
+							a.href = url;
+							a.download = `vyline-backup-${new Date().toISOString().slice(0, 10)}.json`;
+							a.click();
+							URL.revokeObjectURL(url);
+						}}
+						className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
+					>
+						エクスポート
+					</button>
+				</Row>
+				<Row
+					title="設定をインポート"
+					desc="エクスポートしたJSONファイルから設定を復元します"
+				>
+					<button
+						type="button"
+						onClick={() => {
+							const input = document.createElement("input");
+							input.type = "file";
+							input.accept = ".json";
+							input.onchange = async () => {
+								const file = input.files?.[0];
+								if (!file) return;
+								try {
+									const text = await file.text();
+									const data = JSON.parse(text);
+									if (!data || typeof data !== "object")
+										throw new Error("Invalid format");
+									const state = useStore.getState();
+									// テーマ
+									if (data.theme && typeof data.theme === "object")
+										state.setTheme(data.theme);
+									// 設定
+									if (data.settings && typeof data.settings === "object") {
+										for (const [k, v] of Object.entries(
+											data.settings as Record<string, unknown>,
+										)) {
+											state.updateSetting(k as never, v as never);
+										}
+									}
+									// 非表示チャット
+									if (Array.isArray(data.hiddenChats)) {
+										for (const id of data.hiddenChats)
+											state.setHidden(id, true);
+									}
+									// ピン留め
+									if (Array.isArray(data.pinnedChats)) {
+										for (const id of data.pinnedChats) {
+											if (!state.chats.find((c) => c.id === id)?.pinned)
+												state.togglePin(id);
+										}
+									}
+									// カスタム順序
+									if (Array.isArray(data.customOrder))
+										state.setCustomOrder(data.customOrder);
+									// ローカル名
+									if (data.localNames && typeof data.localNames === "object") {
+										for (const [id, name] of Object.entries(
+											data.localNames as Record<string, string>,
+										)) {
+											state.setLocalName(id, name);
+										}
+									}
+									// ミュート
+									if (Array.isArray(data.mutedChats)) {
+										for (const id of data.mutedChats) {
+											if (!state.chats.find((c) => c.id === id)?.muted)
+												state.toggleMute(id);
+										}
+									}
+									// サイドバー幅
+									if (typeof data.sidebarWidth === "number")
+										state.setSidebarWidth(data.sidebarWidth);
+									alert("設定をインポートしました");
+								} catch {
+									alert(
+										"インポートに失敗しました。ファイルが破損している可能性があります。",
+									);
+								}
+							};
+							input.click();
+						}}
+						className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
+					>
+						インポート
+					</button>
+				</Row>
+				<Row title="キャッシュを削除" desc="メディアの一時ファイルを削除します">
+					<button
+						type="button"
+						className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
+					>
+						削除
+					</button>
+				</Row>
+				<Row
+					title="デバッグログを表示"
+					desc="接続状態や送受信ログを確認します（開発者向け）"
+				>
+					<button
+						type="button"
+						className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
+					>
+						開く
+					</button>
+				</Row>
+				<Row
+					title="設定を初期化"
+					desc="テーマ・設定・表示を初期値に戻します（ログイン状態・トーク履歴は保持）"
+				>
+					<button
+						type="button"
+						onClick={() => {
+							if (
+								!window.confirm(
+									"テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
+								)
+							)
+								return;
+							useStore.getState().resetSettings();
+						}}
+						className="rounded-lg border border-[var(--vy-danger)] px-3 py-1.5 text-xs font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)]"
+					>
+						初期化
+					</button>
+				</Row>
+			</Card>
 
-      {restoreResult && (
-        <div
-          className={cn(
-            "mt-4 rounded-xl border px-4 py-3 text-sm",
-            restoreResult.ok
-              ? "border-[color-mix(in_oklab,var(--vy-accent)_40%,transparent)] bg-[color-mix(in_oklab,var(--vy-accent)_10%,var(--vy-surface))]"
-              : "border-[color-mix(in_oklab,var(--vy-danger)_40%,transparent)] bg-[color-mix(in_oklab,var(--vy-danger)_10%,var(--vy-surface))]",
-          )}
-        >
-          {restoreResult.ok ? (
-            <div className="space-y-1">
-              <p className="font-medium" style={{ color: "var(--vy-accent)" }}>
-                Desktop データの復元が完了しました
-              </p>
-              {restoreResult.imported != null && (
-                <p className="text-xs text-[var(--vy-text-dim)]">
-                  インポート: {restoreResult.imported} 件
-                  {restoreResult.skipped != null ? ` · スキップ: ${restoreResult.skipped} 件` : ""}
-                  {restoreResult.keyIds?.length ? ` · 鍵 ID: ${restoreResult.keyIds.join(", ")}` : ""}
-                </p>
-              )}
-              {restoreResult.hint && (
-                <p className="text-xs text-[var(--vy-text-dim)]">{restoreResult.hint}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-[var(--vy-text)]">
-              {restoreResult.error ?? restoreResult.hint ?? "復元に失敗しました"}
-            </p>
-          )}
-        </div>
-      )}
+			{restoreResult && (
+				<div
+					className={cn(
+						"mt-4 rounded-xl border px-4 py-3 text-sm",
+						restoreResult.ok
+							? "border-[color-mix(in_oklab,var(--vy-accent)_40%,transparent)] bg-[color-mix(in_oklab,var(--vy-accent)_10%,var(--vy-surface))]"
+							: "border-[color-mix(in_oklab,var(--vy-danger)_40%,transparent)] bg-[color-mix(in_oklab,var(--vy-danger)_10%,var(--vy-surface))]",
+					)}
+				>
+					{restoreResult.ok ? (
+						<div className="space-y-1">
+							<p className="font-medium" style={{ color: "var(--vy-accent)" }}>
+								Desktop データの復元が完了しました
+							</p>
+							{restoreResult.imported != null && (
+								<p className="text-xs text-[var(--vy-text-dim)]">
+									インポート: {restoreResult.imported} 件
+									{restoreResult.skipped == null
+										? ""
+										: ` · スキップ: ${restoreResult.skipped} 件`}
+									{restoreResult.keyIds?.length
+										? ` · 鍵 ID: ${restoreResult.keyIds.join(", ")}`
+										: ""}
+								</p>
+							)}
+							{restoreResult.hint && (
+								<p className="text-xs text-[var(--vy-text-dim)]">
+									{restoreResult.hint}
+								</p>
+							)}
+						</div>
+					) : (
+						<p className="text-[var(--vy-text)]">
+							{restoreResult.error ??
+								restoreResult.hint ??
+								"復元に失敗しました"}
+						</p>
+					)}
+				</div>
+			)}
 
-      {!accountId && (
-        <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
-          復元には LINE ログインが必要です。
-        </p>
-      )}
-
-    </Section>
-  )
+			{!accountId && (
+				<p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
+					復元には LINE ログインが必要です。
+				</p>
+			)}
+		</Section>
+	);
 }
 
 function InfoSection() {
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
-  const [checking, setChecking] = useState(false)
+	const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+	const [checking, setChecking] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false
-    setChecking(true)
-    checkForUpdates().then((info) => {
-      if (!cancelled) { setUpdateInfo(info); setChecking(false) }
-    })
-    return () => { cancelled = true }
-  }, [])
+	useEffect(() => {
+		let cancelled = false;
+		setChecking(true);
+		checkForUpdates().then((info) => {
+			if (!cancelled) {
+				setUpdateInfo(info);
+				setChecking(false);
+			}
+		});
+		return () => {
+			cancelled = true;
+		};
+	}, []);
 
-  return (
-    <Section title="情報" desc="Vyline について">
-      <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-        {/* Logo & version */}
-        <div className="flex flex-col items-center px-6 py-8 text-center">
-          <div
-            className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
-            style={{ background: "var(--vy-accent)" }}
-          >
-            V
-          </div>
-          <h2 className="mt-4 text-xl font-bold">Vyline</h2>
-          <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
-            v{UPDATE_NOTES.version}
-          </p>
-          {updateInfo && updateInfo.hasUpdate && (
-            <a
-              href={updateInfo.url ?? "#"}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
-            >
-              更新あり: v{updateInfo.latestVersion}
-            </a>
-          )}
-          {checking && (
-            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>
-          )}
-          <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
-          </p>
-        </div>
+	return (
+		<Section title="情報" desc="Vyline について">
+			<div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+				{/* Logo & version */}
+				<div className="flex flex-col items-center px-6 py-8 text-center">
+					<div
+						className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
+						style={{ background: "var(--vy-accent)" }}
+					>
+						V
+					</div>
+					<h2 className="mt-4 text-xl font-bold">Vyline</h2>
+					<p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
+						v{UPDATE_NOTES.version}
+					</p>
+					{updateInfo && updateInfo.hasUpdate && (
+						<a
+							href={updateInfo.url ?? "#"}
+							target="_blank"
+							rel="noopener noreferrer"
+							className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
+						>
+							更新あり: v{updateInfo.latestVersion}
+						</a>
+					)}
+					{checking && (
+						<p className="mt-3 text-xs text-[var(--vy-text-dim)]">
+							更新を確認中…
+						</p>
+					)}
+					<p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
+						LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
+					</p>
+				</div>
 
-        {/* author */}
-        <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
-          <p className="mt-1 text-sm font-semibold">nezumi0627</p>
-        </div>
+				{/* author */}
+				<div className="border-t border-[var(--vy-border)] px-5 py-3">
+					<p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
+					<p className="mt-1 text-sm font-semibold">nezumi0627</p>
+				</div>
 
-        {/* links */}
-        <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">リンク</p>
-          <div className="space-y-2">
-            <a
-              href="https://github.com/nezumi0627"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">GH</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">GitHub</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://x.com/nezum1n1um"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">𝕏</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">X (Twitter)</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://discord.com/users/879525928261255199"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">DC</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Discord</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://opencode.ai/go?ref=ZE16GS43YJ"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">OC</span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">OpenCode Go</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">AI coding agent · opencode.ai/go</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-          </div>
-        </div>
-      </div>
-      <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
-        Made with 💙 · MIT License
-      </p>
-    </Section>
-  )
+				{/* links */}
+				<div className="border-t border-[var(--vy-border)] px-5 py-3">
+					<p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">
+						リンク
+					</p>
+					<div className="space-y-2">
+						<a
+							href="https://github.com/nezumi0627"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
+						>
+							<span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">
+								GH
+							</span>
+							<div className="min-w-0 flex-1">
+								<p className="font-medium">GitHub</p>
+								<p className="truncate text-xs text-[var(--vy-text-dim)]">
+									nezumi0627
+								</p>
+							</div>
+							<span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+						</a>
+						<a
+							href="https://x.com/nezum1n1um"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
+						>
+							<span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">
+								𝕏
+							</span>
+							<div className="min-w-0 flex-1">
+								<p className="font-medium">X (Twitter)</p>
+								<p className="truncate text-xs text-[var(--vy-text-dim)]">
+									@nezum1n1um
+								</p>
+							</div>
+							<span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+						</a>
+						<a
+							href="https://discord.com/users/879525928261255199"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
+						>
+							<span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">
+								DC
+							</span>
+							<div className="min-w-0 flex-1">
+								<p className="font-medium">Discord</p>
+								<p className="truncate text-xs text-[var(--vy-text-dim)]">
+									nezumi0627
+								</p>
+							</div>
+							<span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+						</a>
+						<a
+							href="https://opencode.ai/go?ref=ZE16GS43YJ"
+							target="_blank"
+							rel="noopener noreferrer"
+							className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
+						>
+							<span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">
+								OC
+							</span>
+							<div className="min-w-0 flex-1">
+								<p className="font-medium">OpenCode Go</p>
+								<p className="truncate text-xs text-[var(--vy-text-dim)]">
+									AI coding agent · opencode.ai/go
+								</p>
+							</div>
+							<span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+						</a>
+					</div>
+				</div>
+			</div>
+			<p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
+				Made with 💙 · MIT License
+			</p>
+		</Section>
+	);
 }
 
 function PrivacySection() {
-  const settings = useStore((s) => s.settings)
-  const updateSetting = useStore((s) => s.updateSetting)
-  const accountId = useStore((s) => s.accountId)
-  const [pinDraft, setPinDraft] = useState("")
-  const [saved, setSaved] = useState(false)
-  const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl)
-  const [proxyMsg, setProxyMsg] = useState<string | null>(null)
-  const [blocked, setBlocked] = useState<Array<{ mid: string; name?: string; avatarUrl?: string }>>([])
-  const [blockedLoading, setBlockedLoading] = useState(false)
-  const [unblocking, setUnblocking] = useState<Set<string>>(new Set())
+	const settings = useStore((s) => s.settings);
+	const updateSetting = useStore((s) => s.updateSetting);
+	const accountId = useStore((s) => s.accountId);
+	const [pinDraft, setPinDraft] = useState("");
+	const [saved, setSaved] = useState(false);
+	const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
+	const [proxyMsg, setProxyMsg] = useState<string | null>(null);
+	const [blocked, setBlocked] = useState<
+		Array<{ mid: string; name?: string; avatarUrl?: string }>
+	>([]);
+	const [blockedLoading, setBlockedLoading] = useState(false);
+	const [unblocking, setUnblocking] = useState<Set<string>>(new Set());
 
-  const applyProxy = async () => {
-    if (!accountId) return
-    const enabled = useStore.getState().settings.proxyEnabled
-    updateSetting("proxyUrl", proxyUrl)
-    try {
-      const res = await api.line.setProxy(accountId, enabled, proxyUrl)
-      setProxyMsg(
-        res.ok
-          ? enabled
-            ? "プロキシを適用しました"
-            : "プロキシを無効化しました"
-          : res.error ?? "失敗",
-      )
-    } catch (err) {
-      setProxyMsg(err instanceof Error ? err.message : String(err))
-    }
-  }
+	const applyProxy = async () => {
+		if (!accountId) return;
+		const enabled = useStore.getState().settings.proxyEnabled;
+		updateSetting("proxyUrl", proxyUrl);
+		try {
+			const res = await api.line.setProxy(accountId, enabled, proxyUrl);
+			setProxyMsg(
+				res.ok
+					? enabled
+						? "プロキシを適用しました"
+						: "プロキシを無効化しました"
+					: (res.error ?? "失敗"),
+			);
+		} catch (err) {
+			setProxyMsg(err instanceof Error ? err.message : String(err));
+		}
+	};
 
-  const loadBlocked = async () => {
-    if (!accountId) return
-    setBlockedLoading(true)
-    try {
-      const res = await api.line.blockedContacts(accountId)
-      const mids = res.ok ? res.mids ?? [] : []
-      // プロフィール取得
-      const withProfiles = await Promise.all(
-        mids.map(async (mid) => {
-          try {
-            const prof = await api.line.contactProfile(accountId, mid)
-            if (!prof.ok) return { mid }
-            return {
-              mid,
-              name: prof.profile?.displayName,
-              avatarUrl: prof.profile?.thumbnailUrl,
-            }
-          } catch {
-            return { mid }
-          }
-        }),
-      )
-      setBlocked(withProfiles)
-    } catch {
-      setBlocked([])
-    } finally {
-      setBlockedLoading(false)
-    }
-  }
+	const loadBlocked = async () => {
+		if (!accountId) return;
+		setBlockedLoading(true);
+		try {
+			const res = await api.line.blockedContacts(accountId);
+			const mids = res.ok ? (res.mids ?? []) : [];
+			// プロフィール取得
+			const withProfiles = await Promise.all(
+				mids.map(async (mid) => {
+					try {
+						const prof = await api.line.contactProfile(accountId, mid);
+						if (!prof.ok) return { mid };
+						return {
+							mid,
+							name: prof.profile?.displayName,
+							avatarUrl: prof.profile?.thumbnailUrl,
+						};
+					} catch {
+						return { mid };
+					}
+				}),
+			);
+			setBlocked(withProfiles);
+		} catch {
+			setBlocked([]);
+		} finally {
+			setBlockedLoading(false);
+		}
+	};
 
-  const handleUnblock = async (mid: string) => {
-    if (!accountId || unblocking.has(mid)) return
-    setUnblocking((s) => new Set(s).add(mid))
-    try {
-      const res = await api.line.unblockContact(accountId, mid)
-      if (res.ok) {
-        setBlocked((prev) => prev.filter((b) => b.mid !== mid))
-        useStore.setState((st) => ({
-          blockedMids: st.blockedMids.filter((m) => m !== mid),
-        }))
-      }
-    } catch {
-      /* ignore */
-    } finally {
-      setUnblocking((s) => {
-        const next = new Set(s)
-        next.delete(mid)
-        return next
-      })
-    }
-  }
+	const handleUnblock = async (mid: string) => {
+		if (!accountId || unblocking.has(mid)) return;
+		setUnblocking((s) => new Set(s).add(mid));
+		try {
+			const res = await api.line.unblockContact(accountId, mid);
+			if (res.ok) {
+				setBlocked((prev) => prev.filter((b) => b.mid !== mid));
+				useStore.setState((st) => ({
+					blockedMids: st.blockedMids.filter((m) => m !== mid),
+				}));
+			}
+		} catch {
+			/* ignore */
+		} finally {
+			setUnblocking((s) => {
+				const next = new Set(s);
+				next.delete(mid);
+				return next;
+			});
+		}
+	};
 
-  return (
-    <Section title="プライバシー" desc="パスコード・プロキシ・ブロック">
-      <Card>
-        <Row title="配信者モード" desc="一覧・ヘッダーの名前を「友だち／グループ」に伏せます">
-          <Toggle
-            checked={settings.streamerMode}
-            onChange={(v) => updateSetting("streamerMode", v)}
-            label="配信者モード"
-          />
-        </Row>
-        <Row title="パスコードロック" desc="起動時に共通 PIN の入力を求めます">
-          <Toggle
-            checked={settings.pinEnabled}
-            onChange={(v) => updateSetting("pinEnabled", v)}
-            label="パスコードロック"
-          />
-        </Row>
-        <Row title="プロキシを使う" desc="HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）">
-          <Toggle
-            checked={settings.proxyEnabled}
-            onChange={(v) => updateSetting("proxyEnabled", v)}
-            label="プロキシを使う"
-          />
-        </Row>
-      </Card>
+	return (
+		<Section title="プライバシー" desc="パスコード・プロキシ・ブロック">
+			<Card>
+				<Row
+					title="配信者モード"
+					desc="一覧・ヘッダーの名前を「友だち／グループ」に伏せます"
+				>
+					<Toggle
+						checked={settings.streamerMode}
+						onChange={(v) => updateSetting("streamerMode", v)}
+						label="配信者モード"
+					/>
+				</Row>
+				<Row title="パスコードロック" desc="起動時に共通 PIN の入力を求めます">
+					<Toggle
+						checked={settings.pinEnabled}
+						onChange={(v) => updateSetting("pinEnabled", v)}
+						label="パスコードロック"
+					/>
+				</Row>
+				<Row
+					title="プロキシを使う"
+					desc="HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）"
+				>
+					<Toggle
+						checked={settings.proxyEnabled}
+						onChange={(v) => updateSetting("proxyEnabled", v)}
+						label="プロキシを使う"
+					/>
+				</Row>
+			</Card>
 
-      <div className="mt-4">
-        <Card>
-          <div className="py-3.5">
-            <p className="text-sm font-medium">プロキシ URL</p>
-            <div className="mt-2 flex gap-2">
-              <input
-                value={proxyUrl}
-                onChange={(e) => setProxyUrl(e.target.value)}
-                placeholder="http://127.0.0.1:7890"
-                className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-              />
-              <button
-                type="button"
-                onClick={() => void applyProxy()}
-                className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)]"
-                style={{ background: "var(--vy-accent)" }}
-              >
-                適用
-              </button>
-            </div>
-            {proxyMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{proxyMsg}</p>}
-          </div>
-        </Card>
-      </div>
+			<div className="mt-4">
+				<Card>
+					<div className="py-3.5">
+						<p className="text-sm font-medium">プロキシ URL</p>
+						<div className="mt-2 flex gap-2">
+							<input
+								value={proxyUrl}
+								onChange={(e) => setProxyUrl(e.target.value)}
+								placeholder="http://127.0.0.1:7890"
+								className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+							/>
+							<button
+								type="button"
+								onClick={() => void applyProxy()}
+								className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)]"
+								style={{ background: "var(--vy-accent)" }}
+							>
+								適用
+							</button>
+						</div>
+						{proxyMsg && (
+							<p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+								{proxyMsg}
+							</p>
+						)}
+					</div>
+				</Card>
+			</div>
 
-      <div className="mt-4">
-        <Card>
-          <div className="py-3.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">ブロックリスト</p>
-              <button
-                type="button"
-                disabled={!accountId || blockedLoading}
-                onClick={() => void loadBlocked()}
-                className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
-              >
-                {blockedLoading ? "取得中…" : "取得"}
-              </button>
-            </div>
-            {blocked.length === 0 ? (
-              <p className="mt-2 text-xs text-[var(--vy-text-dim)]">未取得、または 0 件</p>
-            ) : (
-              <ul className="vy-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">
-                {blocked.map((b) => (
-                  <li key={b.mid} className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]">
-                    <Avatar
-                      glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}
-                      color="var(--vy-accent)"
-                      size={32}
-                      imageUrl={b.avatarUrl}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">{b.name || b.mid.slice(0, 14) + "…"}</p>
-                      <p className="truncate font-mono text-[0.6rem] text-[var(--vy-text-dim)]">{b.mid}</p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={unblocking.has(b.mid)}
-                      onClick={() => void handleUnblock(b.mid)}
-                      className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)] disabled:opacity-40"
-                    >
-                      {unblocking.has(b.mid) ? "…" : "解除"}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </Card>
-      </div>
+			<div className="mt-4">
+				<Card>
+					<div className="py-3.5">
+						<div className="flex items-center justify-between gap-2">
+							<p className="text-sm font-medium">ブロックリスト</p>
+							<button
+								type="button"
+								disabled={!accountId || blockedLoading}
+								onClick={() => void loadBlocked()}
+								className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
+							>
+								{blockedLoading ? "取得中…" : "取得"}
+							</button>
+						</div>
+						{blocked.length === 0 ? (
+							<p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+								未取得、または 0 件
+							</p>
+						) : (
+							<ul className="vy-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">
+								{blocked.map((b) => (
+									<li
+										key={b.mid}
+										className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
+									>
+										<Avatar
+											glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}
+											color="var(--vy-accent)"
+											size={32}
+											imageUrl={b.avatarUrl}
+										/>
+										<div className="min-w-0 flex-1">
+											<p className="truncate text-xs font-medium">
+												{b.name || b.mid.slice(0, 14) + "…"}
+											</p>
+											<p className="truncate font-mono text-[0.6rem] text-[var(--vy-text-dim)]">
+												{b.mid}
+											</p>
+										</div>
+										<button
+											type="button"
+											disabled={unblocking.has(b.mid)}
+											onClick={() => void handleUnblock(b.mid)}
+											className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)] disabled:opacity-40"
+										>
+											{unblocking.has(b.mid) ? "…" : "解除"}
+										</button>
+									</li>
+								))}
+							</ul>
+						)}
+					</div>
+				</Card>
+			</div>
 
-      {settings.pinEnabled && (
-        <div className="mt-4">
-          <Card>
-            <div className="py-3.5">
-              <p className="text-sm font-medium">パスコードを変更</p>
-              <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">4〜8桁の数字</p>
-              <div className="mt-3 flex gap-2">
-                <input
-                  value={pinDraft}
-                  onChange={(e) => {
-                    setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 8))
-                    setSaved(false)
-                  }}
-                  inputMode="numeric"
-                  placeholder="新しいパスコード"
-                  aria-label="新しいパスコード"
-                  className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm tracking-widest outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-                />
-                <button
-                  type="button"
-                  disabled={pinDraft.length < 4}
-                  onClick={() => {
-                    updateSetting("pin", pinDraft)
-                    setPinDraft("")
-                    setSaved(true)
-                  }}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:opacity-40"
-                  style={{ background: "var(--vy-accent)" }}
-                >
-                  保存
-                </button>
-              </div>
-              {saved && <p className="mt-2 text-xs" style={{ color: "var(--vy-accent)" }}>パスコードを更新しました</p>}
-            </div>
-          </Card>
-        </div>
-      )}
-    </Section>
-  )
+			{settings.pinEnabled && (
+				<div className="mt-4">
+					<Card>
+						<div className="py-3.5">
+							<p className="text-sm font-medium">パスコードを変更</p>
+							<p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+								4〜8桁の数字
+							</p>
+							<div className="mt-3 flex gap-2">
+								<input
+									value={pinDraft}
+									onChange={(e) => {
+										setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 8));
+										setSaved(false);
+									}}
+									inputMode="numeric"
+									placeholder="新しいパスコード"
+									aria-label="新しいパスコード"
+									className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm tracking-widest outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+								/>
+								<button
+									type="button"
+									disabled={pinDraft.length < 4}
+									onClick={() => {
+										updateSetting("pin", pinDraft);
+										setPinDraft("");
+										setSaved(true);
+									}}
+									className="rounded-lg px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:opacity-40"
+									style={{ background: "var(--vy-accent)" }}
+								>
+									保存
+								</button>
+							</div>
+							{saved && (
+								<p
+									className="mt-2 text-xs"
+									style={{ color: "var(--vy-accent)" }}
+								>
+									パスコードを更新しました
+								</p>
+							)}
+						</div>
+					</Card>
+				</div>
+			)}
+		</Section>
+	);
+}
+
+function AutoReplySection() {
+	const accountId = useStore((s) => s.accountId);
+	const [loading, setLoading] = useState(true);
+	const [saving, setSaving] = useState(false);
+	const [enabled, setEnabled] = useState(false);
+	const [message, setMessage] = useState("");
+	const [cooldownMinutes, setCooldownMinutes] = useState(30);
+	const [includeGroups, setIncludeGroups] = useState(false);
+	const [msg, setMsg] = useState<string | null>(null);
+
+	useEffect(() => {
+		if (!accountId) return;
+		let cancelled = false;
+		setLoading(true);
+		void api.line
+			.getAutoReply(accountId)
+			.then((res) => {
+				if (cancelled || !res.ok || !res.config) return;
+				setEnabled(res.config.enabled);
+				setMessage(res.config.message);
+				setCooldownMinutes(res.config.cooldownMinutes);
+				setIncludeGroups(res.config.includeGroups);
+			})
+			.finally(() => {
+				if (!cancelled) setLoading(false);
+			});
+		return () => {
+			cancelled = true;
+		};
+	}, [accountId]);
+
+	const save = async (
+		patch: Partial<{
+			enabled: boolean;
+			message: string;
+			cooldownMinutes: number;
+			includeGroups: boolean;
+		}>,
+	) => {
+		if (!accountId) return;
+		setSaving(true);
+		setMsg(null);
+		try {
+			const res = await api.line.updateAutoReply(accountId, patch);
+			if (res.ok) {
+				setMsg("保存しました");
+			} else {
+				setMsg("保存に失敗しました");
+			}
+		} catch (err) {
+			setMsg(err instanceof Error ? err.message : String(err));
+		} finally {
+			setSaving(false);
+		}
+	};
+
+	return (
+		<Section
+			title="自動返信"
+			desc="不在時などに、受信メッセージに自動で一度だけ返信します。同じトークへの連発を防ぐため、クールダウン中は再度送らない。"
+		>
+			<Card>
+				<Row title="自動返信を有効にする" desc="OFF の間は一切送信しません">
+					<Toggle
+						checked={enabled}
+						onChange={(v) => {
+							if (loading) return;
+							setEnabled(v);
+							void save({ enabled: v });
+						}}
+						label="自動返信を有効にする"
+					/>
+				</Row>
+				<Row
+					title="グループ・複数人トークにも送る"
+					desc="OFF（推奨）では 1:1 トークのみ対象。誤爆防止のため既定 OFF"
+				>
+					<Toggle
+						checked={includeGroups}
+						onChange={(v) => {
+							if (loading) return;
+							setIncludeGroups(v);
+							void save({ includeGroups: v });
+						}}
+						label="グループにも送る"
+					/>
+				</Row>
+			</Card>
+
+			<div className="mt-4">
+				<Card>
+					<div className="py-3.5">
+						<p className="text-sm font-medium">返信文面</p>
+						<textarea
+							value={message}
+							onChange={(e) => setMessage(e.target.value)}
+							onBlur={() => void save({ message })}
+							rows={3}
+							placeholder="現在自動返信中です。しばらくしてから返信します。"
+							className="mt-2 w-full resize-none rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+						/>
+					</div>
+				</Card>
+			</div>
+
+			<div className="mt-4">
+				<Card>
+					<Row
+						title="クールダウン（分）"
+						desc="同じチャットへの再送信までの最短間隔"
+					>
+						<input
+							type="number"
+							min={0}
+							max={1440}
+							value={cooldownMinutes}
+							onChange={(e) => setCooldownMinutes(Number(e.target.value) || 0)}
+							onBlur={() => void save({ cooldownMinutes })}
+							className="w-20 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1.5 text-right text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+						/>
+					</Row>
+				</Card>
+			</div>
+
+			{(saving || msg) && (
+				<p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
+					{saving ? "保存中…" : msg}
+				</p>
+			)}
+			<p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+				チャット別の有効/無効・文面上書きは今後のチャットメニュー拡張で対応予定（backend
+				API は実装済み）。
+			</p>
+		</Section>
+	);
 }

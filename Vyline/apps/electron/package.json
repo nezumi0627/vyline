@@ -1,0 +1,38 @@
+{
+	"name": "@vyline/electron",
+	"version": "0.4.0-beta",
+	"private": true,
+	"description": "Vyline — LINE サードパーティクライアント（Electron デスクトップシェル）",
+	"type": "module",
+	"main": "dist/main.js",
+	"author": "Vyline",
+	"license": "MIT",
+	"scripts": {
+		"build:main": "tsc -p tsconfig.json",
+		"build:backend": "bun run scripts/buildBackend.ts",
+		"build:backend:all": "bun run scripts/buildBackend.ts --all",
+		"build:frontend": "bun run --cwd ../desktop build",
+		"prebuild": "bun run build:frontend && bun run build:backend && bun run build:main",
+		"prebuild:all-platforms": "bun run build:frontend && bun run build:backend:all && bun run build:main",
+		"dev": "bun run build:main && cross-env VYLINE_ELECTRON_DEV=1 electron dist/main.js",
+		"start": "electron dist/main.js",
+		"build": "bun run prebuild:all-platforms && electron-builder",
+		"build:mac": "bun run prebuild:all-platforms && electron-builder --mac --universal",
+		"build:mac:dir": "bun run prebuild:all-platforms && electron-builder --mac --universal --dir",
+		"build:mac:arm64:dir": "bun run prebuild:all-platforms && electron-builder --mac --arm64 --dir",
+		"build:win": "bun run prebuild:all-platforms && electron-builder --win",
+		"build:linux": "bun run prebuild:all-platforms && electron-builder --linux",
+		"typecheck": "tsc -p tsconfig.json --noEmit"
+	},
+	"dependencies": {
+		"electron-updater": "^6.3.9"
+	},
+	"devDependencies": {
+		"@types/bun": "latest",
+		"@types/node": "^22.10.2",
+		"cross-env": "^7.0.3",
+		"electron": "^33.4.5",
+		"electron-builder": "^25.1.8",
+		"typescript": "^5.8.3"
+	}
+}

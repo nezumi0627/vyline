@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, Suspense, lazy } from "react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
@@ -10,12 +10,20 @@ import {
   IconClose,
   IconAtSign,
 } from "@/components/icons";
-import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { FloatNotice } from "@/components/float-notice";
+
+// スタンプ/絵文字カタログはピッカーを開いた時だけ必要なので遅延読み込み
+const StickerEmojiPanel = lazy(() =>
+  import("@/components/sticker-emoji-panel").then((m) => ({ default: m.StickerEmojiPanel })),
+);
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
-import { PlusMenu } from "@/components/plus-menu";
+
+// イベント/あみだくじ/アンケート/予約送信のモーダルを含む重いコンポーネントなので遅延読み込み
+const PlusMenu = lazy(() =>
+  import("@/components/plus-menu").then((m) => ({ default: m.PlusMenu })),
+);
 
 function replyPreviewText(msg: {
   kind: string;
@@ -474,19 +482,21 @@ export function MessageInput({ chatId }: { chatId: string }) {
         onChange={onFileChange}
       />
       {picker && (
-        <StickerEmojiPanel
-          accountId={accountId}
-          onPickSticker={(packageId, stickerId, isPremium) => {
-            void sendSticker(chatId, packageId, stickerId, isPremium);
-            setPicker(false);
-          }}
-          onPickEmoji={(packageId, sticonId) => {
-            insertLineEmoji(packageId, sticonId);
-          }}
-          onPickUnicode={(glyph) => {
-            insertAtCursor(glyph);
-          }}
-        />
+        <Suspense fallback={null}>
+          <StickerEmojiPanel
+            accountId={accountId}
+            onPickSticker={(packageId, stickerId, isPremium) => {
+              void sendSticker(chatId, packageId, stickerId, isPremium);
+              setPicker(false);
+            }}
+            onPickEmoji={(packageId, sticonId) => {
+              insertLineEmoji(packageId, sticonId);
+            }}
+            onPickUnicode={(glyph) => {
+              insertAtCursor(glyph);
+            }}
+          />
+        </Suspense>
       )}
 
       {replyMsg && (
@@ -593,7 +603,9 @@ export function MessageInput({ chatId }: { chatId: string }) {
           )}
           {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
           <div className="vy-input-row flex items-end gap-1.5 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
-            <PlusMenu chatId={chatId} />
+            <Suspense fallback={<div className="h-8 w-8 shrink-0" />}>
+              <PlusMenu chatId={chatId} />
+            </Suspense>
             <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
               <IconPaperclip size={20} />
             </IconButton>

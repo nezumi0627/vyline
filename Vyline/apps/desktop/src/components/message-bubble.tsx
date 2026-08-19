@@ -827,14 +827,28 @@ export const MessageBubble = memo(
           )}
 
           {message.revoked ? (
-            <div
-              className="rounded-2xl border border-dashed px-4 py-2 text-sm italic opacity-70"
-              style={{ borderColor: "var(--vy-border)" }}
-            >
-              {isMe
-                ? "あなたがメッセージの送信を取り消しました"
-                : "メッセージの送信が取り消されました"}
-            </div>
+            settings.keepRevokedMessages && message.revokedText ? (
+              <div
+                className="rounded-2xl border border-dashed px-4 py-2 text-sm opacity-90"
+                style={{ borderColor: "var(--vy-border)" }}
+              >
+                <p className="mb-1 text-xs italic opacity-70">
+                  {isMe
+                    ? "あなたが送信を取り消しました（元の内容をローカルに保持）"
+                    : "送信取り消しされました（元の内容をローカルに保持）"}
+                </p>
+                <p className="whitespace-pre-wrap break-words">{message.revokedText}</p>
+              </div>
+            ) : (
+              <div
+                className="rounded-2xl border border-dashed px-4 py-2 text-sm italic opacity-70"
+                style={{ borderColor: "var(--vy-border)" }}
+              >
+                {isMe
+                  ? "あなたがメッセージの送信を取り消しました"
+                  : "メッセージの送信が取り消されました"}
+              </div>
+            )
           ) : message.kind === "sticker" ? (
             <button
               type="button"

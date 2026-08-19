@@ -2,6 +2,25 @@
 
 Vyline の変更履歴。バージョンは `Vyline/apps/desktop/src/lib/store.ts` の `UPDATE_NOTES.version` を正本とする。
 
+## [Unreleased] — 2026-08-20 — Electron デスクトップシェル（macOS 対応）
+
+### 新機能
+
+- **Electron シェル（macOS/Windows/Linux）** — `Vyline/apps/electron/` に Electron メインプロセスを新規実装。backend（Hono/Bun）を `bun build --compile` で OS/arch 別の単一実行ファイルにして同梱し、エンドユーザーに bun インストール不要で起動。mac メニューバー・Dock・外部リンクの既定ブラウザ委譲・マイク/カメラ権限（通話用）・単一インスタンス化を実装。`bun run electron:dev` / `bun run electron:build:mac` など。詳細: [docs/electron.md](docs/electron.md)
+- **Knot/LEINs/PrivateLEIN 機能移植監査** — 対象 3 ソースの全機能を一次監査し、実装済/部分/未実装/対象外を分類。[docs/tasks/feature-parity-knot-leins.md](docs/tasks/feature-parity-knot-leins.md)
+- **自動返信（AutoReply）** — LEINs/PrivateLEIN の代表機能。受信メッセージに対してチャット別クールダウン付きで自動返信。グループは既定除外（誤爆防止）、自分の送信には反応しないでループを防止。設定 > 自動返信から有効化・文面・クールダウンを設定
+- **送信取り消しされたメッセージのローカル保持** — Knot の看板機能。相手が送信を取り消しても、受信済みの元の内容をサーバー側に常に保持し、設定（既定 OFF、opt-in）を ON にするとローカルで元の内容を表示できる
+
+### 監査修正
+
+- Knot/LEINs 機能移植監査の初回版で 3 件の誤記を発見・修正（既読回避モードは実は既実装済みだった、メッセージ予約送信は実は未実装だった，送信取り消し时間延長はサーバー制限でクライアント実装不可能と判明）
+
+### 修正
+
+- **Desktop プロファイル fallback 欠落** — `VylineUpdater` のフォールバック JSON がリポジトリに存在せず、**macOS/Linux（常にこの分岐）や新規 `VYLINE_DATA_DIR`** で backend が即クラッシュしていた問題を修正。非秘匿の既存 Desktop delta capture を元に静的プロファイルを追加
+- **`apps/desktop` の型リーク** — `tsconfig.json` に `types` 未指定でワークスペース内の `@types/node` が ambient に混入し、`window.setTimeout` の型が誤って解釈されていた問題を修正
+- **backend ロガーの単一実行ファイル対応** — `pino-pretty` のワーカースレッド経由 transport が `bun build --compile` 内でクラッシュする問題を修正（インプロセス pretty stream に変更）
+
 ## [Unreleased] — 2026-08-19 — Keepメモ, 背景, 通話状態, 法的対応
 
 ### 新機能

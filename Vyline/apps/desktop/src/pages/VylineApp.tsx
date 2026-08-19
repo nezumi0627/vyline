@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useState, Suspense, lazy } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
@@ -8,10 +8,14 @@ import { CustomCursor } from "../components/vyline-cursor.js";
 import { PinLockScreen } from "../components/pin-lock-screen.js";
 import { HubHome } from "../components/hub-home.js";
 import { ChatShell } from "../components/chat-shell.js";
-import { SettingsSections } from "../components/settings-sections.js";
 import { LoginPage } from "./LoginPage.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
+
+// 設定画面は初回チャット表示には不要なコードを大量に含むため遅延読み込み（初回バンドルサイズ削減）
+const SettingsSections = lazy(() =>
+  import("../components/settings-sections.js").then((m) => ({ default: m.SettingsSections })),
+);
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -75,7 +79,11 @@ export function VylineApp() {
       {screen === "login" && <LoginPage />}
       {screen === "home" && showUpdateNote && <HubHome />}
       {(screen === "chat" || (screen === "home" && !showUpdateNote)) && <ChatShell />}
-      {screen === "settings" && <SettingsSections />}
+      {screen === "settings" && (
+        <Suspense fallback={null}>
+          <SettingsSections />
+        </Suspense>
+      )}
     </main>
   );
 }

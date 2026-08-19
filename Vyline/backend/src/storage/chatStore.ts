@@ -52,6 +52,9 @@ export interface StoredMessage {
   stickerSticky?: boolean;
   reactions?: MessageReaction[];
   savedAt: string;
+  /** 送信取り消し（UNSENT）前の元テキスト。常にサーバー側には保存し、表示の可否はフロントのローカル設定に任せる */
+  revokedText?: string | null;
+  revokedAt?: string | null;
 }
 
 interface ChatDbMeta {
@@ -176,7 +179,12 @@ export async function upsertMessages(
   scheduleSave(accountId);
 }
 
-/** push の DESTROY op で受け取った取消しを chatdb の該当メッセージへ反映 */
+/**
+ * push の DESTROY op で受け取った取消しを chatdb の該当メッセージへ反映。
+ * 元の本文は `revokedText` に保存しておく（ローカル保持機能。表示はフロントの
+ * `keepRevokedMessages` 設定が ON の時のみ）。`contentType` 自体は他の判定ロジックとの
+ * 互換性のため引き続き "UNSENT" にする。
+ */
 export async function markMessageRevoked(
   accountId: string,
   chatMid: string,
@@ -185,6 +193,10 @@ export async function markMessageRevoked(
   const db = await getDb(accountId);
   const stored = db.messages[chatMid]?.[messageId];
   if (!stored) return;
+  if (stored.contentType !== "UNSENT" && stored.text != null) {
+    stored.revokedText = stored.text;
+    stored.revokedAt = new Date().toISOString();
+  }
   stored.contentType = "UNSENT";
   stored.text = null;
   scheduleSave(accountId);
@@ -237,6 +249,8 @@ function storedMessageToMessage(stored: StoredMessage): Message {
   if (stored.stickerAnimated) msg.stickerAnimated = true;
   if (stored.stickerSticky) msg.stickerSticky = true;
   if (stored.reactions?.length) msg.reactions = stored.reactions;
+  if (stored.revokedText != null) msg.revokedText = stored.revokedText;
+  if (stored.revokedAt != null) msg.revokedAt = stored.revokedAt;
   return msg;
 }
 

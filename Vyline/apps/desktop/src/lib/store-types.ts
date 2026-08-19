@@ -101,6 +101,9 @@ export type Message = {
   readBy?: string[];
   readCount?: number;
   revoked?: boolean;
+  /** 取り消し前の元テキスト（サーバーは常に保持、表示は keepRevokedMessages 設定次第） */
+  revokedText?: string | null;
+  revokedAt?: string | null;
   replyToId?: string;
   /** 絵文字リアクション（type は MessageReactionType 数値） */
   reactions?: MessageReaction[];
@@ -197,6 +200,16 @@ export type Settings = {
   /** HTTP/SOCKS プロキシ（例: http://127.0.0.1:7890） */
   proxyEnabled: boolean;
   proxyUrl: string;
+  /**
+   * 送信取り消し（アンセンド）されたメッセージの元テキストをローカルに保持して表示するか。
+   * サーバー側は常に保持する（OFF にしても過去分が消えるわけではない）。既定 OFF（opt-in）。
+   */
+  keepRevokedMessages: boolean;
+  /**
+   * OS のダーク/ライトモードに自動で合わせる（prefers-color-scheme を監視）。
+   * ON の間はテーマピッカーでの手動切替えは一時的な上書きになる。
+   */
+  themeSyncWithSystem: boolean;
 };
 
 export type SelfProfile = {

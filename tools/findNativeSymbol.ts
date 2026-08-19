@@ -4,11 +4,11 @@
  * 1コマンドで自動実行する。
  *
  * 使い方 (Vyline-Search 直下):
- *   bun run find -- sendMessage
- *   bun run find -- sendMessage unsendMessage markAsRead
- *   bun run find -- sendMessage --list-only
- *   bun run find -- sendMessage --max-functions 5 --timeout 15
- *   bun run find -- sendMessage --include-all
+ *   bun run vyline:find-native -- sendMessage
+ *   bun run vyline:find-native -- sendMessage unsendMessage markAsRead
+ *   bun run vyline:find-native -- sendMessage --list-only
+ *   bun run vyline:find-native -- sendMessage --max-functions 5 --timeout 15
+ *   bun run vyline:find-native -- sendMessage --include-all
  */
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
@@ -52,7 +52,7 @@ for (let i = 0; i < rawArgs.length; i++) {
 }
 
 if (terms.length === 0) {
-  console.error("usage: bun run find -- <word|funcName> [more...] [--options]");
+  console.error("usage: bun run vyline:find-native -- <word|funcName> [more...] [--options]");
   console.error(
     "  --exe <path>            unpacked exe (default: data/unpacked_LINE.exe or VYLINE_SEARCH_EXE)",
   );
@@ -251,12 +251,12 @@ function ensureUnpackedExe(): string {
     [
       "unpacked_LINE.exe が見つかりません。Themida 保護を解いた実行ファイルが無いと解析できません。",
       "",
-      "  bun run unpack",
+      "  bun run vyline:unpack",
       "  # または:",
       `  #   手動で dump を ${defaultExe} に置く`,
       "  #   --exe <path> で直接指定",
       "",
-      "詳細: docs/unpack.md",
+      "詳細: docs/tools/unpack.md",
     ].join("\n"),
   );
 }

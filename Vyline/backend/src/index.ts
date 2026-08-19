@@ -146,6 +146,16 @@ restoreAllSessions()
     logger.warn({ err }, "session restore had errors");
   });
 
+// 予約送信（LEINs の「メッセージの予約送信」相当）: 定期チェッカーを起動時に一度だけ開始
+{
+  const { listAccounts } = await import("./line/clientManager.js");
+  const { sendMessage } = await import("./service/lineService.js");
+  const { startScheduledMessageChecker } = await import(
+    "./service/scheduledMessageService.js"
+  );
+  startScheduledMessageChecker(listAccounts, sendMessage);
+}
+
 type CallWsHandlers = typeof import("./call/callManager.js").callWebSocketHandler;
 let callWsHandlers: CallWsHandlers | null = null;
 

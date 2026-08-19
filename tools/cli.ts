@@ -2,10 +2,10 @@
 /**
  * vyline-search CLI
  *
- *   bun run search -- unpack
- *   bun run search -- find sendMessage
- *   bun run search -- find sendMessage --list-only
- *   bun run search -- focus --manifest-only
+ *   bun tools/cli.ts unpack
+ *   bun tools/cli.ts find sendMessage
+ *   bun tools/cli.ts find sendMessage --list-only
+ *   bun tools/cli.ts focus --manifest-only
  */
 
 export {};
@@ -16,18 +16,18 @@ if (!cmd || cmd === "-h" || cmd === "--help") {
   console.log(`vyline-search — Desktop LINE native symbol tools
 
 Usage:
-  bun run search -- unpack [options]
-  bun run search -- find <term> [terms...] [options]
-  bun run search -- focus [options]
+  bun tools/cli.ts unpack [options]
+  bun tools/cli.ts find <term> [terms...] [options]
+  bun tools/cli.ts focus [options]
 
-Shortcuts:
-  bun run unpack -- ...
-  bun run find -- <term> ...
-  bun run focus -- ...
+package.json スクリプト（推奨）:
+  bun run vyline:unpack -- ...
+  bun run vyline:find-native -- <term> ...
+  bun run vyline:focus-recovered -- ...
 
 Docs:
-  docs/unpack.md
-  docs/find-native-symbol.md
+  docs/tools/unpack.md
+  docs/tools/find-native-symbol.md
 `);
   process.exit(cmd ? 0 : 1);
 }
@@ -43,6 +43,6 @@ if (cmd === "unpack") {
   await import("./focusRecoveredSource.js");
 } else {
   console.error(`unknown command: ${cmd}`);
-  console.error(`try: bun run search -- unpack`);
+  console.error(`try: bun run vyline:unpack`);
   process.exit(1);
 }

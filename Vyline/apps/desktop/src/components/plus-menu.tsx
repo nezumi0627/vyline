@@ -260,6 +260,82 @@ function LadderModal({
 
 // ── イベント作成（スケジュール） ─────────────────────────────
 
+function ScheduledSendModal({
+  accountId,
+  chatId,
+  onClose,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+}) {
+  const draft = useStore((s) => s.drafts[chatId] ?? "");
+  const setDraft = useStore((s) => s.setDraft);
+  const [text, setText] = useState(draft);
+  const [when, setWhen] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  const submit = async () => {
+    setError(null);
+    const sendAt = toEpochMs(when);
+    if (!text.trim()) {
+      setError("メッセージを入力してください");
+      return;
+    }
+    if (!sendAt || sendAt <= Date.now()) {
+      setError("未来の日時を指定してください");
+      return;
+    }
+    setSaving(true);
+    try {
+      const res = await api.line.addScheduledMessage(accountId, chatId, text.trim(), sendAt);
+      if (!res.ok) throw new Error(res.error ?? "予約に失敗しました");
+      if (draft) setDraft(chatId, ""); // 下書きを予約へ移したのでクリア
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "予約に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Modal title="メッセージを予約送信" onClose={onClose}>
+      <div className="space-y-3">
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--vy-text-dim)]">本文</label>
+          <textarea
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            rows={3}
+            className="w-full resize-none rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+          />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs font-medium text-[var(--vy-text-dim)]">送信日時</label>
+          <input
+            type="datetime-local"
+            value={when}
+            onChange={(e) => setWhen(e.target.value)}
+            className="w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+          />
+        </div>
+        {error && <p className="text-xs text-[var(--vy-danger)]">{error}</p>}
+        <button
+          type="button"
+          disabled={saving}
+          onClick={() => void submit()}
+          className="w-full rounded-lg py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+          style={{ background: "var(--vy-accent)" }}
+        >
+          {saving ? "予約中…" : "予約する"}
+        </button>
+      </div>
+    </Modal>
+  );
+}
+
 function ScheduleModal({
   accountId,
   chatId,
@@ -521,14 +597,15 @@ export function PlusMenu({ chatId }: { chatId: string }) {
   const accountId = useStore((s) => s.accountId);
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | null>(null);
+  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | "reserve-send" | null>(null);
 
   const items: {
-    key: "schedule" | "ladder" | "poll";
+    key: "schedule" | "ladder" | "poll" | "reserve-send";
     label: string;
     icon: string;
     disabled?: boolean;
   }[] = [
+    { key: "reserve-send", label: "メッセージを予約送信", icon: "⏰" },
     { key: "schedule", label: "イベントを作成", icon: "📅" },
     { key: "ladder", label: "あみだくじ", icon: "🎯", disabled: chat?.type !== "group" },
     { key: "poll", label: "アンケート", icon: "🗳️" },
@@ -577,6 +654,9 @@ export function PlusMenu({ chatId }: { chatId: string }) {
           </div>
         )}
       </div>
+      {mode === "reserve-send" && accountId && (
+        <ScheduledSendModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
+      )}
       {mode === "schedule" && accountId && (
         <ScheduleModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
       )}

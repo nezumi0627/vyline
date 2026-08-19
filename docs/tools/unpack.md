@@ -16,22 +16,19 @@
 
 ```powershell
 # インストール済み LINE.exe を自動検出して unpack
-bun run unpack
+bun run vyline:unpack
 
 # timeout を延ばす（既定 120s）
-bun run unpack -- --timeout 180
+bun run vyline:unpack -- --timeout 180
 
 # パス明示
-bun run unpack -- --exe "C:\Users\...\LINE\bin\26.3.0.3916\LINE.exe"
-
-# CLI 経由
-bun run search -- unpack
+bun run vyline:unpack -- --exe "C:\Users\...\LINE\bin\26.3.0.3916\LINE.exe"
 ```
 
 成功後:
 
 ```powershell
-bun run find -- sendMessage --list-only
+bun run vyline:find-native -- sendMessage --list-only
 ```
 
 ## オプション
@@ -64,4 +61,4 @@ bun run find -- sendMessage --list-only
 ## 関連
 
 - [find-native-symbol.md](./find-native-symbol.md) — unpack 後のシンボル検索
-- 上流: https://github.com/ergrelet/unlicense
+- 上流: <https://github.com/ergrelet/unlicense>

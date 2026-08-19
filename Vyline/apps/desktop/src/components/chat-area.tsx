@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { useEffect, useMemo, useRef, useState, useCallback, Suspense, lazy } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useCall } from "@/hooks/useCall";
@@ -7,7 +7,11 @@ import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
 import { canDirectCall, directCallHint } from "@/utils/callAllowlist";
 import { MessageBubble } from "@/components/message-bubble";
 import { MessageInput } from "@/components/message-input";
-import { ProfileDrawer } from "@/components/profile-drawer";
+
+// プロフィール情報ドロアーはプロフィールを開いた時だけ必要なので遅延読み込み
+const ProfileDrawer = lazy(() =>
+  import("@/components/profile-drawer").then((m) => ({ default: m.ProfileDrawer })),
+);
 import { MemberProfilePopover } from "@/components/member-profile";
 import { CallOverlay } from "@/components/call-overlay";
 import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
@@ -77,10 +81,17 @@ export function ChatArea() {
 
   const { call, startCall, endCall, setMuted } = useCall(accountId);
   const [callHint, setCallHint] = useState<string | null>(null);
-  const [search, setSearch] = useState<{ open: boolean; q: string; index: number }>({
+  const [search, setSearch] = useState<{
+    open: boolean
+    q: string
+    index: number
+    /** グループ内検索を特定メンバーの発言のみに絞り込む（null = 全員） */
+    memberId: string | null
+  }>({
     open: false,
     q: "",
     index: 0,
+    memberId: null,
   });
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
   const [groupCallOnline, setGroupCallOnline] = useState(false);
@@ -150,8 +161,11 @@ export function ChatArea() {
   const matches = useMemo(() => {
     const q = search.q.trim().toLowerCase();
     if (!q) return [] as string[];
-    return chatMessages.filter((m) => (m.text ?? "").toLowerCase().includes(q)).map((m) => m.id);
-  }, [search.q, chatMessages]);
+    return chatMessages
+      .filter((m) => (search.memberId ? m.authorId === search.memberId : true))
+      .filter((m) => (m.text ?? "").toLowerCase().includes(q))
+      .map((m) => m.id);
+  }, [search.q, search.memberId, chatMessages]);
 
   const activeMatchId = matches.length ? matches[search.index % matches.length] : null;
 
@@ -402,6 +416,23 @@ export function ChatArea() {
                   : ""}
               </span>
             </div>
+            {chat?.type === "group" && chat.members && chat.members.length > 0 && (
+              <select
+                value={search.memberId ?? ""}
+                onChange={(e) =>
+                  setSearch((s) => ({ ...s, memberId: e.target.value || null, index: 0 }))
+                }
+                aria-label="メンバーで絞り込む"
+                className="shrink-0 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+              >
+                <option value="">全員</option>
+                {chat.members.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name}
+                  </option>
+                ))}
+              </select>
+            )}
             <button
               type="button"
               disabled={!matches.length}
@@ -424,7 +455,7 @@ export function ChatArea() {
             </button>
             <button
               type="button"
-              onClick={() => setSearch({ open: false, q: "", index: 0 })}
+              onClick={() => setSearch({ open: false, q: "", index: 0, memberId: null })}
               aria-label="検索を閉じる"
               className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
@@ -577,7 +608,11 @@ export function ChatArea() {
         <MessageInput chatId={chat.id} />
       </div>
 
-      {profileOpen && <ProfileDrawer chat={chat} />}
+      {profileOpen && (
+        <Suspense fallback={null}>
+          <ProfileDrawer chat={chat} />
+        </Suspense>
+      )}
       {memberProfile && memberProfile.chatId === chat.id && <MemberProfilePopover chat={chat} />}
       {panel && (
         <MessageContextMenu

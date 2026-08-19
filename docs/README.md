@@ -17,6 +17,7 @@
 | [development.md](./development.md)   | 開発コマンド・環境変数                                             |
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
 | [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
+| [electron.md](./electron.md)         | **Electron デスクトップシェル（macOS 対応）** — アーキテクチャ・ビルド手順 |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
 | [../CHANGELOG.md](../CHANGELOG.md)   | 変更履歴                                                           |
 

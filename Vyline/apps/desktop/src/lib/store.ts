@@ -26,6 +26,11 @@ import { getDismissedChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
+import {
+  showNotification,
+  showActionableNotification,
+  shouldNotifyForChat,
+} from "./notify.js";
 
 export type { Chat, ChatSort, Message, Member, VyTheme, Settings, Screen } from "./store-types.js";
 
@@ -385,6 +390,8 @@ export const useStore = create<State>()(
         highQualityImages: false,
         proxyEnabled: false,
         proxyUrl: "",
+        keepRevokedMessages: false,
+        themeSyncWithSystem: false,
       },
       chats: [],
       messages: [],
@@ -622,6 +629,8 @@ resetAccountData: () =>
             showStatusMessage: true,
             showBackground: true,
             highQualityImages: false,
+            keepRevokedMessages: false,
+            themeSyncWithSystem: false,
             proxyEnabled: false,
             proxyUrl: "",
           },
@@ -1790,6 +1799,36 @@ resetAccountData: () =>
           };
         });
 
+        // デスクトップ通知（LEINs の「グループ通知」等を参考に、ミュート・アクティブ中チャットは除外）
+        if (!silent && incomingFromPeer > 0) {
+          const chat = get().chats.find((c) => c.id === chatId);
+          if (chat && !chat.muted && shouldNotifyForChat(chatId, get().activeChatId)) {
+            const peerFresh = fresh.filter((m) => m.authorId !== "me");
+            const last = peerFresh[peerFresh.length - 1];
+            if (last) {
+              void showActionableNotification(chat.name || "Vyline", {
+                body: messagePreview(last),
+                icon: chat.avatarUrl,
+                tag: `vyline-msg-${chatId}`,
+                onClick: () => {
+                  get().setScreen("chat");
+                  get().openChat(chatId);
+                },
+                actions: [
+                  { action: "mark-read", title: "既読にする" },
+                  { action: "copy", title: "コピー" },
+                ],
+                data: {
+                  url: "/",
+                  chatId,
+                  messageId: last.id,
+                  text: last.text ?? undefined,
+                },
+              });
+            }
+          }
+        }
+
         if (activeChatId === chatId && !silent && sessionOpenedChats.has(chatId)) {
           if (get().settings.readReceipts) void get().markChatRead(chatId);
           for (const m of fresh) {
@@ -1961,6 +2000,32 @@ resetAccountData: () =>
                     const active = get().activeChatId;
                     if (active === ev.chatMid) {
                       lastDeltaPollAt.delete(ev.chatMid);
+                      void get()
+                        .pollMessagesDelta(ev.chatMid)
+                        .catch(() => undefined);
+                    }
+                    // リアクション通知: 自分のメッセージへのリアクションのみ。
+                    // 非アクティブチャットでも内容を取得できるよう pollMessagesDelta を呼ぶ（active 制限なし）。
+                    const targetMsg = get().messages.find((m) => m.id === ev.messageId);
+                    if (targetMsg?.authorId === "me") {
+                      const chat = get().chats.find((c) => c.id === ev.chatMid);
+                      if (
+                        chat &&
+                        !chat.muted &&
+                        shouldNotifyForChat(ev.chatMid, get().activeChatId)
+                      ) {
+                        showNotification(chat.name || "Vyline", {
+                          body: "メッセージにリアクションが届きました",
+                          icon: chat.avatarUrl,
+                          tag: `vyline-reaction-${ev.chatMid}`,
+                          onClick: () => {
+                            get().setScreen("chat");
+                            get().openChat(ev.chatMid);
+                          },
+                        });
+                      }
+                    }
+                    if (active !== ev.chatMid) {
                       void get()
                         .pollMessagesDelta(ev.chatMid)
                         .catch(() => undefined);

@@ -1,297 +1,46 @@
-# AGENTS.md — Vyline エージェント向けガイド
+# Vyline
 
-最終更新: 2026-08-19
+LINE のサードパーティクライアント。Bun + Hono + React、自前の LINE プロトコルスタック（`@vyline/protocol`、`@evex/linejs` 非依存）を持つ monorepo。
 
-このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
+Bun workspaces で管理。`bun install` 一回で全パッケージが入る。
 
----
-
-## プロジェクト概要
-
-**Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/protocol`) を持ちます。
-
-- **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
-- **ライセンス**: MIT
-- **ステータス**: Phase 1-3 進行中（E2EE 復号・送信・Desktop 鍵 import・Vyline）
-- **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
-
----
-
-## 参照元・検索ツール
-
-### 検索ツール: RPC_DICTIONARY
-
-**`Vyline/packages/protocol/src/dictionary/rpcMap.ts`** — LINE.js 名 → Desktop 証拠 → Vyline 実装の対応表。
-
-```ts
-// 機能の実装場所を調べる:
-// 1. rpcMap.ts で linejsName を検索
-// 2. desktopEvidence で Desktop 内の実体を確認
-// 3. stackApi → domainApi → backendApi の順に追跡
-```
-
-### 参考: @evex/linejs
-
-`@evex/linejs` のメソッド名・構造パターンを参考にしていますが、依存はしていません。
-RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示します。
-
-### Desktop 解析ツール (Vyline-Search)
-
-- `bun run vyline:find-native -- <name>` — Desktop LINE.exe 内シンボル検索 (unpack → string scan → Ghidra)
-- `bun run vyline:focus-recovered` — 逆コンパイル結果のキーワード分類
-- `bun run vyline:unpack` — Themida 保護された LINE.exe の unpack
-- `tools/` — スタンドアロンツール (src: [Vyline-Search](https://github.com/nezumi0627/Vyline-Search))
-- `source/desktop/` — 解析データ (gitignore)
-- `docs/tools/` — ツール使用ガイド
-
----
-
-## 現在のステータス
-
-詳細ボード: **[docs/tasks/STATUS.md](docs/tasks/STATUS.md)** / 受け入れ条件: **[docs/tasks/PHASES.md](docs/tasks/PHASES.md)**
-
-| Phase | 内容                                  | 状態        |
-| ----- | ------------------------------------- | ----------- |
-| 0     | Kickoff（docs）                       | done        |
-| 1     | E2EE decrypt / send                   | done        |
-| 2     | Docs / AGENTS / tasks                 | done        |
-| 3     | Vyline + Desktop import + update-diff | done        |
-| 4     | Telegram-like UI                      | in progress |
-| 5     | Quality / perf                        | in progress |
-| 6     | Beta 公開準備                         | in progress |
-
-### 最近の主な変更 (2026-08-18)
-
-- **リブランディング**: `@vyline/nezuline` → `@vyline/protocol`、`Nezu*` → `Vyline*`。旧 `nezu-*.json` / `nezuline` データディレクトリからの自動移行
-- **VylineBackup**: 設定 > VylineBackup からトーク履歴・メディアのスナップショットを作成/復元/削除（`data/backups/`）。復元は「すべて / チャット選択」「メディア含む / テキストのみ」を選択可
-- **チャット詳細ログ**: 送受信・アナウンス（CHATEVENT）をタイミング付き JSONL で記録（`data/logs/`）。画像・動画・音声・ファイル・スタンプのメディア情報も記録。設定 > 詳細・復元 > デバッグログで閲覧
-- **高画質送信**: 表示タブに「高画質で画像送信」トグル（圧縮せず元画質で送信）
-- **useVirtualList**: 実測高さ変更時にオフセットを再計算するよう修正
-- **ブロックリスト**: キャッシュ + background キュー + 8s タイムアウトで 504 回避
-
-### 最近の主な変更 (2026-08-17)
-
-- **メンション**: `@ALL` / `@名前` 送受信（`contentMetadata.MENTION` の `MENTIONEES` 形式、Desktop 準拠）。入力時 `@` で候補ピッカー、表示はハイライト + アイコン
-- **LINE 絵文字**: チャット一覧・返信引用で `￼` プレースホルダが表示される問題を修正
-- **Flex**: カルーセルのマウスドラッグ、wrap テキストのクリップ修正
-- **画像送信**: クライアント側で 2048px JPEG 圧縮。E2EE 鍵整備のキャッシュ化 + メディア送信 90s タイムアウト。`isMissingGroupKeyError` の判定追加
-- **画像表示**: 自送信 E2EE メディアを `contentMetadata.keyMaterial` で直接復号する高速パス（履歴 RPC を飛ばす）
-- **設定**: 詳細・復元に「設定を初期化」（ログイン状態・履歴は保持）
-
-### 過去の変更 (2026-07-31)
-
-- プロフィール/メンバー表示: API タイムアウト追加、MID短縮表示、空配列上書き防止、キャッシュ汚染防止
-- グループ作成: 禁止解除オプション追加 (自己責任)
-- チャット同期: 手動同期ボタン追加、visibility change 時自動差分同期
-- E2EE/メディア: グループ鍵不在時 E2EE スキップ、重複呼び出し抑止、USER chat 誤呼び出し防止
-- スタンプ表示: プロキシURL判別修正
-- 招待: u* MID 検証・フィルタリング
-- スタンプ/絵文字: 複数レスポンス形式対応
-
-解析メモ索引: **[docs/analysis/README.md](docs/analysis/README.md)**  
-新規参入: **[docs/onboarding.md](docs/onboarding.md)** / 索引: **[docs/README.md](docs/README.md)**
-
----
-
-## 開発哲学 (最重要)
-
-**最大反復速度 (Maximum Iteration Speed)** を最優先とする。
-
-- 編集 → 即反映 → 即検証 のサイクルを最短にする
-- compile 待ちを排除する (Go / Java は使わない)
-- AI 生成コードが即検証できる構成にする
-- overengineering 禁止・unnecessary abstraction 禁止
-- fast iteration first、modular architecture
-
----
-
-## 技術スタック
-
-| レイヤー          | 技術                                           | 理由                                       |
-| ----------------- | ---------------------------------------------- | ------------------------------------------ |
-| Runtime           | **Bun**                                        | 超高速起動・TypeScript 直接実行・Node 互換 |
-| Backend Framework | **Hono**                                       | 軽量・高速・構造がシンプル                 |
-| LINE Backend      | **@vyline/protocol** (stack + Desktop patches) | 自前プロトコル・外部 linejs 依存なし       |
-| Frontend          | **React + Vite**                               | HMR 最速クラス                             |
-| 言語              | **TypeScript**                                 | AI 生成との相性最高                        |
-| State 管理        | **Zustand**                                    | 軽量・高速                                 |
-| UI                | **Tailwind + shadcn/ui**                       | 高速 UI 構築                               |
-| Mobile            | **Capacitor** (後で追加)                       | iOS / iPad 対応                            |
-| Plugin            | **ES Modules**                                 | 動的ロード可能                             |
-| Theme             | **CSS Variables**                              | 完全テーマ化                               |
-| Storage           | **SQLite / JSON**                              | 軽量                                       |
-| Logging           | **pino**                                       | 高速                                       |
-
-### 避けるもの
-
-- Go rebuild cycles
-- Java / Kotlin Gradle 待ち
-- 重い codegen
-- Wails / Electron (compile-heavy)
-
----
-
-## アーキテクチャ (最新)
-
-```
-┌─ Frontend (React + Vite) ─────────────────────────────┐
-│  apps/desktop/src/                                      │
-│  ├── lib/store.ts        Zustand persist ストア (正本)   │
-│  ├── lib/mappers.ts      LINE API型 → UI型              │
-│  ├── api/client.ts       backend BFF HTTP client        │
-│  ├── hooks/useVylineSync.ts  同期・ポーリング            │
-│  └── components/         UI コンポーネント               │
-├─ Backend (Hono on Bun) ────────────────────────────────┤
-│  backend/src/                                           │
-│  ├── api/line.ts         BFF routes (入出力のみ)         │
-│  ├── service/lineService.ts  ビジネスロジック (正本)     │
-│  ├── line/clientManager.ts   セッション管理              │
-│  └── storage/            VylineCache, featureLocks, CDN   │
-├─ Vyline Protocol ────────────────────────────────────┤
-│  packages/protocol/                                     │
-│  ├── src/domain/         VylineSession facade           │
-│  ├── src/dictionary/     RPC_DICTIONARY (検索ツール)     │
-│  ├── src/login/          E2EE, 鍵管理, Desktop patches  │
-│  └── stack/              Thrift RPC (/S4, /api/v3p/rs)  │
-└─ LINE Servers ─────────────────────────────────────────┘
-```
-
-### 主要ファイル一覧
-
-| ファイル                                     | 役割                                                                         |
-| -------------------------------------------- | ---------------------------------------------------------------------------- |
-| `backend/src/service/lineService.ts`         | 全ビジネスロジック。メッセージ送受信、E2EE、メディア、スタンプ、プロフィール |
-| `apps/desktop/src/lib/store.ts`              | Zustand ストア。`hydrateLineData`, `pollIncoming`, `pollMessagesDelta`       |
-| `apps/desktop/src/lib/mappers.ts`            | `mapChat`, `mapMessage`, `mapMember`, `looksLikeMid`                         |
-| `apps/desktop/src/api/client.ts`             | backend HTTP client                                                          |
-| `packages/protocol/src/dictionary/rpcMap.ts` | RPC_DICTIONARY (検索ツール)                                                  |
-| `packages/protocol/stack/base/e2ee/mod.ts`   | E2EE 復号エンジン                                                            |
-| `backend/src/storage/vylineCache.ts`         | プロフィール/グループキャッシュ                                              |
-| `backend/src/storage/featureLocks.ts`        | 操作ロック管理                                                               |
-| `backend/src/storage/messageLog.ts`          | チャット詳細ログ（JSONL、`data/logs/`）                                      |
-| `backend/src/service/backupService.ts`       | VylineBackup スナップショット作成/復元（`data/backups/`）                    |
-
-### 重要定数
-
-| 定数                            | デフォルト | 場所           |
-| ------------------------------- | ---------- | -------------- |
-| `CONTACT_RPC_TIMEOUT_MS`        | 8_000      | lineService.ts |
-| `CONTACT_BATCH_CHUNK`           | 4          | lineService.ts |
-| `CONTACT_INDIVIDUAL_TIMEOUT_MS` | 2_500      | lineService.ts |
-| `MY_PROFILE_RPC_TIMEOUT_MS`     | 10_000     | lineService.ts |
-| `DELTA_POLL_MIN_MS`             | 45_000     | store.ts       |
-| `MAX_MESSAGES_PER_CHAT`         | 120        | store.ts       |
-
-### 共通パターン
-
-**E2EE グループ鍵の重複抑制:**
-
-```ts
-// groupKeyWarm / groupKeyWarmFailed / groupKeyWarmInflight で三重抑制
-const groupKeyWarmInflight = new Map<string, Promise<void>>();
-// ensureGroupE2EEKey 内: inflight があればそれを返す
-```
-
-**メディアダウンロードのフォールバック:**
-
-```
-groupKeyMissing? → E2EE skip → OBS plain
-E2EE decrypt → fail → OBS plain → fail
-  → (gk && e2eeFailed) → clear keys → retry
-```
-
-**メンバー名解決とキャッシュ汚染防止:**
-
-```
-fetchChatMemberMids → fetchContactsBatch → individual fallback
-→ 全失敗時はMIDのまま → vylinePutGroup で skip (allUnresolved)
-→ vylineGroupNeedsRefresh がMIDキャッシュを検出して再取得
-```
-
----
-
-## 開発コマンド
-
-```powershell
-# 開発サーバー (backend :3001 + frontend :5173)
-bun run dev
-
-# 単体起動
-bun run dev:backend   # backend のみ
-bun run dev:frontend  # frontend のみ
-
-# 型チェック/lint/テスト
+```bash
+bun run dev        # backend :3001 + frontend :5173
 bun run typecheck
 bun run lint
 bun test
-
-# Vyline 特化
-cd Vyline/packages/protocol
-bun run delta          # Desktop 差分調査
-bun run stack:types    # Thrift 型ビルド
-bun run vyline:find-native -- <name>  # Desktop シンボル検索
 ```
 
-## バージョン管理（重要）
+## 安全制約（必読）
 
-バージョンは **4 箇所を同一に揃える必須**：
+- **送信テストは次の 2 箇所のみ。** 実グループ・実友だちには送信しない（過去にテスト送信で問題が起きた）
+  - グループ「うがうがうー」: `c1efe9d6cf1848350bc91848a8a29963e`
+  - ねずBOT（自己所有の公式アカウント）: `u81c530b68cc2efdd36911d214bd5f084`
+  - 受信のみの表示確認（Flex など）は制限なし
+- 連絡先への無断メッセージ送信禁止。明示的な指示がない限り LINE 送信ツールを使わない
+- `desktop-e2ee-keys.json` / tokens / session / `Vyline/backend/data/` はコミット禁止
+- 鍵・トークンの実値を PR・チャット・docs に貼らない
 
-| 場所                                   | フィールド             |
-| -------------------------------------- | ---------------------- |
-| `Vyline/apps/desktop/src/lib/store.ts` | `UPDATE_NOTES.version` |
-| ルート `package.json`                  | `version`              |
-| `Vyline/apps/desktop/package.json`     | `version`              |
-| `README.md`                            | バッジの `version-...` |
+## Git
 
-- バージョン形式: セマンティックバージョン（`X.Y.Z` または `X.Y.Z-beta`）
-- beta は非公開テスト段階。public リリース前に外す
-- `CHANGELOG.md` にも同バージョンのエントリを追加
-- リリース時は `docs/distribution.md` のリリースチェックリストに従う
-- `UPDATE_NOTES.items` は変更内容を箇条書きで記載（ユーザーが起動時に確認する内容）
+ブランチを切れば commit / push 可。`main` への直接 push は不可。マージは repo 所有者の承認が必要（Branch Protection 設定済み）。
 
----
+## パッケージ
 
-## 秘密情報
+| パッケージ | 内容 |
+| --- | --- |
+| [Vyline/packages/protocol](Vyline/packages/protocol/AGENTS.md) | LINE プロトコルスタック・E2EE・RPC 辞書 |
+| [Vyline/backend](Vyline/backend/AGENTS.md) | Hono BFF・ビジネスロジック |
+| [Vyline/apps/desktop](Vyline/apps/desktop/AGENTS.md) | React + Vite フロントエンド |
 
-- `desktop-e2ee-keys.json` / tokens / session / `Vyline/backend/data/` は **gitignore・コミット禁止**
-- PR・チャット・docs に鍵・トークン実値を貼らない
-- **Pull Request**: マージは承認された場合のみ可能。repo所有者以外のマージはブロックされます（Branch Protection Rules設定済み）
+`Vyline/packages/{line-types,loose-types,types}` は型定義のみ（vendored、手編集しない）。
 
-## 報告プロトコル
+## ドキュメント
 
-- 連絡先への無断メッセージ送信禁止
-- エージェントは明示的指示がない限り LINE 送信ツールを使わない
-
-## テスト環境（必須）
-
-**送信テストは次の 2 箇所のみ。** 実グループ・実友だちには送信しないこと（過去にテスト送信で問題が起きた）。
-
-- グループ **「うがうがうー」**: `c1efe9d6cf1848350bc91848a8a29963e`
-- **ねずBOT**（公式アカウント・自分所有）: `u81c530b68cc2efdd36911d214bd5f084`
-
-メンション・画像・スタンプなど送信系の確認は必ず上記で行う。受信のみの表示確認（出前館の Flex など）は制限なし。
-
----
-
-## ドキュメント索引
-
-| ドキュメント                                                                                    | 内容                                     |
-| ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
-| [docs/README.md](docs/README.md)                                                                | 全体索引                                 |
-| [docs/onboarding.md](docs/onboarding.md)                                                        | 初日チェックリスト                       |
-| [docs/architecture.md](docs/architecture.md)                                                    | 層構造・データフロー                     |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)                                                    | 機能追加フロー (辞書→Desktop→domain→BFF) |
-| [docs/development.md](docs/development.md)                                                      | 開発コマンド・環境変数                   |
-| [docs/protocol/dictionary.md](docs/protocol/dictionary.md)                                      | RPC 辞書・Desktop 検証表                 |
-| [docs/tools/find-native-symbol.md](docs/tools/find-native-symbol.md)                            | Desktop 内シンボル検索                   |
-| [packages/protocol/src/dictionary/rpcMap.ts](Vyline/packages/protocol/src/dictionary/rpcMap.ts) | RPC_DICTIONARY (検索ツール)              |
-| [packages/protocol/README.md](Vyline/packages/protocol/README.md)                               | Vyline パッケージ                        |
-| [docs/analysis/README.md](docs/analysis/README.md)                                              | 機能別解析メモ索引                       |
-
-## 編集哲学
-
-- **最大反復速度優先**: 編集→即反映→即検証。overengineering 禁止
-- **編集範囲**: `Vyline/` 以下のみ
-- **BFF 層**: HTTP 入出力のみ → `service/lineService.ts` に委譲
-- **コード正本**: `backend/src/service/lineService.ts` と `apps/desktop/src/lib/store.ts`
-- **新機能追加**: CONTRIBUTING.md のフローに従う (辞書→Desktop→domain→BFF)
+- [docs/README.md](docs/README.md) — 全体索引
+- [docs/onboarding.md](docs/onboarding.md) — 初日チェックリスト
+- [docs/architecture.md](docs/architecture.md) — 層構造・主要ファイル・重要定数・共通パターン
+- [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) — 機能追加フロー（辞書 → Desktop → domain → BFF）
+- [docs/tools/](docs/tools/) — Desktop 解析ツール
+- [docs/RELEASE.md](docs/RELEASE.md) — バージョン・リリース手順
+- [docs/tasks/STATUS.md](docs/tasks/STATUS.md) — 進捗ボード（**進捗の唯一の正本**）

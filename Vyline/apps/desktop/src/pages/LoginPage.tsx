@@ -1,8 +1,12 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense, lazy } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
-import { QRCodeSVG } from "qrcode.react";
 import { useAuthStore } from "../stores/authStore.js";
+
+// QR 描画ライブラリはログイン画面でしか使わないので遅延読み込み（メールログイン/既存セッション選択時は不要）
+const QRCodeSVG = lazy(() =>
+  import("qrcode.react").then((m) => ({ default: m.QRCodeSVG })),
+);
 import { api } from "../api/client.js";
 import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
@@ -407,7 +411,9 @@ export function LoginPage() {
                   <div
                     className={`bg-white p-4 rounded-xl ${qrExpired ? "opacity-30 grayscale" : ""}`}
                   >
-                    <QRCodeSVG value={qrUrl ?? "expired"} size={220} />
+                    <Suspense fallback={null}>
+                      <QRCodeSVG value={qrUrl ?? "expired"} size={220} />
+                    </Suspense>
                   </div>
                   {qrExpired ? (
                     <button

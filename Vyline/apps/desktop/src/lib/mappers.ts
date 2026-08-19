@@ -312,6 +312,8 @@ export function mapMessage(
     read,
     readBy: m.readBy,
     revoked,
+    revokedText: m.revokedText ?? undefined,
+    revokedAt: m.revokedAt ?? undefined,
     replyToId: m.relatedMessageId ?? undefined,
     reactions: m.reactions
       ?.filter((r) => Number.isFinite(r.type))

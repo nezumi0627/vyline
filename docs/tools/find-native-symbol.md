@@ -17,7 +17,7 @@
 先に unpack してください:
 
 ```powershell
-bun run unpack
+bun run vyline:unpack
 ```
 
 詳細は [unpack.md](./unpack.md)。既に dump がある場合は `data/unpacked_LINE.exe` に置くか `--exe` で指定。
@@ -25,9 +25,9 @@ bun run unpack
 ## 実行
 
 ```powershell
-bun run find -- sendMessage
-bun run find -- sendMessage --list-only --skip-setup
-bun run search -- find sendMessage --max-functions 10
+bun run vyline:find-native -- sendMessage
+bun run vyline:find-native -- sendMessage --list-only --skip-setup
+bun run vyline:find-native -- sendMessage --max-functions 10
 ```
 
 既定の exe: `data/unpacked_LINE.exe`（`VYLINE_SEARCH_EXE` / `--exe` で上書き可）

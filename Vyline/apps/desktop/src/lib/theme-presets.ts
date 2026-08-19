@@ -141,4 +141,27 @@ export const THEME_PRESETS: VyTheme[] = [
     chatBg: "#0c0916",
     pattern: 1,
   },
+  {
+    // LEINs/Knot の「ピュアダーク」（OLED 向け真っ黒 #000）テーマ。他のダーク系プリセットは
+    // 深いグレー/ネイビーを使うが、これは背景・サーフェースを完全に #000 にして
+    // 有機 EL ディスプレイでの消費電力を抱えることを意図した専用プリセット。
+    id: "pure-dark",
+    name: "Pure Dark (AMOLED)",
+    accent: "#2aabee",
+    accentContrast: "#ffffff",
+    bg: "#000000",
+    surface: "#000000",
+    surface2: "#0a0a0a",
+    sidebar: "#000000",
+    text: "#f5f5f5",
+    textDim: "#6e6e6e",
+    border: "rgba(255,255,255,0.08)",
+    msgIn: "#0d0d0d",
+    msgOut: "#123a52",
+    msgInText: "#f5f5f5",
+    msgOutText: "#ffffff",
+    radius: 0.9,
+    chatBg: "#000000",
+    pattern: 0,
+  },
 ];

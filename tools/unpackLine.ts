@@ -2,10 +2,10 @@
  * unpackLine — Themida 保護の LINE.exe を unlicense で dump し、
  * data/unpacked_LINE.exe に配置する。
  *
- *   bun run unpack
- *   bun run unpack -- --timeout 180
- *   bun run unpack -- --exe "C:\...\LINE.exe"
- *   bun run unpack -- --skip-download   # 既に data/re-tools/unlicense があるとき
+ *   bun run vyline:unpack
+ *   bun run vyline:unpack -- --timeout 180
+ *   bun run vyline:unpack -- --exe "C:\...\LINE.exe"
+ *   bun run vyline:unpack -- --skip-download   # 既に data/re-tools/unlicense があるとき
  *
  * 注意:
  * - unlicense は対象 PE を **起動して** OEP 到達後に dump する（実行される）
@@ -52,7 +52,7 @@ for (let i = 0; i < rawArgs.length; i++) {
 }
 
 if (flags["help"] || flags["h"]) {
-  console.log(`usage: bun run unpack -- [options]
+  console.log(`usage: bun run vyline:unpack -- [options]
 
   --exe <path>         対象 LINE.exe（未指定なら %LOCALAPPDATA%\\LINE\\bin\\<ver>\\LINE.exe）
   --out <path>         出力パス（既定: data/unpacked_LINE.exe）
@@ -347,7 +347,7 @@ async function main(): Promise<void> {
   writeFileSync(join(DATA_DIR, "unpack-meta.json"), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
 
   log(`done -> ${outPath} (${(meta.size / 1024 / 1024).toFixed(1)} MB)`);
-  log(`次: bun run find -- sendMessage --list-only`);
+  log(`次: bun run vyline:find-native -- sendMessage --list-only`);
 }
 
 await main().catch((err) => {

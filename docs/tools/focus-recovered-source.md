@@ -10,9 +10,9 @@
 ## 実行
 
 ```powershell
-bun run focus -- --source-dir path\to\recovered\src\native\LINE.exe
-bun run focus -- --manifest-only
-bun run focus -- --group storage=Storage|Index
+bun run vyline:focus-recovered -- --source-dir path\to\recovered\src\native\LINE.exe
+bun run vyline:focus-recovered -- --manifest-only
+bun run vyline:focus-recovered -- --group storage=Storage|Index
 ```
 
 既定:

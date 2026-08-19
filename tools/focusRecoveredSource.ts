@@ -3,10 +3,10 @@
  *
  * recovered native source をキーワードで絞り込み、data/out/focused/ に再配置・manifest 化する。
  *
- *   bun run focus --
- *   bun run focus -- --manifest-only
- *   bun run focus -- --group storage=Storage|Index
- *   bun run focus -- --source-dir <path> --out-dir <path>
+ *   bun run vyline:focus-recovered --
+ *   bun run vyline:focus-recovered -- --manifest-only
+ *   bun run vyline:focus-recovered -- --group storage=Storage|Index
+ *   bun run vyline:focus-recovered -- --source-dir <path> --out-dir <path>
  */
 
 import {
@@ -181,9 +181,9 @@ function renderIndexReadme(
   lines.push(`## Usage`);
   lines.push("");
   lines.push("```powershell");
-  lines.push("bun run focus");
-  lines.push("bun run focus -- --manifest-only");
-  lines.push("bun run focus -- --group storage=Storage|Index");
+  lines.push("bun run vyline:focus-recovered");
+  lines.push("bun run vyline:focus-recovered -- --manifest-only");
+  lines.push("bun run vyline:focus-recovered -- --group storage=Storage|Index");
   lines.push("```");
   lines.push("");
   return `${lines.join("\n")}\n`;

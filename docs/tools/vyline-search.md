@@ -1,7 +1,7 @@
 # vyline-search — 解析ツールキット
 
 [github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search) は、LINE Desktop の解析を支援するツールキットです。  
-このリポジトリ内の `Vyline/tools/` ディレクトリにツール本体が同梱されており、`package.json` の `nezu:*` スクリプトから実行できます。
+このリポジトリ内の `tools/` ディレクトリにツール本体が同梱されており、`package.json` の `vyline:*` スクリプトから実行できます。
 
 > **教育・実験目的のみ。** 対象は自分の環境・自分のインストールに限定し、解析結果の再配布はしないでください。  
 > 詳細: [DISCLAIMER.md](./DISCLAIMER.md)
@@ -10,20 +10,20 @@
 
 | コマンド | スクリプト | 説明 |
 |----------|-----------|------|
-| `bun run nezu:unpack` | `Vyline/tools/unpackLine.ts` | Themida 保護された `LINE.exe` を unpack |
-| `bun run nezu:find-native` | `Vyline/tools/findNativeSymbol.ts` | 文字列・関数名からネイティブシンボルを自動特定し decompile |
-| `bun run nezu:focus-recovered` | `Vyline/tools/focusRecoveredSource.ts` | 大量 decompile 済みソースをキーワード別に分類 |
-| `bun run nezu:delta` | `Vyline/packages/protocol/src/tools/reportDesktopDelta.ts` | Desktop LINE 更新 vs キャッシュプロファイルの差分レポート |
-| `bun run nezu:extract-e2ee` | `Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts` | Desktop LINE プロセスから E2EE 鍵を抽出 |
-| `bun run nezu:decrypt-edb` | `Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts` | ローカル EDB データベースの復号 |
+| `bun run vyline:unpack` | `tools/unpackLine.ts` | Themida 保護された `LINE.exe` を unpack |
+| `bun run vyline:find-native` | `tools/findNativeSymbol.ts` | 文字列・関数名からネイティブシンボルを自動特定し decompile |
+| `bun run vyline:focus-recovered` | `tools/focusRecoveredSource.ts` | 大量 decompile 済みソースをキーワード別に分類 |
+| `bun run vyline:delta` | `Vyline/packages/protocol/src/tools/reportDesktopDelta.ts` | Desktop LINE 更新 vs キャッシュプロファイルの差分レポート |
+| `bun run vyline:extract-e2ee` | `Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts` | Desktop LINE プロセスから E2EE 鍵を抽出 |
+| `bun run vyline:decrypt-edb` | `Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts` | ローカル EDB データベースの復号 |
 
 ## ワークフロー
 
 ```
-1. bun run nezu:unpack      → data/unpacked_LINE.exe
-2. bun run nezu:find-native -- <symbol>   → シンボル検索 + decompile
-3. bun run nezu:focus-recovered           → 結果を分類整理
-4. bun run nezu:delta                     → Desktop 更新差分レポート
+1. bun run vyline:unpack      → data/unpacked_LINE.exe
+2. bun run vyline:find-native -- <symbol>   → シンボル検索 + decompile
+3. bun run vyline:focus-recovered           → 結果を分類整理
+4. bun run vyline:delta                     → Desktop 更新差分レポート
 ```
 
 ### 1. Unpack (`unpackLine.ts`)
@@ -31,9 +31,9 @@
 Themida 保護を動的除去し、解析可能な PE を生成します。
 
 ```powershell
-bun run nezu:unpack                          # 自動検出
-bun run nezu:unpack -- --exe "path/LINE.exe" # パス指定
-bun run nezu:unpack -- --timeout 180        # タイムアウト延長
+bun run vyline:unpack                          # 自動検出
+bun run vyline:unpack -- --exe "path/LINE.exe" # パス指定
+bun run vyline:unpack -- --timeout 180        # タイムアウト延長
 ```
 
 - **前提**: Windows x64、Desktop LINE インストール済み
@@ -45,9 +45,9 @@ bun run nezu:unpack -- --timeout 180        # タイムアウト延長
 文字列や関数名を入力するだけで、関連するネイティブコードを自動特定し decompile します。
 
 ```powershell
-bun run nezu:find-native -- sendMessage
-bun run nezu:find-native -- "sync" --list-only     # リストのみ
-bun run nezu:find-native -- --max-functions 10     # 関数数制限
+bun run vyline:find-native -- sendMessage
+bun run vyline:find-native -- "sync" --list-only     # リストのみ
+bun run vyline:find-native -- --max-functions 10     # 関数数制限
 ```
 
 - **入力**: 検索キーワード（文字列 / 関数名）
@@ -62,10 +62,10 @@ bun run nezu:find-native -- --max-functions 10     # 関数数制限
 既に大量に存在する decompile 済みソースをキーワード別に分類・再配置します。
 
 ```powershell
-bun run nezu:focus-recovered                              # デフォルト解析
-bun run nezu:focus-recovered -- --manifest-only            # マニフェストのみ
-bun run nezu:focus-recovered -- --source-dir path\to\src  # パス指定
-bun run nezu:focus-recovered -- --group storage=Storage|Index  # グループ指定
+bun run vyline:focus-recovered                              # デフォルト解析
+bun run vyline:focus-recovered -- --manifest-only            # マニフェストのみ
+bun run vyline:focus-recovered -- --source-dir path\to\src  # パス指定
+bun run vyline:focus-recovered -- --group storage=Storage|Index  # グループ指定
 ```
 
 - **入力**: `data/recovered/src/native/LINE.exe`（既定）
@@ -99,7 +99,7 @@ data/
 インストール済み LINE Desktop のバージョンと、キャッシュされたプロファイルの差分をレポートします。
 
 ```powershell
-bun run nezu:delta
+bun run vyline:delta
 ```
 
 - **出力**: `docs/reports/desktop-delta-YYYYMMDD.md` + `.json`

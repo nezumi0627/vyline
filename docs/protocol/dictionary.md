@@ -86,9 +86,8 @@ bun run vyline:find-native -- updateProfileAttributes --list-only --skip-setup
 # decompile まで（Ghidra 必要・遅い）
 bun run vyline:find-native -- sendMessage --max-functions 10
 
-# Desktop インストール一式を source/desktop へ
-bun run vyline:dump-desktop
-bun run vyline:dump-desktop -- --full
+# Themida 保護された LINE.exe を unpack
+bun run vyline:unpack
 
 # recovered ソースをキーワード整理
 bun run vyline:focus-recovered -- sendMessage
