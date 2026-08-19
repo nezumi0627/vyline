@@ -6,7 +6,7 @@
 
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger as honoLogger } from "hono/logger";
+
 import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
@@ -34,7 +34,6 @@ const STATIC_DIR =
 const app = new Hono();
 
 app.use("*", cors({ origin: CORS_ORIGIN }));
-app.use("*", honoLogger());
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
 app.route("/auth", authRouter);
