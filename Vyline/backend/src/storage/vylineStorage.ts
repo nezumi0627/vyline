@@ -13,9 +13,9 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("VylineStorage");
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 
-const SAVE_DEBOUNCE_MS = Number(process.env["VYLINE_CACHE_SAVE_MS"] ?? 350);
+const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CACHE_SAVE_MS ?? 350);
 
 export class VylineStorage<T extends object> {
   readonly namespace: string;

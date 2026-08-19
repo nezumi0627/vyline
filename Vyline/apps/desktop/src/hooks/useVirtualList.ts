@@ -55,7 +55,7 @@ export function useVirtualList<T>({
       if (offsets.offsets[mid]! < start) lo = mid + 1;
       else hi = mid;
     }
-    let startIdx = lo;
+    const startIdx = lo;
 
     let endIdx = startIdx;
     while (endIdx < offsets.offsets.length && offsets.offsets[endIdx]! < end) endIdx++;

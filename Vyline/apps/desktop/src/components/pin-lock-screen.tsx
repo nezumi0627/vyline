@@ -119,7 +119,6 @@ export function PinLockScreen() {
           }}
           placeholder="パスワードでも可"
           aria-label="パスワード入力"
-          autoFocus
           className="mt-6 w-56 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-center text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
         />
         <p className="mt-6 text-xs text-[var(--vy-text-dim)]">ヒント: デモ用パスコードは 1234</p>

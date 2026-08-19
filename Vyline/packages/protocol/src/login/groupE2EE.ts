@@ -430,10 +430,10 @@ export function patchGroupKeyLookup(client: AnyClient): void {
 
   const original = e2ee.getE2EELocalPublicKey.bind(e2ee);
 
-  e2ee.getE2EELocalPublicKey = async function (mid: string, keyId?: string | number) {
+  e2ee.getE2EELocalPublicKey = async (mid: string, keyId?: string | number) => {
     const isGroup = typeof mid === "string" && (mid.startsWith("c") || mid.startsWith("r"));
     if (isGroup) {
-      const id = keyId != null && keyId !== "" ? Number(keyId) : NaN;
+      const id = keyId != null && keyId !== "" ? Number(keyId) : Number.NaN;
       if (Number.isFinite(id)) {
         const raw = await base.storage.get(storageKey(mid, id));
         if (raw && typeof raw === "string") {

@@ -406,7 +406,6 @@ async function decryptViaLetterSealingOrProtocol(
   }
 }
 
-// biome-ignore lint/suspicious/noExplicitAny: protocol raw message type
 async function decryptE2EEMessageSafe(
   client: NonNullable<ReturnType<typeof getClient>>,
   accountId: string,
@@ -560,29 +559,29 @@ async function decryptE2EEMessageSafe(
 // encryptE2EEMessage は client.profile?.mid を参照するため、
 // 送信前に getProfile() を呼んで client.profile をセットしておく必要がある。
 
-const CONTACT_PROFILE_CACHE_MS = Number(process.env["VYLINE_CONTACT_CACHE_MS"] ?? 300_000);
+const CONTACT_PROFILE_CACHE_MS = Number(process.env.VYLINE_CONTACT_CACHE_MS ?? 300_000);
 /** getContactsV3 は混雑時に遅い。短すぎるとチャンク全滅 → 個人取得の嵐になる */
-const CONTACT_RPC_TIMEOUT_MS = Number(process.env["VYLINE_CONTACT_RPC_TIMEOUT_MS"] ?? 8_000);
-const CONTACT_BATCH_CHUNK = Number(process.env["VYLINE_CONTACT_BATCH_CHUNK"] ?? 4);
+const CONTACT_RPC_TIMEOUT_MS = Number(process.env.VYLINE_CONTACT_RPC_TIMEOUT_MS ?? 8_000);
+const CONTACT_BATCH_CHUNK = Number(process.env.VYLINE_CONTACT_BATCH_CHUNK ?? 4);
 const CONTACT_INDIVIDUAL_TIMEOUT_MS = Number(
-  process.env["VYLINE_CONTACT_INDIVIDUAL_TIMEOUT_MS"] ?? 2_500,
+  process.env.VYLINE_CONTACT_INDIVIDUAL_TIMEOUT_MS ?? 2_500,
 );
-const MY_PROFILE_CACHE_MS = Number(process.env["VYLINE_MY_PROFILE_CACHE_MS"] ?? 120_000);
-const MY_PROFILE_RPC_TIMEOUT_MS = Number(process.env["VYLINE_MY_PROFILE_RPC_TIMEOUT_MS"] ?? 10_000);
+const MY_PROFILE_CACHE_MS = Number(process.env.VYLINE_MY_PROFILE_CACHE_MS ?? 120_000);
+const MY_PROFILE_RPC_TIMEOUT_MS = Number(process.env.VYLINE_MY_PROFILE_RPC_TIMEOUT_MS ?? 10_000);
 /** getChat が失敗したグループ（退出済み等）— セッション中は再試行しない */
 const groupProfileMiss = new Set<string>();
 const contactProfileCache = new Map<string, { at: number; profile: LineProfile }>();
 /** 同一 MID への並行 contact RPC を 1 本にまとめる（フロント複数経路が同時に叩いても RPC チェーンは 1 回） */
 const contactProfileInflight = new Map<string, Promise<LineProfile | null>>();
 /** 解決失敗 MID を短時間スキップ（公式アカウント等で毎回 getContactsV3→V2→getTargetProfiles の遅い連鎖を繰り返さない） */
-const CONTACT_PROFILE_MISS_MS = Number(process.env["VYLINE_CONTACT_MISS_CACHE_MS"] ?? 60_000);
+const CONTACT_PROFILE_MISS_MS = Number(process.env.VYLINE_CONTACT_MISS_CACHE_MS ?? 60_000);
 const contactProfileMiss = new Map<string, number>();
 const myProfileCache = new Map<string, { at: number; profile: LineProfile }>();
 const myMidCache = new Map<string, string>();
 
 /** Desktop: 起動時に鍵検証済み — 毎リクエスト getE2EEPublicKeys を避ける */
 const e2eeIdentityEnsuredAt = new Map<string, number>();
-const E2EE_ENSURE_TTL_MS = Number(process.env["VYLINE_E2EE_ENSURE_TTL_MS"] ?? 300_000);
+const E2EE_ENSURE_TTL_MS = Number(process.env.VYLINE_E2EE_ENSURE_TTL_MS ?? 300_000);
 
 async function ensureE2EEIdentityCached(
   client: NonNullable<ReturnType<typeof getClient>>,
@@ -598,8 +597,8 @@ async function ensureE2EEIdentityCached(
   e2eeIdentityEnsuredAt.set(accountId, now);
 }
 
-const READ_RANGE_TIMEOUT_MS = Number(process.env["VYLINE_READ_RANGE_TIMEOUT_MS"] ?? 10_000);
-const READ_MEMBERS_TIMEOUT_MS = Number(process.env["VYLINE_READ_MEMBERS_TIMEOUT_MS"] ?? 8_000);
+const READ_RANGE_TIMEOUT_MS = Number(process.env.VYLINE_READ_RANGE_TIMEOUT_MS ?? 10_000);
+const READ_MEMBERS_TIMEOUT_MS = Number(process.env.VYLINE_READ_MEMBERS_TIMEOUT_MS ?? 8_000);
 
 /** ECONNRESET などの一時的エラーで最大2回リトライ */
 async function withRetryOnReset<T>(fn: () => Promise<T>, label: string): Promise<T> {
@@ -619,10 +618,8 @@ async function withRetryOnReset<T>(fn: () => Promise<T>, label: string): Promise
   }
   throw new Error("unreachable");
 }
-const READ_RANGE_MIN_INTERVAL_MS = Number(
-  process.env["VYLINE_READ_RANGE_MIN_INTERVAL_MS"] ?? 60_000,
-);
-const READ_RANGE_CIRCUIT_MS = Number(process.env["VYLINE_READ_RANGE_CIRCUIT_MS"] ?? 180_000);
+const READ_RANGE_MIN_INTERVAL_MS = Number(process.env.VYLINE_READ_RANGE_MIN_INTERVAL_MS ?? 60_000);
+const READ_RANGE_CIRCUIT_MS = Number(process.env.VYLINE_READ_RANGE_CIRCUIT_MS ?? 180_000);
 
 type ReadRangeCacheEntry = {
   at: number;
@@ -632,13 +629,13 @@ type ReadRangeCacheEntry = {
 
 const readRangeCache = new Map<string, ReadRangeCacheEntry>();
 /** fetchMessagesInner のバックグラウンド既読 RPC をチャットごとに間引く（毎 fetch で force 実行しない） */
-const READ_RANGE_BG_MS = Number(process.env["VYLINE_READ_RANGE_BG_MS"] ?? 60_000);
+const READ_RANGE_BG_MS = Number(process.env.VYLINE_READ_RANGE_BG_MS ?? 60_000);
 const readRangeBgAt = new Map<string, number>();
 
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
-const CHATS_CACHE_MS = Number(process.env["VYLINE_CHATS_CACHE_MS"] ?? 60_000);
-const MESSAGE_LOCAL_STALE_MS = Number(process.env["VYLINE_MESSAGE_LOCAL_STALE_MS"] ?? 90_000);
+const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
+const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -646,13 +643,13 @@ type MessageBoxesCacheEntry = {
   boxes: any[];
 };
 const messageBoxesCache = new Map<string, MessageBoxesCacheEntry>();
-const MESSAGE_BOXES_CACHE_MS = Number(process.env["VYLINE_MESSAGE_BOXES_CACHE_MS"] ?? 20_000);
+const MESSAGE_BOXES_CACHE_MS = Number(process.env.VYLINE_MESSAGE_BOXES_CACHE_MS ?? 20_000);
 /** getMessageBoxes がハング/遅延してもメッセージ表示をブロックしないよう打ち切る */
-const MESSAGE_BOXES_TIMEOUT_MS = Number(process.env["VYLINE_MESSAGE_BOXES_TIMEOUT_MS"] ?? 5_000);
+const MESSAGE_BOXES_TIMEOUT_MS = Number(process.env.VYLINE_MESSAGE_BOXES_TIMEOUT_MS ?? 5_000);
 /** 全ボックス取得（ページングあり）は /S4 RPC を最大 10 本消費するため長めにキャッシュ
  *  （メッセージ同期の /S4 キューをブロックしない） */
 const MESSAGE_BOXES_FULL_CACHE_MS = Number(
-  process.env["VYLINE_MESSAGE_BOXES_FULL_CACHE_MS"] ?? 300_000,
+  process.env.VYLINE_MESSAGE_BOXES_FULL_CACHE_MS ?? 300_000,
 );
 /** チャットごとの MessageBox lastDeliveredMessageId キャッシュ
  *  — getMessageBoxes 全体取得を回避し、個別チャットのメッセージ取得を高速化 */
@@ -662,12 +659,12 @@ type BoxCursorCacheEntry = {
   endMessageId: any;
 };
 const boxCursorCache = new Map<string, BoxCursorCacheEntry>();
-const BOX_CURSOR_CACHE_MS = Number(process.env["VYLINE_BOX_CURSOR_CACHE_MS"] ?? 30_000);
+const BOX_CURSOR_CACHE_MS = Number(process.env.VYLINE_BOX_CURSOR_CACHE_MS ?? 30_000);
 /** チャットの boxId 解決失敗を短時間スキップ（getMessageBoxes のハングを繰り返さない） */
 const boxCursorMiss = new Map<string, number>();
-const BOX_CURSOR_MISS_MS = Number(process.env["VYLINE_BOX_CURSOR_MISS_MS"] ?? 15_000);
-const DELTA_RPC_TIMEOUT_MS = Number(process.env["VYLINE_DELTA_RPC_TIMEOUT_MS"] ?? 12_000);
-const TALK_FETCH_TIMEOUT_MS = Number(process.env["VYLINE_TALK_FETCH_TIMEOUT_MS"] ?? 45_000);
+const BOX_CURSOR_MISS_MS = Number(process.env.VYLINE_BOX_CURSOR_MISS_MS ?? 15_000);
+const DELTA_RPC_TIMEOUT_MS = Number(process.env.VYLINE_DELTA_RPC_TIMEOUT_MS ?? 12_000);
+const TALK_FETCH_TIMEOUT_MS = Number(process.env.VYLINE_TALK_FETCH_TIMEOUT_MS ?? 45_000);
 
 function isTimeoutError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -1030,7 +1027,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   const knownMid = myMidCache.get(accountId) ?? baseProf?.mid;
   if (knownMid) {
     const profile = await vylineGetProfile(accountId, String(knownMid));
-    if (profile && profile.displayName) {
+    if (profile?.displayName) {
       const mapped = lineProfileFromVyline(profile);
       myProfileCache.set(accountId, { at: now, profile: mapped });
       refreshInBg();
@@ -1421,7 +1418,7 @@ export async function fetchChatMembersDetailed(
   // Refresh token before making member list request
   const authService = require("../auth/mod.js").AuthService;
   await authService.tryRefreshToken(accountId);
-  
+
   const cached = await vylineGetGroup(accountId, chatMid);
   if (cached && !vylineGroupNeedsRefresh(cached) && cached.members.length > 0) {
     const members = cached.members.map((m) => {
@@ -2188,7 +2185,7 @@ export async function getReadReceiptsForChat(
   try {
     // Refresh token before making read receipt requests
     const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+    await authService.tryRefreshToken(accountId);
 
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
@@ -2207,9 +2204,7 @@ export async function getReadReceiptsForChat(
           }
         }
       }
-      return upTo
-        ? { receipts: out, peerReadUpTo: upTo }
-        : { receipts: out };
+      return upTo ? { receipts: out, peerReadUpTo: upTo } : { receipts: out };
     }
 
     if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
@@ -2891,10 +2886,10 @@ async function resolveChatNameCached(
   try {
     const chats = await getStoredChats(accountId);
     const chat = chats.find((c) => c.mid === chatMid);
-    if (chat && chat.name) name = chat.name;
+    if (chat?.name) name = chat.name;
     if (!name && (chatMid.startsWith("c") || chatMid.startsWith("r"))) {
       const group = await vylineGetGroup(accountId, chatMid);
-      if (group && group.name) name = group.name;
+      if (group?.name) name = group.name;
     }
   } catch {
     /* log は best-effort */
@@ -3836,7 +3831,7 @@ export async function sendMedia(
         opts?.filename ??
         (mediaType === "image" || mediaType === "gif"
           ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
-          : `file.bin`);
+          : "file.bin");
 
       const tryUpload = async () => {
         await client.base.obs.uploadMediaByE2EE({
@@ -4304,8 +4299,8 @@ export async function leaveChat(
 
 /** ブロックリスト — Desktop: TalkService_getBlockedContactIds */
 const blockedCache = new Map<string, { at: number; ids: string[] }>();
-const BLOCKED_CACHE_TTL_MS = Number(process.env["VYLINE_BLOCKED_CACHE_TTL_MS"] ?? 5 * 60_000);
-const BLOCKED_RPC_TIMEOUT_MS = Number(process.env["VYLINE_BLOCKED_RPC_TIMEOUT_MS"] ?? 8_000);
+const BLOCKED_CACHE_TTL_MS = Number(process.env.VYLINE_BLOCKED_CACHE_TTL_MS ?? 5 * 60_000);
+const BLOCKED_RPC_TIMEOUT_MS = Number(process.env.VYLINE_BLOCKED_RPC_TIMEOUT_MS ?? 8_000);
 const blockedInflight = new Map<string, Promise<string[]>>();
 
 export async function fetchBlockedContactIds(accountId: string): Promise<string[]> {
@@ -4428,7 +4423,7 @@ export async function unblockContactMid(accountId: string, mid: string): Promise
 }
 
 /** react RPC は稀に 8s を超えるため専用タイムアウト（通常 15s） */
-const REACT_RPC_TIMEOUT_MS = Number(process.env["VYLINE_REACT_RPC_TIMEOUT_MS"] ?? 15_000);
+const REACT_RPC_TIMEOUT_MS = Number(process.env.VYLINE_REACT_RPC_TIMEOUT_MS ?? 15_000);
 
 /** メッセージリアクション — Desktop: TalkService_react */
 export async function reactToMessage(
@@ -4732,7 +4727,7 @@ export async function getGroupCallStatus(
     };
     if (gc.hostMid) status.hostMid = String(gc.hostMid);
     if (gc.mediaType != null) status.mediaType = String(gc.mediaType);
-    const started = gc.started != null ? Number(gc.started) : NaN;
+    const started = gc.started != null ? Number(gc.started) : Number.NaN;
     if (Number.isFinite(started)) status.started = started;
     groupCallStatusCache.set(key, { at: Date.now(), status });
     return status;
@@ -4754,7 +4749,7 @@ const MEDIA_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "1", "2", "3", "
 /** media 復号/OBS が失敗した messageId（セッション内での再試行抑止） */
 const mediaFailedIds = new Set<string>();
 /** OBS ダウンロードがハングしないよう打ち切る（30s 固まり防止） */
-const MEDIA_OBS_TIMEOUT_MS = Number(process.env["VYLINE_MEDIA_OBS_TIMEOUT_MS"] ?? 15_000);
+const MEDIA_OBS_TIMEOUT_MS = Number(process.env.VYLINE_MEDIA_OBS_TIMEOUT_MS ?? 15_000);
 
 /**
  * OBS からメッセージメディアのバイト列だけ取る。
@@ -5241,7 +5236,7 @@ async function listOwnedPackageIds(
   // getOwnedProductSummaries をページネーションで全件取得
   try {
     let offset = 0;
-    let totalSize = Infinity;
+    let totalSize = Number.POSITIVE_INFINITY;
     while (offset < totalSize) {
       const owned = (await client.base.request.request(
         LINEStruct.getOwnedProductSummaries_args({
@@ -5294,7 +5289,7 @@ async function listOwnedPackageIds(
   // getPurchasedProducts もページネーション
   try {
     let offset = 0;
-    let totalSize = Infinity;
+    let totalSize = Number.POSITIVE_INFINITY;
     while (offset < totalSize) {
       const purchased = (await client.base.request.request(
         LINEStruct.getPurchasedProducts_args({

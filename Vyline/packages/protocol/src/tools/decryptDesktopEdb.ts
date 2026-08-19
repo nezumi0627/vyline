@@ -41,7 +41,7 @@ function arg(name: string): string | undefined {
 }
 
 function lineDataDbDir(): string {
-  const local = process.env["LOCALAPPDATA"] ?? join(homedir(), "AppData", "Local");
+  const local = process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
   return join(local, "LINE", "Data", "db");
 }
 
@@ -185,7 +185,7 @@ async function main() {
   mkdirSync(destDir, { recursive: true });
 
   const forced = arg("passphrase");
-  let candidates = forced ? [forced] : scanPassphrasesFromMemory();
+  const candidates = forced ? [forced] : scanPassphrasesFromMemory();
   console.log("passphrase candidates:", candidates.length);
 
   if (candidates.length === 0) {
@@ -203,7 +203,7 @@ async function main() {
         for (const pageSize of pageSizes) {
           if (verifyWxSqlite3Passphrase(file, variant, { lineQuirk: quirk, pageSize })) {
             hit = { passphrase: cand, quirk, pageSize };
-            console.log("HIT", { passphrase: cand.slice(0, 6) + "…", quirk, pageSize });
+            console.log("HIT", { passphrase: `${cand.slice(0, 6)}…`, quirk, pageSize });
             break outer;
           }
         }

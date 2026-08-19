@@ -344,8 +344,9 @@ debugRouter.get("/read-ranges/:accountId/:chatMid", async (c) => {
   try {
     const myMid = client.base.profile?.mid ?? "";
     const raw = await client.base.talk.getMessageReadRange({ chatIds: [chatMid] });
-    const { fetchReadRanges, memberReadWatermarks, peerReadUpToMessageId } =
-      await import("../service/lineService.js");
+    const { fetchReadRanges, memberReadWatermarks, peerReadUpToMessageId } = await import(
+      "../service/lineService.js"
+    );
     const normalized = await fetchReadRanges(accountId, chatMid);
     const jsonSafe = (v: unknown) =>
       JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)));

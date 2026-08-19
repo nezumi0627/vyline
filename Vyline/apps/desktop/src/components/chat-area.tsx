@@ -389,7 +389,6 @@ export function ChatArea() {
             <div className="flex flex-1 items-center gap-2 rounded-xl bg-[var(--vy-surface-2)] px-3 py-2">
               <IconSearch size={16} className="text-[var(--vy-text-dim)]" />
               <input
-                autoFocus
                 value={search.q}
                 onChange={(e) => setSearch((s) => ({ ...s, q: e.target.value, index: 0 }))}
                 placeholder="このトーク内を検索"

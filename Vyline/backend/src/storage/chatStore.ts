@@ -14,11 +14,11 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 
-const SAVE_DEBOUNCE_MS = Number(process.env["VYLINE_CHATDB_SAVE_MS"] ?? 400);
-const BOOTSTRAP_TOP_CHATS = Number(process.env["VYLINE_BOOTSTRAP_TOP_CHATS"] ?? 12);
-const BOOTSTRAP_MSG_LIMIT = Number(process.env["VYLINE_BOOTSTRAP_MSG_LIMIT"] ?? 40);
+const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
+const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
+const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
 
 export interface StoredChat {
   mid: string;

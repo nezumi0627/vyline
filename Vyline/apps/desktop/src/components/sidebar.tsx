@@ -701,9 +701,9 @@ const ChatRow = memo(function ChatRow({
               </span>
             )}
           </span>
-      </span>
-    </button>
-  </div>
+        </span>
+      </button>
+    </div>
   );
 });
 
@@ -788,7 +788,7 @@ function AccountSwitcher() {
                 </button>
               );
             })}
-<button
+          <button
             type="button"
             className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             onClick={() => {

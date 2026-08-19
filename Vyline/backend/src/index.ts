@@ -23,11 +23,11 @@ import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaCacheDir } from "./storage/mediaCache.js";
 
-const PORT = Number(process.env["PORT"] ?? 3001);
-const HOST = process.env["VYLINE_HOST"] ?? "127.0.0.1";
-const CORS_ORIGIN = process.env["VYLINE_CORS_ORIGIN"] ?? "http://localhost:5173";
+const PORT = Number(process.env.PORT ?? 3001);
+const HOST = process.env.VYLINE_HOST ?? "127.0.0.1";
+const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
 const STATIC_DIR =
-  process.env["VYLINE_STATIC_DIR"] ??
+  process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
 const app = new Hono();

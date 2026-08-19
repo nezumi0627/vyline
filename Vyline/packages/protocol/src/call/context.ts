@@ -60,7 +60,7 @@ export function buildPlanetUserAgent(
   details: DeviceDetails,
   desktopProfile?: DesktopProfile | null,
 ): PlanetUserAgent {
-  if (desktopProfile && process.env["VYLINE_CALL_DESKTOP_WIRE"] === "1") {
+  if (desktopProfile && process.env.VYLINE_CALL_DESKTOP_WIRE === "1") {
     return buildDesktopPlanetUserAgent(desktopProfile);
   }
 

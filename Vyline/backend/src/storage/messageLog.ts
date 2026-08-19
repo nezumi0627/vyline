@@ -16,8 +16,8 @@ import { childLogger } from "../logger.js";
 const log = childLogger("message-log");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const LOG_DIR = process.env["VYLINE_LOG_DIR"] ?? join(_dir, "../../data/logs");
-const ROTATE_BYTES = Number(process.env["VYLINE_MESSAGE_LOG_MAX_BYTES"] ?? 10 * 1024 * 1024);
+const LOG_DIR = process.env.VYLINE_LOG_DIR ?? join(_dir, "../../data/logs");
+const ROTATE_BYTES = Number(process.env.VYLINE_MESSAGE_LOG_MAX_BYTES ?? 10 * 1024 * 1024);
 
 export interface MessageLogEntry {
   ts: string;

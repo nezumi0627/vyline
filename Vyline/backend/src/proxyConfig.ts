@@ -14,10 +14,8 @@ export type ProxyConfig = {
 };
 
 let current: ProxyConfig = {
-  enabled: Boolean(
-    process.env["HTTP_PROXY"] || process.env["HTTPS_PROXY"] || process.env["ALL_PROXY"],
-  ),
-  url: process.env["ALL_PROXY"] || process.env["HTTPS_PROXY"] || process.env["HTTP_PROXY"] || "",
+  enabled: Boolean(process.env.HTTP_PROXY || process.env.HTTPS_PROXY || process.env.ALL_PROXY),
+  url: process.env.ALL_PROXY || process.env.HTTPS_PROXY || process.env.HTTP_PROXY || "",
 };
 
 export function getProxyConfig(): ProxyConfig {
@@ -30,14 +28,14 @@ export function setProxyConfig(next: ProxyConfig): ProxyConfig {
     url: next.url.trim(),
   };
   if (current.enabled) {
-    process.env["HTTP_PROXY"] = current.url;
-    process.env["HTTPS_PROXY"] = current.url;
-    process.env["ALL_PROXY"] = current.url;
+    process.env.HTTP_PROXY = current.url;
+    process.env.HTTPS_PROXY = current.url;
+    process.env.ALL_PROXY = current.url;
     log.info({ url: current.url.replace(/:[^:@/]+@/, ":***@") }, "proxy enabled");
   } else {
-    delete process.env["HTTP_PROXY"];
-    delete process.env["HTTPS_PROXY"];
-    delete process.env["ALL_PROXY"];
+    process.env.HTTP_PROXY = undefined;
+    process.env.HTTPS_PROXY = undefined;
+    process.env.ALL_PROXY = undefined;
     log.info("proxy disabled");
   }
   return getProxyConfig();

@@ -429,7 +429,8 @@ function PollModal({
               (data.question as Record<string, unknown> | undefined)?.questionId ??
               "",
           ) || "";
-        if (!questionId) throw new Error("アンケートを作成しましたが、共有用 ID を取得できませんでした");
+        if (!questionId)
+          throw new Error("アンケートを作成しましたが、共有用 ID を取得できませんでした");
         const a = await api.line.poll.announce(accountId, chatId, questionId);
         if (!a.ok) {
           window.alert("アンケートを作成しましたが、共有に失敗しました（再度共有してください）");

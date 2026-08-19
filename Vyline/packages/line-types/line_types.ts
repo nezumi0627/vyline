@@ -7382,9 +7382,9 @@ export interface WalletException {
   attributes: Record<string, string>;
 }
 
-export interface m80_C30146a {}
+export type m80_C30146a = {};
 
-export interface m80_b {}
+export type m80_b = {};
 
 export interface AD {
   body: string;
@@ -8929,11 +8929,11 @@ export interface EditorsPickBannerForClient {
   description: string;
 }
 
-export interface Eg_C8928b {}
+export type Eg_C8928b = {};
 
-export interface Eh_C8933a {}
+export type Eh_C8933a = {};
 
-export interface Eh_C8935c {}
+export type Eh_C8935c = {};
 
 export interface EstablishE2EESessionRequest {
   clientPublicKey: string;
@@ -10914,17 +10914,17 @@ export interface LIFFMenuColorSetting {
   darkModeColor: LIFFMenuColor;
 }
 
-export interface LN0_A {}
+export type LN0_A = {};
 
-export interface LN0_A0 {}
+export type LN0_A0 = {};
 
-export interface LN0_B {}
+export type LN0_B = {};
 
-export interface LN0_B0 {}
+export type LN0_B0 = {};
 
-export interface LN0_C0 {}
+export type LN0_C0 = {};
 
-export interface LN0_C11270b {}
+export type LN0_C11270b = {};
 
 export interface LN0_C11274d {
   invalid: AddMetaInvalid;
@@ -10971,61 +10971,61 @@ export interface LN0_C11274d {
   premiumAgreement: LN0_H;
 }
 
-export interface LN0_C11276e {}
+export type LN0_C11276e = {};
 
-export interface LN0_C11278f {}
+export type LN0_C11278f = {};
 
-export interface LN0_C11280g {}
+export type LN0_C11280g = {};
 
-export interface LN0_C11282h {}
+export type LN0_C11282h = {};
 
-export interface LN0_C11290l {}
+export type LN0_C11290l = {};
 
-export interface LN0_C11292m {}
+export type LN0_C11292m = {};
 
-export interface LN0_C11294n {}
+export type LN0_C11294n = {};
 
-export interface LN0_C11300q {}
+export type LN0_C11300q = {};
 
-export interface LN0_C11307u {}
+export type LN0_C11307u = {};
 
-export interface LN0_C11308u0 {}
+export type LN0_C11308u0 = {};
 
-export interface LN0_C11309v {}
+export type LN0_C11309v = {};
 
-export interface LN0_C11310v0 {}
+export type LN0_C11310v0 = {};
 
-export interface LN0_C11312w0 {}
+export type LN0_C11312w0 = {};
 
-export interface LN0_C11313x {}
+export type LN0_C11313x = {};
 
-export interface LN0_C11315y {}
+export type LN0_C11315y = {};
 
-export interface LN0_C11316z {}
+export type LN0_C11316z = {};
 
-export interface LN0_D {}
+export type LN0_D = {};
 
-export interface LN0_E {}
+export type LN0_E = {};
 
-export interface LN0_F {}
+export type LN0_F = {};
 
-export interface LN0_G {}
+export type LN0_G = {};
 
-export interface LN0_H {}
+export type LN0_H = {};
 
-export interface LN0_L {}
+export type LN0_L = {};
 
-export interface LN0_O {}
+export type LN0_O = {};
 
-export interface LN0_P {}
+export type LN0_P = {};
 
-export interface LN0_Q {}
+export type LN0_Q = {};
 
-export interface LN0_S {}
+export type LN0_S = {};
 
-export interface LN0_T {}
+export type LN0_T = {};
 
-export interface LN0_U {}
+export type LN0_U = {};
 
 export interface LN0_V {
   user: UserBlockDetail;
@@ -11039,7 +11039,7 @@ export interface LN0_Z {
   notFriend: LN0_C11310v0;
 }
 
-export interface LN0_r {}
+export type LN0_r = {};
 
 export interface LN0_y0 {
   recommendationDetail: RecommendationDetail;
@@ -11613,11 +11613,11 @@ export interface MyDashboardMessageIcon {
   iconAltText: string;
 }
 
-export interface NZ0_C12150a0 {}
+export type NZ0_C12150a0 = {};
 
-export interface NZ0_C12152b {}
+export type NZ0_C12152b = {};
 
-export interface NZ0_C12155c {}
+export type NZ0_C12155c = {};
 
 export interface NZ0_C12206t0 {
   id: string;
@@ -11634,7 +11634,7 @@ export interface NZ0_C12206t0 {
   headers: any[];
 }
 
-export interface NZ0_C12208u {}
+export type NZ0_C12208u = {};
 
 export interface NZ0_C12209u0 {
   fixedModules: NZ0_C12206t0[];
@@ -11651,7 +11651,7 @@ export interface NZ0_C12212v0 {
   etag: string;
 }
 
-export interface NZ0_C12214w {}
+export type NZ0_C12214w = {};
 
 export interface NZ0_C12221y0 {
   status: NZ0_EnumC12218x0;
@@ -11696,7 +11696,7 @@ export interface NZ0_F {
   notFound: NZ0_F0;
 }
 
-export interface NZ0_F0 {}
+export type NZ0_F0 = {};
 
 export interface NZ0_G {
   id: string;
@@ -11707,7 +11707,7 @@ export interface NZ0_G {
   deviceId: string;
 }
 
-export interface NZ0_G0 {}
+export type NZ0_G0 = {};
 
 export interface NZ0_H {
   moduleResponse: ModuleWithStatusResponse;
@@ -11725,9 +11725,9 @@ export interface NZ0_M {
   notModified: NZ0_G0;
 }
 
-export interface NZ0_S {}
+export type NZ0_S = {};
 
-export interface NZ0_U {}
+export type NZ0_U = {};
 
 export interface NearbyEntry {
   emid: string;
@@ -11811,9 +11811,9 @@ export interface OaAddFriendArea {
   text: string;
 }
 
-export interface Ob1_C12606a0 {}
+export type Ob1_C12606a0 = {};
 
-export interface Ob1_C12608b {}
+export type Ob1_C12608b = {};
 
 export interface Ob1_C12618e0 {
   subscriptionService: any;
@@ -11828,21 +11828,21 @@ export interface Ob1_C12621f0 {
   totalSize: Int64;
 }
 
-export interface Ob1_C12630i0 {}
+export type Ob1_C12630i0 = {};
 
-export interface Ob1_C12637k1 {}
+export type Ob1_C12637k1 = {};
 
-export interface Ob1_C12642m0 {}
+export type Ob1_C12642m0 = {};
 
-export interface Ob1_C12649o1 {}
+export type Ob1_C12649o1 = {};
 
-export interface Ob1_C12660s1 {}
+export type Ob1_C12660s1 = {};
 
 export interface Ob1_E {
   stickerSummary: any;
 }
 
-export interface Ob1_G {}
+export type Ob1_G = {};
 
 export interface Ob1_H0 {
   lpPromotionProperty: any;
@@ -11867,7 +11867,7 @@ export interface Ob1_M {
   totalSize: number;
 }
 
-export interface Ob1_N {}
+export type Ob1_N = {};
 
 export interface Ob1_P0 {
   stickerSummary: StickerSummary;
@@ -11934,7 +11934,7 @@ export interface OrderInfo {
   bot: Bot;
 }
 
-export interface P70_k {}
+export type P70_k = {};
 
 export interface PaidCallDialing {
   type: PaidCallType;
@@ -12034,9 +12034,9 @@ export interface Pb1_A4 {
   eMid: string;
 }
 
-export interface Pb1_A6 {}
+export type Pb1_A6 = {};
 
-export interface Pb1_B3 {}
+export type Pb1_B3 = {};
 
 export interface Pb1_C12916a5 {
   wrappedNonce: string;
@@ -12049,7 +12049,7 @@ export interface Pb1_C12938c {
   lineMeeting: AbuseReportLineMeeting;
 }
 
-export interface Pb1_C12946c7 {}
+export type Pb1_C12946c7 = {};
 
 export interface Pb1_C12953d0 {
   verifier: string;
@@ -12060,17 +12060,17 @@ export interface Pb1_C12953d0 {
   hashKeyChain: string;
 }
 
-export interface Pb1_C12980f {}
+export type Pb1_C12980f = {};
 
-export interface Pb1_C12996g1 {}
+export type Pb1_C12996g1 = {};
 
-export interface Pb1_C13008h {}
+export type Pb1_C13008h = {};
 
-export interface Pb1_C13019ha {}
+export type Pb1_C13019ha = {};
 
-export interface Pb1_C13042j5 {}
+export type Pb1_C13042j5 = {};
 
-export interface Pb1_C13070l5 {}
+export type Pb1_C13070l5 = {};
 
 export interface Pb1_C13097n4 {
   version: number;
@@ -12084,13 +12084,13 @@ export interface Pb1_C13113o6 {
   paidCallResponse: PaidCallResponse;
 }
 
-export interface Pb1_C13114o7 {}
+export type Pb1_C13114o7 = {};
 
-export interface Pb1_C13126p5 {}
+export type Pb1_C13126p5 = {};
 
-export interface Pb1_C13131pa {}
+export type Pb1_C13131pa = {};
 
-export interface Pb1_C13150r2 {}
+export type Pb1_C13150r2 = {};
 
 export interface Pb1_C13154r6 {
   revision: Int64;
@@ -12114,7 +12114,7 @@ export interface Pb1_C13169s7 {
   blobPayload: string;
 }
 
-export interface Pb1_C13183t7 {}
+export type Pb1_C13183t7 = {};
 
 export interface Pb1_C13190u0 {
   rich: BuddyRichMenuChatBarItem;
@@ -12122,14 +12122,14 @@ export interface Pb1_C13190u0 {
   web: BuddyWebChatBarItem;
 }
 
-export interface Pb1_C13202uc {}
+export type Pb1_C13202uc = {};
 
 export interface Pb1_C13208v4 {
   groupExtra: GroupExtra;
   peerExtra: Pb1_A6;
 }
 
-export interface Pb1_C13254y8 {}
+export type Pb1_C13254y8 = {};
 
 export interface Pb1_C13263z3 {
   blobHeader: string;
@@ -12137,38 +12137,38 @@ export interface Pb1_C13263z3 {
   reason: Pb1_A3;
 }
 
-export interface Pb1_Ca {}
+export type Pb1_Ca = {};
 
 export interface Pb1_E3 {
   blobHeader: string;
   payloadDataList: Pb1_X5[];
 }
 
-export interface Pb1_Ea {}
+export type Pb1_Ea = {};
 
-export interface Pb1_F3 {}
+export type Pb1_F3 = {};
 
-export interface Pb1_H3 {}
+export type Pb1_H3 = {};
 
-export interface Pb1_I3 {}
+export type Pb1_I3 = {};
 
-export interface Pb1_Ia {}
+export type Pb1_Ia = {};
 
-export interface Pb1_J5 {}
+export type Pb1_J5 = {};
 
-export interface Pb1_K3 {}
+export type Pb1_K3 = {};
 
-export interface Pb1_M3 {}
+export type Pb1_M3 = {};
 
-export interface Pb1_O {}
+export type Pb1_O = {};
 
-export interface Pb1_O3 {}
+export type Pb1_O3 = {};
 
-export interface Pb1_P9 {}
+export type Pb1_P9 = {};
 
-export interface Pb1_Q8 {}
+export type Pb1_Q8 = {};
 
-export interface Pb1_S5 {}
+export type Pb1_S5 = {};
 
 export interface Pb1_Sb {
   reqSeq: number;
@@ -12176,7 +12176,7 @@ export interface Pb1_Sb {
   hashKeyChain: string;
 }
 
-export interface Pb1_U1 {}
+export type Pb1_U1 = {};
 
 export interface Pb1_U3 {
   keyVersion: number;
@@ -12198,7 +12198,7 @@ export interface Pb1_V3 {
   createdTime: Int64;
 }
 
-export interface Pb1_W4 {}
+export type Pb1_W4 = {};
 
 export interface Pb1_W5 {
   e2ee: E2EEMetadata;
@@ -12230,17 +12230,17 @@ export interface Pb1_X7 {
   partialFullSyncResponse: PartialFullSyncResponse;
 }
 
-export interface Pb1_Y4 {}
+export type Pb1_Y4 = {};
 
-export interface Pb1_Za {}
+export type Pb1_Za = {};
 
-export interface Pb1_Zc {}
+export type Pb1_Zc = {};
 
 export interface Pb1_ad {
   title: string;
 }
 
-export interface Pb1_cd {}
+export type Pb1_cd = {};
 
 export interface PendingAgreementsResponse {
   pendingAgreements: number[];
@@ -12658,9 +12658,9 @@ export interface PutE2eeKeyRequest {
   e2eeKey: Record<string, string>;
 }
 
-export interface Q70_l {}
+export type Q70_l = {};
 
-export interface Q70_o {}
+export type Q70_o = {};
 
 export interface Qj_C13595l {
   none: any;
@@ -12677,7 +12677,7 @@ export interface Qj_C13602t {
   externalService: any;
 }
 
-export interface Qj_C13607y {}
+export type Qj_C13607y = {};
 
 export interface QuickMenuCouponInfo {
   couponCount: string;
@@ -12714,13 +12714,13 @@ export interface QuickMenuPointInfo {
   responseStatus: NZ0_W0;
 }
 
-export interface R70_a {}
+export type R70_a = {};
 
-export interface R70_c {}
+export type R70_c = {};
 
-export interface R70_d {}
+export type R70_d = {};
 
-export interface R70_t {}
+export type R70_t = {};
 
 export interface RSAEncryptedLoginInfo {
   loginId: string;
@@ -13199,9 +13199,9 @@ export interface Rssi {
   value: number;
 }
 
-export interface S70_b {}
+export type S70_b = {};
 
-export interface S70_k {}
+export type S70_k = {};
 
 export interface SCC {
   businessName: string;
@@ -14509,13 +14509,13 @@ export interface SyncSquareMembersResponse {
   updatedSquareMembers: SquareMember[];
 }
 
-export interface T70_C14398f {}
+export type T70_C14398f = {};
 
-export interface T70_g1 {}
+export type T70_g1 = {};
 
-export interface T70_o1 {}
+export type T70_o1 = {};
 
-export interface T70_s1 {}
+export type T70_s1 = {};
 
 export interface TGlobalEvents {
   events: Record<number, GlobalEvent>;
@@ -14693,11 +14693,11 @@ export interface TryAgainLaterExtraInfo {
   blockSecs: number;
 }
 
-export interface U70_a {}
+export type U70_a = {};
 
-export interface U70_t {}
+export type U70_t = {};
 
-export interface U70_v {}
+export type U70_v = {};
 
 export interface UEN {
   revision: Int64;
@@ -15065,7 +15065,7 @@ export interface Z70_a {
   backupBlobPayload: string;
 }
 
-export interface ZQ0_b {}
+export type ZQ0_b = {};
 
 export interface acceptChatInvitationByTicket_args {
   request: AcceptChatInvitationByTicketRequest;
@@ -16527,51 +16527,51 @@ export interface clearRingtone_result {
   e: TalkException;
 }
 
-export interface AcceptSpeakersResponse {}
+export type AcceptSpeakersResponse = {};
 
-export interface AcceptToChangeRoleResponse {}
+export type AcceptToChangeRoleResponse = {};
 
-export interface AcceptToListenResponse {}
+export type AcceptToListenResponse = {};
 
-export interface AcceptToSpeakResponse {}
+export type AcceptToSpeakResponse = {};
 
-export interface AgreeToTermsResponse {}
+export type AgreeToTermsResponse = {};
 
-export interface AllNonMemberLiveTalkParticipants {}
+export type AllNonMemberLiveTalkParticipants = {};
 
-export interface CancelToSpeakResponse {}
+export type CancelToSpeakResponse = {};
 
-export interface DeleteSquareChatAnnouncementResponse {}
+export type DeleteSquareChatAnnouncementResponse = {};
 
-export interface DeleteSquareChatResponse {}
+export type DeleteSquareChatResponse = {};
 
-export interface DeleteSquareResponse {}
+export type DeleteSquareResponse = {};
 
-export interface DestroyMessageResponse {}
+export type DestroyMessageResponse = {};
 
-export interface DestroyMessagesResponse {}
+export type DestroyMessagesResponse = {};
 
-export interface ForceEndLiveTalkResponse {}
+export type ForceEndLiveTalkResponse = {};
 
-export interface GetPopularKeywordsRequest {}
+export type GetPopularKeywordsRequest = {};
 
-export interface GetSquareCategoriesRequest {}
+export type GetSquareCategoriesRequest = {};
 
-export interface HideSquareMemberContentsResponse {}
+export type HideSquareMemberContentsResponse = {};
 
-export interface InviteToChangeRoleResponse {}
+export type InviteToChangeRoleResponse = {};
 
-export interface InviteToListenResponse {}
+export type InviteToListenResponse = {};
 
-export interface InviteToLiveTalkResponse {}
+export type InviteToLiveTalkResponse = {};
 
-export interface InviteToSquareResponse {}
+export type InviteToSquareResponse = {};
 
-export interface KickOutLiveTalkParticipantsResponse {}
+export type KickOutLiveTalkParticipantsResponse = {};
 
-export interface LeaveSquareChatResponse {}
+export type LeaveSquareChatResponse = {};
 
-export interface LeaveSquareResponse {}
+export type LeaveSquareResponse = {};
 
 export interface LiveTalkEventPayload {
   notifiedUpdateLiveTalkTitle: LiveTalkEventNotifiedUpdateLiveTalkTitle;
@@ -16586,37 +16586,37 @@ export interface LiveTalkKickOutTarget {
   allNonMemberLiveTalkParticipants: AllNonMemberLiveTalkParticipants;
 }
 
-export interface MarkAsReadResponse {}
+export type MarkAsReadResponse = {};
 
-export interface MarkChatsAsReadResponse {}
+export type MarkChatsAsReadResponse = {};
 
-export interface MarkThreadsAsReadResponse {}
+export type MarkThreadsAsReadResponse = {};
 
-export interface RejectSpeakersResponse {}
+export type RejectSpeakersResponse = {};
 
-export interface RejectToSpeakResponse {}
+export type RejectToSpeakResponse = {};
 
-export interface RemoveLiveTalkSubscriptionResponse {}
+export type RemoveLiveTalkSubscriptionResponse = {};
 
-export interface RemoveSubscriptionsResponse {}
+export type RemoveSubscriptionsResponse = {};
 
-export interface ReportLiveTalkResponse {}
+export type ReportLiveTalkResponse = {};
 
-export interface ReportLiveTalkSpeakerResponse {}
+export type ReportLiveTalkSpeakerResponse = {};
 
-export interface ReportMessageSummaryResponse {}
+export type ReportMessageSummaryResponse = {};
 
-export interface ReportSquareChatResponse {}
+export type ReportSquareChatResponse = {};
 
-export interface ReportSquareMemberResponse {}
+export type ReportSquareMemberResponse = {};
 
-export interface ReportSquareMessageResponse {}
+export type ReportSquareMessageResponse = {};
 
-export interface ReportSquareResponse {}
+export type ReportSquareResponse = {};
 
-export interface RequestToListenResponse {}
+export type RequestToListenResponse = {};
 
-export interface RequestToSpeakResponse {}
+export type RequestToSpeakResponse = {};
 
 export interface SquareEventPayload {
   receiveMessage: SquareEventReceiveMessage;
@@ -16681,11 +16681,11 @@ export interface SquareEventPayload {
   notifiedUpdateSquareSubscription: any;
 }
 
-export interface UnhideSquareMemberContentsResponse {}
+export type UnhideSquareMemberContentsResponse = {};
 
-export interface UpdateLiveTalkAttrsResponse {}
+export type UpdateLiveTalkAttrsResponse = {};
 
-export interface UpdateUserSettingsResponse {}
+export type UpdateUserSettingsResponse = {};
 
 export interface ButtonBGColor {
   custom: CustomColor;
@@ -16698,7 +16698,7 @@ export interface ButtonContent {
   okButton: OkButton;
 }
 
-export interface DefaultGradientColor {}
+export type DefaultGradientColor = {};
 
 export interface ErrorExtraInfo {
   preconditionFailedExtraInfo: number;
@@ -16980,9 +16980,9 @@ export interface do0_C23143a {
   bytes: string;
 }
 
-export interface do0_C23152j {}
+export type do0_C23152j = {};
 
-export interface do0_C23153k {}
+export type do0_C23153k = {};
 
 export interface do0_C23158p {
   serviceUuid: string;
@@ -16990,11 +16990,11 @@ export interface do0_C23158p {
   data: string;
 }
 
-export interface do0_C23161t {}
+export type do0_C23161t = {};
 
-export interface do0_C23165x {}
+export type do0_C23165x = {};
 
-export interface do0_C23167z {}
+export type do0_C23167z = {};
 
 export interface do0_F {
   scenarioId: string;
@@ -17014,11 +17014,11 @@ export interface do0_I {
   bleNotificationReceived: BleNotificationReceivedTrigger;
 }
 
-export interface do0_V {}
+export type do0_V = {};
 
-export interface do0_X {}
+export type do0_X = {};
 
-export interface do0_m0 {}
+export type do0_m0 = {};
 
 export interface editItemsInCollection_args {
   request: any;
@@ -17061,13 +17061,13 @@ export interface existPinCode_result {
   e: SecondAuthFactorPinCodeException;
 }
 
-export interface fN0_C24471c {}
+export type fN0_C24471c = {};
 
-export interface fN0_C24473e {}
+export type fN0_C24473e = {};
 
-export interface fN0_C24475g {}
+export type fN0_C24475g = {};
 
-export interface fN0_C24476h {}
+export type fN0_C24476h = {};
 
 export interface fetchOperations_args {
   request: FetchOperationsRequest;
@@ -17173,9 +17173,9 @@ export interface follow_result {
   e: TalkException;
 }
 
-export interface gN0_C25143G {}
+export type gN0_C25143G = {};
 
-export interface gN0_C25147d {}
+export type gN0_C25147d = {};
 
 export interface generateUserTicket_args {
   expirationTime: Int64;
@@ -18995,26 +18995,26 @@ export interface getWebLoginDisallowedUrl_result {
   e: ChannelException;
 }
 
-export interface h80_C25643c {}
+export type h80_C25643c = {};
 
 export interface h80_t {
   newDevicePublicKey: string;
   encryptedQrIdentifier: string;
 }
 
-export interface h80_v {}
+export type h80_v = {};
 
-export interface I80_A0 {}
+export type I80_A0 = {};
 
-export interface I80_C26398e {}
+export type I80_C26398e = {};
 
-export interface I80_C26404h {}
+export type I80_C26404h = {};
 
-export interface I80_F0 {}
+export type I80_F0 = {};
 
-export interface I80_r0 {}
+export type I80_r0 = {};
 
-export interface I80_v0 {}
+export type I80_v0 = {};
 
 export interface inviteFriends_args {
   request: InviteFriendsRequest;
@@ -19172,11 +19172,11 @@ export interface joinChatByCallUrl_result {
   e: TalkException;
 }
 
-export interface jp_naver_line_shop_protocol_thrift_ProductProperty {}
+export type jp_naver_line_shop_protocol_thrift_ProductProperty = {};
 
-export interface kf_i {}
+export type kf_i = {};
 
-export interface kf_k {}
+export type kf_k = {};
 
 export interface kf_m {
   richmenu: RichmenuEvent;
@@ -19238,13 +19238,13 @@ export interface lookupPaidCall_result {
   e: TalkException;
 }
 
-export interface m80_l {}
+export type m80_l = {};
 
-export interface m80_n {}
+export type m80_n = {};
 
-export interface m80_q {}
+export type m80_q = {};
 
-export interface m80_s {}
+export type m80_s = {};
 
 export interface mapProfileToUsers_args {
   request: MapProfileToUsersRequest;
@@ -19282,9 +19282,9 @@ export interface migratePrimaryUsingQrCode_result {
   e: PrimaryQrCodeMigrationException;
 }
 
-export interface n80_C31222b {}
+export type n80_C31222b = {};
 
-export interface n80_d {}
+export type n80_d = {};
 
 export interface negotiateE2EEPublicKey_args {
   mid: string;
@@ -19295,7 +19295,7 @@ export interface negotiateE2EEPublicKey_result {
   e: TalkException;
 }
 
-export interface noop_args {}
+export type noop_args = {};
 
 export interface noop_result {
   e: TalkException;
@@ -19402,13 +19402,13 @@ export interface notifyUpdated_result {
   e: TalkException;
 }
 
-export interface o80_C32273b {}
+export type o80_C32273b = {};
 
-export interface o80_d {}
+export type o80_d = {};
 
-export interface o80_m {}
+export type o80_m = {};
 
-export interface og_u {}
+export type og_u = {};
 
 export interface openAuthSession_args {
   request: AuthSessionRequest;
@@ -19488,11 +19488,11 @@ export interface putE2eeKey_result {
   e: SecondaryPwlessLoginException;
 }
 
-export interface q80_C33650b {}
+export type q80_C33650b = {};
 
-export interface q80_q {}
+export type q80_q = {};
 
-export interface q80_s {}
+export type q80_s = {};
 
 export interface qm_C34110c {
   inFriends: string;
@@ -19546,9 +19546,9 @@ export interface queryBeaconActions_result {
   e: TalkException;
 }
 
-export interface r80_C34358N {}
+export type r80_C34358N = {};
 
-export interface r80_C34360P {}
+export type r80_C34360P = {};
 
 export interface react_args {
   reactRequest: ReactRequest;
@@ -20650,7 +20650,7 @@ export interface verifySocialLogin_result {
   e: AuthException;
 }
 
-export interface vh_C37633d {}
+export type vh_C37633d = {};
 
 export interface wakeUpLongPolling_args {
   clientRevision: Int64;
@@ -20661,7 +20661,7 @@ export interface wakeUpLongPolling_result {
   e: TalkException;
 }
 
-export interface zR0_C40576a {}
+export type zR0_C40576a = {};
 
 export interface zR0_C40580e {
   sticker: any;

@@ -54,7 +54,12 @@ export function MediaLightbox({
         {kind === "video" ? (
           <video src={url} controls autoPlay className="max-h-[92dvh] max-w-full bg-black" />
         ) : (
-          <img src={url} alt={alt} onError={hideBrokenMedia} className="max-h-[92dvh] max-w-full object-contain" />
+          <img
+            src={url}
+            alt={alt}
+            onError={hideBrokenMedia}
+            className="max-h-[92dvh] max-w-full object-contain"
+          />
         )}
       </div>
     </div>

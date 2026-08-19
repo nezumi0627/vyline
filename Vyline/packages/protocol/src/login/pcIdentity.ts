@@ -29,7 +29,7 @@ let cached: DesktopPcIdentity | null = null;
 
 export function getDesktopPcIdentity(): DesktopPcIdentity {
   if (cached) return cached;
-  const systemName = (process.env["COMPUTERNAME"] ?? osHostname() ?? "DESKTOP").split(".")[0]!;
+  const systemName = (process.env.COMPUTERNAME ?? osHostname() ?? "DESKTOP").split(".")[0]!;
   const modelName = readWmiModel() ?? "System Product Name";
   cached = { systemName, modelName };
   return cached;

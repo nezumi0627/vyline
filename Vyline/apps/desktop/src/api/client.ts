@@ -102,7 +102,10 @@ export const api = {
       request<LoginResult>("POST", "/auth/login/token", params),
 
     getToken: (accountId: string) =>
-      request<{ ok: boolean; token?: string; error?: string }>("GET", `/auth/token/${encodeURIComponent(accountId)}`),
+      request<{ ok: boolean; token?: string; error?: string }>(
+        "GET",
+        `/auth/token/${encodeURIComponent(accountId)}`,
+      ),
 
     restore: (accountId: string) => request<LoginResult>("POST", "/auth/restore", { accountId }),
 

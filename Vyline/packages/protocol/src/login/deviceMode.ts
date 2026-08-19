@@ -21,9 +21,7 @@ const ALLOWED = new Set<VylineDeviceMode>([
 export const DEFAULT_DEVICE_MODE: VylineDeviceMode = "IOSIPAD";
 
 export function resolveDeviceMode(override?: string | null): VylineDeviceMode {
-  const raw = (override ?? process.env["VYLINE_DEVICE"] ?? DEFAULT_DEVICE_MODE)
-    .trim()
-    .toUpperCase();
+  const raw = (override ?? process.env.VYLINE_DEVICE ?? DEFAULT_DEVICE_MODE).trim().toUpperCase();
   if (ALLOWED.has(raw as VylineDeviceMode)) {
     return raw as VylineDeviceMode;
   }

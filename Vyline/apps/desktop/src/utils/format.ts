@@ -210,7 +210,7 @@ export function isUnsentMessage(
   )
     return true;
   if (hasChunks) return false;
-  if (text && text.trim()) return false;
+  if (text?.trim()) return false;
   if (u !== "NONE" && u !== "0") return false;
   if (meta?.STKID || meta?.OID || meta?.DOWNLOAD_URL || meta?.SID) return false;
   // 取り消し後にサーバが空 NONE だけ残すケース

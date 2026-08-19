@@ -3,7 +3,6 @@
  */
 export type LooseType = any;
 export type LooseArray = LooseType[];
-// biome-ignore lint/suspicious/noExplicitAny: protocol struct passthrough
 export type LooseObject<Must extends Record<PropertyKey, LooseType> = {}> = Record<
   PropertyKey,
   LooseType

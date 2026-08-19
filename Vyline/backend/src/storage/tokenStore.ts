@@ -27,7 +27,7 @@ import { childLogger } from "../logger.js";
 const log = childLogger("tokenStore");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const TOKENS_FILE = join(DATA_DIR, "tokens.json");
 
 export interface TokenEntry {
