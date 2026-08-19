@@ -26,6 +26,7 @@ const CACHE_ROOT = process.env["VYLINE_CDN_CACHE_DIR"] ?? join(_dir, "../../data
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;
 const MEMORY_TTL_MS = 30 * 60_000;
+const MAX_CDN_BYTES = 10 * 1024 * 1024; // 10MB
 
 /** 同一 URL の同時リクエストを 1 回の CDN 取得にまとめる */
 const inflight = new Map<string, Promise<{ buf: Uint8Array; contentType: string }>>();
@@ -109,6 +110,41 @@ function remember(url: string, buf: Uint8Array, contentType: string): void {
   memory.set(url, { buf, contentType, at: Date.now() });
 }
 
+async function readLimitedBody(res: Response): Promise<Uint8Array> {
+  const contentLength = Number(res.headers.get("content-length") ?? 0);
+  if (contentLength > MAX_CDN_BYTES) {
+    throw new Error("cdn response too large");
+  }
+
+  if (!res.body) throw new Error("cdn response has no body");
+
+  const reader = res.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > MAX_CDN_BYTES) {
+        await reader.cancel();
+        throw new Error("cdn response too large");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+
+  const body = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return body;
+}
+
 /**
  * CDN URL を取得（メモリ → ディスク → ネットワーク）。
  * 戻り値はキャッシュ済みバッファ。
@@ -153,8 +189,7 @@ export async function getCachedLineCdn(
       throw new Error(`cdn fetch ${res.status}`);
     }
     const contentType = res.headers.get("content-type") ?? "application/octet-stream";
-    const ab = await res.arrayBuffer();
-    const buf = new Uint8Array(ab);
+    const buf = await readLimitedBody(res);
     return { buf, contentType };
   })();
   inflight.set(url, netPromise);
