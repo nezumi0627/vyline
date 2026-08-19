@@ -189,9 +189,12 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "0.4.0-beta",
-  title: "Vyline 0.4.0-beta — Beta Release",
+  version: "0.5.0-beta",
+  title: "Vyline 0.5.0-beta — fetchOps 刷新 + 公開 API",
   items: [
+    "受信システムをfetchOps方式に刷新（メッセージ・通話・メンバー変更等の全イベントを統合処理）",
+    "公開REST API (/v1/) を追加（Bearer token認証）",
+    "Vyline-Desktop カミングスーン",
     "メンション（@ALL / @名前）の送受信・ハイライト表示",
     "画像送信: クライアント側圧縮 + 本家クライアントでも表示される E2EE メディア対応",
     "チャットイベントの実テキスト化（参加/退出/名前変更等を正確に表示）",

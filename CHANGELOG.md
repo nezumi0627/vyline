@@ -1,6 +1,26 @@
 # Changelog
 
-Vyline の変更履歴。バージョンは `Vyline/apps/desktop/src/lib/store.ts` の `UPDATE_NOTES.version` を正本とする。
+## [0.5.0-beta] — 2026-08-20 — fetchOps 刷新 + 公開 API
+
+### 破壊的変更
+
+- 受信エンジンを Legy H2 Push から **fetchOps（TalkService sync RPC）方式**に刷新。全操作タイプ（メッセージ・通話・メンバー変更・既読・リアクション・アナウンス等）をリビジョンカーソルで確実に捕捉する。v0.4.x のフロントエンドとは互換しません。
+- `VYLINE_TALK_LISTEN=0` の動作が変わります（旧: push起動抑制 → 新: fetchOpsループ抑制）
+
+### 新機能
+
+- **公開 REST API (`/v1/`)**: Bearer token 認証によるチャット一覧・メッセージ取得・送信・イベントポーリングを外部から操作可能に。`VYLINE_API_ADMIN_SECRET` 環境変数でトークン管理
+- **OpenAPI 3.1 仕様** を `/openapi.json` で公開。[zensical.org](https://zensical.org) でも参照可
+- **通話・メンバー変更イベント** をイベントバッファに追加（call:incoming, call:end, call:cancel, membership, chat:update, announce）
+- **Vyline Desktop** カミングスーン告知
+
+### 改善
+
+- fetchOps 方式によりネットワーク障害からの自動回復が向上
+- リビジョンカーソルによりイベントの取りこぼしを防止
+- 環境変数 `VYLINE_OPS_POLL_MS` / `VYLINE_OPS_IDLE_MS` で受信間隔を調整可能
+
+---
 
 ## [Unreleased] — 2026-08-19 — Keepメモ, 背景, 通話状態, 法的対応
 

@@ -2958,29 +2958,78 @@ function logMessageAsync(accountId: string, chatMid: string, message: Message): 
   })();
 }
 
-/** Push 受信メッセージをバッファ + ローカルキャッシュへ */
-async function ingestPushMessage(accountId: string, raw: Record<string, unknown>): Promise<void> {
-  const client = requireClient(accountId);
-  const myMid = await resolveMyMid(client, accountId);
-  const chatMid = chatMidFromRaw(raw, myMid);
-  const message = mapDecodedRawToMessage(raw, myMid);
-  pushTalkEvent(accountId, { kind: "message", chatMid, message });
-  invalidateBoxCursorCache(accountId, chatMid);
-  await upsertMessages(accountId, chatMid, [
-    { ...message, chatMid, savedAt: new Date().toISOString() },
-  ]);
-  logMessageAsync(accountId, chatMid, message);
+/** fetchOps で取得した Operation を全て処理してバッファへ流す */
+export async function processFetchedOperations(
+  accountId: string,
+  ops: Array<{
+    type?: string | number;
+    param1?: string;
+    param2?: string;
+    param3?: string;
+    message?: unknown;
+    revision?: number | bigint;
+  }>,
+): Promise<void> {
+  for (const op of ops) {
+    try {
+      await processSingleOperation(accountId, op);
+    } catch (err) {
+      log.debug({ accountId, err, opType: op.type }, "operation processing error");
+    }
+  }
 }
 
-const pushBridgeAttached = new Set<string>();
-
-/** DESTROY / 既読 operation を poll バッファへ（SEND/RECEIVE は message 側で処理） */
-function handleTalkOperation(
+async function processSingleOperation(
   accountId: string,
-  op: { type?: string; param1?: string; param2?: string },
-): void {
-  const type = op.type ?? "";
-  if (type === "DESTROY_MESSAGE" || type === "NOTIFIED_DESTROY_MESSAGE") {
+  op: {
+    type?: string | number;
+    param1?: string;
+    param2?: string;
+    param3?: string;
+    message?: unknown;
+    revision?: number | bigint;
+  },
+): Promise<void> {
+  const client = requireClient(accountId);
+  const myMid = await resolveMyMid(client, accountId);
+  const type = String(op.type ?? "");
+
+  // メッセージ系 — op.message があれば直接処理
+  if (
+    type === "RECEIVE_MESSAGE" ||
+    type === "25" ||
+    type === "NOTIFIED_RECEIVE_MESSAGE" ||
+    type === "26"
+  ) {
+    if (op.message) {
+      const raw = op.message as Record<string, unknown>;
+      const chatMid = chatMidFromRaw(raw, myMid);
+      let message = mapDecodedRawToMessage(raw, myMid);
+      try {
+        if (raw.contentMetadata && (raw.contentMetadata as Record<string, unknown>).e2eeVersion) {
+          const decrypted = await decryptE2EEMessageSafe(client, accountId, chatMid, raw);
+          if (decrypted) message = decrypted;
+        }
+      } catch {
+        /* 復号失敗は平文のまま */
+      }
+      pushTalkEvent(accountId, { kind: "message", chatMid, message });
+      invalidateBoxCursorCache(accountId, chatMid);
+      await upsertMessages(accountId, chatMid, [
+        { ...message, chatMid, savedAt: new Date().toISOString() },
+      ]);
+      logMessageAsync(accountId, chatMid, message);
+    }
+    return;
+  }
+
+  // メッセージ取消
+  if (
+    type === "DESTROY_MESSAGE" ||
+    type === "7" ||
+    type === "NOTIFIED_DESTROY_MESSAGE" ||
+    type === "8"
+  ) {
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
@@ -2989,10 +3038,16 @@ function handleTalkOperation(
     }
     return;
   }
+
+  // 既読通知
   if (
     type === "NOTIFIED_READ_MESSAGE" ||
+    type === "25" ||
     type === "RECEIVE_MESSAGE_RECEIPT" ||
-    type === "RECEIVE_READ_WATERMARK"
+    type === "28" ||
+    type === "RECEIVE_READ_WATERMARK" ||
+    type === "30" ||
+    type === "29"
   ) {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
@@ -3000,46 +3055,115 @@ function handleTalkOperation(
     }
     return;
   }
-  // リアクション（SEND_REACTION / NOTIFIED_SEND_REACTION / NOTIFIED_GCS_REACTION）
-  // param1=messageId, param2=chatMid（実機確認済みの形式に合わせ、欠落時は delta で回収）
+
+  // リアクション
   if (
     type === "SEND_REACTION" ||
+    type === "58" ||
     type === "NOTIFIED_SEND_REACTION" ||
-    type === "NOTIFIED_GCS_REACTION"
+    type === "55" ||
+    type === "NOTIFIED_GCS_REACTION" ||
+    type === "65" ||
+    type === "48"
   ) {
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "reaction", chatMid, messageId });
     }
+    return;
+  }
+
+  // 着信通話
+  if (type === "NOTIFIED_RECEIVED_CALL" || type === "3") {
+    const chatMid = String(op.param1 ?? "");
+    const callerMid = String(op.param2 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, {
+        kind: "call:incoming",
+        chatMid,
+        callerMid,
+        callType: "audio",
+      });
+      log.info({ accountId, chatMid, callerMid }, "incoming call");
+    }
+    return;
+  }
+
+  // 通話キャンセル
+  if (type === "NOTIFIED_CANCEL_CALL" || type === "NOTIFIED_MISSED_CALL" || type === "4") {
+    const chatMid = String(op.param1 ?? "");
+    const callerMid = String(op.param2 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "call:cancel", chatMid, callerMid });
+    }
+    return;
+  }
+
+  // 通話終了
+  if (type === "NOTIFIED_CALL_STATUS" || type === "5") {
+    const chatMid = String(op.param1 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "call:end", chatMid });
+    }
+    return;
+  }
+
+  // チャットメンバー変更（招待、参加、退出、キック）
+  if (type === "NOTIFIED_INVITE_INTO_CHAT" || type === "33") {
+    const chatMid = String(op.param1 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "membership", chatMid, event: "invited" });
+    }
+    return;
+  }
+  if (
+    type === "NOTIFIED_ACCEPT_CHAT_INVITATION" ||
+    type === "NOTIFIED_JOIN_CHAT" ||
+    type === "35"
+  ) {
+    const chatMid = String(op.param1 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "membership", chatMid, event: "joined" });
+    }
+    return;
+  }
+  if (
+    type === "NOTIFIED_LEAVE_CHAT" ||
+    type === "32" ||
+    type === "NOTIFIED_KICKOUT_FROM_CHAT" ||
+    type === "34"
+  ) {
+    const chatMid = String(op.param1 ?? "");
+    const targetMid = String(op.param2 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      const event = type === "NOTIFIED_KICKOUT_FROM_CHAT" || type === "34" ? "kicked" : "left";
+      pushTalkEvent(accountId, { kind: "membership", chatMid, event, targetMid });
+    }
+    return;
+  }
+
+  // チャット情報更新（グループ名変更等）
+  if (type === "NOTIFIED_UPDATE_CHAT" || type === "13") {
+    const chatMid = String(op.param1 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "chat:update", chatMid });
+    }
+    return;
+  }
+
+  // アナウンス（CHATEVENT）
+  if (type === "CHATEVENT_NOTIFIED_ANNOUNCE" || type === "NOTIFIED_UPDATE_CHAT_ROOM_ANNOUNCEMENT") {
+    const chatMid = String(op.param1 ?? "");
+    const text = String(op.param3 ?? op.param2 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "announce", chatMid, text });
+    }
+    return;
   }
 }
 
-/** Talk Push → poll バッファ（1 アカウント1回だけ） */
-export function attachTalkPushBridge(accountId: string, client: VylineClient): void {
-  if (pushBridgeAttached.has(accountId)) return;
-  pushBridgeAttached.add(accountId);
-  client.on("message", (talkMsg) => {
-    void ingestPushMessage(accountId, talkMsg.raw as unknown as Record<string, unknown>).catch(
-      (err) => {
-        log.debug({ accountId, err }, "push message ingest failed");
-      },
-    );
-  });
-  client.on("event", (op) => {
-    try {
-      handleTalkOperation(
-        accountId,
-        op as unknown as { type?: string; param1?: string; param2?: string },
-      );
-    } catch (err) {
-      log.debug({ accountId, err }, "push operation ingest failed");
-    }
-  });
-}
-
-export function detachTalkPushBridge(accountId: string): void {
-  pushBridgeAttached.delete(accountId);
+export function detachFetchOps(accountId: string): void {
   clearTalkEvents(accountId);
 }
 

@@ -16,6 +16,7 @@ import { authRouter } from "./api/auth.js";
 import { lineRouter } from "./api/line.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
+import { publicRouter } from "./api/public.js";
 import { restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
 import { warmAccountCache } from "./storage/chatStore.js";
@@ -47,6 +48,36 @@ app.route("/api/auth", authRouter);
 app.route("/api/line", lineRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/cdn", cdnRouter);
+
+// 公開 REST API（Bearer トークン認証）
+app.route("/v1", publicRouter);
+app.route("/api/v1", publicRouter);
+
+// OpenAPI 仕様
+app.get("/openapi.yaml", async (c) => {
+  try {
+    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../openapi.yaml");
+    const yaml = await readFile(yamlPath, "utf8");
+    return new Response(yaml, {
+      status: 200,
+      headers: { "Content-Type": "text/yaml; charset=utf-8" },
+    });
+  } catch {
+    return c.json({ ok: false, error: "openapi.yaml not found" }, 404);
+  }
+});
+app.get("/openapi.json", async (c) => {
+  try {
+    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../openapi.yaml");
+    const yaml = await readFile(yamlPath, "utf8");
+    return new Response(yaml, {
+      status: 200,
+      headers: { "Content-Type": "text/yaml; charset=utf-8" },
+    });
+  } catch {
+    return c.json({ ok: false, error: "openapi.yaml not found" }, 404);
+  }
+});
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

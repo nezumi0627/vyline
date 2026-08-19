@@ -8,7 +8,18 @@ export type TalkPollEventPayload =
   | { kind: "message"; chatMid: string; message: Message }
   | { kind: "revoke"; chatMid: string; messageId: string }
   | { kind: "read"; chatMid: string }
-  | { kind: "reaction"; chatMid: string; messageId: string };
+  | { kind: "reaction"; chatMid: string; messageId: string }
+  | { kind: "call:incoming"; chatMid: string; callerMid: string; callType: "audio" | "video" }
+  | { kind: "call:end"; chatMid: string; durationSec?: number }
+  | { kind: "call:cancel"; chatMid: string; callerMid: string }
+  | {
+      kind: "membership";
+      chatMid: string;
+      event: "invited" | "joined" | "left" | "kicked";
+      targetMid?: string;
+    }
+  | { kind: "chat:update"; chatMid: string }
+  | { kind: "announce"; chatMid: string; text: string };
 
 export type TalkPollEvent = TalkPollEventPayload & { seq: number };
 
