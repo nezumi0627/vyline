@@ -23,11 +23,7 @@ import {
   updateSessionMeta,
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
-import {
-  attachTalkPushBridge,
-  detachTalkPushBridge,
-  warmLineCache,
-} from "../service/lineService.js";
+import { warmLineCache, detachFetchOps } from "../service/lineService.js";
 
 const log = childLogger("clientManager");
 
@@ -48,19 +44,20 @@ interface ManagedClient {
   loggedInAt: number | null;
 }
 
-type TalkListenState = {
-  abort: AbortController;
-  mounted: boolean;
-};
-
 const clients = new Map<string, ManagedClient>();
-const talkListenByAccount = new Map<string, TalkListenState>();
 
-function mountTalkListen(client: VylineClient, accountId: string): void {
-  const abort = new AbortController();
-  talkListenByAccount.set(accountId, { abort, mounted: true });
-  client.listen({ talk: true, square: false, signal: abort.signal });
-}
+/** アカウントごとの fetchOps カーソル（revision ベース） */
+const opsRevision = new Map<
+  string,
+  {
+    revision: number | bigint;
+    globalRev: number | bigint;
+    individualRev: number | bigint;
+  }
+>();
+
+/** fetchOps ループの AbortController */
+const opsAbortByAccount = new Map<string, AbortController>();
 
 /** バックグラウンド RPC 用（poll / 既読）。送信はキューに入れない */
 const talkRpcBackground = new Map<string, Promise<unknown>>();
@@ -186,31 +183,96 @@ function loginInit(accountId: string) {
 
 function startTalkListeners(client: VylineClient, accountId: string): void {
   if (process.env.VYLINE_TALK_LISTEN === "0") {
-    log.info({ accountId }, "talk listener disabled (VYLINE_TALK_LISTEN=0)");
+    log.info({ accountId }, "ops loop disabled (VYLINE_TALK_LISTEN=0)");
     return;
   }
-  client.on("call:incoming", (ev) => {
-    log.info(
-      { accountId, from: ev.from, callMid: ev.callMid, kind: ev.kind },
-      "incoming call (NOTIFIED_RECEIVED_CALL)",
-    );
-  });
-  client.on("call:cancel", (ev) => {
-    log.info(
-      { accountId, from: ev.from, callMid: ev.callMid, reason: ev.reason },
-      "call cancelled",
-    );
-  });
-  // Push 長ポールは Talk RPC と競合し得る — セッション復元後に遅延起動
-  const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 15_000);
+  const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
   setTimeout(() => {
-    try {
-      mountTalkListen(client, accountId);
-      log.info({ accountId, delayMs }, "talk event listener started");
-    } catch (err) {
-      log.warn({ accountId, err }, "failed to start talk listener");
-    }
+    startFetchOpsLoop(client, accountId);
+    log.info({ accountId, delayMs }, "ops loop started");
   }, delayMs);
+}
+
+function startFetchOpsLoop(client: VylineClient, accountId: string): void {
+  opsAbortByAccount.get(accountId)?.abort();
+  const abort = new AbortController();
+  opsAbortByAccount.set(accountId, abort);
+
+  const POLL_INTERVAL_MS = Number(process.env.VYLINE_OPS_POLL_MS ?? 2_000);
+  const IDLE_INTERVAL_MS = Number(process.env.VYLINE_OPS_IDLE_MS ?? 8_000);
+  const POLL_TIMEOUT_MS = Number(process.env.VYLINE_OPS_TIMEOUT_MS ?? 60_000);
+
+  const getCursor = () =>
+    opsRevision.get(accountId) ?? { revision: 0, globalRev: 0, individualRev: 0 };
+
+  async function loop(): Promise<void> {
+    while (!abort.signal.aborted && client.base.authToken) {
+      try {
+        const cursor = getCursor();
+        const resp = await client.base.talk.sync({
+          limit: 100,
+          revision: cursor.revision,
+          globalRev: cursor.globalRev,
+          individualRev: cursor.individualRev,
+          timeout: POLL_TIMEOUT_MS,
+        });
+
+        const opResp = resp?.operationResponse;
+        const fullSync = resp?.fullSyncResponse;
+        if (fullSync?.nextRevision) {
+          opsRevision.set(accountId, { ...getCursor(), revision: fullSync.nextRevision });
+        }
+        if (opResp?.globalEvents?.lastRevision) {
+          opsRevision.set(accountId, {
+            ...getCursor(),
+            globalRev: opResp.globalEvents.lastRevision,
+          });
+        }
+        if (opResp?.individualEvents?.lastRevision) {
+          opsRevision.set(accountId, {
+            ...getCursor(),
+            individualRev: opResp.individualEvents.lastRevision,
+          });
+        }
+
+        const ops = opResp?.operations ?? [];
+        if (ops.length > 0) {
+          const lastOp = ops[ops.length - 1];
+          if (lastOp?.revision != null) {
+            opsRevision.set(accountId, { ...getCursor(), revision: lastOp.revision });
+          }
+          const { processFetchedOperations } = await import("../service/lineService.js");
+          await processFetchedOperations(accountId, ops);
+        }
+
+        await new Promise<void>((resolve) => {
+          const t = setTimeout(resolve, ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS);
+          abort.signal.addEventListener(
+            "abort",
+            () => {
+              clearTimeout(t);
+              resolve();
+            },
+            { once: true },
+          );
+        });
+      } catch (err) {
+        if (abort.signal.aborted) break;
+        log.debug({ accountId, err }, "ops loop error, retrying");
+        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+      }
+    }
+    opsAbortByAccount.delete(accountId);
+    log.info({ accountId }, "ops loop stopped");
+  }
+
+  void loop();
+}
+
+export function stopFetchOpsLoop(accountId: string): void {
+  opsAbortByAccount.get(accountId)?.abort();
+  opsAbortByAccount.delete(accountId);
+  opsRevision.delete(accountId);
 }
 
 function watchAuthToken(client: VylineClient, accountId: string): void {
@@ -221,7 +283,6 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   }
 
   startTalkListeners(client, accountId);
-  attachTalkPushBridge(accountId, client);
 
   // スタック内部ログ（[LEGY/PUSH] 等）を pino へ — 接続状態の観測用
   client.base.on("log", ({ type, data }) => {
@@ -548,9 +609,8 @@ export function getLoggedInAt(accountId: string): number | null {
 }
 
 export function removeClient(accountId: string): void {
-  talkListenByAccount.get(accountId)?.abort.abort();
-  talkListenByAccount.delete(accountId);
-  detachTalkPushBridge(accountId);
+  stopFetchOpsLoop(accountId);
+  detachFetchOps(accountId);
   clients.delete(accountId);
   log.info({ accountId }, "client removed");
 }

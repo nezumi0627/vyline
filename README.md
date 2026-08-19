@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.4.0--beta-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.5.0--beta-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="stack" src="https://img.shields.io/badge/stack-Hono%20%2B%20React-0ea5e9?style=flat-square" />
@@ -18,7 +18,7 @@
   このさんさんとした太陽の下、Vyline を選んでくださるユーザーに出会えたことに感謝します。
 </p>
 
-> **2026/08/20 beta 版 release 開始** — 本リポジトリは Vyline Beta 0.4.0 として公開されました。機能の安定性は保証されておらず、予期しない動作やアカウントリスクが含まれる可能性があります。
+> **2026/08/20 beta 版 release 開始** — 本リポジトリは Vyline Beta 0.5.0 として公開されました。機能の安定性は保証されておらず、予期しない動作やアカウントリスクが含まれる可能性があります。
 
 ---
 
@@ -48,7 +48,7 @@ Vyline は LINE 非公式のサードパーティクライアントであり、L
 | 誰向け     | UI を自分好みにしたい人・開発者          |
 | なにが違う | テーマ管理 / メンション / ローカル最適化 |
 | ライセンス | MIT                                      |
-| 状態       | Beta（開発中）                           |
+| 状態       | Beta 0.5.0                               |
 
 ### 主な機能
 
@@ -67,6 +67,20 @@ Vyline は LINE 非公式のサードパーティクライアントであり、L
 | **プライバシー** | ストリーマーモード、PIN ロック                                                                                        |
 | **VylineBackup** | トーク履歴・メディアのスナップショット作成 / 復元 / 削除                                                              |
 | **その他**       | チャット詳細ログ(JSONL) / Keepメモ / 相手プロフィール背景表示 / 通話中バッジ / 共通グループ高速表示 / トーク保存(TXT) |
+
+---
+
+## ⚠️ 破壊的変更 (v0.5.0)
+
+v0.5.0 は v0.4.x と**互換性がありません**。以下の変更により、既存の設定・キャッシュの一部リセットが必要な場合があります。
+
+| 変更                                                   | 影響                                                                        |
+| ------------------------------------------------------ | --------------------------------------------------------------------------- |
+| 受信エンジンを Push 長ポール → fetchOps 方式に刷新     | イベントポーリングの挙動が変わります                                        |
+| 公開 API (`/v1/`) を新設                               | 環境変数 `VYLINE_API_ADMIN_SECRET` を設定するとトークン管理が可能になります |
+| イベント種別の拡張（通話・メンバー変更・アナウンス等） | フロントエンドの旧バージョンとは互換しません                                |
+
+**アップグレード手順**: `git pull && bun install && bun run dev` のみで動作します。既存のログイン状態は維持されます。
 
 ---
 
@@ -138,6 +152,24 @@ docker compose up -d --build   # http://localhost:3001
 2. `backend/data/desktop-e2ee-keys.json` に配置（**gitignore・コミット禁止**）
 3. backend 起動時に自動 import
 
+### 公開 API (`/v1/`)
+
+セルフホスト時に Bearer トークンで Vyline を外部から操作できます。
+
+```bash
+# トークン作成（VYLINE_API_ADMIN_SECRET を設定後）
+curl -X POST http://localhost:3001/v1/tokens \
+  -H "Authorization: Bearer $VYLINE_API_ADMIN_SECRET" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-bot"}'
+
+# チャット一覧取得
+curl http://localhost:3001/v1/accounts/{accountId}/chats \
+  -H "Authorization: Bearer vyl_xxxx..."
+```
+
+API 仕様（OpenAPI 3.1）: `GET /openapi.json` または [zensical.org](https://zensical.org)
+
 ### 解析ツールキット（vyline-search）
 
 Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 / 逆コンパイルを行う独立ツールキットです。教育・研究目的で `findNativeSymbol` による文字列 xref 解析と Ghidra decompile をワンコマンドで実行できます。
@@ -159,6 +191,8 @@ Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 /
 | [docs/protocol/dictionary.md](docs/protocol/dictionary.md) | RPC 辞書                               |
 | [AGENTS.md](AGENTS.md)                                     | エージェント向けガイド                 |
 | [CHANGELOG.md](CHANGELOG.md)                               | 変更履歴                               |
+| [zensical.org](https://zensical.org)                       | 公開ドキュメント・API リファレンス     |
+| [/openapi.json](/openapi.json)                             | OpenAPI 3.1 仕様（ローカル）           |
 
 公開ドキュメント・チュートリアル: **[zensical.org](https://zensical.org)**
 
@@ -180,6 +214,21 @@ Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 /
 - **定期的なメンテナー**: 個人開発のため、継続的に助けていただける方を募集中
 
 興味がある方は [AGENTS.md](AGENTS.md) の手順に従ってプルリクエストをお送りください。
+
+---
+
+## Vyline Desktop
+
+> **Coming Soon** 🚀
+
+Vyline が安定版に到達した後、専用のデスクトップアプリ **Vyline Desktop** をリリース予定です。
+
+- 🖥️ Windows / macOS / Linux ネイティブアプリ
+- 🔔 プッシュ通知
+- 🗂️ トレイアイコン常駐
+- 🔒 ローカルデータ完全管理
+
+Vyline の安定版リリースをお待ちください。
 
 ---
 

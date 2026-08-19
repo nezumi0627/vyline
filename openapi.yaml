@@ -1,0 +1,467 @@
+openapi: "3.1.0"
+info:
+  title: Vyline Public API
+  description: |
+    Vyline セルフホスト型 LINE クライアントの公開 REST API。
+    Bearer トークン認証が必要です（`VYLINE_API_ADMIN_SECRET` でトークンを作成）。
+
+    ## クイックスタート
+
+    1. `VYLINE_API_ADMIN_SECRET=<secret>` で Vyline を起動
+    2. 管理者トークンを作成:
+       ```
+       curl -X POST http://localhost:3001/v1/tokens \
+         -H "Authorization: Bearer <secret>" \
+         -H "Content-Type: application/json" \
+         -d '{"name":"my-bot"}'
+       ```
+    3. 取得した `vyl_...` トークンを Bearer として使用
+  version: "1.0.0"
+servers:
+  - url: "{baseUrl}/v1"
+    variables:
+      baseUrl:
+        default: "http://localhost:3001"
+        description: Vyline サーバー URL
+security:
+  - bearerAuth: []
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: "vyl_<hex32>"
+    adminSecret:
+      type: http
+      scheme: bearer
+      bearerFormat: "<VYLINE_API_ADMIN_SECRET>"
+  schemas:
+    Error:
+      type: object
+      required: [ok, error]
+      properties:
+        ok:
+          type: boolean
+          example: false
+        error:
+          type: string
+    ApiToken:
+      type: object
+      properties:
+        token:
+          type: string
+          description: APIトークン値（vyl_ プレフィックス付き32文字hex）
+          example: "vyl_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+        name:
+          type: string
+          description: トークン識別名
+        scopes:
+          type: array
+          items:
+            type: string
+          example: ["read", "write"]
+        createdAt:
+          type: string
+          format: date-time
+        lastUsedAt:
+          type: string
+          format: date-time
+    Chat:
+      type: object
+      properties:
+        id:
+          type: string
+        name:
+          type: string
+        kind:
+          type: string
+          enum: [USER, GROUP, ROOM]
+        unreadCount:
+          type: integer
+        thumbnailUrl:
+          type: string
+    Message:
+      type: object
+      properties:
+        id:
+          type: string
+        text:
+          type: string
+        senderId:
+          type: string
+        chatMid:
+          type: string
+        sentAt:
+          type: number
+          description: Unix timestamp (ms)
+        contentType:
+          type: string
+    PollResult:
+      type: object
+      properties:
+        cursor:
+          type: integer
+          description: 次回 poll に使うカーソル値
+        events:
+          type: array
+          items:
+            type: object
+            properties:
+              kind:
+                type: string
+                enum:
+                  - message
+                  - revoke
+                  - read
+                  - reaction
+                  - "call:incoming"
+                  - "call:end"
+                  - "call:cancel"
+                  - membership
+                  - "chat:update"
+                  - announce
+              chatMid:
+                type: string
+              seq:
+                type: integer
+        reset:
+          type: boolean
+          description: カーソルがリセットされた場合 true
+        seq:
+          type: integer
+paths:
+  /accounts:
+    get:
+      summary: ログイン中アカウント一覧
+      operationId: listAccounts
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: アカウントリスト
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                    example: true
+                  accounts:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        accountId:
+                          type: string
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /accounts/{accountId}/chats:
+    get:
+      summary: チャット一覧取得
+      operationId: listChats
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: light
+          in: query
+          description: 軽量モード（メッセージ履歴なし）
+          schema:
+            type: boolean
+      responses:
+        "200":
+          description: チャットリスト
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Chat"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: アカウントが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /accounts/{accountId}/chats/{chatMid}/messages:
+    get:
+      summary: メッセージ履歴取得
+      operationId: getMessages
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: chatMid
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            default: 20
+            minimum: 1
+            maximum: 100
+        - name: before
+          in: query
+          description: このメッセージID以前を取得（ページネーション）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: メッセージリスト
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  hasMore:
+                    type: boolean
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: アカウントが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: テキストメッセージ送信
+      operationId: sendMessage
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: chatMid
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [text]
+              properties:
+                text:
+                  type: string
+                  description: 送信するテキスト
+      responses:
+        "200":
+          description: 送信成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/Message"
+        "400":
+          description: バリデーションエラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: アカウントが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /accounts/{accountId}/events/poll:
+    get:
+      summary: イベントポーリング（Talk Push バッファから取得）
+      operationId: pollEvents
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: accountId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: cursor
+          in: query
+          description: 前回レスポンスの cursor 値（初回は 0）
+          schema:
+            type: integer
+            default: 0
+      responses:
+        "200":
+          description: イベントリスト
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/PollResult"
+        "401":
+          description: 認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: アカウントが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /tokens:
+    get:
+      summary: APIトークン一覧（管理者のみ）
+      operationId: listApiTokens
+      security:
+        - adminSecret: []
+      responses:
+        "200":
+          description: トークンリスト
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ApiToken"
+        "403":
+          description: 管理者認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+    post:
+      summary: APIトークン作成（管理者のみ）
+      operationId: createApiToken
+      security:
+        - adminSecret: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              properties:
+                name:
+                  type: string
+                  description: トークン識別名
+                scopes:
+                  type: array
+                  items:
+                    type: string
+                  default: ["read", "write"]
+      responses:
+        "201":
+          description: 作成されたトークン（token 値はこの一度のみ返却）
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+                  data:
+                    $ref: "#/components/schemas/ApiToken"
+        "400":
+          description: バリデーションエラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: 管理者認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+  /tokens/{token}:
+    delete:
+      summary: APIトークン削除（管理者のみ）
+      operationId: revokeApiToken
+      security:
+        - adminSecret: []
+      parameters:
+        - name: token
+          in: path
+          required: true
+          description: 削除するトークン値（vyl_... 形式）
+          schema:
+            type: string
+      responses:
+        "200":
+          description: 削除成功
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ok:
+                    type: boolean
+        "403":
+          description: 管理者認証エラー
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: トークンが見つからない
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
