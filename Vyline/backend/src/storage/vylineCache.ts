@@ -52,8 +52,8 @@ function emptyDb(): VylineCacheDb {
 
 const storage = new VylineStorage<VylineCacheDb>("cache", emptyDb);
 
-const PROFILE_TTL_MS = Number(process.env["VYLINE_PROFILE_TTL_MS"] ?? 86_400_000);
-const GROUP_TTL_MS = Number(process.env["VYLINE_GROUP_TTL_MS"] ?? 3_600_000);
+const PROFILE_TTL_MS = Number(process.env.VYLINE_PROFILE_TTL_MS ?? 86_400_000);
+const GROUP_TTL_MS = Number(process.env.VYLINE_GROUP_TTL_MS ?? 3_600_000);
 
 function looksLikeMid(value: string | null | undefined): boolean {
   if (!value) return false;

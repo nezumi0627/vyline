@@ -16,7 +16,7 @@ export function startWatcher(
   opts: WatcherOptions,
   onEvent: (reason: WatchReason) => void | Promise<void>,
 ): WatchHandle {
-  if (process.env["VYLINE_DISABLE_WATCH"] === "1") {
+  if (process.env.VYLINE_DISABLE_WATCH === "1") {
     return { stop() {} };
   }
 

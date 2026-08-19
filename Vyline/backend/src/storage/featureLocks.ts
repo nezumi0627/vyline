@@ -14,7 +14,7 @@ import { childLogger } from "../logger.js";
 const log = childLogger("featureLocks");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const LOCKS_FILE = join(DATA_DIR, "feature-locks.json");
 
 export type AccountFeatureLocks = {

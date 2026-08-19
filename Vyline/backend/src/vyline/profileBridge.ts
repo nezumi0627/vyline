@@ -17,7 +17,7 @@ let updater: VylineUpdater | null = null;
 let profile: DesktopProfile | null = null;
 
 function dataDir(): string {
-  const root = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "../../data");
+  const root = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
   const modern = join(root, "vyline");
   const legacy = join(root, "nezuline");
   // 旧ブランド (nezuline) キャッシュがあれば引き続き使う
@@ -53,7 +53,7 @@ export async function initVylineProfile(): Promise<DesktopProfile> {
     "VylineUpdater Desktop profile ready",
   );
 
-  if (process.env["VYLINE_DISABLE_WATCH"] !== "1") {
+  if (process.env.VYLINE_DISABLE_WATCH !== "1") {
     updater.watch((next, reason) => {
       profile = next;
       log.warn(

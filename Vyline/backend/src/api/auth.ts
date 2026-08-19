@@ -66,7 +66,10 @@ authRouter.post("/login/email", async (c) => {
     body.password,
     (pin) => {
       emailLoginState.set(body.accountId, { status: "pending", pincode: pin, error: null });
-      log.info({ accountId: body.accountId, pin: Boolean(pin) }, "PINCODE REQUIRED — enter on LINE app");
+      log.info(
+        { accountId: body.accountId, pin: Boolean(pin) },
+        "PINCODE REQUIRED — enter on LINE app",
+      );
     },
     pincode,
   )

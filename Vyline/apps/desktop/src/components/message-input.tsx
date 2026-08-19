@@ -147,7 +147,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;pointer-events:none";
     probe.style.font = `${cs.fontSize} ${cs.fontFamily}`;
     ta.parentElement?.appendChild(probe);
-    const em = parseFloat(cs.fontSize) || 1;
+    const em = Number.parseFloat(cs.fontSize) || 1;
     setSticonEm(probe.getBoundingClientRect().width / em || 1);
     probe.remove();
   };

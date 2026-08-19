@@ -170,12 +170,12 @@ import { fileURLToPath } from "node:url";
 const _dir = dirname(fileURLToPath(import.meta.url));
 
 function storagePathFor(accountId: string): string {
-  const dataDir = process.env["VYLINE_DATA_DIR"] ?? pathJoin(_dir, "../../data");
+  const dataDir = process.env.VYLINE_DATA_DIR ?? pathJoin(_dir, "../../data");
   return `${dataDir}/storage-${accountId}.json`;
 }
 
 function loginInit(accountId: string) {
-  const deviceMode = process.env["VYLINE_DEVICE"];
+  const deviceMode = process.env.VYLINE_DEVICE;
   return {
     profile: getVylineProfile(),
     storagePath: storagePathFor(accountId),
@@ -185,7 +185,7 @@ function loginInit(accountId: string) {
 }
 
 function startTalkListeners(client: VylineClient, accountId: string): void {
-  if (process.env["VYLINE_TALK_LISTEN"] === "0") {
+  if (process.env.VYLINE_TALK_LISTEN === "0") {
     log.info({ accountId }, "talk listener disabled (VYLINE_TALK_LISTEN=0)");
     return;
   }
@@ -202,7 +202,7 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
     );
   });
   // Push 長ポールは Talk RPC と競合し得る — セッション復元後に遅延起動
-  const delayMs = Number(process.env["VYLINE_TALK_LISTEN_DELAY_MS"] ?? 15_000);
+  const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 15_000);
   setTimeout(() => {
     try {
       mountTalkListen(client, accountId);
@@ -450,7 +450,7 @@ export async function loginWithAuthToken(
   const { dirname, join } = await import("node:path");
   const { fileURLToPath } = await import("node:url");
   const _dir = dirname(fileURLToPath(import.meta.url));
-  const dataDir = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "../../data");
+  const dataDir = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
   const storagePath = join(dataDir, `storage-${accountId}.json`);
 
   log.info({ accountId }, "login with authToken via Vyline");

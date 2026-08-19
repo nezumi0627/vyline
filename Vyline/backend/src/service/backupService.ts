@@ -25,7 +25,7 @@ import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
 const log = childLogger("vyline-backup");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const BACKUP_DIR = process.env["VYLINE_BACKUP_DIR"] ?? join(_dir, "../../data/backups");
+const BACKUP_DIR = process.env.VYLINE_BACKUP_DIR ?? join(_dir, "../../data/backups");
 
 const SCHEMA = "vyline-backup";
 const VERSION = 1;

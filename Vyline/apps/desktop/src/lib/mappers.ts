@@ -102,7 +102,7 @@ export function mapMember(mid: string, name?: string, avatarUrl?: string): Membe
   const resolved = name && !looksLikeMid(name) ? name : looksLikeMid(mid) ? mid : name || mid;
   // MIDのままの場合は短く表示（u7c6ea... 形式）
   const displayName =
-    resolved.length > 14 && looksLikeMid(resolved) ? resolved.slice(0, 12) + "..." : resolved;
+    resolved.length > 14 && looksLikeMid(resolved) ? `${resolved.slice(0, 12)}...` : resolved;
   return {
     id: mid,
     name: displayName,
@@ -225,7 +225,7 @@ export function mapMessage(
   accountId: string,
   _contactCache?: Map<string, ContactInfo>,
 ): Message {
-  let kind = messageKind(m);
+  const kind = messageKind(m);
   const revoked = m.contentType === "UNSENT" || m.contentType === "UNSEND";
   const stickerId = extractStickerId(m.contentMetadata ?? null);
   const authorId = m.isMyMessage ? "me" : m.from;

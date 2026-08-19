@@ -140,13 +140,8 @@ function applyReadWatermarkLocal(
       const prevReadBy = m.readBy ?? [];
       const prevReadCount = m.readCount ?? 0;
       // 既知の既読者より少なくならない範囲で補完（force 時は上書き）
-      const nextReadBy =
-        force || readBy.length >= prevReadBy.length ? readBy : prevReadBy;
-      if (
-        force ||
-        readCount > prevReadCount ||
-        (readBy.length > 0 && prevReadBy.length === 0)
-      ) {
+      const nextReadBy = force || readBy.length >= prevReadBy.length ? readBy : prevReadBy;
+      if (force || readCount > prevReadCount || (readBy.length > 0 && prevReadBy.length === 0)) {
         patches.set(m.id, {
           read: true,
           status: "read",
@@ -422,18 +417,18 @@ export const useStore = create<State>()(
         set({ screen: s, pendingScreen: null });
       },
 
-  setAccountId: (id) => {
-    if (id !== get().accountId) {
-      contactFetched.clear();
-      readReceiptSent.clear();
-      readReceiptInflight.clear();
-      sessionOpenedChats.clear();
-      eventPollCursor.delete(String(id));
-    }
-    set({ accountId: id });
-  },
+      setAccountId: (id) => {
+        if (id !== get().accountId) {
+          contactFetched.clear();
+          readReceiptSent.clear();
+          readReceiptInflight.clear();
+          sessionOpenedChats.clear();
+          eventPollCursor.delete(String(id));
+        }
+        set({ accountId: id });
+      },
 
-resetAccountData: () =>
+      resetAccountData: () =>
         set({
           chats: [],
           messages: [],
@@ -449,7 +444,6 @@ resetAccountData: () =>
           readDisabledMids: {},
           blockedMids: [],
         }),
-
 
       toggleChatReadDisabled: (id) => {
         set((st) => {
@@ -843,9 +837,7 @@ resetAccountData: () =>
           }
           if (!res.ok) {
             set((st) => ({
-              messages: st.messages.map((m) =>
-                m.id === tempId ? { ...m, status: "failed" } : m,
-              ),
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
             return;
           }
@@ -1627,9 +1619,7 @@ resetAccountData: () =>
             if (patched) {
               set((st) => ({
                 messages: st.messages.map((m) =>
-                  m.chatId === chatId && patched.get(m.id)
-                    ? { ...m, ...patched.get(m.id) }
-                    : m,
+                  m.chatId === chatId && patched.get(m.id) ? { ...m, ...patched.get(m.id) } : m,
                 ),
               }));
             }
@@ -1898,7 +1888,9 @@ resetAccountData: () =>
         // 非 pending メッセージが無い（全送信中/初回）場合は通常取得にフォールバックして足場を作る
         if (!lastId) {
           lastDeltaPollAt.set(chatId, Date.now());
-          await get().refreshMessages(chatId, { force: true }).catch(() => undefined);
+          await get()
+            .refreshMessages(chatId, { force: true })
+            .catch(() => undefined);
           return;
         }
         const started = Date.now();

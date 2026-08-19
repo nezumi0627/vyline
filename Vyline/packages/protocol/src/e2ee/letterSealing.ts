@@ -39,7 +39,7 @@ type AnyClient = Client | BaseClient;
 const selfKeyMemByClient = new WeakMap<BaseClient, Map<number, SelfKeyData | null>>();
 const peerPubMemByClient = new WeakMap<BaseClient, Map<string, Buffer>>();
 /** E2EE 非対応 MID（公式アカウント等）を短時間キャッシュし、履歴 fetch のたびに negotiate を繰り返さない */
-const NO_E2EE_PEER_TTL_MS = Number(process.env["VYLINE_NO_E2EE_PEER_TTL_MS"] ?? 300_000);
+const NO_E2EE_PEER_TTL_MS = Number(process.env.VYLINE_NO_E2EE_PEER_TTL_MS ?? 300_000);
 const noE2eePeerCache = new Map<string, number>();
 
 function asBase(client: AnyClient): BaseClient {

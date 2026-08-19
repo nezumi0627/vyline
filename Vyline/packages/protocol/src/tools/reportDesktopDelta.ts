@@ -47,9 +47,9 @@ function yyyymmdd(d = new Date()): string {
 }
 
 function resolveDataDir(): string {
-  if (process.env["VYLINE_DESKTOP_DATA_DIR"]) return process.env["VYLINE_DESKTOP_DATA_DIR"];
-  if (process.env["VYLINE_DATA_DIR"]) {
-    return join(process.env["VYLINE_DATA_DIR"], "vyline");
+  if (process.env.VYLINE_DESKTOP_DATA_DIR) return process.env.VYLINE_DESKTOP_DATA_DIR;
+  if (process.env.VYLINE_DATA_DIR) {
+    return join(process.env.VYLINE_DATA_DIR, "vyline");
   }
   // backend が使う data/vyline を優先、なければパッケージ .cache
   const backendVyline = join(REPO_ROOT, "Vyline", "backend", "data", "vyline");
@@ -237,15 +237,15 @@ export function buildDesktopDeltaReport(opts?: {
 
 function renderMarkdown(report: DesktopDeltaReport): string {
   const lines: string[] = [];
-  lines.push(`# Desktop Delta Report`);
+  lines.push("# Desktop Delta Report");
   lines.push("");
   lines.push(`生成: ${report.generatedAt}`);
   lines.push(`status: **${report.delta.status}**`);
   lines.push("");
-  lines.push(`## バージョン`);
+  lines.push("## バージョン");
   lines.push("");
-  lines.push(`| | 値 |`);
-  lines.push(`|---|---|`);
+  lines.push("| | 値 |");
+  lines.push("|---|---|");
   lines.push(`| キャッシュ (or fallback) | \`${report.delta.previousVersion ?? "-"}\` |`);
   lines.push(`| インストール | \`${report.delta.currentVersion ?? "-"}\` |`);
   lines.push(`| versionChanged | ${report.delta.versionChanged} |`);
@@ -264,7 +264,7 @@ function renderMarkdown(report: DesktopDeltaReport): string {
     lines.push("");
   }
 
-  lines.push(`## %LOCALAPPDATA%\\LINE パス`);
+  lines.push("## %LOCALAPPDATA%\\LINE パス");
   lines.push("");
   lines.push(`lineRoot: \`${report.lineRoot}\``);
   lines.push("");
@@ -278,7 +278,7 @@ function renderMarkdown(report: DesktopDeltaReport): string {
     lines.push("");
   }
 
-  lines.push(`## 再確認すべきモジュール (modules.map)`);
+  lines.push("## 再確認すべきモジュール (modules.map)");
   lines.push("");
   lines.push(`全 feature id: ${FEATURE_IDS.join(", ")}`);
   lines.push("");
@@ -307,21 +307,21 @@ function renderMarkdown(report: DesktopDeltaReport): string {
     }
   }
 
-  lines.push(`## Notes`);
+  lines.push("## Notes");
   lines.push("");
   for (const n of report.notes) {
     lines.push(`- ${n}`);
   }
   lines.push("");
-  lines.push(`## 次のアクション`);
+  lines.push("## 次のアクション");
   lines.push("");
   lines.push("1. 上記モジュールを優先度順に確認する");
   lines.push("2. LINE.exe から searchStrings を strings / メモリダンプで探す");
   lines.push("3. 差分があれば `docs/analysis/<feature>.md` にメモし、対応ソースを直す");
-  lines.push(`4. 必要なら VylineUpdater.refresh() または \`POST /debug/vyline/refresh\``);
+  lines.push("4. 必要なら VylineUpdater.refresh() または `POST /debug/vyline/refresh`");
   lines.push(`5. CDN: ${report.cdnUpdateInfoUrl}`);
   lines.push("");
-  lines.push(`詳細: [docs/tools/desktop-delta.md](../tools/desktop-delta.md)`);
+  lines.push("詳細: [docs/tools/desktop-delta.md](../tools/desktop-delta.md)");
   lines.push("");
   return lines.join("\n");
 }

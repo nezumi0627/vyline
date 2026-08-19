@@ -24,7 +24,7 @@ const log = childLogger("service:restore-desktop");
 const _dir = dirname(fileURLToPath(import.meta.url));
 
 function backendDataDir(): string {
-  if (process.env["VYLINE_DATA_DIR"]) return process.env["VYLINE_DATA_DIR"];
+  if (process.env.VYLINE_DATA_DIR) return process.env.VYLINE_DATA_DIR;
   return join(_dir, "../../data");
 }
 

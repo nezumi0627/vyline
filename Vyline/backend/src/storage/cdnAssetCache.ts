@@ -21,7 +21,7 @@ const ALLOWED_HOSTS = new Set([
 ]);
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const CACHE_ROOT = process.env["VYLINE_CDN_CACHE_DIR"] ?? join(_dir, "../../data/cdn-cache");
+const CACHE_ROOT = process.env.VYLINE_CDN_CACHE_DIR ?? join(_dir, "../../data/cdn-cache");
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;

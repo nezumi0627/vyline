@@ -7,11 +7,11 @@ import { join } from "node:path";
 import { homedir } from "node:os";
 
 export function localAppData(): string {
-  return process.env["LOCALAPPDATA"] ?? join(homedir(), "AppData", "Local");
+  return process.env.LOCALAPPDATA ?? join(homedir(), "AppData", "Local");
 }
 
 export function defaultLineRoot(override?: string): string {
-  return override ?? process.env["VYLINE_LINE_ROOT"] ?? join(localAppData(), "LINE");
+  return override ?? process.env.VYLINE_LINE_ROOT ?? join(localAppData(), "LINE");
 }
 
 export function lineBinDir(lineRoot: string): string {

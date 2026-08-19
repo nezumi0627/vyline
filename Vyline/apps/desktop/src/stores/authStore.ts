@@ -153,7 +153,12 @@ export const useAuthStore = create<AuthState>()(
       },
 
       onLoginSuccess: async (accountId) => {
-        set({ activeAccountId: accountId, error: null, loginMode: "auto", pendingLoginAccountId: null });
+        set({
+          activeAccountId: accountId,
+          error: null,
+          loginMode: "auto",
+          pendingLoginAccountId: null,
+        });
         // 少し待ってトークン保存・プロフィール追記を待つ
         await new Promise((r) => setTimeout(r, 400));
         await get().refreshAccounts();

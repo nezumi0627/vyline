@@ -19,11 +19,11 @@ const FALLBACK_PATH = join(_here, "../../data/desktop-profile.fallback.json");
 
 export function defaultVylineDataDir(override?: string): string {
   if (override) return override;
-  const legacy = process.env["VYLINE_DATA_DIR"]
-    ? join(process.env["VYLINE_DATA_DIR"], "nezuline")
+  const legacy = process.env.VYLINE_DATA_DIR
+    ? join(process.env.VYLINE_DATA_DIR, "nezuline")
     : join(_here, "../../data/nezuline");
-  const modern = process.env["VYLINE_DATA_DIR"]
-    ? join(process.env["VYLINE_DATA_DIR"], "vyline")
+  const modern = process.env.VYLINE_DATA_DIR
+    ? join(process.env.VYLINE_DATA_DIR, "vyline")
     : join(_here, "../../.cache");
   // 旧ブランド (nezuline) キャッシュがあれば引き続き使う
   if (existsSync(join(legacy, "desktop-profile.json"))) return legacy;
@@ -37,13 +37,7 @@ export function profileJsonPath(dataDir: string): string {
 export function loadFallbackProfile(): DesktopProfile {
   if (!existsSync(FALLBACK_PATH)) {
     throw new Error(
-      `[Vyline] fallback profile が見つかりません: ${FALLBACK_PATH}\n` +
-        "  リポジトリに `packages/protocol/data/desktop-profile.fallback.json` が含まれているか確認してください。\n" +
-        "  復旧手順:\n" +
-        "    1. git の変更を最新化する (git pull) — このファイルは追跡対象です\n" +
-        "    2. Windows + LINE Desktop がインストール済みなら `bun run dev:backend` を再実行し自動検出させる\n" +
-        "    3. 手動で生成する場合は `bun run vyline:find-native -- <name>` 等の解析ツールを利用する\n" +
-        "  詳細: https://github.com/nezumi0627/vyline/issues/6",
+      `[Vyline] fallback profile が見つかりません: ${FALLBACK_PATH}\n  リポジトリに \`packages/protocol/data/desktop-profile.fallback.json\` が含まれているか確認してください。\n  復旧手順:\n    1. git の変更を最新化する (git pull) — このファイルは追跡対象です\n    2. Windows + LINE Desktop がインストール済みなら \`bun run dev:backend\` を再実行し自動検出させる\n    3. 手動で生成する場合は \`bun run vyline:find-native -- <name>\` 等の解析ツールを利用する\n  詳細: https://github.com/nezumi0627/vyline/issues/6`,
     );
   }
   return JSON.parse(readFileSync(FALLBACK_PATH, "utf8")) as DesktopProfile;

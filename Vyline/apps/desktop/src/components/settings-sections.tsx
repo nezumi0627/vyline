@@ -1,18 +1,18 @@
-import { useState, useEffect } from "react"
-import { api } from "@/api/client"
-import { useStore, UPDATE_NOTES } from "@/lib/store"
-import { checkForUpdates, type UpdateInfo } from "@/lib/updater"
-import { cn } from "@/lib/utils"
+import { useState, useEffect } from "react";
+import { api } from "@/api/client";
+import { useStore, UPDATE_NOTES } from "@/lib/store";
+import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
+import { cn } from "@/lib/utils";
 
 function formatRelativeTime(ts: number): string {
-  const diff = Date.now() - ts
-  if (diff < 60_000) return "たった今"
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`
-  return `${Math.floor(diff / 86_400_000)}日前`
+  const diff = Date.now() - ts;
+  if (diff < 60_000) return "たった今";
+  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`;
+  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
+  return `${Math.floor(diff / 86_400_000)}日前`;
 }
-import { Toggle, Avatar } from "@/components/vy-ui"
-import { VyThemePanel } from "@/components/vy-theme-panel"
+import { Toggle, Avatar } from "@/components/vy-ui";
+import { VyThemePanel } from "@/components/vy-theme-panel";
 import {
   IconArrowLeft,
   IconEye,
@@ -22,9 +22,9 @@ import {
   IconEdit,
   IconChevron,
   IconSpark,
-} from "@/components/icons"
+} from "@/components/icons";
 
-type Section = "profile" | "read" | "display" | "theme" | "privacy" | "advanced" | "info"
+type Section = "profile" | "read" | "display" | "theme" | "privacy" | "advanced" | "info";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
@@ -34,16 +34,16 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
-]
+];
 
 function Row({
   title,
   desc,
   children,
 }: {
-  title: string
-  desc?: string
-  children: React.ReactNode
+  title: string;
+  desc?: string;
+  children: React.ReactNode;
 }) {
   return (
     <div className="flex items-center justify-between gap-4 py-3.5">
@@ -53,7 +53,7 @@ function Row({
       </div>
       <div className="shrink-0">{children}</div>
     </div>
-  )
+  );
 }
 
 function Card({ children }: { children: React.ReactNode }) {
@@ -61,49 +61,51 @@ function Card({ children }: { children: React.ReactNode }) {
     <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
       {children}
     </div>
-  )
+  );
 }
 
 export function SettingsSections() {
-  const setScreen = useStore((s) => s.setScreen)
-  const settings = useStore((s) => s.settings)
-  const updateSetting = useStore((s) => s.updateSetting)
-  const self = useStore((s) => s.self)
-  const updateSelf = useStore((s) => s.updateSelf)
-  const accountId = useStore((s) => s.accountId)
-  const [section, setSection] = useState<Section>("read")
-  const [nameDraft, setNameDraft] = useState(self.name)
-  const [statusDraft, setStatusDraft] = useState(self.status)
-  const [birthdayDraft, setBirthdayDraft] = useState("")
-  const [profileSaving, setProfileSaving] = useState(false)
-  const [profileMsg, setProfileMsg] = useState<string | null>(null)
+  const setScreen = useStore((s) => s.setScreen);
+  const settings = useStore((s) => s.settings);
+  const updateSetting = useStore((s) => s.updateSetting);
+  const self = useStore((s) => s.self);
+  const updateSelf = useStore((s) => s.updateSelf);
+  const accountId = useStore((s) => s.accountId);
+  const [section, setSection] = useState<Section>("read");
+  const [nameDraft, setNameDraft] = useState(self.name);
+  const [statusDraft, setStatusDraft] = useState(self.status);
+  const [birthdayDraft, setBirthdayDraft] = useState("");
+  const [profileSaving, setProfileSaving] = useState(false);
+  const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   const saveLineProfile = async () => {
     if (!accountId) {
-      setProfileMsg("ログインが必要です")
-      return
+      setProfileMsg("ログインが必要です");
+      return;
     }
-    setProfileSaving(true)
-    setProfileMsg(null)
+    setProfileSaving(true);
+    setProfileMsg(null);
     try {
       const body: {
-        displayName?: string
-        statusMessage?: string
-        birthday?: { day: string; year?: string }
+        displayName?: string;
+        statusMessage?: string;
+        birthday?: { day: string; year?: string };
       } = {
         displayName: nameDraft.trim(),
         statusMessage: statusDraft,
-      }
-      const bday = birthdayDraft.replace(/[^0-9]/g, "")
+      };
+      const bday = birthdayDraft.replace(/[^0-9]/g, "");
       if (bday.length === 4) {
-        body.birthday = { day: bday }
+        body.birthday = { day: bday };
       } else if (bday.length === 8) {
-        body.birthday = { year: bday.slice(0, 4), day: bday.slice(4) }
+        body.birthday = { year: bday.slice(0, 4), day: bday.slice(4) };
       }
-      const res = await api.line.updateProfile(accountId, body)
+      const res = await api.line.updateProfile(accountId, body);
       if (!res.ok || !res.profile) {
-        setProfileMsg(res.ok === false ? (res as { error?: string }).error ?? "更新失敗" : "更新失敗")
-        return
+        setProfileMsg(
+          res.ok === false ? ((res as { error?: string }).error ?? "更新失敗") : "更新失敗",
+        );
+        return;
       }
       updateSelf({
         name: res.profile.displayName || nameDraft,
@@ -111,55 +113,59 @@ export function SettingsSections() {
         birthday: res.profile.birthday?.display,
         avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
         mid: res.profile.mid,
-      })
-      setProfileMsg("LINE プロフィールを更新しました")
+      });
+      setProfileMsg("LINE プロフィールを更新しました");
     } catch (err) {
-      setProfileMsg(err instanceof Error ? err.message : String(err))
+      setProfileMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setProfileSaving(false)
+      setProfileSaving(false);
     }
-  }
+  };
 
   const onPickAvatar = async (file: File | null) => {
-    if (!file || !accountId) return
-    setProfileSaving(true)
-    setProfileMsg(null)
+    if (!file || !accountId) return;
+    setProfileSaving(true);
+    setProfileMsg(null);
     try {
-      const buf = await file.arrayBuffer()
-      const res = await api.line.updateProfileImage(accountId, buf, file.type || "image/jpeg")
+      const buf = await file.arrayBuffer();
+      const res = await api.line.updateProfileImage(accountId, buf, file.type || "image/jpeg");
       if (res.ok && res.profile?.thumbnailUrl) {
-        updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` })
-        setProfileMsg("アイコンを更新しました")
+        updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
+        setProfileMsg("アイコンを更新しました");
       } else {
-        setProfileMsg("アイコン更新に失敗しました")
+        setProfileMsg("アイコン更新に失敗しました");
       }
     } catch (err) {
-      setProfileMsg(err instanceof Error ? err.message : String(err))
+      setProfileMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setProfileSaving(false)
+      setProfileSaving(false);
     }
-  }
+  };
 
   const onPickBackground = async (file: File | null) => {
-    if (!file || !accountId) return
-    setProfileSaving(true)
-    setProfileMsg(null)
+    if (!file || !accountId) return;
+    setProfileSaving(true);
+    setProfileMsg(null);
     try {
-      const buf = await file.arrayBuffer()
-      const res = await api.line.updateProfileBackground(accountId, buf, file.type || "image/jpeg")
+      const buf = await file.arrayBuffer();
+      const res = await api.line.updateProfileBackground(accountId, buf, file.type || "image/jpeg");
       if (res.ok) {
-        setProfileMsg("背景画像をアップロードしました")
+        setProfileMsg("背景画像をアップロードしました");
         // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
-        updateSelf({ backgroundUrl: self.backgroundUrl ? `${self.backgroundUrl.split("?")[0]}?t=${Date.now()}` : self.backgroundUrl })
+        updateSelf({
+          backgroundUrl: self.backgroundUrl
+            ? `${self.backgroundUrl.split("?")[0]}?t=${Date.now()}`
+            : self.backgroundUrl,
+        });
       } else {
-        setProfileMsg(res.error ?? "背景更新に失敗しました")
+        setProfileMsg(res.error ?? "背景更新に失敗しました");
       }
     } catch (err) {
-      setProfileMsg(err instanceof Error ? err.message : String(err))
+      setProfileMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setProfileSaving(false)
+      setProfileSaving(false);
     }
-  }
+  };
 
   return (
     <div className="flex h-dvh flex-col bg-[var(--vy-bg)]">
@@ -208,7 +214,9 @@ export function SettingsSections() {
                 onClick={() => setSection(n.key)}
                 className={cn(
                   "shrink-0 rounded-full px-3 py-1.5 text-xs font-medium transition-colors",
-                  section === n.key ? "text-[var(--vy-accent-contrast)]" : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
+                  section === n.key
+                    ? "text-[var(--vy-accent-contrast)]"
+                    : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
                 )}
                 style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
               >
@@ -265,7 +273,9 @@ export function SettingsSections() {
                         </label>
                       </div>
                       <div className="min-w-0 flex-1 pb-1">
-                        <p className="text-xs text-[var(--vy-text-dim)]">下の欄で表示名・ステメを編集</p>
+                        <p className="text-xs text-[var(--vy-text-dim)]">
+                          下の欄で表示名・ステメを編集
+                        </p>
                       </div>
                     </div>
                   </div>
@@ -341,7 +351,8 @@ export function SettingsSections() {
                     </Row>
                   </Card>
                   <p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                    DM では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
+                    DM
+                    では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
                     「既読 3」のように人数を表示します。
                   </p>
                 </Section>
@@ -357,14 +368,20 @@ export function SettingsSections() {
                         label="コンパクト表示"
                       />
                     </Row>
-                    <Row title="Enter で送信" desc="OFF の場合は Shift+Enter ではなく Enter で改行します">
+                    <Row
+                      title="Enter で送信"
+                      desc="OFF の場合は Shift+Enter ではなく Enter で改行します"
+                    >
                       <Toggle
                         checked={settings.enterToSend}
                         onChange={(v) => updateSetting("enterToSend", v)}
                         label="Enter で送信"
                       />
                     </Row>
-                    <Row title="ステータスメッセージ表示" desc="トークヘッダーに相手のステータスメッセージを表示します">
+                    <Row
+                      title="ステータスメッセージ表示"
+                      desc="トークヘッダーに相手のステータスメッセージを表示します"
+                    >
                       <Toggle
                         checked={settings.showStatusMessage}
                         onChange={(v) => updateSetting("showStatusMessage", v)}
@@ -378,14 +395,20 @@ export function SettingsSections() {
                         label="背景表示"
                       />
                     </Row>
-                    <Row title="吹き出しのしっぽ" desc="メッセージの吹き出しに三角形のしっぽを付けます">
+                    <Row
+                      title="吹き出しのしっぽ"
+                      desc="メッセージの吹き出しに三角形のしっぽを付けます"
+                    >
                       <Toggle
                         checked={settings.bubbleTail}
                         onChange={(v) => updateSetting("bubbleTail", v)}
                         label="吹き出しのしっぽ"
                       />
                     </Row>
-                    <Row title="カスタムカーソル" desc="Vyline 専用のなめらかなポインターを有効にします（PC のみ）">
+                    <Row
+                      title="カスタムカーソル"
+                      desc="Vyline 専用のなめらかなポインターを有効にします（PC のみ）"
+                    >
                       <Toggle
                         checked={settings.customCursor}
                         onChange={(v) => updateSetting("customCursor", v)}
@@ -406,9 +429,17 @@ export function SettingsSections() {
                                 ? "border-transparent text-[var(--vy-accent-contrast)]"
                                 : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
                             )}
-                            style={settings.chatSort === opt ? { background: "var(--vy-accent)" } : undefined}
+                            style={
+                              settings.chatSort === opt
+                                ? { background: "var(--vy-accent)" }
+                                : undefined
+                            }
                           >
-                            {opt === "recent" ? "最新順" : opt === "unread" ? "未読順" : "カスタム順"}
+                            {opt === "recent"
+                              ? "最新順"
+                              : opt === "unread"
+                                ? "未読順"
+                                : "カスタム順"}
                           </button>
                         ))}
                       </div>
@@ -419,7 +450,9 @@ export function SettingsSections() {
                     <div className="py-3.5">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium">文字サイズ</p>
-                        <span className="text-xs text-[var(--vy-text-dim)]">{Math.round(settings.fontScale * 100)}%</span>
+                        <span className="text-xs text-[var(--vy-text-dim)]">
+                          {Math.round(settings.fontScale * 100)}%
+                        </span>
                       </div>
                       <input
                         type="range"
@@ -436,9 +469,7 @@ export function SettingsSections() {
                 </Section>
               )}
 
-              {section === "theme" && (
-                <ThemeSectionWithPreview />
-              )}
+              {section === "theme" && <ThemeSectionWithPreview />}
 
               {section === "privacy" && <PrivacySection />}
 
@@ -450,7 +481,7 @@ export function SettingsSections() {
         </div>
       </div>
     </div>
-  )
+  );
 }
 
 function Section({
@@ -458,9 +489,9 @@ function Section({
   desc,
   children,
 }: {
-  title: string
-  desc?: string
-  children: React.ReactNode
+  title: string;
+  desc?: string;
+  children: React.ReactNode;
 }) {
   return (
     <div className="vy-fade-in">
@@ -468,13 +499,13 @@ function Section({
       {desc && <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">{desc}</p>}
       {children}
     </div>
-  )
+  );
 }
 
 function ThemeSectionWithPreview() {
-  const theme = useStore((s) => s.theme)
-  const fontScale = useStore((s) => s.settings.fontScale)
-  const compact = useStore((s) => s.settings.compactDensity)
+  const theme = useStore((s) => s.theme);
+  const fontScale = useStore((s) => s.settings.fontScale);
+  const compact = useStore((s) => s.settings.compactDensity);
   return (
     <div className="vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
       <div>
@@ -489,9 +520,7 @@ function ThemeSectionWithPreview() {
         <div
           className="sticky top-4 overflow-hidden border border-[var(--vy-border)] shadow-lg"
           style={{
-            background: theme.chatImage
-              ? undefined
-              : theme.chatBg,
+            background: theme.chatImage ? undefined : theme.chatBg,
             backgroundImage: theme.chatImage
               ? `linear-gradient(color-mix(in oklab, ${theme.chatBg} 72%, transparent), color-mix(in oklab, ${theme.chatBg} 72%, transparent)), url(${theme.chatImage})`
               : theme.pattern
@@ -504,9 +533,15 @@ function ThemeSectionWithPreview() {
         >
           <div
             className="flex items-center gap-2 border-b px-3 py-2.5 backdrop-blur-sm"
-            style={{ background: `color-mix(in oklab, ${theme.surface} 92%, transparent)`, borderColor: theme.border }}
+            style={{
+              background: `color-mix(in oklab, ${theme.surface} 92%, transparent)`,
+              borderColor: theme.border,
+            }}
           >
-            <span className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold" style={{ background: theme.accent, color: theme.accentContrast }}>
+            <span
+              className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold"
+              style={{ background: theme.accent, color: theme.accentContrast }}
+            >
               V
             </span>
             <div className="min-w-0 flex-1">
@@ -520,7 +555,11 @@ function ThemeSectionWithPreview() {
           </div>
           <div
             className="space-y-2 p-3"
-            style={{ fontSize: `${0.95 * fontScale}rem`, paddingTop: compact ? "0.55rem" : "0.75rem", paddingBottom: compact ? "0.55rem" : "0.85rem" }}
+            style={{
+              fontSize: `${0.95 * fontScale}rem`,
+              paddingTop: compact ? "0.55rem" : "0.75rem",
+              paddingBottom: compact ? "0.55rem" : "0.85rem",
+            }}
           >
             <div
               className="max-w-[88%] px-3 shadow-sm"
@@ -553,8 +592,13 @@ function ThemeSectionWithPreview() {
               className="mt-1 flex items-center gap-2 rounded-full border px-3 py-1.5"
               style={{ background: theme.surface, borderColor: theme.border }}
             >
-              <span className="flex-1 text-[0.7rem]" style={{ color: theme.textDim }}>メッセージを入力</span>
-              <span className="rounded-full px-2 py-0.5 text-[0.65rem] font-semibold" style={{ background: theme.accent, color: theme.accentContrast }}>
+              <span className="flex-1 text-[0.7rem]" style={{ color: theme.textDim }}>
+                メッセージを入力
+              </span>
+              <span
+                className="rounded-full px-2 py-0.5 text-[0.65rem] font-semibold"
+                style={{ background: theme.accent, color: theme.accentContrast }}
+              >
                 送信
               </span>
             </div>
@@ -562,64 +606,64 @@ function ThemeSectionWithPreview() {
         </div>
       </aside>
     </div>
-  )
+  );
 }
 
-type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>
+type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
 
 function AdvancedSection() {
-  const accountId = useStore((s) => s.accountId)
-  const activeChatId = useStore((s) => s.activeChatId)
-  const pollIncoming = useStore((s) => s.pollIncoming)
-  const pollMessagesDelta = useStore((s) => s.pollMessagesDelta)
-  const refreshChatsSilently = useStore((s) => s.refreshChatsSilently)
-  const [restoring, setRestoring] = useState(false)
-  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null)
-  const [syncing, setSyncing] = useState(false)
-  const [syncMsg, setSyncMsg] = useState<string | null>(null)
-  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null)
+  const accountId = useStore((s) => s.accountId);
+  const activeChatId = useStore((s) => s.activeChatId);
+  const pollIncoming = useStore((s) => s.pollIncoming);
+  const pollMessagesDelta = useStore((s) => s.pollMessagesDelta);
+  const refreshChatsSilently = useStore((s) => s.refreshChatsSilently);
+  const [restoring, setRestoring] = useState(false);
+  const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [syncMsg, setSyncMsg] = useState<string | null>(null);
+  const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
   const handleRestore = async () => {
     if (!accountId) {
-      setRestoreResult({ ok: false, error: "ログインが必要です" })
-      return
+      setRestoreResult({ ok: false, error: "ログインが必要です" });
+      return;
     }
-    setRestoring(true)
-    setRestoreResult(null)
+    setRestoring(true);
+    setRestoreResult(null);
     try {
-      const res = await api.line.restoreDesktop(accountId)
-      setRestoreResult(res)
+      const res = await api.line.restoreDesktop(accountId);
+      setRestoreResult(res);
     } catch (e) {
       setRestoreResult({
         ok: false,
         error: e instanceof Error ? e.message : "復元に失敗しました",
-      })
+      });
     } finally {
-      setRestoring(false)
+      setRestoring(false);
     }
-  }
+  };
 
   const handleSync = async () => {
-    if (!accountId || syncing) return
-    setSyncing(true)
-    setSyncMsg(null)
-    const start = Date.now()
+    if (!accountId || syncing) return;
+    setSyncing(true);
+    setSyncMsg(null);
+    const start = Date.now();
     try {
       // 差分同期: イベントポーリング + アクティブチャットのデルタ + チャット一覧更新
-      await pollIncoming()
+      await pollIncoming();
       if (activeChatId) {
-        await pollMessagesDelta(activeChatId)
+        await pollMessagesDelta(activeChatId);
       }
-      await refreshChatsSilently()
-      const elapsed = Date.now() - start
-      setLastSyncAt(Date.now())
-      setSyncMsg(`同期完了 (${elapsed}ms)`)
+      await refreshChatsSilently();
+      const elapsed = Date.now() - start;
+      setLastSyncAt(Date.now());
+      setSyncMsg(`同期完了 (${elapsed}ms)`);
     } catch (err) {
-      setSyncMsg(err instanceof Error ? err.message : "同期に失敗しました")
+      setSyncMsg(err instanceof Error ? err.message : "同期に失敗しました");
     } finally {
-      setSyncing(false)
+      setSyncing(false);
     }
-  }
+  };
 
   return (
     <Section title="詳細・復元" desc="同期、Desktop データの復元やデバッグ導線">
@@ -656,11 +700,14 @@ function AdvancedSection() {
             {restoring ? "復元中…" : "復元"}
           </button>
         </Row>
-        <Row title="設定をエクスポート" desc="テーマ・非表示リスト・設定をJSONファイルに書き出します">
+        <Row
+          title="設定をエクスポート"
+          desc="テーマ・非表示リスト・設定をJSONファイルに書き出します"
+        >
           <button
             type="button"
             onClick={() => {
-              const state = useStore.getState()
+              const state = useStore.getState();
               const exportData = {
                 version: 1,
                 exportedAt: new Date().toISOString(),
@@ -674,14 +721,16 @@ function AdvancedSection() {
                 ),
                 mutedChats: state.chats.filter((c) => c.muted).map((c) => c.id),
                 sidebarWidth: state.sidebarWidth,
-              }
-              const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: "application/json" })
-              const url = URL.createObjectURL(blob)
-              const a = document.createElement("a")
-              a.href = url
-              a.download = `vyline-backup-${new Date().toISOString().slice(0, 10)}.json`
-              a.click()
-              URL.revokeObjectURL(url)
+              };
+              const blob = new Blob([JSON.stringify(exportData, null, 2)], {
+                type: "application/json",
+              });
+              const url = URL.createObjectURL(blob);
+              const a = document.createElement("a");
+              a.href = url;
+              a.download = `vyline-backup-${new Date().toISOString().slice(0, 10)}.json`;
+              a.click();
+              URL.revokeObjectURL(url);
             }}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
           >
@@ -692,57 +741,60 @@ function AdvancedSection() {
           <button
             type="button"
             onClick={() => {
-              const input = document.createElement("input")
-              input.type = "file"
-              input.accept = ".json"
+              const input = document.createElement("input");
+              input.type = "file";
+              input.accept = ".json";
               input.onchange = async () => {
-                const file = input.files?.[0]
-                if (!file) return
+                const file = input.files?.[0];
+                if (!file) return;
                 try {
-                  const text = await file.text()
-                  const data = JSON.parse(text)
-                  if (!data || typeof data !== "object") throw new Error("Invalid format")
-                  const state = useStore.getState()
+                  const text = await file.text();
+                  const data = JSON.parse(text);
+                  if (!data || typeof data !== "object") throw new Error("Invalid format");
+                  const state = useStore.getState();
                   // テーマ
-                  if (data.theme && typeof data.theme === "object") state.setTheme(data.theme)
+                  if (data.theme && typeof data.theme === "object") state.setTheme(data.theme);
                   // 設定
                   if (data.settings && typeof data.settings === "object") {
                     for (const [k, v] of Object.entries(data.settings as Record<string, unknown>)) {
-                      state.updateSetting(k as never, v as never)
+                      state.updateSetting(k as never, v as never);
                     }
                   }
                   // 非表示チャット
                   if (Array.isArray(data.hiddenChats)) {
-                    for (const id of data.hiddenChats) state.setHidden(id, true)
+                    for (const id of data.hiddenChats) state.setHidden(id, true);
                   }
                   // ピン留め
                   if (Array.isArray(data.pinnedChats)) {
                     for (const id of data.pinnedChats) {
-                      if (!state.chats.find((c) => c.id === id)?.pinned) state.togglePin(id)
+                      if (!state.chats.find((c) => c.id === id)?.pinned) state.togglePin(id);
                     }
                   }
                   // カスタム順序
-                  if (Array.isArray(data.customOrder)) state.setCustomOrder(data.customOrder)
+                  if (Array.isArray(data.customOrder)) state.setCustomOrder(data.customOrder);
                   // ローカル名
                   if (data.localNames && typeof data.localNames === "object") {
-                    for (const [id, name] of Object.entries(data.localNames as Record<string, string>)) {
-                      state.setLocalName(id, name)
+                    for (const [id, name] of Object.entries(
+                      data.localNames as Record<string, string>,
+                    )) {
+                      state.setLocalName(id, name);
                     }
                   }
                   // ミュート
                   if (Array.isArray(data.mutedChats)) {
                     for (const id of data.mutedChats) {
-                      if (!state.chats.find((c) => c.id === id)?.muted) state.toggleMute(id)
+                      if (!state.chats.find((c) => c.id === id)?.muted) state.toggleMute(id);
                     }
                   }
                   // サイドバー幅
-                  if (typeof data.sidebarWidth === "number") state.setSidebarWidth(data.sidebarWidth)
-                  alert("設定をインポートしました")
+                  if (typeof data.sidebarWidth === "number")
+                    state.setSidebarWidth(data.sidebarWidth);
+                  alert("設定をインポートしました");
                 } catch {
-                  alert("インポートに失敗しました。ファイルが破損している可能性があります。")
+                  alert("インポートに失敗しました。ファイルが破損している可能性があります。");
                 }
-              }
-              input.click()
+              };
+              input.click();
             }}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
           >
@@ -777,8 +829,8 @@ function AdvancedSection() {
                   "テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
                 )
               )
-                return
-              useStore.getState().resetSettings()
+                return;
+              useStore.getState().resetSettings();
             }}
             className="rounded-lg border border-[var(--vy-danger)] px-3 py-1.5 text-xs font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)]"
           >
@@ -805,7 +857,9 @@ function AdvancedSection() {
                 <p className="text-xs text-[var(--vy-text-dim)]">
                   インポート: {restoreResult.imported} 件
                   {restoreResult.skipped != null ? ` · スキップ: ${restoreResult.skipped} 件` : ""}
-                  {restoreResult.keyIds?.length ? ` · 鍵 ID: ${restoreResult.keyIds.join(", ")}` : ""}
+                  {restoreResult.keyIds?.length
+                    ? ` · 鍵 ID: ${restoreResult.keyIds.join(", ")}`
+                    : ""}
                 </p>
               )}
               {restoreResult.hint && (
@@ -825,23 +879,27 @@ function AdvancedSection() {
           復元には LINE ログインが必要です。
         </p>
       )}
-
     </Section>
-  )
+  );
 }
 
 function InfoSection() {
-  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null)
-  const [checking, setChecking] = useState(false)
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [checking, setChecking] = useState(false);
 
   useEffect(() => {
-    let cancelled = false
-    setChecking(true)
+    let cancelled = false;
+    setChecking(true);
     checkForUpdates().then((info) => {
-      if (!cancelled) { setUpdateInfo(info); setChecking(false) }
-    })
-    return () => { cancelled = true }
-  }, [])
+      if (!cancelled) {
+        setUpdateInfo(info);
+        setChecking(false);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <Section title="情報" desc="Vyline について">
@@ -858,7 +916,7 @@ function InfoSection() {
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
             v{UPDATE_NOTES.version}
           </p>
-          {updateInfo && updateInfo.hasUpdate && (
+          {updateInfo?.hasUpdate && (
             <a
               href={updateInfo.url ?? "#"}
               target="_blank"
@@ -868,9 +926,7 @@ function InfoSection() {
               更新あり: v{updateInfo.latestVersion}
             </a>
           )}
-          {checking && (
-            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>
-          )}
+          {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
           <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
             LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
           </p>
@@ -892,7 +948,9 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">GH</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">
+                GH
+              </span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">GitHub</p>
                 <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
@@ -905,7 +963,9 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">𝕏</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">
+                𝕏
+              </span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">X (Twitter)</p>
                 <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
@@ -918,7 +978,9 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">DC</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">
+                DC
+              </span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">Discord</p>
                 <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
@@ -931,10 +993,14 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">OC</span>
+              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">
+                OC
+              </span>
               <div className="min-w-0 flex-1">
                 <p className="font-medium">OpenCode Go</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">AI coding agent · opencode.ai/go</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">
+                  AI coding agent · opencode.ai/go
+                </p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
@@ -945,90 +1011,92 @@ function InfoSection() {
         Made with 💙 · MIT License
       </p>
     </Section>
-  )
+  );
 }
 
 function PrivacySection() {
-  const settings = useStore((s) => s.settings)
-  const updateSetting = useStore((s) => s.updateSetting)
-  const accountId = useStore((s) => s.accountId)
-  const [pinDraft, setPinDraft] = useState("")
-  const [saved, setSaved] = useState(false)
-  const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl)
-  const [proxyMsg, setProxyMsg] = useState<string | null>(null)
-  const [blocked, setBlocked] = useState<Array<{ mid: string; name?: string; avatarUrl?: string }>>([])
-  const [blockedLoading, setBlockedLoading] = useState(false)
-  const [unblocking, setUnblocking] = useState<Set<string>>(new Set())
+  const settings = useStore((s) => s.settings);
+  const updateSetting = useStore((s) => s.updateSetting);
+  const accountId = useStore((s) => s.accountId);
+  const [pinDraft, setPinDraft] = useState("");
+  const [saved, setSaved] = useState(false);
+  const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
+  const [proxyMsg, setProxyMsg] = useState<string | null>(null);
+  const [blocked, setBlocked] = useState<Array<{ mid: string; name?: string; avatarUrl?: string }>>(
+    [],
+  );
+  const [blockedLoading, setBlockedLoading] = useState(false);
+  const [unblocking, setUnblocking] = useState<Set<string>>(new Set());
 
   const applyProxy = async () => {
-    if (!accountId) return
-    const enabled = useStore.getState().settings.proxyEnabled
-    updateSetting("proxyUrl", proxyUrl)
+    if (!accountId) return;
+    const enabled = useStore.getState().settings.proxyEnabled;
+    updateSetting("proxyUrl", proxyUrl);
     try {
-      const res = await api.line.setProxy(accountId, enabled, proxyUrl)
+      const res = await api.line.setProxy(accountId, enabled, proxyUrl);
       setProxyMsg(
         res.ok
           ? enabled
             ? "プロキシを適用しました"
             : "プロキシを無効化しました"
-          : res.error ?? "失敗",
-      )
+          : (res.error ?? "失敗"),
+      );
     } catch (err) {
-      setProxyMsg(err instanceof Error ? err.message : String(err))
+      setProxyMsg(err instanceof Error ? err.message : String(err));
     }
-  }
+  };
 
   const loadBlocked = async () => {
-    if (!accountId) return
-    setBlockedLoading(true)
+    if (!accountId) return;
+    setBlockedLoading(true);
     try {
-      const res = await api.line.blockedContacts(accountId)
-      const mids = res.ok ? res.mids ?? [] : []
+      const res = await api.line.blockedContacts(accountId);
+      const mids = res.ok ? (res.mids ?? []) : [];
       // プロフィール取得
       const withProfiles = await Promise.all(
         mids.map(async (mid) => {
           try {
-            const prof = await api.line.contactProfile(accountId, mid)
-            if (!prof.ok) return { mid }
+            const prof = await api.line.contactProfile(accountId, mid);
+            if (!prof.ok) return { mid };
             return {
               mid,
               name: prof.profile?.displayName,
               avatarUrl: prof.profile?.thumbnailUrl,
-            }
+            };
           } catch {
-            return { mid }
+            return { mid };
           }
         }),
-      )
-      setBlocked(withProfiles)
+      );
+      setBlocked(withProfiles);
     } catch {
-      setBlocked([])
+      setBlocked([]);
     } finally {
-      setBlockedLoading(false)
+      setBlockedLoading(false);
     }
-  }
+  };
 
   const handleUnblock = async (mid: string) => {
-    if (!accountId || unblocking.has(mid)) return
-    setUnblocking((s) => new Set(s).add(mid))
+    if (!accountId || unblocking.has(mid)) return;
+    setUnblocking((s) => new Set(s).add(mid));
     try {
-      const res = await api.line.unblockContact(accountId, mid)
+      const res = await api.line.unblockContact(accountId, mid);
       if (res.ok) {
-        setBlocked((prev) => prev.filter((b) => b.mid !== mid))
+        setBlocked((prev) => prev.filter((b) => b.mid !== mid));
         useStore.setState((st) => ({
           blockedMids: st.blockedMids.filter((m) => m !== mid),
-        }))
+        }));
       }
     } catch {
       /* ignore */
     } finally {
       setUnblocking((s) => {
-        const next = new Set(s)
-        next.delete(mid)
-        return next
-      })
+        const next = new Set(s);
+        next.delete(mid);
+        return next;
+      });
     }
-  }
+  };
 
   return (
     <Section title="プライバシー" desc="パスコード・プロキシ・ブロック">
@@ -1100,7 +1168,10 @@ function PrivacySection() {
             ) : (
               <ul className="vy-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">
                 {blocked.map((b) => (
-                  <li key={b.mid} className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]">
+                  <li
+                    key={b.mid}
+                    className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
+                  >
                     <Avatar
                       glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}
                       color="var(--vy-accent)"
@@ -1108,8 +1179,12 @@ function PrivacySection() {
                       imageUrl={b.avatarUrl}
                     />
                     <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">{b.name || b.mid.slice(0, 14) + "…"}</p>
-                      <p className="truncate font-mono text-[0.6rem] text-[var(--vy-text-dim)]">{b.mid}</p>
+                      <p className="truncate text-xs font-medium">
+                        {b.name || `${b.mid.slice(0, 14)}…`}
+                      </p>
+                      <p className="truncate font-mono text-[0.6rem] text-[var(--vy-text-dim)]">
+                        {b.mid}
+                      </p>
                     </div>
                     <button
                       type="button"
@@ -1137,8 +1212,8 @@ function PrivacySection() {
                 <input
                   value={pinDraft}
                   onChange={(e) => {
-                    setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 8))
-                    setSaved(false)
+                    setPinDraft(e.target.value.replace(/\D/g, "").slice(0, 8));
+                    setSaved(false);
                   }}
                   inputMode="numeric"
                   placeholder="新しいパスコード"
@@ -1149,9 +1224,9 @@ function PrivacySection() {
                   type="button"
                   disabled={pinDraft.length < 4}
                   onClick={() => {
-                    updateSetting("pin", pinDraft)
-                    setPinDraft("")
-                    setSaved(true)
+                    updateSetting("pin", pinDraft);
+                    setPinDraft("");
+                    setSaved(true);
                   }}
                   className="rounded-lg px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:opacity-40"
                   style={{ background: "var(--vy-accent)" }}
@@ -1159,11 +1234,15 @@ function PrivacySection() {
                   保存
                 </button>
               </div>
-              {saved && <p className="mt-2 text-xs" style={{ color: "var(--vy-accent)" }}>パスコードを更新しました</p>}
+              {saved && (
+                <p className="mt-2 text-xs" style={{ color: "var(--vy-accent)" }}>
+                  パスコードを更新しました
+                </p>
+              )}
             </div>
           </Card>
         </div>
       )}
     </Section>
-  )
+  );
 }

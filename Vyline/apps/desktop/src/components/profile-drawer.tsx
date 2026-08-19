@@ -425,7 +425,6 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               {editing ? (
                 <div className="mt-3 flex w-full items-center gap-2">
                   <input
-                    autoFocus
                     value={nameInput}
                     onChange={(e) => setNameInput(e.target.value)}
                     className="w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-center text-lg font-semibold outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
@@ -574,7 +573,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                         : looksLikeMid(m.name)
                           ? membersLoading
                             ? "取得中…"
-                            : m.name.slice(0, 12) + "…"
+                            : `${m.name.slice(0, 12)}…`
                           : m.name}
                     </span>
                   </button>

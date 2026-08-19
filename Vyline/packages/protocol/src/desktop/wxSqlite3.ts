@@ -93,9 +93,9 @@ export function deriveWxSqlite3BaseKey128(passphrase: Buffer, lineQuirk = true):
 
 function modmult(a: number, b: number, c: number, m: number, s: number): number {
   // Algorithm 1 MODMULT from paper
-  let q = Math.floor(s / a);
-  let r = s % a;
-  let t = b * r - c * q;
+  const q = Math.floor(s / a);
+  const r = s % a;
+  const t = b * r - c * q;
   if (t > 0) return t;
   return t + m;
 }

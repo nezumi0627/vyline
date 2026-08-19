@@ -50,7 +50,6 @@ export type ThriftValue =
   | null
   | undefined;
 
-// biome-ignore lint/suspicious/noEmptyInterface: 再帰型を成立させるための interface 化
 export interface DecodedStruct {
   [fieldId: number]: DecodedValue;
 }
