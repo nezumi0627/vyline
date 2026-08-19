@@ -12,7 +12,7 @@ services:
     container_name: vyline
     restart: unless-stopped
     ports:
-      - "3001:3001"
+      - "127.0.0.1:3001:3001"
     environment:
       # ブラウザからのアクセスオリジンを指定（未設定なら localhost:5173）
       # 同一オリジン（Docker 直接アクセス / Cloudflare Access 後方）なら未設定で OK
