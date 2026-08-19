@@ -1,6 +1,6 @@
-import type { NezuTheme } from "./store-types.js";
+import type { VyTheme } from "./store-types.js";
 
-export const THEME_PRESETS: NezuTheme[] = [
+export const THEME_PRESETS: VyTheme[] = [
   {
     id: "telegram-night",
     name: "Telegram Night",

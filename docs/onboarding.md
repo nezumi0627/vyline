@@ -31,25 +31,25 @@
 
 ### 触ってよい場所
 
-| パス | 役割 |
-|---|---|
-| `Vyline/packages/nezuline/src/domain/` | OOP facade（プロフィール等） |
-| `Vyline/packages/nezuline/src/dictionary/` | LINE.js ↔ Desktop 辞書 |
-| `Vyline/packages/nezuline/src/protocol/` | stack を直接 import しない薄い RPC 層（例: `profileOps.ts`） |
-| `Vyline/packages/nezuline/src/login/` | Desktop パッチ |
-| `Vyline/packages/nezuline/src/e2ee/` | Letter Sealing |
-| `Vyline/backend/src/service/` | ビジネスロジック |
-| `Vyline/backend/src/api/` | Hono BFF |
-| `docs/` | ドキュメント |
+| パス                                       | 役割                                                         |
+| ------------------------------------------ | ------------------------------------------------------------ |
+| `Vyline/packages/protocol/src/domain/`     | OOP facade（プロフィール等）                                 |
+| `Vyline/packages/protocol/src/dictionary/` | LINE.js ↔ Desktop 辞書                                       |
+| `Vyline/packages/protocol/src/protocol/`   | stack を直接 import しない薄い RPC 層（例: `profileOps.ts`） |
+| `Vyline/packages/protocol/src/login/`      | Desktop パッチ                                               |
+| `Vyline/packages/protocol/src/e2ee/`       | Letter Sealing                                               |
+| `Vyline/backend/src/service/`              | ビジネスロジック                                             |
+| `Vyline/backend/src/api/`                  | Hono BFF                                                     |
+| `docs/`                                    | ドキュメント                                                 |
 
 ### 原則として触らない場所
 
-| パス | 理由 |
-|---|---|
-| `Vyline/apps/desktop/src/components/` | UI（別タスク） |
-| `archive/` | 旧実装・参考のみ |
-| `Vyline/backend/data/` | 秘密・gitignore |
-| `source/desktop/` | 巨大アーティファクト（読むのは OK、コミットしない） |
+| パス                                  | 理由                                                |
+| ------------------------------------- | --------------------------------------------------- |
+| `Vyline/apps/desktop/src/components/` | UI（別タスク）                                      |
+| `archive/`                            | 旧実装・参考のみ                                    |
+| `Vyline/backend/data/`                | 秘密・gitignore                                     |
+| `source/desktop/`                     | 巨大アーティファクト（読むのは OK、コミットしない） |
 
 ---
 
@@ -58,7 +58,7 @@
 前提: `source/desktop/recovered/unpacked_LINE.exe` があること。
 
 ```powershell
-bun run nezu:find-native -- sendMessage --list-only --skip-setup
+bun run vyline:find-native -- sendMessage --list-only --skip-setup
 ```
 
 成功すると:
@@ -72,7 +72,7 @@ bun run nezu:find-native -- sendMessage --list-only --skip-setup
 ## よくある質問
 
 **Q. stack は linejs じゃないの？**  
-A. 由来は vendored プロトコル実装だが、パッケージ名は内部 `nezuline/stack`。外部 JSR 依存はない。仕様の正は Desktop。
+A. 由来は vendored プロトコル実装だが、パッケージ名は内部 `protocol/stack`。外部 JSR 依存はない。仕様の正は Desktop。
 
 **Q. どこにメソッドを足す？**  
 A. まず `domain/`、次に `lineService`、最後に `api/line.ts`。辞書も更新。

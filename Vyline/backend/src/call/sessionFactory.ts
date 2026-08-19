@@ -2,14 +2,18 @@
  * 1:1 CallSession 生成 — Desktop 通話コンテキスト + Planet/Andromeda
  */
 
-import type { DesktopProfile, NezuClient } from "@vyline/nezuline";
+import type { DesktopProfile, VylineClient } from "@vyline/protocol";
 import {
   pickCallTransportForClient,
   describeCallRoute,
   type CallWireContext,
-} from "@vyline/nezuline";
-import { defaultCallFromEnvInfo, opusCodecFactory, type CallType } from "@vyline/nezuline/stack/call";
-import type { CallSession } from "@vyline/nezuline/stack/call";
+} from "@vyline/protocol";
+import {
+  defaultCallFromEnvInfo,
+  opusCodecFactory,
+  type CallType,
+} from "@vyline/protocol/stack/call";
+import type { CallSession } from "@vyline/protocol/stack/call";
 import { childLogger } from "../logger.js";
 
 const log = childLogger("call:factory");
@@ -21,7 +25,7 @@ export interface DirectCallOpts {
   desktopProfile?: DesktopProfile;
 }
 
-type AcquiredRoute = Awaited<ReturnType<NezuClient["call"]["acquireRoute"]>>;
+type AcquiredRoute = Awaited<ReturnType<VylineClient["call"]["acquireRoute"]>>;
 
 export interface DirectCallSessionResult {
   session: CallSession;
@@ -31,12 +35,11 @@ export interface DirectCallSessionResult {
 }
 
 export async function createDirectCallSession(
-  client: NezuClient,
+  client: VylineClient,
   opts: DirectCallOpts,
 ): Promise<DirectCallSessionResult> {
   const kind = opts.kind ?? "AUDIO";
-  const fromEnvInfo =
-    opts.fromEnvInfo ?? defaultCallFromEnvInfo(client.base.deviceDetails);
+  const fromEnvInfo = opts.fromEnvInfo ?? defaultCallFromEnvInfo(client.base.deviceDetails);
 
   const route = await client.call.acquireRoute({
     to: opts.to,

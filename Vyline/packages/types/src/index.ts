@@ -37,8 +37,8 @@ export interface LineProfile {
   userType?: number;
 }
 
-/** NezuCache から返す軽量プロフィール */
-export interface NezuCachedProfile {
+/** VylineCache から返す軽量プロフィール */
+export interface VylineCachedProfile {
   mid: string;
   displayName: string;
   thumbnailUrl?: string;
@@ -49,7 +49,7 @@ export interface NezuCachedProfile {
   updatedAt: number;
 }
 
-export interface NezuCachedGroup {
+export interface VylineCachedGroup {
   chatMid: string;
   name: string;
   thumbnailUrl?: string;
@@ -84,6 +84,8 @@ export interface Chat {
   statusMessage?: string;
   /** プロフィール背景 URL */
   backgroundUrl?: string;
+  /** 自分自身（Keepメモ）トーク */
+  isSelf?: boolean;
 }
 
 // ─── Message ──────────────────────────────────
@@ -185,7 +187,8 @@ export type MessagesDeltaResponse = ApiResult<{ messages: Message[] }>;
 export type TalkPollEvent =
   | { kind: "message"; seq: number; chatMid: string; message: Message }
   | { kind: "revoke"; seq: number; chatMid: string; messageId: string }
-  | { kind: "read"; seq: number; chatMid: string };
+  | { kind: "read"; seq: number; chatMid: string }
+  | { kind: "reaction"; seq: number; chatMid: string; messageId: string };
 export type EventsPollResponse = ApiResult<{
   cursor: number;
   events: TalkPollEvent[];
@@ -194,6 +197,8 @@ export type EventsPollResponse = ApiResult<{
 }>;
 export type ReadReceiptsResponse = ApiResult<{
   receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
+  peerReadUpTo?: string;
+  memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
   memberMids?: string[];
 }>;
 export type SendResponse = ApiResult<{ code?: string; message?: Message }>;

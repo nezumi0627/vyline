@@ -15,7 +15,7 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
-import { LINEStruct } from "@vyline/nezuline/stack/thrift";
+import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
 import {
   getClient,
@@ -30,20 +30,20 @@ import {
   clearTalkEvents,
   type TalkPollEvent,
 } from "../line/talkEventBuffer.js";
-import type { NezuClient } from "@vyline/nezuline";
-import { peerPubCacheKey, selfPubCacheKey } from "@vyline/nezuline/e2ee/pubCacheKeys";
+import type { VylineClient } from "@vyline/protocol";
+import { peerPubCacheKey, selfPubCacheKey } from "@vyline/protocol/e2ee/pubCacheKeys";
 import {
-  nezuGetGroup,
-  nezuGetProfile,
-  nezuGetProfiles,
-  nezuGroupNeedsRefresh,
-  nezuLoadCache,
-  nezuProfileNeedsRefresh,
-  nezuPutGroup,
-  nezuPutProfile,
-  nezuPutProfiles,
-  nezuResolvedNameMap,
-} from "../storage/nezuCache.js";
+  vylineGetGroup,
+  vylineGetProfile,
+  vylineGetProfiles,
+  vylineGroupNeedsRefresh,
+  vylineLoadCache,
+  vylineProfileNeedsRefresh,
+  vylinePutGroup,
+  vylinePutProfile,
+  vylinePutProfiles,
+  vylineResolvedNameMap,
+} from "../storage/vylineCache.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import {
   ensureValidE2EEIdentity,
@@ -57,11 +57,11 @@ import {
   prefetchDmPeerKeysForMessages,
   invalidatePeerPubCache,
   LETTER_SEALING_CONTENT_TYPE,
-  downloadObsMessageBytes as nezuDownloadObs,
+  downloadObsMessageBytes as vylineDownloadObs,
   wrapSession,
   type ProfileUpdateInput,
   type ContactRenameInput,
-} from "@vyline/nezuline";
+} from "@vyline/protocol";
 import {
   getMessages,
   getStoredChats,
@@ -77,11 +77,8 @@ import {
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
-import {
-  CallNotAllowedError,
-  callAllowlistHint,
-  isAllowedCallTarget,
-} from "../call/allowlist.js";
+import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
+import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
@@ -105,7 +102,8 @@ export function detectChatKind(mid: string): Chat["kind"] {
 export function pictureStatusToUrl(s: string | undefined | null): string | null {
   if (!s || s.trim() === "") return null;
   if (s.startsWith("https://") || s.startsWith("http://")) return s;
-  return `https://profile.line-scdn.net/${s}`;
+  const cleaned = s.startsWith("/") ? s.slice(1) : s;
+  return `https://profile.line-scdn.net/${cleaned}`;
 }
 
 /** プロフィール背景（OBS myhome / cover） */
@@ -114,6 +112,101 @@ export function backgroundObjToUrl(objId: string | undefined | null): string | n
   const s = String(objId).trim();
   if (s.startsWith("https://") || s.startsWith("http://")) return s;
   return `https://obs.line-scdn.net/myhome/h/${s}`;
+}
+
+// ─── プロフィール背景（他ユーザー）────────────────
+
+/** home/profile から背景 URL を抽出するキー候補 */
+const HOME_BACKGROUND_KEYS = [
+  "backgroundUrl",
+  "backgroundURL",
+  "background",
+  "bgUrl",
+  "bgURL",
+  "coverUrl",
+  "coverImageUrl",
+  "homeBackgroundUrl",
+  "profileBackgroundUrl",
+] as const;
+
+/** home/profile レスポンス内を再帰走査して背景画像 URL を探す（防御的） */
+function extractBackgroundUrl(value: unknown, depth = 0): string | null {
+  if (depth > 12 || value == null) return null;
+  if (typeof value === "string") {
+    const s = value.trim();
+    if (
+      /^https?:\/\//i.test(s) &&
+      (s.includes("myhome") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(s))
+    ) {
+      return s;
+    }
+    return null;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const hit = extractBackgroundUrl(item, depth + 1);
+      if (hit) return hit;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    const obj = value as Record<string, unknown>;
+    for (const key of HOME_BACKGROUND_KEYS) {
+      const v = obj[key];
+      if (typeof v === "string" && /^https?:\/\//i.test(v.trim())) {
+        return v.trim();
+      }
+      const nested = extractBackgroundUrl(v, depth + 1);
+      if (nested) return nested;
+    }
+    for (const [, v] of Object.entries(obj)) {
+      const hit = extractBackgroundUrl(v, depth + 1);
+      if (hit) return hit;
+    }
+  }
+  return null;
+}
+
+const homeBackgroundCache = new Map<string, { at: number; url: string }>();
+const HOME_BACKGROUND_CACHE_MS = 30 * 60 * 1000; // 30 分
+const HOME_BACKGROUND_RPC_TIMEOUT_MS = 6_000;
+
+/**
+ * VOOM ホームプロフィール API からユーザーのプロフィール背景 URL を取得する。
+ * 失敗時は null（タイムアウト・権限なし・未設定などは静かに握りつぶす）。
+ */
+async function fetchHomeProfileBackgroundUrl(
+  accountId: string,
+  targetMid: string,
+): Promise<string | null> {
+  if (!targetMid.startsWith("u")) return null;
+  const key = `${accountId}:${targetMid}`;
+  const cached = homeBackgroundCache.get(key);
+  if (cached && Date.now() - cached.at < HOME_BACKGROUND_CACHE_MS) {
+    return cached.url;
+  }
+  try {
+    const client = requireClient(accountId);
+    const res = await withTimeout(
+      (async () => {
+        const r = await client.voomRest<unknown>({
+          routing: "HOMEAPI",
+          path: `/api/v1/home/profile.json?homeId=${encodeURIComponent(targetMid)}`,
+        });
+        return r;
+      })(),
+      HOME_BACKGROUND_RPC_TIMEOUT_MS,
+      "homeProfile",
+    );
+    const result = (res as { result?: unknown })?.result;
+    const url = result ? extractBackgroundUrl(result) : null;
+    homeBackgroundCache.set(key, { at: Date.now(), url: url ?? "" });
+    return url;
+  } catch (err) {
+    log.debug({ accountId, targetMid, err }, "homeProfile background fetch failed");
+    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    return null;
+  }
 }
 
 function formatBirthdayDisplay(b: {
@@ -144,9 +237,7 @@ function formatBirthdayDisplay(b: {
 }
 
 /** contentMetadata を string map に正規化（FLEX_JSON が object のとき stringify） */
-export function normalizeContentMetadata(
-  meta: unknown,
-): MessageContentMeta | null {
+export function normalizeContentMetadata(meta: unknown): MessageContentMeta | null {
   if (!meta || typeof meta !== "object") return null;
   const out: MessageContentMeta = {};
   for (const [k, v] of Object.entries(meta as Record<string, unknown>)) {
@@ -226,15 +317,14 @@ async function ensureGroupE2EEKey(
 
 function chunkKeyId(chunk: string | Uint8Array | undefined): number | null {
   if (!chunk) return null;
-  const bytes =
-    typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : Buffer.from(chunk);
+  const bytes = typeof chunk === "string" ? Buffer.from(chunk, "utf-8") : Buffer.from(chunk);
   let value = 0;
   for (const b of bytes) value = value * 256 + b;
   return Number.isFinite(value) ? value : null;
 }
 
 /**
- * Vyline 自前の Letter Sealing 実装 (nezuline/e2ee/letterSealing.ts) で先に復号を試み、
+ * Vyline 自前の Letter Sealing 実装 (protocol/e2ee/letterSealing.ts) で先に復号を試み、
  * 失敗したら protocol fallback (client.base.e2ee.decryptE2EEMessage) にフォールバックする。
  * 自前実装はグループ鍵を by-id マルチキャッシュから直接引くため、プロトコルスタックの単一
  * キャッシュ実装より履歴復号に強いことがある。失敗しても既存の実装がそのまま
@@ -300,10 +390,7 @@ async function decryptViaLetterSealingOrProtocol(
     if (errMsg.includes("missing self privKey")) {
       throw letterErr instanceof Error ? letterErr : new Error(errMsg);
     }
-    if (
-      errMsg.includes("unable to authenticate") ||
-      errMsg.includes("Unsupported state")
-    ) {
+    if (errMsg.includes("unable to authenticate") || errMsg.includes("Unsupported state")) {
       throw letterErr instanceof Error ? letterErr : new Error(errMsg);
     }
     log.debug(
@@ -391,13 +478,14 @@ async function decryptE2EEMessageSafe(
       }
       if (!isAuthFail) throw firstErr;
 
-      log.warn({ accountId, chatMid, msgId: String(msg.id) }, "E2EE auth fail — clearing key cache and retrying");
+      log.warn(
+        { accountId, chatMid, msgId: String(msg.id) },
+        "E2EE auth fail — clearing key cache and retrying",
+      );
 
       const senderKeyId = chunkKeyId(msg.chunks?.[3]);
       const receiverKeyId = chunkKeyId(msg.chunks?.[4]);
-      const peerMid = isSelf
-        ? String(msg.to ?? chatMid)
-        : String(msg.from ?? chatMid);
+      const peerMid = isSelf ? String(msg.to ?? chatMid) : String(msg.from ?? chatMid);
       const peerKeyId = isSelf ? receiverKeyId : senderKeyId;
       const groupKeyId = isGroupLike ? groupKeyIdFromMessage(msg) : null;
       try {
@@ -449,10 +537,8 @@ async function decryptE2EEMessageSafe(
           const decrypted = await client.base.e2ee.decryptE2EEMessage(msg as never);
           return { ...msg, ...decrypted };
         } catch (protoErr) {
-          const retryMsg =
-            retryErr instanceof Error ? retryErr.message : String(retryErr);
-          const protoMsg =
-            protoErr instanceof Error ? protoErr.message : String(protoErr);
+          const retryMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          const protoMsg = protoErr instanceof Error ? protoErr.message : String(protoErr);
           log.warn(
             { accountId, chatMid, msgId: String(msg.id), retryErr: retryMsg, protoErr: protoMsg },
             "E2EE decrypt retry failed — returning raw msg",
@@ -474,13 +560,13 @@ async function decryptE2EEMessageSafe(
 // encryptE2EEMessage は client.profile?.mid を参照するため、
 // 送信前に getProfile() を呼んで client.profile をセットしておく必要がある。
 
-const CONTACT_PROFILE_CACHE_MS = Number(
-  process.env["VYLINE_CONTACT_CACHE_MS"] ?? 300_000,
-);
+const CONTACT_PROFILE_CACHE_MS = Number(process.env["VYLINE_CONTACT_CACHE_MS"] ?? 300_000);
 /** getContactsV3 は混雑時に遅い。短すぎるとチャンク全滅 → 個人取得の嵐になる */
 const CONTACT_RPC_TIMEOUT_MS = Number(process.env["VYLINE_CONTACT_RPC_TIMEOUT_MS"] ?? 8_000);
 const CONTACT_BATCH_CHUNK = Number(process.env["VYLINE_CONTACT_BATCH_CHUNK"] ?? 4);
-const CONTACT_INDIVIDUAL_TIMEOUT_MS = Number(process.env["VYLINE_CONTACT_INDIVIDUAL_TIMEOUT_MS"] ?? 2_500);
+const CONTACT_INDIVIDUAL_TIMEOUT_MS = Number(
+  process.env["VYLINE_CONTACT_INDIVIDUAL_TIMEOUT_MS"] ?? 2_500,
+);
 const MY_PROFILE_CACHE_MS = Number(process.env["VYLINE_MY_PROFILE_CACHE_MS"] ?? 120_000);
 const MY_PROFILE_RPC_TIMEOUT_MS = Number(process.env["VYLINE_MY_PROFILE_RPC_TIMEOUT_MS"] ?? 10_000);
 /** getChat が失敗したグループ（退出済み等）— セッション中は再試行しない */
@@ -552,9 +638,7 @@ const readRangeBgAt = new Map<string, number>();
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
 const CHATS_CACHE_MS = Number(process.env["VYLINE_CHATS_CACHE_MS"] ?? 60_000);
-const MESSAGE_LOCAL_STALE_MS = Number(
-  process.env["VYLINE_MESSAGE_LOCAL_STALE_MS"] ?? 90_000,
-);
+const MESSAGE_LOCAL_STALE_MS = Number(process.env["VYLINE_MESSAGE_LOCAL_STALE_MS"] ?? 90_000);
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -570,6 +654,18 @@ const MESSAGE_BOXES_TIMEOUT_MS = Number(process.env["VYLINE_MESSAGE_BOXES_TIMEOU
 const MESSAGE_BOXES_FULL_CACHE_MS = Number(
   process.env["VYLINE_MESSAGE_BOXES_FULL_CACHE_MS"] ?? 300_000,
 );
+/** チャットごとの MessageBox lastDeliveredMessageId キャッシュ
+ *  — getMessageBoxes 全体取得を回避し、個別チャットのメッセージ取得を高速化 */
+type BoxCursorCacheEntry = {
+  at: number;
+  // biome-ignore lint/suspicious/noExplicitAny: protocol
+  endMessageId: any;
+};
+const boxCursorCache = new Map<string, BoxCursorCacheEntry>();
+const BOX_CURSOR_CACHE_MS = Number(process.env["VYLINE_BOX_CURSOR_CACHE_MS"] ?? 30_000);
+/** チャットの boxId 解決失敗を短時間スキップ（getMessageBoxes のハングを繰り返さない） */
+const boxCursorMiss = new Map<string, number>();
+const BOX_CURSOR_MISS_MS = Number(process.env["VYLINE_BOX_CURSOR_MISS_MS"] ?? 15_000);
 const DELTA_RPC_TIMEOUT_MS = Number(process.env["VYLINE_DELTA_RPC_TIMEOUT_MS"] ?? 12_000);
 const TALK_FETCH_TIMEOUT_MS = Number(process.env["VYLINE_TALK_FETCH_TIMEOUT_MS"] ?? 45_000);
 
@@ -706,6 +802,21 @@ function invalidateMessageBoxesCache(accountId: string): void {
   messageBoxesCache.delete(messageBoxesCacheKey(accountId, false));
 }
 
+function invalidateBoxCursorCache(accountId: string, chatMid?: string): void {
+  if (chatMid) {
+    boxCursorCache.delete(`${accountId}:${chatMid}`);
+    boxCursorMiss.delete(`${accountId}:${chatMid}`);
+  } else {
+    // アカウント全体のボックスキャッシュをクリア
+    for (const key of boxCursorCache.keys()) {
+      if (key.startsWith(`${accountId}:`)) boxCursorCache.delete(key);
+    }
+    for (const key of boxCursorMiss.keys()) {
+      if (key.startsWith(`${accountId}:`)) boxCursorMiss.delete(key);
+    }
+  }
+}
+
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
   return Promise.race([
     promise,
@@ -737,6 +848,28 @@ async function resolveMyMid(
   return mid;
 }
 
+/** Keepメモ: 自分自身（mid === myMid）の直接トークに isSelf を立てる */
+async function markSelfChats(accountId: string, chats: Chat[]): Promise<Chat[]> {
+  const client = getClient(accountId);
+  if (!client) return chats;
+  try {
+    const myMid = await resolveMyMid(client, accountId);
+    if (!myMid) return chats;
+    let changed = false;
+    const out = chats.map((c) => {
+      if (c.kind === "direct" && c.mid === myMid && !c.isSelf) {
+        changed = true;
+        return { ...c, isSelf: true };
+      }
+      return c;
+    });
+    return changed ? out : chats;
+  } catch (err) {
+    log.debug({ accountId, err }, "markSelfChats failed — skipping");
+    return chats;
+  }
+}
+
 // ─── public API ───────────────────────────────
 
 export class NotLoggedInError extends Error {
@@ -752,8 +885,12 @@ function requireClient(accountId: string) {
   return client;
 }
 
-/** 自分のプロフィール取得（メモリ / base.profile / Nezu 優先、RPC は短タイムアウト） */
+/** 自分のプロフィール取得（メモリ / base.profile / Vyline 優先、RPC は短タイムアウト） */
 export async function fetchProfile(accountId: string): Promise<LineProfile> {
+  // Refresh token before making profile requests to ensure it's valid
+  const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+
   const now = Date.now();
   const mem = myProfileCache.get(accountId);
   if (mem && now - mem.at < MY_PROFILE_CACHE_MS) {
@@ -762,19 +899,22 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
 
   const client = requireClient(accountId);
 
-  const mapRaw = (raw: {
-    mid?: string;
-    userid?: string;
-    displayName?: string;
-    phoneticName?: string;
-    pictureStatus?: string;
-    picturePath?: string;
-    statusMessage?: string;
-    musicProfile?: string;
-    videoProfile?: string;
-    profileId?: string;
-    backgroundUrl?: string;
-  }, birthday: LineBirthday | null = null): LineProfile => {
+  const mapRaw = (
+    raw: {
+      mid?: string;
+      userid?: string;
+      displayName?: string;
+      phoneticName?: string;
+      pictureStatus?: string;
+      picturePath?: string;
+      statusMessage?: string;
+      musicProfile?: string;
+      videoProfile?: string;
+      profileId?: string;
+      backgroundUrl?: string;
+    },
+    birthday: LineBirthday | null = null,
+  ): LineProfile => {
     const pictureStatus = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const thumbnailUrl = pictureStatusToUrl(pictureStatus) ?? "";
     const out: LineProfile = {
@@ -834,7 +974,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       if (out.thumbnailUrl) put.thumbnailUrl = out.thumbnailUrl;
       if (out.birthday?.display) put.birthday = out.birthday.display;
       if (out.backgroundUrl) put.backgroundUrl = out.backgroundUrl;
-      void nezuPutProfile(accountId, put);
+      void vylinePutProfile(accountId, put);
     }
     return out;
   };
@@ -886,15 +1026,15 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     return quick;
   }
 
-  // Nezu ディスク（自分 mid が分かっている場合）
+  // Vyline ディスク（自分 mid が分かっている場合）
   const knownMid = myMidCache.get(accountId) ?? baseProf?.mid;
   if (knownMid) {
-    const nezu = await nezuGetProfile(accountId, String(knownMid));
-    if (nezu && nezu.displayName) {
-      const fromNezu = lineProfileFromNezu(nezu);
-      myProfileCache.set(accountId, { at: now, profile: fromNezu });
+    const profile = await vylineGetProfile(accountId, String(knownMid));
+    if (profile && profile.displayName) {
+      const mapped = lineProfileFromVyline(profile);
+      myProfileCache.set(accountId, { at: now, profile: mapped });
       refreshInBg();
-      return fromNezu;
+      return mapped;
     }
   }
 
@@ -1009,7 +1149,7 @@ function mapContactV3Like(raw: ContactV3Like, fallbackMid: string): LineProfile 
   return out;
 }
 
-function lineProfileFromNezu(c: {
+function lineProfileFromVyline(c: {
   mid: string;
   displayName: string;
   phoneticName?: string;
@@ -1037,24 +1177,28 @@ function lineProfileFromNezu(c: {
   return profile;
 }
 
-/** getContactsV3 をバッチで叩いて NezuCache に載せる（小チャンク・長め timeout・失敗時は stale 許可） */
+/** getContactsV3 をバッチで叩いて VylineCache に載せる（小チャンク・長め timeout・失敗時は stale 許可） */
 export async function fetchContactsBatch(
   accountId: string,
   mids: string[],
 ): Promise<Map<string, LineProfile>> {
+  // Refresh token before making contact requests to ensure it's valid
+  const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+
   const unique = [...new Set(mids.filter((m) => m.startsWith("u")))];
   const out = new Map<string, LineProfile>();
   if (unique.length === 0) return out;
 
-  const cached = await nezuGetProfiles(accountId, unique);
+  const cached = await vylineGetProfiles(accountId, unique);
   const needRpc: string[] = [];
   for (const mid of unique) {
     const c = cached.get(mid);
-    if (c && !nezuProfileNeedsRefresh(c)) {
-      out.set(mid, lineProfileFromNezu(c));
+    if (c && !vylineProfileNeedsRefresh(c)) {
+      out.set(mid, lineProfileFromVyline(c));
     } else if (c) {
       // stale でも名前があるなら先に載せる（RPC 失敗時のフォールバック）
-      out.set(mid, lineProfileFromNezu(c));
+      out.set(mid, lineProfileFromVyline(c));
       needRpc.push(mid);
     } else {
       needRpc.push(mid);
@@ -1187,32 +1331,30 @@ export async function fetchContactsBatch(
     }
   }
 
-  if (toPut.length) void nezuPutProfiles(accountId, toPut);
+  if (toPut.length) void vylinePutProfiles(accountId, toPut);
   return out;
 }
 
 /**
- * チャット一覧の mid を NezuCache で即解決し、不足分を裏でバッチ取得。
+ * チャット一覧の mid を VylineCache で即解決し、不足分を裏でバッチ取得。
  */
-export async function applyNezuCacheToChats(
-  accountId: string,
-  chats: Chat[],
-): Promise<Chat[]> {
-  const nameMap = await nezuResolvedNameMap(accountId);
-  // 直接トーク相手のステメ・背景は NezuCache プロフィールから補完
+export async function applyVylineCacheToChats(accountId: string, chats: Chat[]): Promise<Chat[]> {
+  // Refresh token before making cache operations to ensure it's valid
+  const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+
+  const nameMap = await vylineResolvedNameMap(accountId);
+  // 直接トーク相手のステメ・背景は VylineCache プロフィールから補完
   const mids = chats.filter((c) => c.kind === "direct").map((c) => c.mid);
-  const profileMap = mids.length ? await nezuGetProfiles(accountId, mids) : new Map();
+  const profileMap = mids.length ? await vylineGetProfiles(accountId, mids) : new Map();
   const resolved: Chat[] = chats.map((c) => {
     const hit = nameMap.get(c.mid);
-    const nameLooksMid =
-      !c.name ||
-      /^[ucr][0-9a-f]{32}$/i.test(c.name) ||
-      c.name === "(No Name)";
+    const nameLooksMid = !c.name || /^[ucr][0-9a-f]{32}$/i.test(c.name) || c.name === "(No Name)";
     const next: Chat = {
       ...c,
-      name: nameLooksMid ? hit?.name ?? c.name : c.name,
+      name: nameLooksMid ? (hit?.name ?? c.name) : c.name,
     };
-    if (!c.thumbnailUrl && hit?.thumbnailUrl) next.thumbnailUrl = hit.thumbnailUrl;
+    if (!c.thumbnailUrl && hit?.thumbnailUrl) next.thumbnailUrl = hit?.thumbnailUrl;
     const p = profileMap.get(c.mid);
     if (p) {
       if (p.statusMessage) next.statusMessage = p.statusMessage;
@@ -1223,10 +1365,7 @@ export async function applyNezuCacheToChats(
 
   const needWarm = resolved
     .filter((c) => {
-      const badName =
-        !c.name ||
-        /^[ucr][0-9a-f]{32}$/i.test(c.name) ||
-        c.name === "(No Name)";
+      const badName = !c.name || /^[ucr][0-9a-f]{32}$/i.test(c.name) || c.name === "(No Name)";
       return badName || !c.thumbnailUrl;
     })
     .map((c) => c.mid)
@@ -1247,7 +1386,7 @@ export async function applyNezuCacheToChats(
           }
         }
       } catch (err) {
-        log.debug({ accountId, err }, "NezuCache warm failed");
+        log.debug({ accountId, err }, "VylineCache warm failed");
       }
     })();
   }
@@ -1255,14 +1394,14 @@ export async function applyNezuCacheToChats(
   return resolved;
 }
 
-/** 起動用: NezuCache 全体 */
-export async function loadNezuProfileCache(accountId: string) {
-  const db = await nezuLoadCache(accountId);
+/** 起動用: VylineCache 全体 */
+export async function loadVylineProfileCache(accountId: string) {
+  const db = await vylineLoadCache(accountId);
   return { profiles: db.profiles, groups: db.groups };
 }
 
 /**
- * グループメンバー一覧（NezuCache + getChats(withMembers) + バッチプロフィール）
+ * グループメンバー一覧（VylineCache + getChats(withMembers) + バッチプロフィール）
  */
 export async function fetchChatMembersDetailed(
   accountId: string,
@@ -1271,11 +1410,20 @@ export async function fetchChatMembersDetailed(
   chatMid: string;
   name: string;
   thumbnailUrl?: string;
-  members: Array<{ mid: string; displayName: string; thumbnailUrl?: string; statusMessage?: string }>;
+  members: Array<{
+    mid: string;
+    displayName: string;
+    thumbnailUrl?: string;
+    statusMessage?: string;
+  }>;
   fromCache?: boolean;
 }> {
-  const cached = await nezuGetGroup(accountId, chatMid);
-  if (cached && !nezuGroupNeedsRefresh(cached) && cached.members.length > 0) {
+  // Refresh token before making member list request
+  const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+  
+  const cached = await vylineGetGroup(accountId, chatMid);
+  if (cached && !vylineGroupNeedsRefresh(cached) && cached.members.length > 0) {
     const members = cached.members.map((m) => {
       const row: { mid: string; displayName: string; thumbnailUrl?: string } = {
         mid: m.mid,
@@ -1335,9 +1483,7 @@ export async function fetchChatMembersDetailed(
     } = {
       mid,
       displayName:
-        p?.displayName && !/^[ucr][0-9a-f]{32}$/i.test(p.displayName)
-          ? p.displayName
-          : mid,
+        p?.displayName && !/^[ucr][0-9a-f]{32}$/i.test(p.displayName) ? p.displayName : mid,
     };
     if (p?.thumbnailUrl) row.thumbnailUrl = p.thumbnailUrl;
     if (p?.statusMessage) row.statusMessage = p.statusMessage;
@@ -1366,12 +1512,10 @@ export async function fetchChatMembersDetailed(
   if (thumbnailUrl) groupPut.thumbnailUrl = thumbnailUrl;
 
   // メンバー名がすべてMIDのままならキャッシュを汚染しない（要再試行）
-  const resolvedCount = members.filter(
-    (m) => !/^[ucr][0-9a-f]{32}$/i.test(m.displayName),
-  ).length;
+  const resolvedCount = members.filter((m) => !/^[ucr][0-9a-f]{32}$/i.test(m.displayName)).length;
   const allUnresolved = memberMids.length > 0 && resolvedCount === 0;
   if (!allUnresolved) {
-    void nezuPutGroup(accountId, groupPut);
+    void vylinePutGroup(accountId, groupPut);
   } else {
     log.debug(
       { accountId, chatMid, memberMids: memberMids.length },
@@ -1387,6 +1531,42 @@ export async function fetchChatMembersDetailed(
   } = { chatMid, name, members };
   if (thumbnailUrl) result.thumbnailUrl = thumbnailUrl;
   return result;
+}
+
+export type CommonGroupInfo = {
+  chatMid: string;
+  name: string;
+  thumbnailUrl?: string;
+  memberMids: string[];
+};
+
+/**
+ * 指定ユーザーと共通のグループを VylineCache（groups DB）から一括読みで返す。
+ * メモリ DB の一括走査なので RPC なしで即返る（未読込グループも対象）。
+ */
+export async function getCommonGroupsForUser(
+  accountId: string,
+  targetMid: string,
+  opts?: { excludeChatMid?: string },
+): Promise<CommonGroupInfo[]> {
+  const db = await vylineLoadCache(accountId);
+  const hits: CommonGroupInfo[] = [];
+  for (const group of Object.values(db.groups)) {
+    if (!group || !Array.isArray(group.memberMids)) continue;
+    if (!group.memberMids.includes(targetMid)) continue;
+    if (opts?.excludeChatMid && group.chatMid === opts.excludeChatMid) continue;
+    if (group.memberMids.length === 0) continue;
+    const info: CommonGroupInfo = {
+      chatMid: group.chatMid,
+      name: group.name || group.chatMid,
+      memberMids: group.memberMids,
+    };
+    if (group.thumbnailUrl) info.thumbnailUrl = group.thumbnailUrl;
+    hits.push(info);
+  }
+  // 直近の参加順（name 昇順・安定）に並べる
+  hits.sort((a, b) => a.name.localeCompare(b.name, "ja"));
+  return hits;
 }
 
 /** 友達以外（グループメンバー等）も含め u* プロフィールを段階的に解決 */
@@ -1474,8 +1654,8 @@ async function resolveUserContactV3Like(
         }),
       };
     }
-  } catch (err) {
-    log.debug({ targetMid, err }, "getContact failed");
+  } catch {
+    // "no contact" は通常（非接触メンバー）。静かに次へ。
   }
 
   return null;
@@ -1511,10 +1691,10 @@ export async function fetchContactProfile(
   if (inflight) return inflight;
 
   const task = (async (): Promise<LineProfile | null> => {
-    // Nezu ディスクキャッシュ（起動直後の mid 生出し回避）
-    const nezuHit = await nezuGetProfile(accountId, targetMid);
-    if (nezuHit && !nezuProfileNeedsRefresh(nezuHit)) {
-      const profile = lineProfileFromNezu(nezuHit);
+    // Vyline ディスクキャッシュ（起動直後の mid 生出し回避）
+    const vylineHit = await vylineGetProfile(accountId, targetMid);
+    if (vylineHit && !vylineProfileNeedsRefresh(vylineHit)) {
+      const profile = lineProfileFromVyline(vylineHit);
       contactProfileCache.set(cacheKey, { at: Date.now(), profile });
       return profile;
     }
@@ -1548,7 +1728,7 @@ export async function fetchContactProfile(
         if (profile.thumbnailUrl) put.thumbnailUrl = profile.thumbnailUrl;
         if (profile.birthday?.display) put.birthday = profile.birthday.display;
         if (profile.backgroundUrl) put.backgroundUrl = profile.backgroundUrl;
-        void nezuPutProfile(accountId, put);
+        void vylinePutProfile(accountId, put);
         return profile;
       }
       contactProfileMiss.set(cacheKey, Date.now());
@@ -1559,8 +1739,8 @@ export async function fetchContactProfile(
         "fetchContactProfile timed out — using cache if any",
       );
       contactProfileMiss.set(cacheKey, Date.now());
-      if (nezuHit) {
-        return lineProfileFromNezu(nezuHit);
+      if (vylineHit) {
+        return lineProfileFromVyline(vylineHit);
       }
       return cached?.profile ?? null;
     }
@@ -1582,16 +1762,24 @@ async function fetchContactProfileInner(
     if (targetMid.startsWith("u")) {
       const raw = await resolveUserContactV3Like(client, targetMid);
       if (!raw) return null;
-      return mapContactV3Like(raw, targetMid);
+      const profile = mapContactV3Like(raw, targetMid);
+      // プロフィール背景は homeProfile API から（別途・短タイムアウト・失敗許容）
+      try {
+        const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
+        if (bg) profile.backgroundUrl = bg;
+      } catch {
+        /* optional */
+      }
+      return profile;
     }
 
     // 退出・キック済みグループは getChat が壊れた応答を返すことがある
     if (groupProfileMiss.has(`${accountId}:${targetMid}`)) {
-      const cached = await nezuGetProfile(accountId, targetMid);
-      return cached ? lineProfileFromNezu(cached) : null;
+      const cached = await vylineGetProfile(accountId, targetMid);
+      return cached ? lineProfileFromVyline(cached) : null;
     }
 
-    // まずローカル chats / Nezu から（RPC 渋滞を避ける）
+    // まずローカル chats / Vyline から（RPC 渋滞を避ける）
     try {
       const localChats = await getStoredChats(accountId);
       const hit = localChats.find((c) => c.mid === targetMid);
@@ -1624,7 +1812,7 @@ async function fetchContactProfileInner(
       groupProfileMiss.add(`${accountId}:${targetMid}`);
       return null;
     }
-    const rawChat = (chat.raw as unknown) as Record<string, unknown>;
+    const rawChat = chat.raw as unknown as Record<string, unknown>;
     const ps = String(rawChat.pictureStatus ?? "");
     const thumbnailUrl = pictureStatusToUrl(ps) ?? "";
     return {
@@ -1667,6 +1855,10 @@ export async function markAsRead(
   chatMid: string,
   lastMessageId?: string,
 ): Promise<void> {
+  // Refresh token before making read request
+  const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+
   const client = requireClient(accountId);
   let messageId = lastMessageId?.trim() || "";
   // 楽観的送信の仮 ID はサーバに送れない
@@ -1691,18 +1883,16 @@ export async function markAsRead(
   }
 
   if (!messageId) {
-    log.debug(
-      { accountId, chatMid },
-      "markAsRead skipped: no valid lastMessageId",
-    );
+    log.debug({ accountId, chatMid }, "markAsRead skipped: no valid lastMessageId");
     return;
   }
 
   try {
     await client.base.talk.sendChatChecked({
-      seq: 0,
+      seq: await client.base.getReqseq(),
       chatMid,
       lastMessageId: messageId,
+      sessionId: 0,
     });
     log.info({ accountId, chatMid, lastMessageId: messageId }, "chat marked as read");
   } catch (err) {
@@ -1943,10 +2133,7 @@ export function applyReadReceiptsToMessages(
 }
 
 /** グループメンバー mid 一覧 — TalkService_getChats(withMembers) */
-export async function fetchChatMemberMids(
-  accountId: string,
-  chatMid: string,
-): Promise<string[]> {
+export async function fetchChatMemberMids(accountId: string, chatMid: string): Promise<string[]> {
   if (!chatMid.startsWith("c") && !chatMid.startsWith("r")) return [];
   const client = requireClient(accountId);
   try {
@@ -1984,21 +2171,29 @@ export async function fetchChatMemberMids(
 }
 
 /** 軽量既読更新（ポーリング用） — 失敗時は空を返し HTTP 500 にしない */
+export type ReadReceiptsResult = {
+  /** メッセージID → 既読状態 */
+  receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
+  /** DM: 相手が既読した自分のメッセージID の最大値（これを超えない id は全て既読） */
+  peerReadUpTo?: string;
+  /** グループ/ルーム: メンバーごとの既読ウォーターマーク */
+  memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+};
+
 export async function getReadReceiptsForChat(
   accountId: string,
   chatMid: string,
   messageIds: string[],
-): Promise<
-  Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>
-> {
+): Promise<ReadReceiptsResult> {
   try {
+    // Refresh token before making read receipt requests
+    const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
     const ranges = await fetchReadRanges(accountId, chatMid);
-    const out: Record<
-      string,
-      { seen?: boolean; readCount?: number; readBy?: string[] }
-    > = {};
+    const out: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }> = {};
 
     if (chatMid.startsWith("u")) {
       const upTo = peerReadUpToMessageId(ranges, chatMid, myMid);
@@ -2012,7 +2207,9 @@ export async function getReadReceiptsForChat(
           }
         }
       }
-      return out;
+      return upTo
+        ? { receipts: out, peerReadUpTo: upTo }
+        : { receipts: out };
     }
 
     if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
@@ -2026,11 +2223,15 @@ export async function getReadReceiptsForChat(
           /* ignore */
         }
       }
+      return {
+        receipts: out,
+        memberReadWatermarks: marks.map((m) => ({ mid: m.mid, upTo: String(m.upTo) })),
+      };
     }
-    return out;
+    return { receipts: out };
   } catch (err) {
     log.debug({ accountId, chatMid, err }, "getReadReceiptsForChat failed");
-    return {};
+    return { receipts: {} };
   }
 }
 
@@ -2045,8 +2246,7 @@ function previewFromBoxMessage(
 ): string {
   if (!msg) return "";
   const meta = (msg.contentMetadata ?? null) as Record<string, unknown> | null;
-  const alt =
-    meta && typeof meta.ALT_TEXT === "string" ? meta.ALT_TEXT.trim() : "";
+  const alt = meta && typeof meta.ALT_TEXT === "string" ? meta.ALT_TEXT.trim() : "";
   if (alt) return alt.length > 60 ? `${alt.slice(0, 60)}…` : alt;
   const text = typeof msg.text === "string" ? msg.text.trim() : "";
   // LINE 絵文字（sticon）のみの本文はプレースホルダ文字のまま出さず「絵文字」と表示
@@ -2110,8 +2310,7 @@ function boxMeta(
     Array.isArray(box.lastMessages) && box.lastMessages.length > 0
       ? box.lastMessages[0]
       : undefined;
-  const fromMsg =
-    last?.deliveredTime != null ? Number(last.deliveredTime) : 0;
+  const fromMsg = last?.deliveredTime != null ? Number(last.deliveredTime) : 0;
   const fromBox = Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
   const boxId = box.lastDeliveredMessageId?.messageId;
   const meta: {
@@ -2126,9 +2325,7 @@ function boxMeta(
   if (boxId != null) meta.lastMessageId = String(boxId);
   if (box.unreadCount != null) {
     meta.unreadCount =
-      typeof box.unreadCount === "number"
-        ? box.unreadCount
-        : Number(box.unreadCount);
+      typeof box.unreadCount === "number" ? box.unreadCount : Number(box.unreadCount);
   }
   return meta;
 }
@@ -2139,7 +2336,13 @@ function chatFromMessageBox(
   groupByMid: Map<string, { mid: string; name: string; raw?: Record<string, unknown> }>,
   userByMid: Map<
     string,
-    { mid: string; displayName: string; thumbnailUrl: string; userType?: number; statusMessage?: string }
+    {
+      mid: string;
+      displayName: string;
+      thumbnailUrl: string;
+      userType?: number;
+      statusMessage?: string;
+    }
   >,
 ): Chat {
   const mid = String(box.id);
@@ -2185,12 +2388,16 @@ function chatFromMessageBox(
 
 export async function fetchBootstrap(accountId: string): Promise<BootstrapPayload> {
   requireClient(accountId);
-  return getBootstrapPayload(accountId);
+  const payload = await getBootstrapPayload(accountId);
+  if (payload.chats.length > 0) {
+    payload.chats = await markSelfChats(accountId, payload.chats);
+  }
+  return payload;
 }
 
 export async function warmLineCache(accountId: string): Promise<void> {
   await warmAccountCache(accountId);
-  // 初回インデックス（裏）— 履歴・プロフィールを chatdb / NezuCache へ
+  // 初回インデックス（裏）— 履歴・プロフィールを chatdb / VylineCache へ
   void enqueueTalkRpcBackground(accountId, async () => {
     try {
       await runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 });
@@ -2205,7 +2412,8 @@ export async function fetchChats(
   opts?: { light?: boolean; force?: boolean; refresh?: boolean },
 ): Promise<Chat[]> {
   const chats = await fetchChatsCore(accountId, opts);
-  return applyNezuCacheToChats(accountId, chats);
+  const enriched = await applyVylineCacheToChats(accountId, chats);
+  return markSelfChats(accountId, enriched);
 }
 
 async function fetchChatsCore(
@@ -2222,8 +2430,7 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      const needsBg =
-        opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
+      const needsBg = opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
 
       if (needsBg) {
         const syncPromise = enqueueTalkRpcBackground(accountId, async () => {
@@ -2266,9 +2473,7 @@ async function fetchChatsCore(
   }
 
   try {
-    const chats = await enqueueTalkRpcBackground(accountId, () =>
-      fetchChatsInner(accountId, opts),
-    );
+    const chats = await enqueueTalkRpcBackground(accountId, () => fetchChatsInner(accountId, opts));
     chatsCache.set(accountId, { at: now, chats });
     return chats;
   } catch (err) {
@@ -2285,21 +2490,18 @@ async function fetchChatsCore(
   }
 }
 
-async function fetchChatsInner(
-  accountId: string,
-  opts?: { light?: boolean },
-): Promise<Chat[]> {
+async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
 
   const [messageBoxes, joinedChats, users] = await Promise.all([
     fetchMessageBoxesCached(accountId, client, { forChats: true }),
     client.fetchJoinedChats().catch((err) => {
       log.warn({ accountId, err }, "fetchJoinedChats failed — skipping groups");
-      return [] as Awaited<ReturnType<NezuClient["fetchJoinedChats"]>>;
+      return [] as Awaited<ReturnType<VylineClient["fetchJoinedChats"]>>;
     }),
     client.fetchUsers().catch((err) => {
       log.warn({ accountId, err }, "fetchUsers failed — skipping friends");
-      return [] as Awaited<ReturnType<NezuClient["fetchUsers"]>>;
+      return [] as Awaited<ReturnType<VylineClient["fetchUsers"]>>;
     }),
   ]);
 
@@ -2313,21 +2515,17 @@ async function fetchChatsInner(
 
     // getChats(withMembers) で既に付いている memberMids をキャッシュへ
     try {
-      const extra = raw.extra as
-        | { groupExtra?: { memberMids?: unknown } }
-        | undefined;
+      const extra = raw.extra as { groupExtra?: { memberMids?: unknown } } | undefined;
       const mm = extra?.groupExtra?.memberMids;
       let memberMids: string[] = [];
       if (Array.isArray(mm)) memberMids = mm.map(String).filter((m) => m.startsWith("u"));
       else if (mm && typeof mm === "object") {
-        memberMids = Object.keys(mm as Record<string, unknown>).filter((k) =>
-          k.startsWith("u"),
-        );
+        memberMids = Object.keys(mm as Record<string, unknown>).filter((k) => k.startsWith("u"));
       }
       if (memberMids.length > 0) {
         const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
         const thumb = pictureStatusToUrl(ps);
-        void nezuPutGroup(accountId, {
+        void vylinePutGroup(accountId, {
           chatMid: chat.mid,
           name: chat.name,
           ...(thumb ? { thumbnailUrl: thumb } : {}),
@@ -2342,7 +2540,13 @@ async function fetchChatsInner(
 
   const userByMid = new Map<
     string,
-    { mid: string; displayName: string; thumbnailUrl: string; userType?: number; statusMessage?: string }
+    {
+      mid: string;
+      displayName: string;
+      thumbnailUrl: string;
+      userType?: number;
+      statusMessage?: string;
+    }
   >();
   for (const user of users) {
     const mid = user.mid;
@@ -2431,12 +2635,7 @@ async function fetchChatsInner(
   // 公式（BOT）判定: userByMid に無い直接トーク相手は getContactsV3 で userType を取得
   // （fetchUsers はユーザー友達のみで、公式/ボットは含まれない）
   const needType = result
-    .filter(
-      (c) =>
-        c.kind === "direct" &&
-        c.mid.startsWith("u") &&
-        !userByMid.has(c.mid),
-    )
+    .filter((c) => c.kind === "direct" && c.mid.startsWith("u") && !userByMid.has(c.mid))
     .map((c) => c.mid)
     .slice(0, 60);
   if (needType.length) {
@@ -2466,12 +2665,8 @@ async function fetchChatsInner(
     }
     const toEnrich = result
       .filter((c) => {
-        const box = boxById.get(c.mid) as
-          | { lastMessages?: unknown[] }
-          | undefined;
-        const last = box?.lastMessages?.[0] as
-          | { chunks?: unknown[]; text?: string }
-          | undefined;
+        const box = boxById.get(c.mid) as { lastMessages?: unknown[] } | undefined;
+        const last = box?.lastMessages?.[0] as { chunks?: unknown[]; text?: string } | undefined;
         return (
           Array.isArray(last?.chunks) &&
           last.chunks.length > 0 &&
@@ -2485,9 +2680,7 @@ async function fetchChatsInner(
       try {
         await Promise.all(
           toEnrich.map(async (chat) => {
-            const box = boxById.get(chat.mid) as
-              | { lastMessages?: unknown[] }
-              | undefined;
+            const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
             const last = box?.lastMessages?.[0] as any;
             if (!last) return;
             try {
@@ -2545,13 +2738,13 @@ async function fetchChatsInner(
     { boxOrder: messageBoxes.map((b: { id: string }) => String(b.id)) },
   );
 
-  // NezuCache にも友達名・アイコンを載せる
+  // VylineCache にも友達名・アイコンを載せる
   for (const user of users) {
     const mid = user.mid;
     if (!mid) continue;
     const u = userByMid.get(mid);
     if (u?.displayName) {
-      void nezuPutProfile(accountId, {
+      void vylinePutProfile(accountId, {
         mid,
         displayName: u.displayName,
         thumbnailUrl: u.thumbnailUrl,
@@ -2576,7 +2769,7 @@ async function fetchChatsInner(
       members: [],
     };
     if (thumb) put.thumbnailUrl = thumb;
-    void nezuPutGroup(accountId, put);
+    void vylinePutGroup(accountId, put);
   }
 
   log.debug(
@@ -2593,18 +2786,13 @@ async function fetchChatsInner(
 }
 
 /** 復号済み Thrift メッセージ → API Message */
-export function mapDecodedRawToMessage(
-  msg: Record<string, unknown>,
-  myMid: string,
-): Message {
+export function mapDecodedRawToMessage(msg: Record<string, unknown>, myMid: string): Message {
   const hasChunks = Array.isArray(msg.chunks) && msg.chunks.length > 0;
   const rawText = msg.text;
-  const text =
-    typeof rawText === "string" ? rawText : rawText == null ? null : String(rawText);
+  const text = typeof rawText === "string" ? rawText : rawText == null ? null : String(rawText);
   const contentType = String(msg.contentType);
   const meta = normalizeContentMetadata(msg.contentMetadata);
-  const failedE2EE =
-    hasChunks && !text && (contentType === "NONE" || contentType === "0");
+  const failedE2EE = hasChunks && !text && (contentType === "NONE" || contentType === "0");
 
   let normalizedType = failedE2EE ? "E2EE_UNAVAILABLE" : contentType;
   let normalizedText = failedE2EE ? null : text;
@@ -2613,7 +2801,9 @@ export function mapDecodedRawToMessage(
     const unsentMeta =
       Boolean(meta?.UNSENT) ||
       Boolean(meta?.UNSEND) ||
-      String(meta?.REPLACE ?? "").toUpperCase().includes("UNSEND");
+      String(meta?.REPLACE ?? "")
+        .toUpperCase()
+        .includes("UNSEND");
     const unsentEmpty =
       !text &&
       !hasChunks &&
@@ -2664,11 +2854,16 @@ export function mapDecodedRawToMessage(
     const reactions: MessageReaction[] = [];
     for (const r of msg.reactions as Array<Record<string, unknown>>) {
       const fromMid = String(r.fromUserMid ?? "");
-      const rawType = (r.reactionType as Record<string, unknown> | undefined)?.predefinedReactionType;
+      const rawType = (r.reactionType as Record<string, unknown> | undefined)
+        ?.predefinedReactionType;
       const type = Number(rawType);
       if (!fromMid || !Number.isFinite(type)) continue;
       const at = Number(r.atMillis);
-      reactions.push({ fromMid, atMillis: Number.isFinite(at) ? at : Number(msg.createdTime), type });
+      reactions.push({
+        fromMid,
+        atMillis: Number.isFinite(at) ? at : Number(msg.createdTime),
+        type,
+      });
     }
     if (reactions.length) out.reactions = reactions;
   }
@@ -2682,19 +2877,104 @@ function chatMidFromRaw(msg: Record<string, unknown>, myMid: string): string {
   return from === myMid ? to : from;
 }
 
-/** Push 受信メッセージをバッファ + ローカルキャッシュへ */
-async function ingestPushMessage(
+/** チャット名をローカルキャッシュから解決（log 用・RPC はしない） */
+const chatNameCache = new Map<string, { at: number; name: string | undefined }>();
+const CHAT_NAME_CACHE_TTL_MS = 60_000;
+
+async function resolveChatNameCached(
   accountId: string,
-  raw: Record<string, unknown>,
-): Promise<void> {
+  chatMid: string,
+): Promise<string | undefined> {
+  const cached = chatNameCache.get(chatMid);
+  if (cached && Date.now() - cached.at < CHAT_NAME_CACHE_TTL_MS) return cached.name;
+  let name: string | undefined;
+  try {
+    const chats = await getStoredChats(accountId);
+    const chat = chats.find((c) => c.mid === chatMid);
+    if (chat && chat.name) name = chat.name;
+    if (!name && (chatMid.startsWith("c") || chatMid.startsWith("r"))) {
+      const group = await vylineGetGroup(accountId, chatMid);
+      if (group && group.name) name = group.name;
+    }
+  } catch {
+    /* log は best-effort */
+  }
+  chatNameCache.set(chatMid, { at: Date.now(), name });
+  return name;
+}
+
+/** Message → 詳細ログエントリ生成（メディア情報も含む） */
+function buildMessageLogEntry(
+  accountId: string,
+  chatMid: string,
+  message: Message,
+  senderName?: string,
+): MessageLogEntry {
+  const meta = message.contentMetadata ?? {};
+  const kind: "message" | "announcement" =
+    message.contentType === "CHATEVENT" || meta.eventType ? "announcement" : "message";
+  const media: MessageLogEntry["media"] | undefined = (() => {
+    const t = message.contentType;
+    if (t === "IMAGE" || t === "VIDEO" || t === "AUDIO" || t === "FILE") {
+      return {
+        contentType: t,
+        mediaId: message.id,
+        ...(meta.attachmentName ? { attachmentName: meta.attachmentName } : {}),
+        ...(meta.DURATION ? { durationMillis: Number(meta.DURATION) } : {}),
+        ...(meta.fileSize ? { fileSize: Number(meta.fileSize) } : {}),
+      };
+    }
+    if (t === "STICKER") {
+      return {
+        contentType: t,
+        ...(meta.STKID ? { stickerId: meta.STKID } : {}),
+        ...(meta.STKPKGID ? { packageId: meta.STKPKGID } : {}),
+      };
+    }
+    return undefined;
+  })();
+  return {
+    ts: new Date(message.createdTime).toISOString(),
+    tsMillis: message.createdTime,
+    accountId,
+    kind,
+    direction: message.isMyMessage ? "out" : "in",
+    chatMid,
+    senderMid: message.from,
+    ...(senderName ? { senderName } : {}),
+    contentType: message.contentType,
+    text: message.text,
+    ...(media ? { media } : {}),
+    ...(meta.eventType || message.contentType === "CHATEVENT"
+      ? { locKey: meta.eventType ?? "CHATEVENT" }
+      : {}),
+  };
+}
+
+/** 非同期でチャット名解決 → ログ追記（失敗しても無視） */
+function logMessageAsync(accountId: string, chatMid: string, message: Message): void {
+  void (async () => {
+    try {
+      const name = await resolveChatNameCached(accountId, chatMid);
+      appendMessageLog(buildMessageLogEntry(accountId, chatMid, message, name));
+    } catch {
+      /* best-effort */
+    }
+  })();
+}
+
+/** Push 受信メッセージをバッファ + ローカルキャッシュへ */
+async function ingestPushMessage(accountId: string, raw: Record<string, unknown>): Promise<void> {
   const client = requireClient(accountId);
   const myMid = await resolveMyMid(client, accountId);
   const chatMid = chatMidFromRaw(raw, myMid);
   const message = mapDecodedRawToMessage(raw, myMid);
   pushTalkEvent(accountId, { kind: "message", chatMid, message });
+  invalidateBoxCursorCache(accountId, chatMid);
   await upsertMessages(accountId, chatMid, [
     { ...message, chatMid, savedAt: new Date().toISOString() },
   ]);
+  logMessageAsync(accountId, chatMid, message);
 }
 
 const pushBridgeAttached = new Set<string>();
@@ -2723,11 +3003,25 @@ function handleTalkOperation(
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "read", chatMid });
     }
+    return;
+  }
+  // リアクション（SEND_REACTION / NOTIFIED_SEND_REACTION / NOTIFIED_GCS_REACTION）
+  // param1=messageId, param2=chatMid（実機確認済みの形式に合わせ、欠落時は delta で回収）
+  if (
+    type === "SEND_REACTION" ||
+    type === "NOTIFIED_SEND_REACTION" ||
+    type === "NOTIFIED_GCS_REACTION"
+  ) {
+    const messageId = String(op.param1 ?? "");
+    const chatMid = String(op.param2 ?? "");
+    if (messageId && /^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "reaction", chatMid, messageId });
+    }
   }
 }
 
 /** Talk Push → poll バッファ（1 アカウント1回だけ） */
-export function attachTalkPushBridge(accountId: string, client: NezuClient): void {
+export function attachTalkPushBridge(accountId: string, client: VylineClient): void {
   if (pushBridgeAttached.has(accountId)) return;
   pushBridgeAttached.add(accountId);
   client.on("message", (talkMsg) => {
@@ -2791,10 +3085,19 @@ export async function fetchMessagesSince(
       const batch = await fetchMessagesInner(accountId, chatMid, limit, {
         lite: true,
         delta: true,
+        deltaAfterId: afterMessageId,
       });
       try {
         const after = BigInt(afterMessageId);
-        return batch.filter((m) => BigInt(m.id) > after);
+        // 新しいメッセージ + 既存メッセージへのリアクション更新（reactions を持つもの）を通す
+        return batch.filter((m) => {
+          try {
+            if (BigInt(m.id) > after) return true;
+          } catch {
+            return true;
+          }
+          return (m.reactions?.length ?? 0) > 0;
+        });
       } catch {
         return batch;
       }
@@ -2841,27 +3144,23 @@ export async function fetchMessages(
       const age = messageSyncAgeMs(meta, chatMid);
       if (age == null || age > MESSAGE_LOCAL_STALE_MS) {
         void enqueueTalkRpcBackground(accountId, () =>
-          fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch(
-            (err) => {
-              log.debug(
-                {
-                  accountId,
-                  chatMid,
-                  err: err instanceof Error ? err.message : String(err),
-                },
-                "background message sync failed",
-              );
-            },
-          ),
+          fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch((err) => {
+            log.debug(
+              {
+                accountId,
+                chatMid,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "background message sync failed",
+            );
+          }),
         );
       }
       return local;
     }
   }
 
-  return runTalkFetchUrgent(accountId, () =>
-    fetchMessagesInner(accountId, chatMid, limit, opts),
-  );
+  return runTalkFetchUrgent(accountId, () => fetchMessagesInner(accountId, chatMid, limit, opts));
 }
 
 async function fetchMessagesInner(
@@ -2873,6 +3172,8 @@ async function fetchMessagesInner(
     beforeDeliveredTime?: number;
     lite?: boolean;
     delta?: boolean;
+    /** delta 用: afterMessageId 既知の場合は getMessageBoxes を飛ばして合成カーソルで最新を取得 */
+    deltaAfterId?: string;
   },
 ): Promise<Message[]> {
   const client = requireClient(accountId);
@@ -2885,7 +3186,15 @@ async function fetchMessagesInner(
   let endMessageId: any;
   let boxId = chatMid;
 
-  if (opts?.beforeMessageId) {
+  if (opts?.deltaAfterId) {
+    // delta は「最新 N 件」を取得して after でフィルタするため、
+    // getMessageBoxes によるカーソル解決を省略して合成カーソルで即座に取る（リアクション高速化）
+    boxId = chatMid;
+    endMessageId = {
+      messageId: BigInt(Date.now()) * 1000n,
+      deliveredTime: BigInt(Date.now()),
+    };
+  } else if (opts?.beforeMessageId) {
     endMessageId = {
       messageId: BigInt(opts.beforeMessageId),
       deliveredTime: BigInt(
@@ -2895,40 +3204,58 @@ async function fetchMessagesInner(
       ),
     };
   } else {
-    // biome-ignore lint/suspicious/noExplicitAny: protocol message box
-    let messageBoxes: any[] = [];
-    try {
-      messageBoxes = await withTimeout(
-        fetchMessageBoxesCached(accountId, client),
-        MESSAGE_BOXES_TIMEOUT_MS,
-        "getMessageBoxes",
-      );
-      mark("messageBoxes");
-    } catch (err) {
-      // getMessageBoxes が遅い/失敗しても表示を空にしない — chatMid を boxId にして最新を取る
-      log.debug(
-        { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-        "getMessageBoxes slow/failed — using chatMid as boxId",
-      );
-      messageBoxes = [];
-    }
-    const box = messageBoxes.find((b: { id: string }) => b.id === chatMid);
-    if (!box) {
-      const cached = await getStoredMessages(accountId, chatMid, limit);
-      if (cached.length > 0) {
-        log.debug({ accountId, chatMid, count: cached.length }, "messages from cache (no box)");
-        return cached;
-      }
-      // box が無い/取得失敗でも chatMid を boxId にした合成カーソルで最新を取得（空表示を防ぐ）
+    const cacheKey = `${accountId}:${chatMid}`;
+    const now = Date.now();
+    const missAt = boxCursorMiss.get(cacheKey);
+    if (missAt != null && now - missAt < BOX_CURSOR_MISS_MS) {
+      // 最近空ボックスだった — getMessageBoxes をスキップして chatMid で合成カーソル
       boxId = chatMid;
       endMessageId = {
         messageId: BigInt(Date.now()) * 1000n,
         deliveredTime: BigInt(Date.now()),
       };
     } else {
-      boxId = (box as { id: string }).id;
-      // MessageBoxV2MessageId: deliveredTime + messageId はどちらも i64（数値）
-      endMessageId = (box as { lastDeliveredMessageId?: unknown }).lastDeliveredMessageId;
+      const cachedBox = boxCursorCache.get(cacheKey);
+      if (cachedBox && now - cachedBox.at < BOX_CURSOR_CACHE_MS) {
+        endMessageId = cachedBox.endMessageId;
+        mark("boxCursorCache");
+      } else {
+        // biome-ignore lint/suspicious/noExplicitAny: protocol message box
+        let messageBoxes: any[] = [];
+        try {
+          messageBoxes = await withTimeout(
+            fetchMessageBoxesCached(accountId, client),
+            MESSAGE_BOXES_TIMEOUT_MS,
+            "getMessageBoxes",
+          );
+          mark("messageBoxes");
+        } catch (err) {
+          // getMessageBoxes が遅い/失敗しても表示を空にしない — chatMid を boxId にして最新を取る
+          log.debug(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "getMessageBoxes slow/failed — using chatMid as boxId",
+          );
+          messageBoxes = [];
+        }
+        const box = messageBoxes.find((b: { id: string }) => b.id === chatMid);
+        if (box) {
+          endMessageId = (box as { lastDeliveredMessageId?: unknown }).lastDeliveredMessageId;
+          boxCursorCache.set(cacheKey, { at: now, endMessageId });
+        } else {
+          boxCursorMiss.set(cacheKey, now);
+          const cached = await getStoredMessages(accountId, chatMid, limit);
+          if (cached.length > 0) {
+            log.debug({ accountId, chatMid, count: cached.length }, "messages from cache (no box)");
+            return cached;
+          }
+          // box が無い/取得失敗でも chatMid を boxId にした合成カーソルで最新を取得（空表示を防ぐ）
+          boxId = chatMid;
+          endMessageId = {
+            messageId: BigInt(Date.now()) * 1000n,
+            deliveredTime: BigInt(Date.now()),
+          };
+        }
+      }
     }
   }
 
@@ -2946,7 +3273,10 @@ async function fetchMessagesInner(
     if (isTimeoutError(err)) {
       const cached = await getStoredMessages(accountId, chatMid, limit);
       if (cached.length > 0) {
-        log.warn({ accountId, chatMid, count: cached.length }, "message fetch timed out — returning cache");
+        log.warn(
+          { accountId, chatMid, count: cached.length },
+          "message fetch timed out — returning cache",
+        );
         return cached;
       }
     }
@@ -2971,16 +3301,9 @@ async function fetchMessagesInner(
   // Desktop/Android 準拠: 履歴 batch の groupKeyId を並列で用意（DM はスキップ）
   if (!opts?.lite && isGroupChat) {
     try {
-      const prep = await prepareGroupKeysForMessages(
-        client,
-        chatMid,
-        rawMessages as unknown[],
-      );
+      const prep = await prepareGroupKeysForMessages(client, chatMid, rawMessages as unknown[]);
       if (prep.prepared > 0 || prep.failed > 0) {
-        log.info(
-          { accountId, chatMid, ...prep },
-          "group e2ee keys prepared for message batch",
-        );
+        log.info({ accountId, chatMid, ...prep }, "group e2ee keys prepared for message batch");
       }
     } catch (err) {
       log.warn({ accountId, chatMid, err }, "prepareGroupKeysForMessages failed");
@@ -3091,6 +3414,7 @@ async function fetchMessagesInner(
     chatMid,
     messages.map((m) => ({ ...m, chatMid, savedAt: new Date().toISOString() })),
   );
+  for (const m of messages) logMessageAsync(accountId, chatMid, m);
 
   // messageBox カーソル遅延で送信直後の行がネット結果に無いことがある。
   // upsert 済みローカルとマージした一覧を返す（表示から消えないように）。
@@ -3131,23 +3455,17 @@ export interface SendMessageOptions {
 /**
  * メッセージ送信 (Letter Sealing E2EE 対応)。
  *
- * @vyline/nezuline の encryptLetterSealingMessage で自前に暗号化した chunks を
+ * @vyline/protocol の encryptLetterSealingMessage で自前に暗号化した chunks を
  * 直接 sendMessage に渡す (プロトコルスタック標準の「e2ee:true を渡して内部で再帰的に
  * encrypt-then-resend する」実装には依存しない)。失敗した場合は sender key
  * ローテート → プレーンテキストの順にフォールバックする。
  */
 function isSenderKeyError(errMsg: string): boolean {
-  return (
-    errMsg.includes("E2EE_UPDATE_SENDER_KEY") ||
-    errMsg.includes("invalid sender key")
-  );
+  return errMsg.includes("E2EE_UPDATE_SENDER_KEY") || errMsg.includes("invalid sender key");
 }
 
 function isGroupKeyRecreateError(errMsg: string): boolean {
-  return (
-    errMsg.includes("E2EE_RECREATE_GROUP_KEY") ||
-    errMsg.includes("old group key")
-  );
+  return errMsg.includes("E2EE_RECREATE_GROUP_KEY") || errMsg.includes("old group key");
 }
 
 /** グループにまだ共有鍵が無い（初回 E2EE 送信前） */
@@ -3187,18 +3505,12 @@ async function ensureGroupKeyReadyForSend(
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (!isMissingGroupKeyError(msg)) {
-      log.warn(
-        { accountId, chatMid, err: msg },
-        "ensureGroupKeyReadyForSend: getLast failed",
-      );
+      log.warn({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: getLast failed");
       throw err;
     }
   }
 
-  log.info(
-    { accountId, chatMid },
-    "no group E2EE key — registering new shared key for send",
-  );
+  log.info({ accountId, chatMid }, "no group E2EE key — registering new shared key for send");
   await recreateE2EEGroupKey(client, chatMid);
   groupKeyWarm.delete(chatMid);
   groupKeyWarmFailed.delete(chatMid);
@@ -3220,7 +3532,11 @@ function isE2EESendError(errMsg: string): boolean {
 const noE2eePeers = new Set<string>();
 
 function markNoE2eePeer(chatMid: string, errMsg: string): void {
-  if (errMsg.includes("Not support E2EE") || errMsg.includes("NoE2EEKey")) {
+  if (
+    errMsg.includes("Not support E2EE") ||
+    errMsg.includes("NoE2EEKey") ||
+    errMsg.includes("E2EE_RETRY_PLAIN")
+  ) {
     noE2eePeers.add(chatMid);
   }
 }
@@ -3239,6 +3555,7 @@ async function rememberSentRaw(
     await upsertMessages(accountId, chatMid, [
       { ...message, chatMid, savedAt: new Date().toISOString() },
     ]);
+    logMessageAsync(accountId, chatMid, message);
     return message;
   } catch (err) {
     log.debug({ accountId, chatMid, err }, "rememberSentRaw failed");
@@ -3252,155 +3569,93 @@ export async function sendMessage(
   text: string,
   opts: SendMessageOptions = {},
 ): Promise<Message | null> {
+  // ブロック中の友だちには送信しない（サーバ側でも防ぐ）
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "send blocked: user is blocked");
+      return null;
+    }
+  }
   return runSendRpc(accountId, async () => {
-  const client = requireClient(accountId);
+    const client = requireClient(accountId);
 
-  const myMid = await resolveMyMid(client, accountId);
-  const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
-  const skipE2ee = noE2eePeers.has(chatMid);
-  try {
-    await ensureE2EEIdentityCached(client, accountId);
-  } catch (err) {
-    log.warn({ accountId, err }, "E2EE ensure before send failed");
-  }
-
-  if (isGroupLike && !skipE2ee) {
-    // キャッシュを活かす: 既に warm 済みなら API をスキップ
-    await ensureGroupE2EEKey(client, chatMid);
-    // ensureGroupKeyReadyForSend は内部で groupKeyWarm をクリアするため、
-    // warm 失敗時のみ（＝鍵不在時のみ）新規 register する
-    if (groupKeyWarmFailed.has(chatMid)) {
-      groupKeyWarmFailed.delete(chatMid);
-      await ensureGroupKeyReadyForSend(client, accountId, chatMid);
-    }
-  }
-
-  const relatedMessageId = opts.relatedMessageId;
-  const relatedOpt = relatedMessageId ? { relatedMessageId } : {};
-
-  const tryE2eeSend = async () => {
-    const envelope = await encryptLetterSealingMessage(client, {
-      to: chatMid,
-      from: myMid,
-      contentType: LETTER_SEALING_CONTENT_TYPE.TEXT,
-      payload: { text },
-    });
-    return client.base.talk.sendMessage({
-      to: chatMid,
-      contentType: "NONE",
-      // REPLACE（絵文字）等のメタデータを E2EE エンベロープと併せて渡す（本文は暗号化済み、置換情報は平文）
-      contentMetadata: { ...envelope.contentMetadata, ...opts.contentMetadata },
-      chunks: envelope.chunks,
-      e2ee: true,
-      ...relatedOpt,
-    });
-  };
-
-  const finish = async (sent: unknown, e2ee: boolean): Promise<Message | null> => {
-    invalidateMessageBoxesCache(accountId);
-    chatsCache.delete(accountId);
-    // plain 送信時 text が thrift 戻りに無いことがあるので補完
-    if (sent && typeof sent === "object") {
-      const raw = sent as Record<string, unknown>;
-      if (raw.text == null && text) raw.text = text;
-      if (relatedMessageId && !raw.relatedMessageId) raw.relatedMessageId = relatedMessageId;
-    }
-    const remembered = await rememberSentRaw(accountId, chatMid, myMid, sent);
-    log.info({ accountId, chatMid, e2ee, relatedMessageId }, e2ee ? "message sent" : "message sent (plain)");
-    return remembered;
-  };
-
-  if (skipE2ee) {
-    const sent = await client.base.talk.sendMessage({
-      to: chatMid,
-      text,
-      ...(opts.contentMetadata ? { contentMetadata: opts.contentMetadata } : {}),
-      e2ee: false,
-      ...relatedOpt,
-    });
-    return await finish(sent, false);
-  }
-
-  try {
-    const sent = await tryE2eeSend();
-    return await finish(sent, true);
-  } catch (err) {
-    let errMsg = err instanceof Error ? err.message : String(err);
-    markNoE2eePeer(chatMid, errMsg);
-
-    if (isSenderKeyError(errMsg)) {
-      log.warn(
-        { accountId, chatMid, errMsg },
-        "invalid sender key — rotating E2EE sender key and retrying",
-      );
-      try {
-        const status = await ensureValidE2EEIdentity(client, {
-          forceNewSenderKey: true,
-        });
-        log.info({ accountId, ...status }, "E2EE sender key rotated");
-        const sent = await tryE2eeSend();
-        return await finish(sent, true);
-      } catch (retryErr) {
-        log.warn(
-          {
-            accountId,
-            chatMid,
-            retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
-          },
-          "e2ee send after sender-key rotate failed",
-        );
-        err = retryErr;
-        errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-        markNoE2eePeer(chatMid, errMsg);
-      }
-    }
-
-    if (
-      (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
-      (chatMid.startsWith("c") || chatMid.startsWith("r"))
-    ) {
-      log.warn(
-        { accountId, chatMid, errMsg },
-        "old/missing group key — recreating E2EE group shared key and retrying",
-      );
-      try {
-        await recreateE2EEGroupKey(client, chatMid);
-        groupKeyWarm.delete(chatMid);
-        groupKeyWarmFailed.delete(chatMid);
-        const sent = await tryE2eeSend();
-        return await finish(sent, true);
-      } catch (retryErr) {
-        log.warn(
-          {
-            accountId,
-            chatMid,
-            retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
-          },
-          "e2ee send after group-key recreate failed",
-        );
-        err = retryErr;
-        errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-      }
-    }
-
-    const finalMsg = err instanceof Error ? err.message : String(err);
-    markNoE2eePeer(chatMid, finalMsg);
-    if (!isE2EESendError(finalMsg) && !isSenderKeyError(errMsg)) {
-      throw err;
-    }
-
-    // グループ鍵再作成が必要なのに失敗した場合は plain に落とさない（暗号化ポリシー）
-    if (
-      isGroupKeyRecreateError(finalMsg) ||
-      isGroupKeyRecreateError(errMsg) ||
-      isMissingGroupKeyError(finalMsg) ||
-      isMissingGroupKeyError(errMsg)
-    ) {
-      throw err;
-    }
-
-    log.warn({ accountId, chatMid, errMsg: finalMsg }, "e2ee send failed, retrying without e2ee");
+    const myMid = await resolveMyMid(client, accountId);
+    const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
+    let skipE2ee = noE2eePeers.has(chatMid);
     try {
+      await ensureE2EEIdentityCached(client, accountId);
+    } catch (err) {
+      log.warn({ accountId, err }, "E2EE ensure before send failed");
+    }
+
+    if (isGroupLike && !skipE2ee) {
+      try {
+        // キャッシュを活かす: 既に warm 済みなら API をスキップ
+        await ensureGroupE2EEKey(client, chatMid);
+        // ensureGroupKeyReadyForSend は内部で groupKeyWarm をクリアするため、
+        // warm 失敗時のみ（＝鍵不在時のみ）新規 register する
+        if (groupKeyWarmFailed.has(chatMid)) {
+          groupKeyWarmFailed.delete(chatMid);
+          await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("E2EE_RETRY_PLAIN")) {
+          // サーバーが「このグループは E2EE 無効なので平文で送れ」と指示している。
+          // ensureGroupKeyReadyForSend 内の register で例外になるため、ここで受けて
+          // 平文パスへ落とす（以降このグループは noE2eePeers で E2EE をスキップ）。
+          log.info(
+            { accountId, chatMid, err: msg },
+            "group E2EE disabled by server — sending plain",
+          );
+          skipE2ee = true;
+        } else {
+          throw err;
+        }
+      }
+    }
+
+    const relatedMessageId = opts.relatedMessageId;
+    const relatedOpt = relatedMessageId ? { relatedMessageId } : {};
+
+    const tryE2eeSend = async () => {
+      const envelope = await encryptLetterSealingMessage(client, {
+        to: chatMid,
+        from: myMid,
+        contentType: LETTER_SEALING_CONTENT_TYPE.TEXT,
+        payload: { text },
+      });
+      return client.base.talk.sendMessage({
+        to: chatMid,
+        contentType: "NONE",
+        // REPLACE（絵文字）等のメタデータを E2EE エンベロープと併せて渡す（本文は暗号化済み、置換情報は平文）
+        contentMetadata: { ...envelope.contentMetadata, ...opts.contentMetadata },
+        chunks: envelope.chunks,
+        e2ee: true,
+        ...relatedOpt,
+      });
+    };
+
+    const finish = async (sent: unknown, e2ee: boolean): Promise<Message | null> => {
+      invalidateMessageBoxesCache(accountId);
+      invalidateBoxCursorCache(accountId, chatMid);
+      chatsCache.delete(accountId);
+      // plain 送信時 text が thrift 戻りに無いことがあるので補完
+      if (sent && typeof sent === "object") {
+        const raw = sent as Record<string, unknown>;
+        if (raw.text == null && text) raw.text = text;
+        if (relatedMessageId && !raw.relatedMessageId) raw.relatedMessageId = relatedMessageId;
+      }
+      const remembered = await rememberSentRaw(accountId, chatMid, myMid, sent);
+      log.info(
+        { accountId, chatMid, e2ee, relatedMessageId },
+        e2ee ? "message sent" : "message sent (plain)",
+      );
+      return remembered;
+    };
+
+    if (skipE2ee) {
       const sent = await client.base.talk.sendMessage({
         to: chatMid,
         text,
@@ -3409,11 +3664,101 @@ export async function sendMessage(
         ...relatedOpt,
       });
       return await finish(sent, false);
-    } catch (plainErr) {
-      log.error({ accountId, chatMid, plainErr, errMsg: finalMsg }, "plain send also failed");
-      throw plainErr;
     }
-  }
+
+    try {
+      const sent = await tryE2eeSend();
+      return await finish(sent, true);
+    } catch (err) {
+      let errMsg = err instanceof Error ? err.message : String(err);
+      markNoE2eePeer(chatMid, errMsg);
+
+      if (isSenderKeyError(errMsg)) {
+        log.warn(
+          { accountId, chatMid, errMsg },
+          "invalid sender key — rotating E2EE sender key and retrying",
+        );
+        try {
+          const status = await ensureValidE2EEIdentity(client, {
+            forceNewSenderKey: true,
+          });
+          log.info({ accountId, ...status }, "E2EE sender key rotated");
+          const sent = await tryE2eeSend();
+          return await finish(sent, true);
+        } catch (retryErr) {
+          log.warn(
+            {
+              accountId,
+              chatMid,
+              retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            },
+            "e2ee send after sender-key rotate failed",
+          );
+          err = retryErr;
+          errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          markNoE2eePeer(chatMid, errMsg);
+        }
+      }
+
+      if (
+        (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+        (chatMid.startsWith("c") || chatMid.startsWith("r"))
+      ) {
+        log.warn(
+          { accountId, chatMid, errMsg },
+          "old/missing group key — recreating E2EE group shared key and retrying",
+        );
+        try {
+          await recreateE2EEGroupKey(client, chatMid);
+          groupKeyWarm.delete(chatMid);
+          groupKeyWarmFailed.delete(chatMid);
+          const sent = await tryE2eeSend();
+          return await finish(sent, true);
+        } catch (retryErr) {
+          log.warn(
+            {
+              accountId,
+              chatMid,
+              retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
+            },
+            "e2ee send after group-key recreate failed",
+          );
+          err = retryErr;
+          errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        }
+      }
+
+      const finalMsg = err instanceof Error ? err.message : String(err);
+      markNoE2eePeer(chatMid, finalMsg);
+      if (!isE2EESendError(finalMsg) && !isSenderKeyError(errMsg)) {
+        throw err;
+      }
+
+      // グループ鍵再作成が必要なのに失敗した場合は plain に落とさない（暗号化ポリシー）
+      if (
+        isGroupKeyRecreateError(finalMsg) ||
+        isGroupKeyRecreateError(errMsg) ||
+        isMissingGroupKeyError(finalMsg) ||
+        isMissingGroupKeyError(errMsg)
+      ) {
+        throw err;
+      }
+
+      log.warn({ accountId, chatMid, errMsg: finalMsg }, "e2ee send failed, retrying without e2ee");
+      try {
+        const sent = await client.base.talk.sendMessage({
+          to: chatMid,
+          text,
+          ...(opts.contentMetadata ? { contentMetadata: opts.contentMetadata } : {}),
+          e2ee: false,
+          ...relatedOpt,
+        });
+        return await finish(sent, false);
+      } catch (plainErr) {
+        log.error({ accountId, chatMid, plainErr, errMsg: finalMsg }, "plain send also failed");
+        throw plainErr;
+      }
+    }
   });
 }
 
@@ -3433,140 +3778,150 @@ export async function sendMedia(
     mediaType?: MediaSendType;
   },
 ): Promise<void> {
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "sendMedia blocked: user is blocked");
+      return;
+    }
+  }
   return runSendRpc(
     accountId,
     async () => {
-  const client = requireClient(accountId);
-  await resolveMyMid(client, accountId);
-  // テキスト送信と同じキャッシュ版を使い、送信ごとの E2EE 鍵再取得を避ける
-  try {
-    await ensureE2EEIdentityCached(client, accountId);
-  } catch (err) {
-    log.warn({ accountId, err }, "E2EE ensure before media send failed");
-  }
-
-  // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
-  // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
-  // 新規 register はしない（テキストは plain フォールバックで問題ない）
-  let plainMode = noE2eePeers.has(chatMid);
-  if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
-    try {
-      await ensureGroupE2EEKey(client, chatMid);
-      if (groupKeyWarmFailed.has(chatMid)) {
-        groupKeyWarmFailed.delete(chatMid);
-        await ensureGroupKeyReadyForSend(client, accountId, chatMid);
-      }
-    } catch (err) {
-      log.warn(
-        { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-        "group E2EE key setup failed — sending media as plain",
-      );
-      plainMode = true;
-    }
-  }
-
-  const mime = opts?.mimeType ?? "image/png";
-  const mediaType: MediaSendType =
-    opts?.mediaType ??
-    (mime.startsWith("video/")
-      ? "video"
-      : mime.startsWith("audio/")
-        ? "audio"
-        : mime === "image/gif"
-          ? "gif"
-          : mime.startsWith("image/")
-            ? "image"
-            : "file");
-
-  const binary = Uint8Array.from(atob(dataBase64), (c) => c.charCodeAt(0));
-  const blob = new Blob([binary], { type: mime });
-  const filename =
-    opts?.filename ??
-    (mediaType === "image" || mediaType === "gif"
-      ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
-      : `file.bin`);
-
-  const tryUpload = async () => {
-    await client.base.obs.uploadMediaByE2EE({
-      data: blob,
-      oType: mediaType,
-      to: chatMid,
-      filename,
-    });
-  };
-
-  try {
-    if (plainMode) {
-      // E2EE 鍵を整えられない相手は uploadMediaByE2EE の内部 plain フォールバックを使う
-      // （uploadObjTalk は talk メッセージを作らないため使わない）
-      await tryUpload();
-      log.info({ accountId, chatMid, mediaType, size: binary.byteLength, plain: true }, "media sent");
-      return;
-    }
-    await tryUpload();
-    log.info({ accountId, chatMid, mediaType, size: binary.byteLength }, "media sent");
-    return;
-  } catch (err) {
-    let errMsg = err instanceof Error ? err.message : String(err);
-
-    if (isSenderKeyError(errMsg)) {
-      log.warn(
-        { accountId, chatMid, errMsg },
-        "media send: invalid sender key — rotating and retrying",
-      );
+      const client = requireClient(accountId);
+      await resolveMyMid(client, accountId);
+      // テキスト送信と同じキャッシュ版を使い、送信ごとの E2EE 鍵再取得を避ける
       try {
-        await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
-        await tryUpload();
-        log.info(
-          { accountId, chatMid, mediaType, size: binary.byteLength, rotated: true },
-          "media sent",
-        );
-        return;
-      } catch (retryErr) {
-        err = retryErr;
-        errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+        await ensureE2EEIdentityCached(client, accountId);
+      } catch (err) {
+        log.warn({ accountId, err }, "E2EE ensure before media send failed");
       }
-    }
 
-    if (
-      (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
-      (chatMid.startsWith("c") || chatMid.startsWith("r"))
-    ) {
-      log.warn(
-        { accountId, chatMid, errMsg },
-        "media send: old/missing group key — recreating and retrying",
-      );
+      // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
+      // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
+      // 新規 register はしない（テキストは plain フォールバックで問題ない）
+      let plainMode = noE2eePeers.has(chatMid);
+      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        try {
+          await ensureGroupE2EEKey(client, chatMid);
+          if (groupKeyWarmFailed.has(chatMid)) {
+            groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+          }
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "group E2EE key setup failed — sending media as plain",
+          );
+          plainMode = true;
+        }
+      }
+
+      const mime = opts?.mimeType ?? "image/png";
+      const mediaType: MediaSendType =
+        opts?.mediaType ??
+        (mime.startsWith("video/")
+          ? "video"
+          : mime.startsWith("audio/")
+            ? "audio"
+            : mime === "image/gif"
+              ? "gif"
+              : mime.startsWith("image/")
+                ? "image"
+                : "file");
+
+      const binary = Uint8Array.from(atob(dataBase64), (c) => c.charCodeAt(0));
+      const blob = new Blob([binary], { type: mime });
+      const filename =
+        opts?.filename ??
+        (mediaType === "image" || mediaType === "gif"
+          ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+          : `file.bin`);
+
+      const tryUpload = async () => {
+        await client.base.obs.uploadMediaByE2EE({
+          data: blob,
+          oType: mediaType,
+          to: chatMid,
+          filename,
+        });
+      };
+
       try {
-        await recreateE2EEGroupKey(client, chatMid);
-        groupKeyWarm.delete(chatMid);
-        groupKeyWarmFailed.delete(chatMid);
+        if (plainMode) {
+          // E2EE 鍵を整えられない相手は uploadMediaByE2EE の内部 plain フォールバックを使う
+          // （uploadObjTalk は talk メッセージを作らないため使わない）
+          await tryUpload();
+          log.info(
+            { accountId, chatMid, mediaType, size: binary.byteLength, plain: true },
+            "media sent",
+          );
+          return;
+        }
         await tryUpload();
-        log.info(
-          {
-            accountId,
-            chatMid,
-            mediaType,
-            size: binary.byteLength,
-            groupKeyRecreated: true,
-          },
-          "media sent",
-        );
+        log.info({ accountId, chatMid, mediaType, size: binary.byteLength }, "media sent");
         return;
-      } catch (retryErr) {
-        log.warn(
-          {
-            accountId,
-            chatMid,
-            retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
-          },
-          "media send after group-key recreate failed",
-        );
-        throw retryErr;
-      }
-    }
+      } catch (err) {
+        let errMsg = err instanceof Error ? err.message : String(err);
 
-    throw err;
-  }
+        if (isSenderKeyError(errMsg)) {
+          log.warn(
+            { accountId, chatMid, errMsg },
+            "media send: invalid sender key — rotating and retrying",
+          );
+          try {
+            await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+            await tryUpload();
+            log.info(
+              { accountId, chatMid, mediaType, size: binary.byteLength, rotated: true },
+              "media sent",
+            );
+            return;
+          } catch (retryErr) {
+            err = retryErr;
+            errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+          }
+        }
+
+        if (
+          (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+          (chatMid.startsWith("c") || chatMid.startsWith("r"))
+        ) {
+          log.warn(
+            { accountId, chatMid, errMsg },
+            "media send: old/missing group key — recreating and retrying",
+          );
+          try {
+            await recreateE2EEGroupKey(client, chatMid);
+            groupKeyWarm.delete(chatMid);
+            groupKeyWarmFailed.delete(chatMid);
+            await tryUpload();
+            log.info(
+              {
+                accountId,
+                chatMid,
+                mediaType,
+                size: binary.byteLength,
+                groupKeyRecreated: true,
+              },
+              "media sent",
+            );
+            return;
+          } catch (retryErr) {
+            log.warn(
+              {
+                accountId,
+                chatMid,
+                retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
+              },
+              "media send after group-key recreate failed",
+            );
+            throw retryErr;
+          }
+        }
+
+        throw err;
+      }
     },
     { timeoutMs: MEDIA_SEND_TIMEOUT_MS },
   );
@@ -3578,70 +3933,78 @@ export async function sendSticker(
   chatMid: string,
   opts?: { packageId?: string; stickerId?: string; isPremium?: boolean },
 ): Promise<Message | null> {
-  return runSendRpc(accountId, async () => {
-  const client = requireClient(accountId);
-  const myMid = await resolveMyMid(client, accountId);
-  const packageId = String(opts?.packageId ?? "11537");
-  const stickerId = String(opts?.stickerId ?? "52002734");
-  // Premium sticker: STKVER=100, 所持チェック不要
-  const premium = Boolean(opts?.isPremium);
-  const stkver = premium ? "100" : "1";
-  const contentMetadata: Record<string, string> = {
-    STKPKGID: packageId,
-    STKID: stickerId,
-    STKVER: stkver,
-    STKTXT: "[スタンプ]",
-  };
-  if (premium) {
-    contentMetadata.STKOPT = "A";
-  }
-
-  const sendPlain = async () =>
-    client.base.talk.sendMessage({
-      to: chatMid,
-      contentType: "STICKER",
-      contentMetadata,
-      e2ee: false,
-    });
-
-  let sent: unknown;
-  if (noE2eePeers.has(chatMid)) {
-    sent = await sendPlain();
-  } else {
-    try {
-      await ensureE2EEIdentityCached(client, accountId);
-      const envelope = await encryptLetterSealingMessage(client, {
-        to: chatMid,
-        from: myMid,
-        contentType: 7, // STICKER
-        payload: {},
-      });
-      sent = await client.base.talk.sendMessage({
-        to: chatMid,
-        contentType: "STICKER",
-        contentMetadata: { ...contentMetadata, ...envelope.contentMetadata },
-        chunks: envelope.chunks,
-        e2ee: true,
-      });
-    } catch (err) {
-      const errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, errMsg);
-      log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
-      sent = await sendPlain();
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "sendSticker blocked: user is blocked");
+      return null;
     }
   }
+  return runSendRpc(accountId, async () => {
+    const client = requireClient(accountId);
+    const myMid = await resolveMyMid(client, accountId);
+    const packageId = String(opts?.packageId ?? "11537");
+    const stickerId = String(opts?.stickerId ?? "52002734");
+    // Premium sticker: STKVER=100, 所持チェック不要
+    const premium = Boolean(opts?.isPremium);
+    const stkver = premium ? "100" : "1";
+    const contentMetadata: Record<string, string> = {
+      STKPKGID: packageId,
+      STKID: stickerId,
+      STKVER: stkver,
+      STKTXT: "[スタンプ]",
+    };
+    if (premium) {
+      contentMetadata.STKOPT = "A";
+    }
 
-  invalidateMessageBoxesCache(accountId);
-  // 送信結果に STK メタが無い場合もあるので補完してキャッシュ
-  if (sent && typeof sent === "object") {
-    const raw = sent as Record<string, unknown>;
-    const meta = (raw.contentMetadata ?? {}) as Record<string, string>;
-    raw.contentMetadata = { ...contentMetadata, ...meta };
-    raw.contentType = raw.contentType ?? "STICKER";
-  }
-  const remembered = await rememberSentRaw(accountId, chatMid, myMid, sent);
-  log.info({ accountId, chatMid, packageId, stickerId }, "sticker sent");
-  return remembered;
+    const sendPlain = async () =>
+      client.base.talk.sendMessage({
+        to: chatMid,
+        contentType: "STICKER",
+        contentMetadata,
+        e2ee: false,
+      });
+
+    let sent: unknown;
+    if (noE2eePeers.has(chatMid)) {
+      sent = await sendPlain();
+    } else {
+      try {
+        await ensureE2EEIdentityCached(client, accountId);
+        const envelope = await encryptLetterSealingMessage(client, {
+          to: chatMid,
+          from: myMid,
+          contentType: 7, // STICKER
+          payload: {},
+        });
+        sent = await client.base.talk.sendMessage({
+          to: chatMid,
+          contentType: "STICKER",
+          contentMetadata: { ...contentMetadata, ...envelope.contentMetadata },
+          chunks: envelope.chunks,
+          e2ee: true,
+        });
+      } catch (err) {
+        const errMsg = err instanceof Error ? err.message : String(err);
+        markNoE2eePeer(chatMid, errMsg);
+        log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
+        sent = await sendPlain();
+      }
+    }
+
+    invalidateMessageBoxesCache(accountId);
+    invalidateBoxCursorCache(accountId, chatMid);
+    // 送信結果に STK メタが無い場合もあるので補完してキャッシュ
+    if (sent && typeof sent === "object") {
+      const raw = sent as Record<string, unknown>;
+      const meta = (raw.contentMetadata ?? {}) as Record<string, string>;
+      raw.contentMetadata = { ...contentMetadata, ...meta };
+      raw.contentType = raw.contentType ?? "STICKER";
+    }
+    const remembered = await rememberSentRaw(accountId, chatMid, myMid, sent);
+    log.info({ accountId, chatMid, packageId, stickerId }, "sticker sent");
+    return remembered;
   });
 }
 
@@ -3651,67 +4014,71 @@ export async function sendLineEmoji(
   chatMid: string,
   opts: { packageId: string; sticonId: string },
 ): Promise<void> {
-  return runSendRpc(accountId, async () => {
-  const client = requireClient(accountId);
-  const myMid = await resolveMyMid(client, accountId);
-  const text = "\uFFFC";
-  const replace = JSON.stringify({
-    sticon: {
-      resources: [
-        {
-          S: 0,
-          E: 1,
-          productId: opts.packageId,
-          sticonId: opts.sticonId,
-          version: 1,
-          resourceType: "STATIC",
-        },
-      ],
-    },
-  });
-  const contentMetadata: Record<string, string> = {
-    REPLACE: replace,
-    STICON_OWNERSHIP: JSON.stringify([opts.packageId]),
-  };
-
-  try {
-    await ensureE2EEIdentityCached(client, accountId);
-    const envelope = await encryptLetterSealingMessage(client, {
-      to: chatMid,
-      from: myMid,
-      contentType: LETTER_SEALING_CONTENT_TYPE.TEXT,
-      payload: { text },
-    });
-    await client.base.talk.sendMessage({
-      to: chatMid,
-      contentType: "NONE",
-      text,
-      contentMetadata: { ...contentMetadata, ...envelope.contentMetadata },
-      chunks: envelope.chunks,
-      e2ee: true,
-    });
-  } catch (err) {
-    const errMsg = err instanceof Error ? err.message : String(err);
-    log.warn({ accountId, chatMid, errMsg }, "e2ee emoji send failed, trying plain");
-    await client.base.talk.sendMessage({
-      to: chatMid,
-      text,
-      contentMetadata,
-      e2ee: false,
-    });
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "sendLineEmoji blocked: user is blocked");
+      return;
+    }
   }
-  log.info(
-    { accountId, chatMid, packageId: opts.packageId, sticonId: opts.sticonId },
-    "line emoji sent",
-  );
+  return runSendRpc(accountId, async () => {
+    const client = requireClient(accountId);
+    const myMid = await resolveMyMid(client, accountId);
+    const text = "\uFFFC";
+    const replace = JSON.stringify({
+      sticon: {
+        resources: [
+          {
+            S: 0,
+            E: 1,
+            productId: opts.packageId,
+            sticonId: opts.sticonId,
+            version: 1,
+            resourceType: "STATIC",
+          },
+        ],
+      },
+    });
+    const contentMetadata: Record<string, string> = {
+      REPLACE: replace,
+      STICON_OWNERSHIP: JSON.stringify([opts.packageId]),
+    };
+
+    try {
+      await ensureE2EEIdentityCached(client, accountId);
+      const envelope = await encryptLetterSealingMessage(client, {
+        to: chatMid,
+        from: myMid,
+        contentType: LETTER_SEALING_CONTENT_TYPE.TEXT,
+        payload: { text },
+      });
+      await client.base.talk.sendMessage({
+        to: chatMid,
+        contentType: "NONE",
+        text,
+        contentMetadata: { ...contentMetadata, ...envelope.contentMetadata },
+        chunks: envelope.chunks,
+        e2ee: true,
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      log.warn({ accountId, chatMid, errMsg }, "e2ee emoji send failed, trying plain");
+      await client.base.talk.sendMessage({
+        to: chatMid,
+        text,
+        contentMetadata,
+        e2ee: false,
+      });
+    }
+    log.info(
+      { accountId, chatMid, packageId: opts.packageId, sticonId: opts.sticonId },
+      "line emoji sent",
+    );
   });
 }
 
 /** メッセージ送信取り消し */
-export async function unsendMessage(
-  accountId: string,
-  messageId: string,
-): Promise<void> {
+export async function unsendMessage(accountId: string, messageId: string): Promise<void> {
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
     const client = requireClient(accountId);
@@ -3738,10 +4105,7 @@ export async function updateMyProfile(
   // → 書き込みは行わずログのみ（取得・表示は fetchProfile 側）
   const { musicProfile, birthday, ...attrs } = input;
   if (musicProfile !== undefined) {
-    log.info(
-      { accountId },
-      "musicProfile write skipped (server rejects on this device type)",
-    );
+    log.info({ accountId }, "musicProfile write skipped (server rejects on this device type)");
   }
 
   const attrInput: ProfileUpdateInput = { ...attrs };
@@ -3808,12 +4172,8 @@ export async function updateMyProfile(
         ? formatBirthdayDisplay({
             day: birthday.day,
             ...(birthday.year !== undefined ? { year: birthday.year } : {}),
-            ...(birthday.yearEnabled !== undefined
-              ? { yearEnabled: birthday.yearEnabled }
-              : {}),
-            ...(birthday.dayEnabled !== undefined
-              ? { dayEnabled: birthday.dayEnabled }
-              : {}),
+            ...(birthday.yearEnabled !== undefined ? { yearEnabled: birthday.yearEnabled } : {}),
+            ...(birthday.dayEnabled !== undefined ? { dayEnabled: birthday.dayEnabled } : {}),
           })
         : null,
     };
@@ -3841,13 +4201,32 @@ export async function updateMyProfileBackground(
   accountId: string,
   bytes: Uint8Array,
   mime = "image/jpeg",
-): Promise<{ objId: string; objHash: string }> {
+): Promise<{ objId: string; objHash: string; backgroundUrl: string }> {
   const client = requireClient(accountId);
   const session = wrapSession(client);
   const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
   const uploaded = await session.profile.uploadBackground(blob);
   log.info({ accountId, objId: uploaded.objId }, "my profile background updated");
-  return uploaded;
+  const backgroundUrl = backgroundObjToUrl(uploaded.objId) ?? "";
+  // プロフィールキャッシュにも反映（起動直後に取れるように）
+  const mid = client.base.profile?.mid;
+  if (mid) {
+    const mem = myProfileCache.get(accountId);
+    const profile = mem?.profile;
+    if (profile) {
+      const next = { ...profile, backgroundUrl };
+      myProfileCache.set(accountId, { at: Date.now(), profile: next });
+      void vylinePutProfile(accountId, {
+        mid,
+        displayName: profile.displayName,
+        statusMessage: profile.statusMessage,
+        musicProfile: profile.musicProfile,
+        phoneticName: profile.phoneticName,
+        backgroundUrl,
+      }).catch(() => undefined);
+    }
+  }
+  return { ...uploaded, backgroundUrl };
 }
 
 /** グループ名変更 */
@@ -3876,21 +4255,21 @@ export async function updateChatPicture(
 }
 
 /** 友だち表示名 override（null で解除） */
-export async function renameContact(
-  accountId: string,
-  input: ContactRenameInput,
-): Promise<void> {
+export async function renameContact(accountId: string, input: ContactRenameInput): Promise<void> {
   const client = requireClient(accountId);
   await wrapSession(client).contacts.rename(input);
   log.info({ accountId, mid: input.mid }, "contact renamed");
-  void nezuPutProfile(accountId, {
+  void vylinePutProfile(accountId, {
     mid: input.mid,
     displayName: input.displayNameOverride ?? input.mid,
   });
 }
 
 /** グループ退出 — Desktop: TalkService_deleteSelfFromChat */
-export async function leaveChat(accountId: string, chatMid: string): Promise<{ alreadyLeft?: boolean }> {
+export async function leaveChat(
+  accountId: string,
+  chatMid: string,
+): Promise<{ alreadyLeft?: boolean }> {
   const client = requireClient(accountId);
   try {
     await client.base.talk.deleteSelfFromChat({
@@ -3924,12 +4303,39 @@ export async function leaveChat(accountId: string, chatMid: string): Promise<{ a
 }
 
 /** ブロックリスト — Desktop: TalkService_getBlockedContactIds */
+const blockedCache = new Map<string, { at: number; ids: string[] }>();
+const BLOCKED_CACHE_TTL_MS = Number(process.env["VYLINE_BLOCKED_CACHE_TTL_MS"] ?? 5 * 60_000);
+const BLOCKED_RPC_TIMEOUT_MS = Number(process.env["VYLINE_BLOCKED_RPC_TIMEOUT_MS"] ?? 8_000);
+const blockedInflight = new Map<string, Promise<string[]>>();
+
 export async function fetchBlockedContactIds(accountId: string): Promise<string[]> {
-  const client = requireClient(accountId);
-  const ids = await client.base.talk.getBlockedContactIds({
-    syncReason: "INTERNAL",
-  });
-  return (ids ?? []).map(String);
+  const cached = blockedCache.get(accountId);
+  if (cached && Date.now() - cached.at < BLOCKED_CACHE_TTL_MS) return cached.ids;
+  const inflight = blockedInflight.get(accountId);
+  if (inflight) return inflight;
+  const task = (async () => {
+    try {
+      const client = requireClient(accountId);
+      const ids = await withTimeout(
+        enqueueTalkRpcBackground(accountId, async () =>
+          client.base.talk.getBlockedContactIds({ syncReason: "INTERNAL" }),
+        ),
+        BLOCKED_RPC_TIMEOUT_MS,
+        "fetchBlockedContactIds",
+      );
+      const out = (ids ?? []).map(String);
+      blockedCache.set(accountId, { at: Date.now(), ids: out });
+      return out;
+    } finally {
+      blockedInflight.delete(accountId);
+    }
+  })();
+  blockedInflight.set(accountId, task);
+  return task;
+}
+
+export function invalidateBlockedCache(accountId: string): void {
+  blockedCache.delete(accountId);
 }
 
 /** グループ作成 — Desktop: TalkService_createChat type=GROUP
@@ -3940,9 +4346,12 @@ export async function createGroupChat(
   memberMids: string[],
 ): Promise<{ chatMid: string; name: string }> {
   if (await isCreateGroupBanned(accountId)) {
-    throw Object.assign(new Error("CREATE_GROUP_BANNED: group creation is permanently disabled after ABUSE_BLOCK"), {
-      code: "CREATE_GROUP_BANNED",
-    });
+    throw Object.assign(
+      new Error("CREATE_GROUP_BANNED: group creation is permanently disabled after ABUSE_BLOCK"),
+      {
+        code: "CREATE_GROUP_BANNED",
+      },
+    );
   }
 
   const client = requireClient(accountId);
@@ -4004,6 +4413,7 @@ export async function blockContactMid(accountId: string, mid: string): Promise<v
     reqSeq: await client.base.getReqseq(),
     id: mid,
   });
+  invalidateBlockedCache(accountId);
   log.info({ accountId, mid }, "contact blocked");
 }
 
@@ -4013,6 +4423,7 @@ export async function unblockContactMid(accountId: string, mid: string): Promise
     reqSeq: await client.base.getReqseq(),
     id: mid,
   });
+  invalidateBlockedCache(accountId);
   log.info({ accountId, mid }, "contact unblocked");
 }
 
@@ -4026,16 +4437,111 @@ export async function reactToMessage(
   reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
 ): Promise<void> {
   const client = requireClient(accountId);
-  // react RPC は稀に 8s 超えるため専用タイムアウトで待つ
-  await withTimeout(
-    client.base.talk.react({
-      id: BigInt(messageId),
-      reaction,
-    }),
-    REACT_RPC_TIMEOUT_MS,
-    "talk.react",
+  // react RPC は稀に 8s 超えるため send キュー + 専用タイムアウトで待つ
+  await runSendRpc(
+    accountId,
+    () =>
+      withTimeout(
+        client.base.talk.react({
+          id: BigInt(messageId),
+          reaction,
+        }),
+        REACT_RPC_TIMEOUT_MS,
+        "talk.react",
+      ),
+    { timeoutMs: REACT_RPC_TIMEOUT_MS + 5_000 },
   );
   log.info({ accountId, messageId, reaction }, "reacted");
+}
+
+/** チャットルームのアナウンス一覧 — Desktop: TalkService_getChatRoomAnnouncements */
+export async function getChatAnnouncements(
+  accountId: string,
+  chatMid: string,
+): Promise<
+  Array<{
+    announcementSeq: string;
+    type: string;
+    text: string;
+    link: string;
+    creatorMid: string;
+    createdTime: number;
+  }>
+> {
+  const client = requireClient(accountId);
+  const res = await withTimeout(
+    client.base.talk.getChatRoomAnnouncements({ chatRoomMid: chatMid }),
+    12_000,
+    "getChatRoomAnnouncements",
+  );
+  const list = (res ?? []) as unknown as Array<{
+    announcementSeq: number | bigint;
+    type?: number | string;
+    contents?: { text?: string; link?: string };
+    creatorMid?: string;
+    createdTime?: number | bigint;
+  }>;
+  return list.map((a) => ({
+    announcementSeq: String(a.announcementSeq),
+    type: a.type === 0 || a.type === "MESSAGE" ? "MESSAGE" : String(a.type ?? "MESSAGE"),
+    text: a.contents?.text ?? "",
+    link: a.contents?.link ?? "",
+    creatorMid: a.creatorMid ?? "",
+    createdTime: a.createdTime ? Number(a.createdTime) : 0,
+  }));
+}
+
+/** メッセージをアナウンスとしてピン留め — Desktop: TalkService_createChatRoomAnnouncement */
+export async function announceMessage(
+  accountId: string,
+  chatMid: string,
+  text: string,
+  messageId?: string,
+): Promise<{ announcementSeq: string }> {
+  const client = requireClient(accountId);
+  const link = messageId
+    ? `line://nv/chatMsg?chatId=${chatMid}&messageId=${messageId}`
+    : `line://nv/chat/${chatMid}`;
+  const res = await runSendRpc(
+    accountId,
+    async () =>
+      withTimeout(
+        client.base.talk.createChatRoomAnnouncement({
+          reqSeq: await client.base.getReqseq(),
+          chatRoomMid: chatMid,
+          type: "MESSAGE",
+          contents: { text, link },
+        }),
+        30_000,
+        "createChatRoomAnnouncement",
+      ),
+    { timeoutMs: 35_000 },
+  );
+  return { announcementSeq: String((res as { announcementSeq: number | bigint }).announcementSeq) };
+}
+
+/** アナウンスの解除（ピン解除）— Desktop: TalkService_removeChatRoomAnnouncement */
+export async function removeChatAnnouncement(
+  accountId: string,
+  chatMid: string,
+  announcementSeq: string | number,
+): Promise<void> {
+  const client = requireClient(accountId);
+  await runSendRpc(
+    accountId,
+    async () =>
+      withTimeout(
+        client.base.talk.removeChatRoomAnnouncement({
+          reqSeq: await client.base.getReqseq(),
+          chatRoomMid: chatMid,
+          announcementSeq: BigInt(announcementSeq),
+        }),
+        15_000,
+        "removeChatRoomAnnouncement",
+      ),
+    { timeoutMs: 20_000 },
+  );
+  log.info({ accountId, chatMid, announcementSeq }, "chat announcement removed");
 }
 
 /** 初回インデックス: 上位チャットの履歴を chatdb に先読み */
@@ -4057,7 +4563,10 @@ export async function runAccountIndex(
     }
   }
   // プロフィールも温める
-  const mids = targets.map((c) => c.mid).filter((m) => m.startsWith("u")).slice(0, 80);
+  const mids = targets
+    .map((c) => c.mid)
+    .filter((m) => m.startsWith("u"))
+    .slice(0, 80);
   if (mids.length) await fetchContactsBatch(accountId, mids);
   log.info({ accountId, chats: targets.length, messages: msgCount }, "account index done");
   return { chats: targets.length, messages: msgCount };
@@ -4100,14 +4609,14 @@ export async function startDirectCall(
   }
   const client = requireClient(accountId);
   const { startManagedCall } = await import("../call/callManager.js");
-  const { getNezuProfile } = await import("../nezu/profileBridge.js");
+  const { getVylineProfile } = await import("../vyline/profileBridge.js");
   try {
     return await startManagedCall({
       accountId,
       client,
       to,
       kind: callType,
-      desktopProfile: getNezuProfile(),
+      desktopProfile: getVylineProfile(),
     });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -4170,6 +4679,77 @@ export async function acquireGroupCallRoute(
   return route as unknown as CallRoute;
 }
 
+export type GroupCallStatus = {
+  online: boolean;
+  chatMid: string;
+  hostMid?: string;
+  memberMids: string[];
+  mediaType?: string;
+  started?: number;
+};
+
+const groupCallStatusCache = new Map<string, { at: number; status: GroupCallStatus }>();
+const GROUP_CALL_STATUS_CACHE_MS = 20_000;
+const GROUP_CALL_RPC_TIMEOUT_MS = 10_000;
+
+/**
+ * グループ通話状態（CallService.getGroupCall）。
+ * 失敗・タイムアウト・未通話は online=false を返す（通話中バッジ表示用）。
+ */
+export async function getGroupCallStatus(
+  accountId: string,
+  chatMid: string,
+): Promise<GroupCallStatus> {
+  const key = `${accountId}:${chatMid}`;
+  const cached = groupCallStatusCache.get(key);
+  if (cached && Date.now() - cached.at < GROUP_CALL_STATUS_CACHE_MS) {
+    return cached.status;
+  }
+  const client = requireClient(accountId);
+  const fallback: GroupCallStatus = {
+    online: false,
+    chatMid,
+    memberMids: [],
+  };
+  try {
+    const res = await withTimeout(
+      client.call.getGroupCall(chatMid),
+      GROUP_CALL_RPC_TIMEOUT_MS,
+      "getGroupCall",
+    );
+    const gc = (res ?? {}) as {
+      online?: boolean;
+      chatMid?: string;
+      hostMid?: string;
+      memberMids?: unknown;
+      mediaType?: unknown;
+      started?: unknown;
+    };
+    const status: GroupCallStatus = {
+      online: Boolean(gc.online),
+      chatMid: String(gc.chatMid ?? chatMid),
+      memberMids: Array.isArray(gc.memberMids) ? gc.memberMids.map(String) : [],
+    };
+    if (gc.hostMid) status.hostMid = String(gc.hostMid);
+    if (gc.mediaType != null) status.mediaType = String(gc.mediaType);
+    const started = gc.started != null ? Number(gc.started) : NaN;
+    if (Number.isFinite(started)) status.started = started;
+    groupCallStatusCache.set(key, { at: Date.now(), status });
+    return status;
+  } catch (err) {
+    log.debug({ accountId, chatMid, err }, "getGroupCall failed — offline");
+    groupCallStatusCache.set(key, { at: Date.now(), status: fallback });
+    return fallback;
+  }
+}
+
+/** セッションログアウト時などに通話状態キャッシュを破棄 */
+export function clearGroupCallStatus(accountId: string): void {
+  for (const key of groupCallStatusCache.keys()) {
+    if (key.startsWith(`${accountId}:`)) groupCallStatusCache.delete(key);
+  }
+}
+
 const MEDIA_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "1", "2", "3", "14"]);
 /** media 復号/OBS が失敗した messageId（セッション内での再試行抑止） */
 const mediaFailedIds = new Set<string>();
@@ -4192,7 +4772,7 @@ async function downloadObsMessageBytes(
     request?: { systemType?: string };
   };
   if (!base.authToken) throw new Error("not authenticated");
-  return await nezuDownloadObs(
+  return await vylineDownloadObs(
     {
       authToken: base.authToken,
       systemType: base.request?.systemType ?? "",
@@ -4224,9 +4804,7 @@ async function findMediaSourceMessage(
 
   let endMessageId: unknown = {
     messageId: endId,
-    deliveredTime: BigInt(
-      String(box?.lastDeliveredMessageId?.deliveredTime ?? Date.now()),
-    ),
+    deliveredTime: BigInt(String(box?.lastDeliveredMessageId?.deliveredTime ?? Date.now())),
   };
 
   for (let page = 0; page < 5; page++) {
@@ -4319,9 +4897,7 @@ export async function fetchMessageMedia(
           return await withTimeout(
             (async () => {
               const file = await client.base.obs.downloadMediaByE2EE(
-                hit as unknown as Parameters<
-                  typeof client.base.obs.downloadMediaByE2EE
-                >[0],
+                hit as unknown as Parameters<typeof client.base.obs.downloadMediaByE2EE>[0],
               );
               if (!file) throw new Error("no media");
               const ab = await file.arrayBuffer();
@@ -4357,161 +4933,157 @@ export async function fetchMessageMedia(
   }
 
   return runTalkFetchUrgent(accountId, async () => {
-  await ensureE2EEIdentityCached(client, accountId).catch(() => undefined);
+    await ensureE2EEIdentityCached(client, accountId).catch(() => undefined);
 
-  const boxes = await fetchMessageBoxesCached(accountId, client);
-  const box = boxes.find((b: { id: string }) => b.id === chatMid);
+    const boxes = await fetchMessageBoxesCached(accountId, client);
+    const box = boxes.find((b: { id: string }) => b.id === chatMid);
 
-  let endId: bigint;
-  try {
-    endId = BigInt(messageId) + 1n;
-  } catch {
-    endId = BigInt(Date.now()) * 1000n;
-  }
-  // biome-ignore lint/suspicious/noExplicitAny: protocol message box
-  const boxOrSynthetic: any = box ?? {
-    id: chatMid,
-    lastDeliveredMessageId: {
-      messageId: endId,
-      deliveredTime: BigInt(Date.now()),
-    },
-  };
-
-  let found: Awaited<ReturnType<typeof findMediaSourceMessage>> = null;
-  try {
-    found = await findMediaSourceMessage(client, chatMid, messageId, boxOrSynthetic);
-  } catch (err) {
-    log.debug(
-      {
-        chatMid,
-        messageId,
-        err: err instanceof Error ? err.message : String(err),
-        hadBox: Boolean(box),
-      },
-      "findMediaSourceMessage failed, trying OBS",
-    );
-  }
-
-  if (!found) {
-    log.debug(
-      { messageId, chatMid, hadBox: Boolean(box) },
-      "media message not in history, trying OBS by id",
-    );
-    let fallbackCt = "IMAGE";
+    let endId: bigint;
     try {
-      const cached = await getMessages(accountId, chatMid, 200);
-      const hit = cached.find((m) => m.id === messageId);
-      if (hit?.contentType) fallbackCt = hit.contentType;
+      endId = BigInt(messageId) + 1n;
     } catch {
-      /* ignore */
+      endId = BigInt(Date.now()) * 1000n;
     }
+    // biome-ignore lint/suspicious/noExplicitAny: protocol message box
+    const boxOrSynthetic: any = box ?? {
+      id: chatMid,
+      lastDeliveredMessageId: {
+        messageId: endId,
+        deliveredTime: BigInt(Date.now()),
+      },
+    };
+
+    let found: Awaited<ReturnType<typeof findMediaSourceMessage>> = null;
     try {
+      found = await findMediaSourceMessage(client, chatMid, messageId, boxOrSynthetic);
+    } catch (err) {
+      log.debug(
+        {
+          chatMid,
+          messageId,
+          err: err instanceof Error ? err.message : String(err),
+          hadBox: Boolean(box),
+        },
+        "findMediaSourceMessage failed, trying OBS",
+      );
+    }
+
+    if (!found) {
+      log.debug(
+        { messageId, chatMid, hadBox: Boolean(box) },
+        "media message not in history, trying OBS by id",
+      );
+      let fallbackCt = "IMAGE";
+      try {
+        const cached = await getMessages(accountId, chatMid, 200);
+        const hit = cached.find((m) => m.id === messageId);
+        if (hit?.contentType) fallbackCt = hit.contentType;
+      } catch {
+        /* ignore */
+      }
+      try {
+        return await withTimeout(
+          downloadObsMessageBytes(client, messageId, preview, fallbackCt),
+          MEDIA_OBS_TIMEOUT_MS,
+          "obsDownload",
+        );
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        // 404 は期限切れ/削除 — 500 連打しない
+        if (msg.includes("404")) {
+          mediaFailedIds.add(`${accountId}:${messageId}`);
+          throw new Error(`media expired or unavailable (OBS 404): ${messageId}`);
+        }
+        throw new Error(`message not found in history and OBS fallback failed: ${msg}`);
+      }
+    }
+
+    // RICH 等: OBS ではなく DOWNLOAD_URL を直接取得（OBS を叩くとハングする）
+    const foundMeta = (found.contentMetadata ?? {}) as Record<string, unknown>;
+    const foundDl = typeof foundMeta.DOWNLOAD_URL === "string" ? foundMeta.DOWNLOAD_URL : undefined;
+    if (foundDl) {
+      try {
+        return await downloadUrlBytes(foundDl);
+      } catch (err) {
+        log.debug(
+          { messageId, err: err instanceof Error ? err.message : String(err) },
+          "media download_url (RPC path) failed, falling back",
+        );
+      }
+    }
+
+    const ct = String(found.contentType ?? "");
+    if (!MEDIA_TYPES.has(ct)) throw new Error(`not a media message: ${ct}`);
+
+    if (found.chunks?.length) {
+      try {
+        found = await decryptE2EEMessageSafe(client, accountId, chatMid, found);
+      } catch (err) {
+        log.debug(
+          { messageId, chatMid, err: err instanceof Error ? err.message : String(err) },
+          "media message decrypt before OBS failed",
+        );
+      }
+    }
+
+    const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
+    const gk = isGroupLike ? groupKeyIdFromMessage(found) : null;
+    let groupKeyMissing = false;
+    if (gk != null) {
+      try {
+        await ensureGroupKeyById(client, chatMid, gk);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        if (msg.includes("NOT_FOUND") || msg.includes("no valid group key")) {
+          groupKeyMissing = true;
+          log.debug({ chatMid, gk, err: msg }, "group key not found, will skip E2EE");
+        }
+      }
+    }
+
+    let e2eeFailed = false;
+
+    const tryDownload = async (): Promise<{ bytes: Uint8Array; contentType: string }> => {
+      // グループ鍵が無い場合はE2EE復号をスキップしてOBSに直行
+      if (found.chunks && !groupKeyMissing) {
+        try {
+          const file = await client.base.obs.downloadMediaByE2EE(found);
+          if (file) {
+            const ab = await file.arrayBuffer();
+            return {
+              bytes: new Uint8Array(ab),
+              contentType: file.type || guessMediaMime(ct),
+            };
+          }
+        } catch (err) {
+          e2eeFailed = true;
+          log.debug({ err, messageId }, "downloadMediaByE2EE failed, trying plain OBS");
+        }
+      }
+
       return await withTimeout(
-        downloadObsMessageBytes(client, messageId, preview, fallbackCt),
+        downloadObsMessageBytes(client, String(found.id), preview, ct),
         MEDIA_OBS_TIMEOUT_MS,
         "obsDownload",
       );
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      // 404 は期限切れ/削除 — 500 連打しない
-      if (msg.includes("404")) {
-        mediaFailedIds.add(`${accountId}:${messageId}`);
-        throw new Error(`media expired or unavailable (OBS 404): ${messageId}`);
-      }
-      throw new Error(
-        `message not found in history and OBS fallback failed: ${msg}`,
-      );
-    }
-  }
+    };
 
-  // RICH 等: OBS ではなく DOWNLOAD_URL を直接取得（OBS を叩くとハングする）
-  const foundMeta = (found.contentMetadata ?? {}) as Record<string, unknown>;
-  const foundDl = typeof foundMeta.DOWNLOAD_URL === "string" ? foundMeta.DOWNLOAD_URL : undefined;
-  if (foundDl) {
     try {
-      return await downloadUrlBytes(foundDl);
-    } catch (err) {
-      log.debug(
-        { messageId, err: err instanceof Error ? err.message : String(err) },
-        "media download_url (RPC path) failed, falling back",
-      );
-    }
-  }
-
-  const ct = String(found.contentType ?? "");
-  if (!MEDIA_TYPES.has(ct)) throw new Error(`not a media message: ${ct}`);
-
-  if (found.chunks?.length) {
-    try {
-      found = await decryptE2EEMessageSafe(client, accountId, chatMid, found);
-    } catch (err) {
-      log.debug(
-        { messageId, chatMid, err: err instanceof Error ? err.message : String(err) },
-        "media message decrypt before OBS failed",
-      );
-    }
-  }
-
-  const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
-  const gk = isGroupLike ? groupKeyIdFromMessage(found) : null;
-  let groupKeyMissing = false;
-  if (gk != null) {
-    try {
-      await ensureGroupKeyById(client, chatMid, gk);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (msg.includes("NOT_FOUND") || msg.includes("no valid group key")) {
-        groupKeyMissing = true;
-        log.debug({ chatMid, gk, err: msg }, "group key not found, will skip E2EE");
-      }
-    }
-  }
-
-  let e2eeFailed = false;
-
-  const tryDownload = async (): Promise<{ bytes: Uint8Array; contentType: string }> => {
-    // グループ鍵が無い場合はE2EE復号をスキップしてOBSに直行
-    if (found.chunks && !groupKeyMissing) {
-      try {
-        const file = await client.base.obs.downloadMediaByE2EE(found);
-        if (file) {
-          const ab = await file.arrayBuffer();
-          return {
-            bytes: new Uint8Array(ab),
-            contentType: file.type || guessMediaMime(ct),
-          };
-        }
-      } catch (err) {
-        e2eeFailed = true;
-        log.debug({ err, messageId }, "downloadMediaByE2EE failed, trying plain OBS");
-      }
-    }
-
-    return await withTimeout(
-      downloadObsMessageBytes(client, String(found.id), preview, ct),
-      MEDIA_OBS_TIMEOUT_MS,
-      "obsDownload",
-    );
-  };
-
-  try {
-    return await tryDownload();
-  } catch (err) {
-    // E2EE に失敗していてグループ鍵がある場合のみ鍵クリアしてリトライ
-    // プレーン OBS 失敗のみの場合はリトライ不要（サーバ側の問題）
-    if (gk != null && e2eeFailed) {
-      await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`).catch(() => undefined);
-      await client.base.storage
-        .delete(`e2eeGroupKeys:${chatMid}:${gk}`)
-        .catch(() => undefined);
-      groupKeyWarm.delete(chatMid);
-      groupKeyWarmFailed.delete(chatMid);
-      await ensureGroupKeyById(client, chatMid, gk);
       return await tryDownload();
+    } catch (err) {
+      // E2EE に失敗していてグループ鍵がある場合のみ鍵クリアしてリトライ
+      // プレーン OBS 失敗のみの場合はリトライ不要（サーバ側の問題）
+      if (gk != null && e2eeFailed) {
+        await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`).catch(() => undefined);
+        await client.base.storage.delete(`e2eeGroupKeys:${chatMid}:${gk}`).catch(() => undefined);
+        groupKeyWarm.delete(chatMid);
+        groupKeyWarmFailed.delete(chatMid);
+        await ensureGroupKeyById(client, chatMid, gk);
+        return await tryDownload();
+      }
+      mediaFailedIds.add(`${accountId}:${messageId}`);
+      throw err;
     }
-    mediaFailedIds.add(`${accountId}:${messageId}`);
-    throw err;
-  }
   });
 }
 
@@ -4711,10 +5283,7 @@ async function listOwnedPackageIds(
       offset += PAGE;
       if (offset >= 1000) break; // safety cap
     }
-    log.debug(
-      { shopId, count: ids.length },
-      "getOwnedProductSummaries result",
-    );
+    log.debug({ shopId, count: ids.length }, "getOwnedProductSummaries result");
   } catch (err) {
     log.debug(
       { shopId, err: err instanceof Error ? err.message : String(err) },
@@ -4809,21 +5378,18 @@ export async function fetchStickersCatalog(
     ...DEFAULT_STICKER_PACKS,
     ...(await listOwnedPackageIds(client, "stickershop")),
   ];
-  const emojiIds = [
-    ...DEFAULT_EMOJI_PACKS,
-    ...(await listOwnedPackageIds(client, "sticonshop")),
-  ];
+  const emojiIds = [...DEFAULT_EMOJI_PACKS, ...(await listOwnedPackageIds(client, "sticonshop"))];
 
   const uniqueStickers = [...new Set(stickerIds)].slice(0, 40);
   const uniqueEmojis = [...new Set(emojiIds)].slice(0, 40);
 
-  const stickerPacks = (
-    await Promise.all(uniqueStickers.map((id) => loadStickerPack(id)))
-  ).filter((p): p is CatalogPack => Boolean(p));
+  const stickerPacks = (await Promise.all(uniqueStickers.map((id) => loadStickerPack(id)))).filter(
+    (p): p is CatalogPack => Boolean(p),
+  );
 
-  const emojiPacks = (
-    await Promise.all(uniqueEmojis.map((id) => loadEmojiPack(id)))
-  ).filter((p): p is CatalogPack => Boolean(p));
+  const emojiPacks = (await Promise.all(uniqueEmojis.map((id) => loadEmojiPack(id)))).filter(
+    (p): p is CatalogPack => Boolean(p),
+  );
 
   const result: StickersCatalog = { premium, stickerPacks, emojiPacks };
   catalogCache.set(accountId, { data: result, at: Date.now() });

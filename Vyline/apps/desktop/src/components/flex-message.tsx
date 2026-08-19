@@ -1,4 +1,5 @@
-import type { CSSProperties, ReactNode, RefObject } from "react";
+import { Fragment } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef } from "react";
 import { cn } from "@/lib/utils";
 import type {
@@ -8,31 +9,75 @@ import type {
   FlexComponent,
   FlexContainer,
 } from "@/lib/flex/types";
-import {
-  BUBBLE_WIDTH,
-  fontSizeCss,
-  iconSizeCss,
-  imageSizeCss,
-  openFlexAction,
-  parseAspectRatio,
-  spacingCss,
-} from "@/lib/flex/tokens";
+import { fontSizeCss, openFlexAction, parseAspectRatio, spacingCss } from "@/lib/flex/tokens";
+import "@/lib/flex/flex-main.css";
 
-function padStyle(c: FlexComponent): CSSProperties {
-  const s: CSSProperties = {};
-  const all = spacingCss(c.paddingAll as string | undefined);
-  if (all) {
-    s.padding = all;
-  }
-  const top = spacingCss(c.paddingTop as string | undefined);
-  const bottom = spacingCss(c.paddingBottom as string | undefined);
-  const start = spacingCss(c.paddingStart as string | undefined);
-  const end = spacingCss(c.paddingEnd as string | undefined);
-  if (top) s.paddingTop = top;
-  if (bottom) s.paddingBottom = bottom;
-  if (start) s.paddingLeft = start;
-  if (end) s.paddingRight = end;
-  return s;
+/** LINE Flex Simulator 公式描画の完全移植。
+ *  HTML 構造・クラスは公式 renderer (static.line-scdn.net/line_flexible_msg/.../sp/main.css) 準拠。 */
+
+const LY: Record<string, string> = {
+  nano: "LyNa",
+  micro: "LyMi",
+  kilo: "LyKi",
+  hecto: "LyHe",
+  deca: "LyDe",
+  mega: "LyMe",
+  giga: "LyGi",
+};
+
+const EX_SIZE: Record<string, string> = {
+  xxs: "ExXXs",
+  xs: "ExXs",
+  sm: "ExSm",
+  md: "ExMd",
+  lg: "ExLg",
+  xl: "ExXl",
+  xxl: "ExXXl",
+  "3xl": "Ex3Xl",
+  "4xl": "Ex4Xl",
+  "5xl": "Ex5Xl",
+  full: "ExFull",
+};
+
+const SPC: Record<string, string> = {
+  xs: "spcXs",
+  sm: "spcSm",
+  md: "spcMd",
+  lg: "spcLg",
+  xl: "spcXl",
+  xxl: "spcXXl",
+};
+
+const JFC: Record<string, string> = {
+  center: "itms-jfcC",
+  "flex-end": "itms-jfcE",
+  end: "itms-jfcE",
+  "space-between": "itms-jfcSB",
+  "space-around": "itms-jfcSA",
+  "space-evenly": "itms-jfcSE",
+};
+
+const ALG: Record<string, string> = {
+  center: "itms-algC",
+  "flex-end": "itms-algE",
+  end: "itms-algE",
+  "flex-start": "itms-algS",
+  start: "itms-algS",
+  baseline: "itms-algBL",
+  stretch: "itms-algSR",
+};
+
+/** flex 値 → クラス（0-3 は公式 fl0..fl3 を使う）。それ以外は inline flex（比率指定 flex:22 等） */
+function flexCls(n: unknown): string | undefined {
+  if (typeof n !== "number") return undefined;
+  if (Number.isInteger(n) && n >= 0 && n <= 3) return `fl${n}`;
+  return undefined;
+}
+
+function flexStyle(n: unknown): CSSProperties | undefined {
+  if (typeof n !== "number") return undefined;
+  if (Number.isInteger(n) && n >= 0 && n <= 3) return undefined;
+  return { flexGrow: n, flexShrink: 0, flexBasis: 0 };
 }
 
 function offsetStyle(c: FlexComponent): CSSProperties {
@@ -54,101 +99,111 @@ function marginStyle(c: FlexComponent): CSSProperties {
   return m ? { marginTop: m } : {};
 }
 
-function ActionWrap({
-  action,
-  className,
-  style,
-  children,
-}: {
-  action?: FlexAction;
-  className?: string;
+/** action（uri/clipboard）をクリック可能にする props */
+function clickProps(action?: FlexAction): {
+  onClick?: (e: React.MouseEvent<HTMLElement>) => void;
   style?: CSSProperties;
-  children: ReactNode;
-}) {
-  if (!action) {
-    return (
-      <div className={className} style={style}>
-        {children}
-      </div>
-    );
+} {
+  if (!action) return {};
+  const clickable = action.type === "uri" || action.type === "clipboard" || Boolean(action.uri);
+  if (!clickable) return {};
+  return {
+    onClick: (e) => {
+      e.stopPropagation();
+      openFlexAction(action);
+    },
+    style: { cursor: "pointer" },
+  };
+}
+
+function boxStyle(c: FlexComponent): CSSProperties {
+  const s: CSSProperties = {};
+  if (c.paddingAll != null) s.padding = spacingCss(c.paddingAll as string);
+  if (c.paddingTop != null) s.paddingTop = spacingCss(c.paddingTop as string);
+  if (c.paddingBottom != null) s.paddingBottom = spacingCss(c.paddingBottom as string);
+  if (c.paddingStart != null) s.paddingLeft = spacingCss(c.paddingStart as string);
+  if (c.paddingEnd != null) s.paddingRight = spacingCss(c.paddingEnd as string);
+  if (c.width != null) s.width = c.width === "full" ? "100%" : spacingCss(c.width as string);
+  if (c.height != null) s.height = c.height === "full" ? "100%" : spacingCss(c.height as string);
+  if (c.maxWidth != null) s.maxWidth = spacingCss(c.maxWidth as string);
+  if (c.maxHeight != null) s.maxHeight = spacingCss(c.maxHeight as string);
+  if (c.backgroundColor) s.backgroundColor = c.backgroundColor as string;
+  if (c.borderWidth) {
+    s.borderWidth = spacingCss(c.borderWidth as string);
+    s.borderStyle = "solid";
+    s.borderColor = (c.borderColor as string) || "#000000";
   }
-  const clickable =
-    action.type === "uri" ||
-    action.type === "clipboard" ||
-    Boolean(action.uri);
-  if (!clickable) {
-    return (
-      <div className={className} style={style}>
-        {children}
-      </div>
-    );
-  }
+  if (c.cornerRadius) s.borderRadius = spacingCss(c.cornerRadius as string);
+  return { ...s, ...offsetStyle(c) };
+}
+
+function FlexBoxNode({ c }: { c: FlexComponent }) {
+  const horizontal = c.layout === "horizontal" || c.layout === "baseline";
+  const cp = clickProps(c.action);
+  const cls = cn(
+    "MdBx",
+    horizontal ? "hr" : "vr",
+    horizontal && c.layout === "baseline" ? "bl" : undefined,
+    JFC[c.justifyContent as string],
+    ALG[c.alignItems as string],
+    c.flex != null ? flexCls(c.flex) : c.width != null || c.height != null ? "fl0" : undefined,
+    c.position === "absolute" ? "ExAbs" : undefined,
+    c.spacing ? SPC[c.spacing as string] : undefined,
+  );
   return (
-    <button
-      type="button"
-      className={cn(className, "cursor-pointer text-left")}
-      style={{ ...style, background: "transparent", border: "none", padding: 0 }}
-      onClick={(e) => {
-        e.stopPropagation();
-        openFlexAction(action);
-      }}
+    <div
+      className={cls}
+      style={{ ...boxStyle(c), ...flexStyle(c.flex), ...cp.style }}
+      onClick={cp.onClick}
     >
-      {children}
-    </button>
+      {(Array.isArray(c.contents) ? c.contents : []).map((ch, i) => (
+        <FlexNode key={i} c={ch} />
+      ))}
+    </div>
   );
 }
 
-function FlexText({ c }: { c: FlexComponent }) {
+function FlexTextNode({ c }: { c: FlexComponent }) {
   const spans = Array.isArray(c.contents) ? c.contents.filter((x) => x.type === "span") : [];
-  const style: CSSProperties = {
-    color: (c.color as string) || "#111111",
-    fontSize: fontSizeCss(c.size as string | undefined) || "16px",
-    fontWeight: c.weight === "bold" ? 700 : 400,
-    textAlign: c.align === "center" ? "center" : c.align === "end" ? "right" : "left",
-    whiteSpace: c.wrap ? "pre-wrap" : "nowrap",
-    // wrap 時は折り返しで縦に伸ばす（クリップしない）。nowrap のときだけ 1 行 ellipsis
-    ...(c.wrap
-      ? {}
-      : { overflow: "hidden", textOverflow: "ellipsis" }),
-    lineHeight: 1.35,
-    ...(c.lineSpacing && c.wrap
-      ? { lineHeight: `calc(1.35em + ${spacingCss(c.lineSpacing as string) ?? "0px"})` }
-      : {}),
-    textDecoration:
-      c.decoration === "underline"
-        ? "underline"
-        : c.decoration === "line-through"
-          ? "line-through"
-          : undefined,
-    flex: c.flex != null ? c.flex : undefined,
-    maxWidth: "100%",
-    ...marginStyle(c),
-    ...offsetStyle(c),
-  };
-  if (c.maxLines != null && Number(c.maxLines) > 0) {
-    style.display = "-webkit-box";
-    style.WebkitLineClamp = Number(c.maxLines);
-    style.WebkitBoxOrient = "vertical";
-    style.whiteSpace = "normal";
-    style.overflow = "hidden";
-  }
-
+  const cp = clickProps(c.action);
+  const cls = cn(
+    "MdTxt",
+    c.wrap ? "ExWrap" : undefined,
+    c.align === "center" ? "ExAlgC" : c.align === "end" ? "ExAlgE" : undefined,
+    c.weight === "bold" ? "ExWB" : c.weight === "regular" ? "ExWR" : undefined,
+    c.decoration === "underline"
+      ? "ExTxtDecUl"
+      : c.decoration === "line-through"
+        ? "ExTxtDecLt"
+        : undefined,
+    c.flex != null ? flexCls(c.flex) : c.width != null || c.height != null ? "fl0" : undefined,
+  );
+  const maxLines = c.maxLines != null && Number(c.maxLines) > 0 ? Number(c.maxLines) : undefined;
+  const pStyle: CSSProperties = maxLines
+    ? {
+        display: "-webkit-box",
+        WebkitLineClamp: maxLines,
+        WebkitBoxOrient: "vertical",
+        whiteSpace: "normal",
+        overflow: "hidden",
+      }
+    : {};
   const body =
     spans.length > 0 ? (
       spans.map((sp, i) => (
         <span
           key={i}
+          className="MdSpn"
           style={{
-            color: (sp.color as string) || undefined,
-            fontSize: fontSizeCss(sp.size as string | undefined),
-            fontWeight: sp.weight === "bold" ? 700 : undefined,
+            color: sp.color as string | undefined,
+            fontSize: sp.size ? fontSizeCss(sp.size as string) : undefined,
+            fontWeight: sp.weight === "bold" ? "bold" : undefined,
             textDecoration:
               sp.decoration === "underline"
                 ? "underline"
                 : sp.decoration === "line-through"
                   ? "line-through"
                   : undefined,
-            whiteSpace: "pre-wrap",
           }}
         >
           {sp.text ?? ""}
@@ -157,120 +212,110 @@ function FlexText({ c }: { c: FlexComponent }) {
     ) : (
       <>{c.text ?? ""}</>
     );
-
-  return (
-    <ActionWrap action={c.action} style={style}>
-      <p style={{ margin: 0, ...style }}>{body}</p>
-    </ActionWrap>
-  );
-}
-
-function FlexImage({ c }: { c: FlexComponent }) {
-  const ratio = parseAspectRatio(c.aspectRatio as string | undefined);
-  const size = (c.size as string) || "md";
-  const width = size === "full" ? "100%" : imageSizeCss(size);
-  const cover = c.aspectMode !== "fit";
-  const style: CSSProperties = {
-    width,
-    maxWidth: "100%",
-    aspectRatio: String(ratio),
-    objectFit: cover ? "cover" : "contain",
-    display: "block",
-    borderRadius: spacingCss(c.cornerRadius as string | undefined),
-    backgroundColor: (c.backgroundColor as string) || undefined,
-    flex: c.flex != null ? c.flex : size === "full" ? undefined : 0,
-    alignSelf:
-      c.align === "center" ? "center" : c.align === "end" ? "flex-end" : "flex-start",
-    ...marginStyle(c),
-    ...offsetStyle(c),
-  };
-  const img = (
-    <img
-      src={String(c.url ?? "")}
-      alt=""
-      className="max-w-full"
-      style={style}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-      onError={(e) => {
-        (e.target as HTMLImageElement).style.opacity = "0.3";
-      }}
-    />
-  );
-  return (
-    <ActionWrap action={c.action} style={{ width: size === "full" ? "100%" : undefined }}>
-      {img}
-    </ActionWrap>
-  );
-}
-
-function FlexIcon({ c }: { c: FlexComponent }) {
-  const size = iconSizeCss(c.size as string | undefined);
-  return (
-    <img
-      src={String(c.url ?? "")}
-      alt=""
-      style={{
-        width: size,
-        height: size,
-        objectFit: "contain",
-        flexShrink: 0,
-        ...marginStyle(c),
-      }}
-      loading="lazy"
-      referrerPolicy="no-referrer"
-    />
-  );
-}
-
-function FlexButton({ c }: { c: FlexComponent }) {
-  const styleName = c.style || "link";
-  const label = c.action?.label || (c.text as string) || "開く";
-  const primary = styleName === "primary";
-  const secondary = styleName === "secondary";
-  const bg = (c.color as string) || (primary ? "#17c950" : secondary ? "#f0f0f0" : "transparent");
-  const fg = primary ? "#ffffff" : secondary ? "#111111" : (c.color as string) || "#42659a";
-  return (
-    <button
-      type="button"
-      className="w-full truncate rounded-md px-3 py-2 text-center text-sm font-semibold transition-opacity hover:opacity-90"
-      style={{
-        background: bg,
-        color: fg,
-        height: c.height === "sm" ? 32 : 40,
-        flex: c.flex != null ? c.flex : undefined,
-        ...marginStyle(c),
-        ...offsetStyle(c),
-      }}
-      onClick={(e) => {
-        e.stopPropagation();
-        openFlexAction(c.action);
-      }}
-    >
-      {label}
-    </button>
-  );
-}
-
-function FlexSeparator({ c, horizontal }: { c: FlexComponent; horizontal: boolean }) {
   return (
     <div
+      className={cls}
       style={{
-        background: (c.color as string) || "#e0e0e0",
-        width: horizontal ? 1 : "100%",
-        height: horizontal ? "auto" : 1,
-        alignSelf: "stretch",
-        flexShrink: 0,
-        ...marginStyle(c),
+        fontSize: fontSizeCss(c.size as string) || "16px",
+        color: c.color as string | undefined,
+        top: spacingCss(c.offsetTop as string | undefined),
+        marginTop: spacingCss(c.margin as string | undefined),
+        ...flexStyle(c.flex),
+        ...cp.style,
       }}
+      onClick={cp.onClick}
+    >
+      <p style={pStyle}>{body}</p>
+    </div>
+  );
+}
+
+function FlexImageNode({ c }: { c: FlexComponent }) {
+  const aspect = parseAspectRatio(c.aspectRatio as string | undefined);
+  const cp = clickProps(c.action);
+  const size = c.size as string | undefined;
+  // size が px 直指定（"16px" 等）の場合は公式 Ex* キーワードにないため inline width にする
+  const pxSize = /^\d+(\.\d+)?px$/.test(size ?? "") ? size : undefined;
+  const sizeCls = size ? (EX_SIZE[size] ?? undefined) : "ExMd";
+  return (
+    <div
+      className={cn(
+        "MdImg",
+        sizeCls,
+        flexCls(c.flex),
+        c.aspectMode !== "fit" ? "ExCover" : "ExFit",
+        c.align === "start" ? "algS" : c.align === "end" ? "algE" : undefined,
+      )}
+      style={{
+        borderRadius: spacingCss(c.cornerRadius as string | undefined),
+        ...flexStyle(c.flex),
+        ...cp.style,
+      }}
+      onClick={cp.onClick}
+    >
+      <div style={pxSize ? { width: pxSize } : undefined}>
+        <a style={{ paddingBottom: `${(1 / aspect) * 100}%` }}>
+          <span style={{ backgroundImage: `url('${c.url}')` }} />
+        </a>
+      </div>
+    </div>
+  );
+}
+
+function FlexIconNode({ c }: { c: FlexComponent }) {
+  const cp = clickProps(c.action);
+  return (
+    <div
+      className={cn("MdIco", EX_SIZE[c.size as string] ?? "ExMd")}
+      style={cp.style}
+      onClick={cp.onClick}
+    >
+      <span style={{ backgroundImage: `url('${c.url}')` }} />
+    </div>
+  );
+}
+
+function FlexButtonNode({ c }: { c: FlexComponent }) {
+  const styleName = c.style || "link";
+  const label = c.action?.label || (c.text as string) || "開く";
+  const cls = cn(
+    "MdBtn",
+    styleName === "primary" ? "ExBtn1" : styleName === "secondary" ? "ExBtn2" : "ExBtnL",
+    c.height === "sm" ? "ExSm" : undefined,
+  );
+  return (
+    <div
+      className={cls}
+      style={{ ...marginStyle(c), ...(c.flex != null ? { flex: `0 0 ${c.flex}` } : {}) }}
+    >
+      <a
+        onClick={(e) => {
+          e.preventDefault();
+          openFlexAction(c.action);
+        }}
+        style={{ cursor: "pointer", backgroundColor: c.color as string | undefined }}
+      >
+        <div>{label}</div>
+      </a>
+    </div>
+  );
+}
+
+function FlexSeparatorNode({ c, horizontal }: { c: FlexComponent; horizontal: boolean }) {
+  return (
+    <div
+      className={cn("MdSep", horizontal ? "MdSepB" : undefined)}
+      style={{ borderColor: (c.color as string) || "#d4d6da" }}
     />
   );
 }
 
-function FlexVideo({ c }: { c: FlexComponent }) {
+function FlexVideoNode({ c }: { c: FlexComponent }) {
   const ratio = parseAspectRatio(c.aspectRatio as string | undefined);
   return (
-    <div style={{ width: "100%", aspectRatio: String(ratio), position: "relative", ...marginStyle(c) }}>
+    <div
+      style={{ width: "100%", aspectRatio: String(ratio), position: "relative", ...marginStyle(c) }}
+    >
       <video
         src={String(c.url ?? "")}
         poster={c.previewUrl ? String(c.previewUrl) : undefined}
@@ -283,179 +328,82 @@ function FlexVideo({ c }: { c: FlexComponent }) {
   );
 }
 
-function FlexBox({
-  c,
-  bubbleWidth,
-}: {
-  c: FlexComponent;
-  bubbleWidth: number;
-}) {
-  const layout = c.layout || "vertical";
-  const horizontal = layout === "horizontal" || layout === "baseline";
-  const gap = spacingCss(c.spacing as string | undefined);
-  const kids = Array.isArray(c.contents) ? c.contents : [];
-  const style: CSSProperties = {
-    display: "flex",
-    flexDirection: horizontal ? "row" : "column",
-    alignItems:
-      layout === "baseline"
-        ? "baseline"
-        : c.alignItems === "center"
-          ? "center"
-          : c.alignItems === "flex-end" || c.alignItems === "end"
-            ? "flex-end"
-            : c.alignItems === "flex-start" || c.alignItems === "start"
-              ? "flex-start"
-              : horizontal
-                ? "center"
-                : "stretch",
-    justifyContent:
-      c.justifyContent === "center"
-        ? "center"
-        : c.justifyContent === "flex-end" || c.justifyContent === "end"
-          ? "flex-end"
-          : c.justifyContent === "space-between"
-            ? "space-between"
-            : c.justifyContent === "space-around"
-              ? "space-around"
-              : c.justifyContent === "space-evenly"
-                ? "space-evenly"
-                : "flex-start",
-    gap: gap || undefined,
-    width: "100%",
-    boxSizing: "border-box",
-    backgroundColor: (c.backgroundColor as string) || undefined,
-    borderWidth: c.borderWidth ? spacingCss(c.borderWidth as string) : undefined,
-    borderStyle: c.borderWidth ? "solid" : undefined,
-    borderColor: (c.borderColor as string) || undefined,
-    borderRadius: spacingCss(c.cornerRadius as string | undefined),
-    flex: c.flex != null ? c.flex : undefined,
-    position: c.position === "absolute" ? "absolute" : "relative",
-    height: c.height === "full" ? "100%" : spacingCss(c.height as string | undefined),
-    maxHeight: spacingCss(c.maxHeight as string | undefined),
-    maxWidth: spacingCss(c.maxWidth as string | undefined),
-    ...padStyle(c),
-    ...marginStyle(c),
-    ...offsetStyle(c),
-  };
-
-  const inner = (
-    <div style={style}>
-      {kids.map((child, i) => (
-        <FlexNode key={i} c={child} bubbleWidth={bubbleWidth} parentHorizontal={horizontal} />
-      ))}
-    </div>
-  );
-
-  return <ActionWrap action={c.action}>{inner}</ActionWrap>;
-}
-
-function FlexFiller({ c }: { c: FlexComponent }) {
-  return <div style={{ flex: c.flex != null ? c.flex : 1, minWidth: 0, minHeight: 0 }} />;
-}
-
-function FlexNode({
-  c,
-  bubbleWidth,
-  parentHorizontal,
-}: {
-  c: FlexComponent;
-  bubbleWidth: number;
-  parentHorizontal?: boolean;
-}) {
+function FlexNode({ c }: { c: FlexComponent }) {
   switch (c.type) {
     case "box":
-      return <FlexBox c={c} bubbleWidth={bubbleWidth} />;
+      return <FlexBoxNode c={c} />;
     case "text":
-      return <FlexText c={c} />;
+      return <FlexTextNode c={c} />;
     case "button":
-      return <FlexButton c={c} />;
+      return <FlexButtonNode c={c} />;
     case "image":
-      return <FlexImage c={c} />;
+      return <FlexImageNode c={c} />;
     case "icon":
-      return <FlexIcon c={c} />;
+      return <FlexIconNode c={c} />;
     case "separator":
-      return <FlexSeparator c={c} horizontal={Boolean(parentHorizontal)} />;
+      return <FlexSeparatorNode c={c} horizontal={false} />;
     case "filler":
-      return <FlexFiller c={c} />;
+      return <div className="mdBxFiller" />;
     case "video":
-      return <FlexVideo c={c} />;
+      return <FlexVideoNode c={c} />;
     case "span":
-      return <span>{c.text ?? ""}</span>;
+      return <span className="MdSpn">{c.text ?? ""}</span>;
     default:
       return null;
   }
 }
 
-/** LINE Desktop 準拠: バブルブロック内コンテンツの既定パディング */
-const BLOCK_PAD = 11;
-
 function bubbleBlock(
-  block: FlexComponent | undefined,
-  styles: FlexBubble["styles"],
   key: "header" | "hero" | "body" | "footer",
-  bubbleWidth: number,
-  showSep: boolean,
-) {
-  if (!block) return null;
+  comp: FlexComponent | undefined,
+  styles: FlexBubble["styles"],
+  hasFooter: boolean,
+): ReactNode {
+  if (!comp) return null;
   const st = styles?.[key];
   return (
-    <>
-      {showSep && st?.separator !== false && key !== "header" && (
-        <div
-          style={{
-            height: 1,
-            background: st?.separatorColor || "#e0e0e0",
-            width: "100%",
-          }}
-        />
+    <Fragment key={key}>
+      {key !== "header" && st?.separator === true && (
+        <div className="MdSep" style={{ borderColor: st.separatorColor || "#d4d6da" }} />
       )}
-      <div style={{ backgroundColor: st?.backgroundColor, width: "100%" }}>
-        <div style={{ padding: BLOCK_PAD, width: "100%" }}>
-          <FlexNode c={block} bubbleWidth={bubbleWidth} />
-        </div>
+      <div
+        className={cn(
+          `t1${key.charAt(0).toUpperCase()}${key.slice(1)}`,
+          key === "body" && hasFooter ? "ExHasFooter" : undefined,
+        )}
+      >
+        <FlexNode c={comp} />
       </div>
-    </>
+    </Fragment>
   );
 }
 
 function FlexBubbleView({ bubble }: { bubble: FlexBubble }) {
   const size = bubble.size || "mega";
-  const width = BUBBLE_WIDTH[size] ?? BUBBLE_WIDTH.mega!;
-  const hasHero = Boolean(bubble.hero);
-  const hasHeader = Boolean(bubble.header);
-  const hasBody = Boolean(bubble.body);
+  const ly = LY[size] ?? "LyMe";
   const hasFooter = Boolean(bubble.footer);
-
   const card = (
-    <div
-      className="overflow-hidden bg-white text-black shadow-sm"
-      style={{
-        width,
-        maxWidth: "100%",
-        borderRadius: 12,
-        direction: bubble.direction === "rtl" ? "rtl" : "ltr",
-      }}
-    >
-      {bubbleBlock(bubble.header, bubble.styles, "header", width, false)}
-      {bubbleBlock(bubble.hero, bubble.styles, "hero", width, hasHeader)}
-      {bubbleBlock(bubble.body, bubble.styles, "body", width, hasHeader || hasHero)}
-      {bubbleBlock(bubble.footer, bubble.styles, "footer", width, hasHeader || hasHero || hasBody)}
-      {!hasHeader && !hasHero && !hasBody && !hasFooter && (
-        <div className="px-3 py-2 text-sm text-neutral-500">（空の Flex）</div>
-      )}
+    <div className="vfx">
+      <div className={ly}>
+        <div className={cn("T1", "fxLTR")} dir={bubble.direction === "rtl" ? "rtl" : "ltr"}>
+          {bubbleBlock("header", bubble.header, bubble.styles, hasFooter)}
+          {bubbleBlock("hero", bubble.hero, bubble.styles, hasFooter)}
+          {bubbleBlock("body", bubble.body, bubble.styles, hasFooter)}
+          {bubbleBlock("footer", bubble.footer, bubble.styles, hasFooter)}
+          {!bubble.header && !bubble.hero && !bubble.body && !bubble.footer && (
+            <div className="px-3 py-2 text-sm text-neutral-500">（空の Flex）</div>
+          )}
+        </div>
+      </div>
     </div>
   );
-
   if (bubble.action) {
+    const cp = clickProps(bubble.action);
     return (
       <button
         type="button"
         className="block border-0 bg-transparent p-0 text-left"
-        onClick={(e) => {
-          e.stopPropagation();
-          openFlexAction(bubble.action);
-        }}
+        onClick={cp.onClick}
       >
         {card}
       </button>
@@ -465,7 +413,7 @@ function FlexBubbleView({ bubble }: { bubble: FlexBubble }) {
 }
 
 /** 横スクロールをマウスで掴んでドラッグできるようにする（タッチはネイティブに任せる） */
-function useGrabScroll(ref: RefObject<HTMLElement | null>) {
+function useGrabScroll(ref: React.RefObject<HTMLElement | null>) {
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
@@ -489,7 +437,6 @@ function useGrabScroll(ref: RefObject<HTMLElement | null>) {
       const dx = e.clientX - startX;
       moved += Math.abs(dx);
       el.scrollLeft = startScroll - dx;
-      // 5px 以上動いたらクリックはドラッグとみなして発火させない
       if (moved > 5) suppressClick = true;
     };
     const onUp = (e: PointerEvent) => {
@@ -529,11 +476,10 @@ function FlexCarouselView({ carousel }: { carousel: FlexCarousel }) {
   return (
     <div
       ref={scrollRef}
-      className="flex max-w-full cursor-grab select-none gap-2 overflow-x-auto pb-1 active:cursor-grabbing [-ms-overflow-style:none] [scrollbar-width:thin]"
-      style={{ scrollSnapType: "x mandatory" }}
+      className="vfx flex max-w-full cursor-grab select-none gap-2 overflow-x-auto pb-1 active:cursor-grabbing"
     >
       {items.map((b, i) => (
-        <div key={i} className="shrink-0" style={{ scrollSnapAlign: "start" }}>
+        <div key={i} className="shrink-0">
           <FlexBubbleView bubble={b.type === "bubble" ? b : { type: "bubble", body: b }} />
         </div>
       ))}
@@ -562,7 +508,6 @@ export function FlexMessageView({
   if (container.type === "bubble") {
     return <FlexBubbleView bubble={container as FlexBubble} />;
   }
-  // 単体コンポーネントが来た場合は bubble に包む
   return (
     <FlexBubbleView
       bubble={{

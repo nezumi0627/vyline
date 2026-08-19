@@ -44,14 +44,14 @@
 
 ### 主要コードパス
 
-| 役割 | パス |
-|---|---|
-| 鍵検証・修復 | `Vyline/packages/nezuline/src/login/ensureE2EE.ts` |
-| Desktop 鍵 import | `Vyline/packages/nezuline/src/login/importDesktopE2EE.ts` |
-| 取得・復号・送信 | `Vyline/backend/src/service/lineService.ts` |
-| decrypt 試験 | `Vyline/backend/src/api/debug.ts` |
-| UI ラベル | `Vyline/apps/desktop/src/utils/format.ts` |
-| 鍵ダンプ配置 | `Vyline/backend/data/desktop-e2ee-keys.json`（gitignore） |
+| 役割              | パス                                                      |
+| ----------------- | --------------------------------------------------------- |
+| 鍵検証・修復      | `Vyline/packages/protocol/src/login/ensureE2EE.ts`        |
+| Desktop 鍵 import | `Vyline/packages/protocol/src/login/importDesktopE2EE.ts` |
+| 取得・復号・送信  | `Vyline/backend/src/service/lineService.ts`               |
+| decrypt 試験      | `Vyline/backend/src/api/debug.ts`                         |
+| UI ラベル         | `Vyline/apps/desktop/src/utils/format.ts`                 |
+| 鍵ダンプ配置      | `Vyline/backend/data/desktop-e2ee-keys.json`（gitignore） |
 
 ### 事実メモ
 
@@ -83,7 +83,7 @@
 
 ---
 
-## Phase 3 — NezuLINE lib + Desktop import + update-diff
+## Phase 3 — Vyline lib + Desktop import + update-diff
 
 ### 目標
 
@@ -91,22 +91,22 @@ LINE Desktop の identity / バージョン /（可能な範囲で）E2EE 鍵を
 
 ### 受け入れ条件
 
-- [ ] `@vyline/nezuline` 経由で DESKTOPWIN identity を安定適用できる
+- [ ] `@vyline/protocol` 経由で DESKTOPWIN identity を安定適用できる
 - [ ] インストールパス / `update_info` / 稼働中メモリから app version を取得できる
 - [ ] Desktop E2EE 鍵 dump → import の手順が docs と一致
 - [ ] Desktop 更新時にヘッダ・エンドポイント差分を検知できる update-diff がある（MVP 可）
 
 ### 主要コードパス
 
-| 役割 | パス |
-|---|---|
-| パッケージ入口 | `Vyline/packages/nezuline/src/index.ts` |
-| Client ラッパ | `Vyline/packages/nezuline/src/client/NezuClient.ts` |
-| Identity | `Vyline/packages/nezuline/src/desktop/identity.ts` |
-| メモリ / PE 抽出 | `Vyline/packages/nezuline/src/desktop/extract.ts` |
-| バージョン | `Vyline/packages/nezuline/src/desktop/version.ts` |
-| Transport patch | `Vyline/packages/nezuline/src/login/patchTransport.ts` |
-| Updater | `Vyline/packages/nezuline/src/updater/NezuUpdater.ts` |
+| 役割             | パス                                                    |
+| ---------------- | ------------------------------------------------------- |
+| パッケージ入口   | `Vyline/packages/protocol/src/index.ts`                 |
+| Client ラッパ    | `Vyline/packages/protocol/src/client/VylineClient.ts`   |
+| Identity         | `Vyline/packages/protocol/src/desktop/identity.ts`      |
+| メモリ / PE 抽出 | `Vyline/packages/protocol/src/desktop/extract.ts`       |
+| バージョン       | `Vyline/packages/protocol/src/desktop/version.ts`       |
+| Transport patch  | `Vyline/packages/protocol/src/login/patchTransport.ts`  |
+| Updater          | `Vyline/packages/protocol/src/updater/VylineUpdater.ts` |
 
 ### 関連
 
@@ -169,7 +169,7 @@ bun run build
 ```
 Phase0 (docs kickoff)
    └─► Phase2 (tasks/analysis 整備) ── 並行可
-   └─► Phase3 (NezuLINE / Desktop)
+   └─► Phase3 (Vyline / Desktop)
           └─► Phase1 (E2EE) ── 鍵・identity に依存
                  └─► Phase4 (UI)
    └─► Phase5 (quality) ── 随時並行、優先は後

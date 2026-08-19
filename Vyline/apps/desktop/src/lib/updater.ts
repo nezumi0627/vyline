@@ -8,27 +8,27 @@
  * ダウンロードと置換を行う。
  */
 
-import { UPDATE_NOTES } from "./store"
+import { UPDATE_NOTES } from "./store";
 
-const REPO_OWNER = "nezumi0627"
-const REPO_NAME = "Vyline"
-const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`
+const REPO_OWNER = "nezumi0627";
+const REPO_NAME = "Vyline";
+const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
 export interface UpdateInfo {
-  currentVersion: string
-  latestVersion: string | null
-  hasUpdate: boolean
-  url: string | null
-  body: string | null
-  error: string | null
+  currentVersion: string;
+  latestVersion: string | null;
+  hasUpdate: boolean;
+  url: string | null;
+  body: string | null;
+  error: string | null;
 }
 
 export async function checkForUpdates(): Promise<UpdateInfo> {
-  const current = UPDATE_NOTES.version
+  const current = UPDATE_NOTES.version;
   try {
     const res = await fetch(RELEASES_API, {
       headers: { Accept: "application/vnd.github.v3+json" },
-    })
+    });
     if (!res.ok) {
       return {
         currentVersion: current,
@@ -37,15 +37,15 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
         url: null,
         body: null,
         error: `GitHub API returned ${res.status}`,
-      }
+      };
     }
     const release = (await res.json()) as {
-      tag_name?: string
-      html_url?: string
-      body?: string
-    }
-    const tag = release.tag_name?.replace(/^v/, "") ?? null
-    const hasUpdate = tag != null && tag !== current
+      tag_name?: string;
+      html_url?: string;
+      body?: string;
+    };
+    const tag = release.tag_name?.replace(/^v/, "") ?? null;
+    const hasUpdate = tag != null && tag !== current;
     return {
       currentVersion: current,
       latestVersion: tag,
@@ -53,7 +53,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       url: release.html_url ?? null,
       body: release.body ?? null,
       error: null,
-    }
+    };
   } catch (err) {
     return {
       currentVersion: current,
@@ -62,11 +62,11 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       url: null,
       body: null,
       error: err instanceof Error ? err.message : String(err),
-    }
+    };
   }
 }
 
 /** 現在のバージョン文字列を取得 */
 export function currentVersion(): string {
-  return UPDATE_NOTES.version
+  return UPDATE_NOTES.version;
 }

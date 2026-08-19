@@ -9,16 +9,16 @@
 
 ## Desktop から Vyline へ持ち込むもの
 
-| 資産 | 状態 | 用途 |
-|---|---|---|
-| 自己鍵全世代 `desktop-e2ee-keys.json` | ✅ import 済 | グループ共有鍵の unwrap |
-| 自己 pub → `e2eePublicKeys:{keyId}` | ✅ import 時に seed | 自分が creator のときの negotiate 回避 |
-| グループ共有鍵 by-id キャッシュ | ✅ `groupE2EE.ts` | `(chatMid, groupKeyId)` 複数保持 + linejs 単一キー同期 |
-| テキスト/メディア decrypt 前の prepare | ✅ | `prepareGroupKeysForMessages` / `ensureGroupKeyById` |
+| 資産                                   | 状態                | 用途                                                   |
+| -------------------------------------- | ------------------- | ------------------------------------------------------ |
+| 自己鍵全世代 `desktop-e2ee-keys.json`  | ✅ import 済        | グループ共有鍵の unwrap                                |
+| 自己 pub → `e2eePublicKeys:{keyId}`    | ✅ import 時に seed | 自分が creator のときの negotiate 回避                 |
+| グループ共有鍵 by-id キャッシュ        | ✅ `groupE2EE.ts`   | `(chatMid, groupKeyId)` 複数保持 + linejs 単一キー同期 |
+| テキスト/メディア decrypt 前の prepare | ✅                  | `prepareGroupKeysForMessages` / `ensureGroupKeyById`   |
 
 ## Vyline 実装
 
-- `Vyline/packages/nezuline/src/login/groupE2EE.ts`
+- `Vyline/packages/protocol/src/login/groupE2EE.ts`
 - `importDesktopE2EE.ts` が `e2eePublicKeys` も書く
 - `lineService.fetchMessages` がバッチ前に全 groupKeyId を用意
 

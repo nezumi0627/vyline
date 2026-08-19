@@ -134,7 +134,7 @@ themes/
 }
 
 .vy-sidebar {
-  background-image: url('./bg.png');
+  background-image: url("./bg.png");
   background-size: cover;
 }
 ```
@@ -145,14 +145,14 @@ themes/
 
 ```typescript
 // frontend
-import { useThemeStore } from '@/stores/themeStore';
+import { useThemeStore } from "@/stores/themeStore";
 
 const { setTheme } = useThemeStore();
 
 // テーマ切り替え
-setTheme('dark');
-setTheme('light');
-setTheme('my-theme');
+setTheme("dark");
+setTheme("light");
+setTheme("my-theme");
 ```
 
 ---
@@ -164,7 +164,7 @@ setTheme('my-theme');
 export default {
   onLoad(api) {
     // CSS 変数を上書き
-    api.theme.setVariable('--vy-accent-primary', '#ff6b6b');
+    api.theme.setVariable("--vy-accent-primary", "#ff6b6b");
 
     // カスタム CSS を注入
     const cleanup = api.theme.injectCSS(`
@@ -199,7 +199,7 @@ export default {
 
 ```css
 :root {
-  --vy-chat-bg-image: url('./bg.jpg');
+  --vy-chat-bg-image: url("./bg.jpg");
   --vy-chat-bg-size: cover;
   --vy-chat-bg-opacity: 0.3;
 }

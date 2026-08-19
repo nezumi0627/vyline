@@ -9,15 +9,15 @@
  */
 
 import { Hono } from "hono";
-import { detectInstalledDesktop, ensureValidE2EEIdentity } from "@vyline/nezuline";
+import { detectInstalledDesktop, ensureValidE2EEIdentity } from "@vyline/protocol";
 import { childLogger } from "../logger.js";
 import { loadTokens } from "../storage/tokenStore.js";
 import { listAccounts, getClient } from "../line/clientManager.js";
 import {
-  getNezuProfile,
-  getNezuUpdater,
-  refreshNezuProfile,
-} from "../nezu/profileBridge.js";
+  getVylineProfile,
+  getVylineUpdater,
+  refreshVylineProfile,
+} from "../vyline/profileBridge.js";
 
 const log = childLogger("api:debug");
 export const debugRouter = new Hono();
@@ -63,7 +63,12 @@ debugRouter.get("/e2ee/status/:accountId", async (c) => {
     for (const sk of serverKeys) {
       const keyId = Number(sk.keyId ?? (sk as { 2?: number })[2]);
       const pub = sk.keyData ?? (sk as { 4?: string | Uint8Array })[4];
-      const serverPub = pub == null ? Buffer.alloc(0) : typeof pub === "string" ? Buffer.from(pub) : Buffer.from(pub);
+      const serverPub =
+        pub == null
+          ? Buffer.alloc(0)
+          : typeof pub === "string"
+            ? Buffer.from(pub)
+            : Buffer.from(pub);
       const raw = await client.base.storage.get(`e2eeKeys:${keyId}`);
       let match = false;
       if (raw && typeof raw === "string") {
@@ -85,9 +90,7 @@ debugRouter.get("/e2ee/status/:accountId", async (c) => {
       serverKeyIds: serverKeys.map((k) => Number(k.keyId ?? (k as { 2?: number })[2])),
       serverLatestKeyId:
         serverKeys.length > 0
-          ? Math.max(
-              ...serverKeys.map((k) => Number(k.keyId ?? (k as { 2?: number })[2])),
-            )
+          ? Math.max(...serverKeys.map((k) => Number(k.keyId ?? (k as { 2?: number })[2])))
           : null,
       local,
       midKey: mid
@@ -179,7 +182,7 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
     }
     try {
       const { prepareGroupKeysForMessages, ensureGroupKeyById, groupKeyIdFromMessage } =
-        await import("@vyline/nezuline");
+        await import("@vyline/protocol");
       await prepareGroupKeysForMessages(client, chatMid, rawMessages as unknown[]);
       for (const msg of rawMessages) {
         const gk = groupKeyIdFromMessage(msg);
@@ -208,14 +211,16 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
     for (const msg of rawMessages) {
       const isE2EE = Boolean(msg.contentMetadata?.e2eeVersion);
       const senderKeyId = msg.chunks?.[3]
-        ? Buffer.from(
-            typeof msg.chunks[3] === "string" ? msg.chunks[3] : msg.chunks[3],
-          ).reduce((acc, b) => acc * 256 + b, 0)
+        ? Buffer.from(typeof msg.chunks[3] === "string" ? msg.chunks[3] : msg.chunks[3]).reduce(
+            (acc, b) => acc * 256 + b,
+            0,
+          )
         : null;
       const receiverKeyId = msg.chunks?.[4]
-        ? Buffer.from(
-            typeof msg.chunks[4] === "string" ? msg.chunks[4] : msg.chunks[4],
-          ).reduce((acc, b) => acc * 256 + b, 0)
+        ? Buffer.from(typeof msg.chunks[4] === "string" ? msg.chunks[4] : msg.chunks[4]).reduce(
+            (acc, b) => acc * 256 + b,
+            0,
+          )
         : null;
       let decryptOk = true;
       let current = msg;
@@ -280,10 +285,7 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
       samples,
     };
 
-    log.info(
-      { accountId, chatMid, stats: result.stats },
-      "decrypt test completed",
-    );
+    log.info({ accountId, chatMid, stats: result.stats }, "decrypt test completed");
     return c.json(result);
   } catch (err) {
     log.error({ accountId, chatMid, err }, "decrypt test failed");
@@ -292,21 +294,21 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
 });
 
 /**
- * GET  /debug/nezu/profile  — 現在の Desktop プロファイル
- * POST /debug/nezu/refresh  — LINE Desktop から強制再抽出
+ * GET  /debug/vyline/profile  — 現在の Desktop プロファイル
+ * POST /debug/vyline/refresh  — LINE Desktop から強制再抽出
  */
-debugRouter.get("/nezu/profile", (c) => {
+debugRouter.get("/vyline/profile", (c) => {
   try {
-    const profile = getNezuProfile();
+    const profile = getVylineProfile();
     return c.json({ ok: true, profile });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
   }
 });
 
-debugRouter.get("/nezu/status", (c) => {
+debugRouter.get("/vyline/status", (c) => {
   try {
-    const profile = getNezuProfile();
+    const profile = getVylineProfile();
     const installed = detectInstalledDesktop();
     return c.json({
       ok: true,
@@ -316,20 +318,17 @@ debugRouter.get("/nezu/status", (c) => {
       userAgent: profile.identity.userAgent,
       xLineApplication: profile.identity.xLineApplication,
       exePath: installed?.exePath ?? profile.source.exePath,
-      updaterReady: Boolean(getNezuUpdater()),
+      updaterReady: Boolean(getVylineUpdater()),
     });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
   }
 });
 
-debugRouter.post("/nezu/refresh", async (c) => {
+debugRouter.post("/vyline/refresh", async (c) => {
   try {
-    const profile = await refreshNezuProfile();
-    log.info(
-      { appVersion: profile.identity.appVersion },
-      "Nezu profile refreshed via debug",
-    );
+    const profile = await refreshVylineProfile();
+    log.info({ appVersion: profile.identity.appVersion }, "Vyline profile refreshed via debug");
     return c.json({ ok: true, profile });
   } catch (err) {
     return c.json({ ok: false, error: String(err) }, 500);
@@ -349,9 +348,7 @@ debugRouter.get("/read-ranges/:accountId/:chatMid", async (c) => {
       await import("../service/lineService.js");
     const normalized = await fetchReadRanges(accountId, chatMid);
     const jsonSafe = (v: unknown) =>
-      JSON.parse(
-        JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)),
-      );
+      JSON.parse(JSON.stringify(v, (_k, x) => (typeof x === "bigint" ? x.toString() : x)));
     return c.json({
       ok: true,
       myMid,

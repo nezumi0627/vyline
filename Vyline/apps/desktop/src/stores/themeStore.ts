@@ -1,5 +1,5 @@
 /**
- * stores/themeStore.ts — NezuTheme（着せ替え）
+ * stores/themeStore.ts — VyTheme（着せ替え）
  *
  * CSS 変数をランタイムで差し替え、チャット背景・半径なども変更可能。
  */
@@ -7,9 +7,9 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 
-export type NezuThemeId = "telegram-night" | "line-dark" | "soft-day" | "custom";
+export type VyThemeId = "telegram-night" | "line-dark" | "soft-day" | "custom";
 
-export type NezuThemeTokens = {
+export type VyThemeTokens = {
   accent: string;
   surface0: string;
   surface1: string;
@@ -22,7 +22,7 @@ export type NezuThemeTokens = {
   messageRadiusPx: number;
 };
 
-const PRESETS: Record<Exclude<NezuThemeId, "custom">, NezuThemeTokens> = {
+const PRESETS: Record<Exclude<VyThemeId, "custom">, VyThemeTokens> = {
   "telegram-night": {
     accent: "#2aabee",
     surface0: "#0e1621",
@@ -61,7 +61,7 @@ const PRESETS: Record<Exclude<NezuThemeId, "custom">, NezuThemeTokens> = {
   },
 };
 
-function applyTokens(t: NezuThemeTokens): void {
+function applyTokens(t: VyThemeTokens): void {
   if (typeof document === "undefined") return;
   const r = document.documentElement;
   const radiusRem = `${t.messageRadiusPx / 16}rem`;
@@ -83,7 +83,7 @@ function applyTokens(t: NezuThemeTokens): void {
   r.style.setProperty("--vy-text-secondary", t.textSecondary);
   r.style.setProperty("--vy-message-radius", `${t.messageRadiusPx}px`);
 
-  // NezuTheme 互換エイリアス
+  // VyTheme 互換エイリアス
   r.style.setProperty("--vy-bg", t.surface0);
   r.style.setProperty("--vy-surface", t.surface1);
   r.style.setProperty("--vy-sidebar", t.surface1);
@@ -111,12 +111,12 @@ function applyTokens(t: NezuThemeTokens): void {
 }
 
 type ThemeState = {
-  themeId: NezuThemeId;
-  custom: NezuThemeTokens;
-  setThemeId: (id: NezuThemeId) => void;
-  setCustom: (partial: Partial<NezuThemeTokens>) => void;
+  themeId: VyThemeId;
+  custom: VyThemeTokens;
+  setThemeId: (id: VyThemeId) => void;
+  setCustom: (partial: Partial<VyThemeTokens>) => void;
   applyActive: () => void;
-  activeTokens: () => NezuThemeTokens;
+  activeTokens: () => VyThemeTokens;
 };
 
 export const useThemeStore = create<ThemeState>()(
@@ -142,7 +142,7 @@ export const useThemeStore = create<ThemeState>()(
       },
     }),
     {
-      name: "vyline:nezu-theme",
+      name: "vyline:theme",
       onRehydrateStorage: () => (state) => {
         state?.applyActive();
       },
@@ -150,4 +150,4 @@ export const useThemeStore = create<ThemeState>()(
   ),
 );
 
-export const NEZU_THEME_PRESETS = PRESETS;
+export const VY_THEME_PRESETS = PRESETS;

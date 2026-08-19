@@ -5,5 +5,5 @@ export function FloatNotice({ children }: { children: React.ReactNode }) {
         {children}
       </div>
     </div>
-  )
+  );
 }

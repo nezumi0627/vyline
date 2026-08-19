@@ -3,14 +3,14 @@
  */
 
 import type { ServerWebSocket } from "bun";
-import type { CallSession, CallSessionState } from "@vyline/nezuline/stack/call";
-import type { PcmFrame } from "@vyline/nezuline/stack/call";
-import { bufferSource, type AudioSource } from "@vyline/nezuline/stack/call";
+import type { CallSession, CallSessionState } from "@vyline/protocol/stack/call";
+import type { PcmFrame } from "@vyline/protocol/stack/call";
+import { bufferSource, type AudioSource } from "@vyline/protocol/stack/call";
 import { createDirectCallSession } from "./sessionFactory.js";
-import type { NezuClient } from "@vyline/nezuline";
+import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
-import type { DesktopProfile } from "@vyline/nezuline";
+import type { DesktopProfile } from "@vyline/protocol";
 
 const log = childLogger("call:manager");
 
@@ -169,7 +169,7 @@ async function startMediaLoops(call: ManagedCall) {
 
 export async function startManagedCall(opts: {
   accountId: string;
-  client: NezuClient;
+  client: VylineClient;
   to: string;
   kind?: "AUDIO" | "VIDEO";
   desktopProfile?: DesktopProfile;
@@ -273,7 +273,10 @@ export function getCallSnapshot(sessionId: string): CallSessionSnapshot | null {
 export function listAccountCalls(accountId: string): CallSessionSnapshot[] {
   const ids = byAccount.get(accountId);
   if (!ids) return [];
-  return [...ids].map((id) => sessions.get(id)).filter(Boolean).map((c) => snapshot(c!));
+  return [...ids]
+    .map((id) => sessions.get(id))
+    .filter(Boolean)
+    .map((c) => snapshot(c!));
 }
 
 function snapshot(call: ManagedCall): CallSessionSnapshot {
@@ -325,9 +328,7 @@ export async function sendTestTone(sessionId: string, durationMs = 2000): Promis
   for (let i = 0; i < total; i++) {
     samples[i] = Math.floor(Math.sin((2 * Math.PI * 440 * i) / 48000) * 8000);
   }
-  await call.session.sendStream(
-    bufferSource({ samples, sampleRate: 48000, frameDurationMs: 20 }),
-  );
+  await call.session.sendStream(bufferSource({ samples, sampleRate: 48000, frameDurationMs: 20 }));
 }
 
 export const callWebSocketHandler = {
@@ -344,7 +345,10 @@ export const callWebSocketHandler = {
       }
       return;
     }
-    const buf = message instanceof Buffer ? message.buffer.slice(message.byteOffset, message.byteOffset + message.byteLength) : message;
+    const buf =
+      message instanceof Buffer
+        ? message.buffer.slice(message.byteOffset, message.byteOffset + message.byteLength)
+        : message;
     ingestCallMicPcm(ws.data.sessionId, buf as ArrayBuffer);
   },
   close(ws: ServerWebSocket<CallWsData>) {

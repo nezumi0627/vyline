@@ -1,12 +1,11 @@
-@import 'tailwindcss';
-@import 'tw-animate-css';
-@import 'shadcn/tailwind.css';
+@import "tailwindcss";
+@import "tw-animate-css";
+@import "shadcn/tailwind.css";
 
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
-  --font-sans: var(--font-plex-sans-jp), 'Hiragino Sans', 'Noto Sans JP',
-    sans-serif;
+  --font-sans: var(--font-plex-sans-jp), "Hiragino Sans", "Noto Sans JP", sans-serif;
   --font-mono: var(--font-plex-mono), ui-monospace, monospace;
 
   --color-background: var(--vy-bg);
@@ -44,7 +43,7 @@
   --radius-2xl: calc(var(--vy-radius) * 1.8);
 }
 
-/* Default NezuTheme = Telegram Night. Overridden at runtime via inline vars. */
+/* Default VyTheme = Telegram Night. Overridden at runtime via inline vars. */
 :root {
   color-scheme: dark;
   --vy-bg: #0e1621;
@@ -103,13 +102,13 @@
 .vy-chat-surface {
   background-color: var(--vy-chat-bg);
   background-image: radial-gradient(
-      circle at 1px 1px,
-      color-mix(in oklab, var(--vy-text) 8%, transparent) 1px,
-      transparent 0
-    );
+    circle at 1px 1px,
+    color-mix(in oklab, var(--vy-text) 8%, transparent) 1px,
+    transparent 0
+  );
   background-size: 22px 22px;
 }
-.vy-chat-surface[data-pattern='0'] {
+.vy-chat-surface[data-pattern="0"] {
   background-image: none;
 }
 .vy-chat-surface[data-image] {

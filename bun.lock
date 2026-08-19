@@ -11,7 +11,7 @@
     },
     "Vyline/apps/desktop": {
       "name": "@vyline/desktop",
-      "version": "0.3.1",
+      "version": "0.4.0-beta",
       "dependencies": {
         "@vyline/types": "workspace:*",
         "clsx": "^2.1.1",
@@ -37,7 +37,7 @@
       "name": "@vyline/backend",
       "version": "0.1.0",
       "dependencies": {
-        "@vyline/nezuline": "workspace:*",
+        "@vyline/protocol": "workspace:*",
         "@vyline/types": "workspace:*",
         "hono": "^4.7.11",
         "pino": "^9.6.0",
@@ -59,8 +59,8 @@
       "name": "@vyline/loose-types",
       "version": "1.0.1",
     },
-    "Vyline/packages/nezuline": {
-      "name": "@vyline/nezuline",
+    "Vyline/packages/protocol": {
+      "name": "@vyline/protocol",
       "version": "0.1.0",
       "dependencies": {
         "@noble/ciphers": "^2.2",
@@ -308,7 +308,7 @@
 
     "@vyline/loose-types": ["@vyline/loose-types@workspace:Vyline/packages/loose-types"],
 
-    "@vyline/nezuline": ["@vyline/nezuline@workspace:Vyline/packages/nezuline"],
+    "@vyline/protocol": ["@vyline/protocol@workspace:Vyline/packages/protocol"],
 
     "@vyline/types": ["@vyline/types@workspace:Vyline/packages/types"],
 

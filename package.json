@@ -12,14 +12,14 @@
     "dev:backend": "bun --watch Vyline/backend/src/index.ts",
     "dev:frontend": "bun run --cwd Vyline/apps/desktop dev",
     "build": "bun run --cwd Vyline/apps/desktop build",
-    "typecheck": "bun run --cwd Vyline/packages/nezuline typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck",
+    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck",
     "lint": "biome check Vyline",
-    "nezu:delta": "bun Vyline/packages/nezuline/src/tools/reportDesktopDelta.ts",
+    "nezu:delta": "bun Vyline/packages/protocol/src/tools/reportDesktopDelta.ts",
     "nezu:find-native": "bun tools/findNativeSymbol.ts",
     "nezu:focus-recovered": "bun tools/focusRecoveredSource.ts",
     "nezu:unpack": "bun tools/unpackLine.ts",
-    "nezu:extract-e2ee": "bun Vyline/packages/nezuline/src/tools/extractDesktopE2EEKeys.ts",
-    "nezu:decrypt-edb": "bun Vyline/packages/nezuline/src/tools/decryptDesktopEdb.ts",
+    "nezu:extract-e2ee": "bun Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts",
+    "nezu:decrypt-edb": "bun Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts",
     "nezu:call-test": "bun Vyline/backend/src/tools/callTest.ts"
   },
   "devDependencies": {

@@ -5,4 +5,4 @@
 - TalkService `/S4` `sendMessage` / `unsendMessage` / 既読
 - content-type thrift・ヘッダー連動
 
-Vyline: `NezuClient.ts`, `patchTransport.ts`, backend `lineService.ts`
+Vyline: `VylineClient.ts`, `patchTransport.ts`, backend `lineService.ts`

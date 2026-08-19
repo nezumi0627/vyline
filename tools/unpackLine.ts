@@ -25,20 +25,14 @@ import {
 } from "node:fs";
 import { basename, dirname, join } from "node:path";
 import { homedir } from "node:os";
-import {
-  DATA_DIR,
-  RE_TOOLS_DIR,
-  defaultUnpackedExe,
-  ensureDataLayout,
-} from "./paths.js";
+import { DATA_DIR, RE_TOOLS_DIR, defaultUnpackedExe, ensureDataLayout } from "./paths.js";
 
 ensureDataLayout();
 
 const UNLICENSE_DIR = join(RE_TOOLS_DIR, "unlicense");
 const UNLICENSE_RELEASE = "0.4.0";
 const UNLICENSE_ASSET = "unlicense-py3.11-x64.zip";
-const UNLICENSE_URL =
-  `https://github.com/ergrelet/unlicense/releases/download/${UNLICENSE_RELEASE}/${UNLICENSE_ASSET}`;
+const UNLICENSE_URL = `https://github.com/ergrelet/unlicense/releases/download/${UNLICENSE_RELEASE}/${UNLICENSE_ASSET}`;
 
 const VERSION_RE = /^\d+\.\d+\.\d+\.\d+$/;
 
@@ -74,8 +68,7 @@ const timeoutSec = Number(flags["timeout"] ?? 120);
 const skipDownload = Boolean(flags["skip-download"]);
 const keepWork = Boolean(flags["keep-work"]);
 const verbose = Boolean(flags["verbose"]);
-const outPath =
-  typeof flags["out"] === "string" ? (flags["out"] as string) : defaultUnpackedExe();
+const outPath = typeof flags["out"] === "string" ? (flags["out"] as string) : defaultUnpackedExe();
 const exeOverride = typeof flags["exe"] === "string" ? (flags["exe"] as string) : null;
 
 function log(msg: string): void {
@@ -113,7 +106,7 @@ function compareVersions(a: string, b: string): number {
 
 /** %LOCALAPPDATA%\LINE\bin\<ver>\LINE.exe を解決 */
 function detectInstalledLineExe(): string | null {
-  const lineRoot = process.env["NEZU_LINE_ROOT"]?.trim() || join(localAppData(), "LINE");
+  const lineRoot = process.env["VYLINE_LINE_ROOT"]?.trim() || join(localAppData(), "LINE");
   const binDir = join(lineRoot, "bin");
   if (!existsSync(binDir)) return null;
 
@@ -124,9 +117,7 @@ function detectInstalledLineExe(): string | null {
 
   const iniVer = readIniVersion(join(lineRoot, "Data", "LINE.ini"));
   const version =
-    iniVer && versions.includes(iniVer)
-      ? iniVer
-      : versions.sort(compareVersions).at(-1)!;
+    iniVer && versions.includes(iniVer) ? iniVer : versions.sort(compareVersions).at(-1)!;
 
   return join(binDir, version, "LINE.exe");
 }
@@ -168,16 +159,7 @@ async function ensureUnlicense(): Promise<string> {
 
   // Bun.fetch は大容量でハングすることがあるため curl を優先
   const curl = Bun.spawnSync({
-    cmd: [
-      "curl.exe",
-      "-L",
-      "--retry",
-      "3",
-      "--fail",
-      "-o",
-      zipPath,
-      UNLICENSE_URL,
-    ],
+    cmd: ["curl.exe", "-L", "--retry", "3", "--fail", "-o", zipPath, UNLICENSE_URL],
     stdout: "pipe",
     stderr: "pipe",
   });
@@ -336,8 +318,7 @@ async function main(): Promise<void> {
 
   if (!dumped || !existsSync(dumped)) {
     throw new Error(
-      `dump 出力が見つかりません。${installDir} を確認してください。\n` +
-        `期待: unpacked_LINE.exe`,
+      `dump 出力が見つかりません。${installDir} を確認してください。\n` + `期待: unpacked_LINE.exe`,
     );
   }
 
@@ -363,11 +344,7 @@ async function main(): Promise<void> {
     unlicense: UNLICENSE_RELEASE,
     timeoutSec,
   };
-  writeFileSync(
-    join(DATA_DIR, "unpack-meta.json"),
-    `${JSON.stringify(meta, null, 2)}\n`,
-    "utf8",
-  );
+  writeFileSync(join(DATA_DIR, "unpack-meta.json"), `${JSON.stringify(meta, null, 2)}\n`, "utf8");
 
   log(`done -> ${outPath} (${(meta.size / 1024 / 1024).toFixed(1)} MB)`);
   log(`次: bun run find -- sendMessage --list-only`);
