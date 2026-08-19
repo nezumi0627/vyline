@@ -31,21 +31,27 @@ import type {
 // re-export for convenience
 export type { LineProfile } from "@vyline/types";
 
+export interface Announcement {
+  announcementSeq: string;
+  text: string;
+  link: string;
+  creatorMid: string;
+  createdTime: number;
+}
+
 const BASE = "/api";
 
 /** バックエンド未起動時は TypeError(ECONNREFUSED) が飛ぶ → 静かに失敗 */
 function isBackendDown(err: unknown): boolean {
   return (
     err instanceof TypeError &&
-    (String(err).includes("fetch") || String(err).includes("ECONNREFUSED") || String(err).includes("NetworkError"))
+    (String(err).includes("fetch") ||
+      String(err).includes("ECONNREFUSED") ||
+      String(err).includes("NetworkError"))
   );
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-): Promise<T> {
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`${BASE}${path}`, {
@@ -57,9 +63,7 @@ async function request<T>(
     if (isBackendDown(err)) {
       throw new Error("BACKEND_DOWN");
     }
-    throw new Error(
-      `backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`,
-    );
+    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
   }
 
   const text = await res.text();
@@ -94,14 +98,23 @@ export const api = {
     loginQrPoll: (accountId: string) =>
       request<QrPollResponse>("GET", `/auth/login/qr/${accountId}`),
 
-    restore: (accountId: string) =>
-      request<LoginResult>("POST", "/auth/restore", { accountId }),
+    loginToken: (params: { accountId: string; authToken: string }) =>
+      request<LoginResult>("POST", "/auth/login/token", params),
 
-    accounts: () =>
-      request<AccountsResponse>("GET", "/auth/accounts"),
+    getToken: (accountId: string) =>
+      request<{ ok: boolean; token?: string; error?: string }>("GET", `/auth/token/${encodeURIComponent(accountId)}`),
 
-    sessions: () =>
-      request<SessionsResponse>("GET", "/auth/sessions"),
+    restore: (accountId: string) => request<LoginResult>("POST", "/auth/restore", { accountId }),
+
+    switch_: (accountId: string) =>
+      request<{ ok: boolean; accountId: string; restored?: boolean; error?: string }>(
+        "POST",
+        `/auth/switch/${encodeURIComponent(accountId)}`,
+      ),
+
+    accounts: () => request<AccountsResponse>("GET", "/auth/accounts"),
+
+    sessions: () => request<SessionsResponse>("GET", "/auth/sessions"),
 
     deleteSession: (accountId: string, opts?: { logout?: boolean }) =>
       request<{ ok: boolean }>(
@@ -114,8 +127,7 @@ export const api = {
   },
 
   line: {
-    profile: (accountId: string) =>
-      request<ProfileResponse>("GET", `/line/${accountId}/profile`),
+    profile: (accountId: string) => request<ProfileResponse>("GET", `/line/${accountId}/profile`),
 
     bootstrap: (accountId: string) =>
       request<BootstrapResponse>("GET", `/line/${accountId}/bootstrap`),
@@ -126,10 +138,7 @@ export const api = {
       if (opts?.refresh) q.set("refresh", "1");
       if (opts?.force) q.set("force", "1");
       const qs = q.toString();
-      return request<ChatsResponse>(
-        "GET",
-        `/line/${accountId}/chats${qs ? `?${qs}` : ""}`,
-      );
+      return request<ChatsResponse>("GET", `/line/${accountId}/chats${qs ? `?${qs}` : ""}`);
     },
 
     messages: (
@@ -157,11 +166,7 @@ export const api = {
     },
 
     /** チャット履歴を JSON / TXT でダウンロード（復号済み） */
-    exportMessages: async (
-      accountId: string,
-      chatMid: string,
-      format: "json" | "txt" = "json",
-    ) => {
+    exportMessages: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
       const res = await fetch(
         `${BASE}/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
       );
@@ -259,8 +264,8 @@ export const api = {
     contactProfile: (accountId: string, targetMid: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/contact/${targetMid}`),
 
-    /** Nezu プロフィール/グループキャッシュ */
-    nezuCache: (accountId: string) =>
+    /** Vyline プロフィール/グループキャッシュ */
+    vylineCache: (accountId: string) =>
       request<{
         ok: boolean;
         profiles?: Record<
@@ -278,12 +283,12 @@ export const api = {
         >;
         groups?: Record<string, unknown>;
         error?: string;
-      }>("GET", `/line/${accountId}/nezu/cache`),
+      }>("GET", `/line/${accountId}/vyline/cache`),
 
-    nezuWarm: (accountId: string, mids: string[]) =>
-      request<{ ok: boolean; count?: number; error?: string }>(
+    vylineWarm: (accountId: string, mids: string[]) =>
+      request<{ ok: boolean; profiles?: Record<string, unknown>; count?: number; error?: string }>(
         "POST",
-        `/line/${accountId}/nezu/warm`,
+        `/line/${accountId}/vyline/warm`,
         { mids },
       ),
 
@@ -302,6 +307,23 @@ export const api = {
         fromCache?: boolean;
         error?: string;
       }>("GET", `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/members`),
+
+    commonGroups: (accountId: string, targetMid: string, excludeChatId?: string) =>
+      request<{
+        ok: boolean;
+        groups?: Array<{
+          chatMid: string;
+          name: string;
+          thumbnailUrl?: string;
+          memberMids: string[];
+        }>;
+        error?: string;
+      }>(
+        "GET",
+        `/line/${accountId}/common-groups/${encodeURIComponent(targetMid)}${
+          excludeChatId ? `?exclude=${encodeURIComponent(excludeChatId)}` : ""
+        }`,
+      ),
 
     updateProfile: (
       accountId: string,
@@ -331,7 +353,12 @@ export const api = {
         body: bytes,
       }).then(async (res) => {
         const text = await res.text();
-        return JSON.parse(text || "{}") as { ok: boolean; objId?: string; error?: string };
+        return JSON.parse(text || "{}") as {
+          ok: boolean;
+          objId?: string;
+          backgroundUrl?: string;
+          error?: string;
+        };
       }),
 
     renameContact: (accountId: string, mid: string, displayNameOverride: string | null) =>
@@ -487,33 +514,283 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/restore/status`),
 
+    /** VylineBackup: チャット一覧 + メッセージ件数（選択 UI 用） */
+    backupChats: (accountId: string) =>
+      request<{
+        ok: boolean;
+        data?: Array<{ mid: string; name: string; messageCount: number }>;
+        error?: string;
+      }>("GET", `/line/${accountId}/backup/chats`),
+
+    backupCreate: (accountId: string, opts: { chatMids?: string[]; includeMedia?: boolean }) =>
+      request<{
+        ok: boolean;
+        summary?: {
+          id: string;
+          createdAt: string;
+          accountId: string;
+          chatCount: number;
+          messageCount: number;
+          mediaCount: number;
+          includeMedia: boolean;
+          sizeBytes: number;
+        };
+        error?: string;
+      }>("POST", `/line/${accountId}/backup/create`, opts),
+
+    backupList: (accountId: string) =>
+      request<{
+        ok: boolean;
+        data?: Array<{
+          id: string;
+          createdAt: string;
+          accountId: string;
+          chatCount: number;
+          messageCount: number;
+          mediaCount: number;
+          includeMedia: boolean;
+          sizeBytes: number;
+        }>;
+        error?: string;
+      }>("GET", `/line/${accountId}/backup/list`),
+
+    backupRestore: (
+      accountId: string,
+      opts: { backupId: string; chatMids?: string[]; includeMedia?: boolean },
+    ) =>
+      request<{
+        ok: boolean;
+        restoredChats?: number;
+        restoredMessages?: number;
+        restoredMedia?: number;
+        error?: string;
+      }>("POST", `/line/${accountId}/backup/restore`, opts),
+
+    backupDelete: (accountId: string, backupId: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/backup/${encodeURIComponent(backupId)}`,
+      ),
+
+    /** チャット内容・アナウンスのタイミング付き詳細ログ（メディア対応） */
+    messageLog: (accountId: string, limit?: number) =>
+      request<{
+        ok: boolean;
+        data?: Array<{
+          ts: string;
+          tsMillis: number;
+          accountId: string;
+          kind: "message" | "announcement";
+          direction: "in" | "out";
+          chatMid: string;
+          chatName?: string;
+          senderMid: string;
+          senderName?: string;
+          contentType: string;
+          text?: string | null;
+          media?: {
+            contentType: string;
+            mediaId?: string;
+            attachmentName?: string;
+            durationMillis?: number;
+            fileSize?: number;
+            stickerId?: string;
+            packageId?: string;
+          };
+          locKey?: string;
+        }>;
+        error?: string;
+      }>("GET", `/line/${accountId}/log${limit ? `?limit=${limit}` : ""}`),
+
     call: (accountId: string, to: string, callType: "AUDIO" | "VIDEO" = "AUDIO") =>
-      request<CallRouteResponse>("POST", `/line/${accountId}/call`, { to, callType, kind: "direct" }),
+      request<CallRouteResponse>("POST", `/line/${accountId}/call`, {
+        to,
+        callType,
+        kind: "direct",
+      }),
 
     callStart: (accountId: string, to: string, callType: CallType = "AUDIO") =>
       request<CallStartResponse>("POST", `/line/${accountId}/call/start`, { to, callType }),
 
     callEnd: (accountId: string, sessionId: string) =>
-      request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/call/end`, { sessionId }),
+      request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/call/end`, {
+        sessionId,
+      }),
 
     callStatus: (accountId: string, sessionId: string) =>
-      request<CallStatusResponse>("GET", `/line/${accountId}/call/status?sessionId=${encodeURIComponent(sessionId)}`),
+      request<CallStatusResponse>(
+        "GET",
+        `/line/${accountId}/call/status?sessionId=${encodeURIComponent(sessionId)}`,
+      ),
 
     callActive: (accountId: string) =>
       request<CallActiveResponse>("GET", `/line/${accountId}/call/active`),
 
     groupCall: (accountId: string, chatMid: string, callType: "AUDIO" | "VIDEO" = "AUDIO") =>
-      request<CallRouteResponse>("POST", `/line/${accountId}/call`, { chatMid, callType, kind: "group" }),
+      request<CallRouteResponse>("POST", `/line/${accountId}/call`, {
+        chatMid,
+        callType,
+        kind: "group",
+      }),
+
+    groupCallStatus: (accountId: string, chatMid: string) =>
+      request<{
+        ok: boolean;
+        online?: boolean;
+        chatMid?: string;
+        hostMid?: string;
+        memberMids?: string[];
+        mediaType?: string;
+        error?: string;
+      }>("GET", `/line/${accountId}/call/group-status?chatMid=${encodeURIComponent(chatMid)}`),
+
+    // ── LIFF 機能 ──
+    liff: {
+      warm: (accountId: string, app: "ladder" | "schedule" | "poll", chatMid: string) =>
+        request<{ ok: boolean }>("POST", `/line/${accountId}/liff/warm`, { app, chatMid }),
+    },
+    ladder: {
+      members: (accountId: string, chatMid: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/ladder/members/${encodeURIComponent(chatMid)}`,
+        ),
+      generate: (accountId: string, chatMid: string, memberIds: string[], options: string[]) =>
+        request<{ ok: boolean; data: unknown }>("POST", `/line/${accountId}/ladder/generate`, {
+          chatMid,
+          memberIds,
+          options,
+        }),
+      result: (accountId: string, chatMid: string, hash: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/ladder/result/${encodeURIComponent(chatMid)}/${hash}`,
+        ),
+      message: (accountId: string, chatMid: string, hash: string) =>
+        request<{ ok: boolean; data: unknown }>("POST", `/line/${accountId}/ladder/message`, {
+          chatMid,
+          hash,
+        }),
+    },
+
+    schedule: {
+      create: (
+        accountId: string,
+        chatMid: string,
+        data: { name: string; description?: string; candidates: number[]; pictureId?: number },
+      ) =>
+        request<{ ok: boolean; data: unknown }>("POST", `/line/${accountId}/schedule/events`, {
+          chatMid,
+          ...data,
+        }),
+      answer: (
+        accountId: string,
+        chatMid: string,
+        eventId: string,
+        answers: { candidate: number; status: string }[],
+        comment?: string,
+      ) =>
+        request<{ ok: boolean; data: unknown }>(
+          "POST",
+          `/line/${accountId}/schedule/events/${eventId}/answer`,
+          { chatMid, answers, comment },
+        ),
+      share: (
+        accountId: string,
+        chatMid: string,
+        eventId: string,
+        groupEncIds: string[],
+        comment?: string,
+      ) =>
+        request<{ ok: boolean; data: unknown }>(
+          "POST",
+          `/line/${accountId}/schedule/events/${eventId}/share`,
+          { chatMid, groupEncIds, comment },
+        ),
+      event: (accountId: string, chatMid: string, eventId: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/schedule/events/${eventId}/${encodeURIComponent(chatMid)}`,
+        ),
+      groups: (accountId: string, chatMid: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/schedule/groups/${encodeURIComponent(chatMid)}`,
+        ),
+      group: (accountId: string, chatMid: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/schedule/group/${encodeURIComponent(chatMid)}`,
+        ),
+    },
+
+    poll: {
+      create: (
+        accountId: string,
+        chatMid: string,
+        data: {
+          title: string;
+          multiple?: boolean;
+          anonymous?: boolean;
+          closeDate?: number;
+          choiceList: { text: string }[];
+        },
+      ) =>
+        request<{ ok: boolean; data: unknown }>("POST", `/line/${accountId}/poll/create`, {
+          chatMid,
+          ...data,
+        }),
+      vote: (accountId: string, chatMid: string, questionId: string, choiceIds: string[]) =>
+        request<{ ok: boolean; data: unknown }>(
+          "POST",
+          `/line/${accountId}/poll/${questionId}/vote`,
+          {
+            chatMid,
+            choiceIds,
+          },
+        ),
+      question: (accountId: string, chatMid: string, questionId: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/poll/${questionId}/${encodeURIComponent(chatMid)}`,
+        ),
+      close: (accountId: string, chatMid: string, questionId: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/poll/${questionId}/close/${encodeURIComponent(chatMid)}`,
+        ),
+      announce: (accountId: string, chatMid: string, questionId: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "POST",
+          `/line/${accountId}/poll/${questionId}/announce`,
+          {
+            chatMid,
+          },
+        ),
+    },
+
+    announce: {
+      list: (accountId: string, chatMid: string) =>
+        request<{ ok: boolean; data: Announcement[] }>(
+          "GET",
+          `/line/${accountId}/announcements/${encodeURIComponent(chatMid)}`,
+        ),
+      create: (accountId: string, chatMid: string, text: string, messageId?: string) =>
+        request<{ ok: boolean; data: { announcementSeq: string } }>(
+          "POST",
+          `/line/${accountId}/announcements`,
+          { chatMid, text, messageId },
+        ),
+      remove: (accountId: string, chatMid: string, seq: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "DELETE",
+          `/line/${accountId}/announcements/${encodeURIComponent(chatMid)}/${seq}`,
+        ),
+    },
   },
-
   debug: {
-    health: () =>
-      request<{ ok: boolean; uptime: number }>("GET", "/debug/health"),
+    health: () => request<{ ok: boolean; uptime: number }>("GET", "/debug/health"),
 
-    tokens: () =>
-      request<{ ok: boolean; tokens: Record<string, unknown> }>(
-        "GET",
-        "/debug/tokens",
-      ),
+    tokens: () => request<{ ok: boolean; tokens: Record<string, unknown> }>("GET", "/debug/tokens"),
   },
 };

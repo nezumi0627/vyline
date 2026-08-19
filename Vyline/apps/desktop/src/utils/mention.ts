@@ -28,9 +28,7 @@ export type MentionDraft = MentionInfo & {
 };
 
 /** contentMetadata.MENTION をパースしてメンション範囲を返す */
-export function parseMentions(
-  meta?: Record<string, unknown> | null,
-): MentionInfo[] | undefined {
+export function parseMentions(meta?: Record<string, unknown> | null): MentionInfo[] | undefined {
   const raw = meta?.MENTION;
   if (typeof raw !== "string" || !raw.trim()) return undefined;
   try {

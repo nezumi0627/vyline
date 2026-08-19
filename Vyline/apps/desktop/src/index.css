@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /*
-  NezuTheme (Telegram Night default). ThemeApplier が実行時に上書き。
+  VyTheme (Telegram Night default). ThemeApplier が実行時に上書き。
   Tailwind v3 — @tailwind base/components/utilities
 */
 :root {
@@ -51,8 +51,8 @@
   --vy-message-radius: 14px;
   --vy-sidebar-width: 360px;
   --vy-topbar-height: 0px;
-  --vy-font-family: "IBM Plex Sans JP", "IBM Plex Sans", "Segoe UI", "Hiragino Sans",
-    "Noto Sans JP", sans-serif;
+  --vy-font-family:
+    "IBM Plex Sans JP", "IBM Plex Sans", "Segoe UI", "Hiragino Sans", "Noto Sans JP", sans-serif;
 }
 
 @layer base {
@@ -259,19 +259,19 @@
   border-radius: var(--vy-message-radius, 14px);
 }
 
-/* --- NezuCursor --- */
-html.nezu-cursor-on,
-html.nezu-cursor-on * {
+/* --- VylineCursor --- */
+html.vyline-cursor-on,
+html.vyline-cursor-on * {
   cursor: none !important;
 }
-.nezu-cursor-layer {
+.vyline-cursor-layer {
   position: fixed;
   inset: 0;
   z-index: 99999;
   pointer-events: none;
   transition: opacity 120ms ease;
 }
-.nezu-cursor-dot {
+.vyline-cursor-dot {
   position: fixed;
   top: 0;
   left: 0;
@@ -280,10 +280,12 @@ html.nezu-cursor-on * {
   border-radius: 999px;
   will-change: transform;
   pointer-events: none;
-  transition: scale 80ms ease, opacity 120ms ease;
+  transition:
+    scale 80ms ease,
+    opacity 120ms ease;
   box-shadow: 0 0 8px color-mix(in oklab, var(--vy-accent) 50%, transparent);
 }
-.nezu-cursor-ring {
+.vyline-cursor-ring {
   position: fixed;
   top: 0;
   left: 0;

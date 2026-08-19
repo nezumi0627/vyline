@@ -2,8 +2,8 @@
 /**
  * 通話テスト CLI — Desktop 準拠の通話フロー検証
  *
- *   bun run nezu:call-test -- --account main --name 相手名
- *   bun run nezu:call-test -- --account main --to uxxxxxxxx --tone
+ *   bun run vyline:call-test -- --account main --name 相手名
+ *   bun run vyline:call-test -- --account main --to uxxxxxxxx --tone
  */
 
 import { parseArgs } from "node:util";

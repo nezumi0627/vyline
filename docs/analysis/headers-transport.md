@@ -9,5 +9,5 @@
 
 同時ログイン（既定は副端末で Desktop ヘッダーを当てない）: [dual-login-desktop.md](./dual-login-desktop.md)
 
-Vyline: `patchTransport.ts`, `identity.ts`, `deviceMode.ts`, `NezuUpdater.ts`  
+Vyline: `patchTransport.ts`, `identity.ts`, `deviceMode.ts`, `VylineUpdater.ts`  
 ツール: [docs/tools/desktop-delta.md](../tools/desktop-delta.md)

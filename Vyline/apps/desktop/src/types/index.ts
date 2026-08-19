@@ -6,13 +6,7 @@
  * フロント固有の UI 型もここに置く。
  */
 
-export type {
-  LineProfile,
-  Chat,
-  ChatKind,
-  Message,
-  MessageContentMeta,
-} from "@vyline/types";
+export type { LineProfile, Chat, ChatKind, Message, MessageContentMeta } from "@vyline/types";
 
 // ─── UI-only types ────────────────────────────
 

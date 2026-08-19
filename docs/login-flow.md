@@ -72,7 +72,7 @@
 
 ## 共通ヘッダー (LINE Desktop Windows — 実ランタイム確認)
 
-NezuLINE / NezuUpdater が Desktop 実体から追従する形式。
+Vyline / VylineUpdater が Desktop 実体から追従する形式。
 `X-Line-Application` の区切りは **TAB (0x09)**（表示上ドットに見えることがある）。
 
 ```
@@ -87,14 +87,14 @@ x-line-access: <token>   ← ログイン後のみ
 Host: legy-jp.line-apps.com
 ```
 
-### Desktop 関数レベル対応 (NezuLINE)
+### Desktop 関数レベル対応 (Vyline)
 
-| 処理 | Desktop (LINE.exe) | NezuLINE |
-|---|---|---|
-| QR | createSession → createQrCodeForSecure → checkQrCodeVerified → qrCodeLoginV2ForSecure | 同左。systemName=ホスト名, modelName=PCモデル |
-| Email RSA | getRSAKeyInfo @ `/api/v3/TalkService.do` | 同左 |
-| Email Auth | loginV2 / confirmE2EELogin @ `/api/v3p/rs` | 同左。fid12=PCモデル |
-| Talk | `/S4` sendMessage / getProfile | linejs TalkService (DESKTOPWIN→/S4系) |
+| 処理       | Desktop (LINE.exe)                                                                   | Vyline                                        |
+| ---------- | ------------------------------------------------------------------------------------ | --------------------------------------------- |
+| QR         | createSession → createQrCodeForSecure → checkQrCodeVerified → qrCodeLoginV2ForSecure | 同左。systemName=ホスト名, modelName=PCモデル |
+| Email RSA  | getRSAKeyInfo @ `/api/v3/TalkService.do`                                             | 同左                                          |
+| Email Auth | loginV2 / confirmE2EELogin @ `/api/v3p/rs`                                           | 同左。fid12=PCモデル                          |
+| Talk       | `/S4` sendMessage / getProfile                                                       | linejs TalkService (DESKTOPWIN→/S4系)         |
 
 出典: 稼働中 LINE.exe (26.3.0.3916) プロセスメモリ + `%LOCALAPPDATA%\LINE`。
 
@@ -102,17 +102,17 @@ Host: legy-jp.line-apps.com
 
 ## エンドポイント一覧
 
-| パス | ホスト | 用途 |
-|---|---|---|
-| `/acct/lgn/sq/v1` | `legy-jp.line-apps.com` | QR セッション・QR コード生成・verifyCertificate |
-| `/acct/lp/lgn/sq/v1` | `legy-jp.line-apps.com` | QR スキャン確認 (long polling) |
-| `/api/v3/TalkService.do` | `legy-jp.line-apps.com` | getRSAKeyInfo |
-| `/api/v3p/rs` | `legy-jp.line-apps.com` | loginV2 / confirmE2EELogin |
-| `/LF1` | `legy-jp.line-apps.com` | E2EE 鍵情報取得 |
-| `/S4` | `legy-jp.line-apps.com` | TalkService (メッセージ等) |
-| `/SQ1` | `legy-jp.line-apps.com` | fetchMyEvents (long polling) |
-| `/CH4` | `legy-jp.line-apps.com` | Channel |
-| `/RE4` | `legy-jp.line-apps.com` | RelationService |
+| パス                     | ホスト                  | 用途                                            |
+| ------------------------ | ----------------------- | ----------------------------------------------- |
+| `/acct/lgn/sq/v1`        | `legy-jp.line-apps.com` | QR セッション・QR コード生成・verifyCertificate |
+| `/acct/lp/lgn/sq/v1`     | `legy-jp.line-apps.com` | QR スキャン確認 (long polling)                  |
+| `/api/v3/TalkService.do` | `legy-jp.line-apps.com` | getRSAKeyInfo                                   |
+| `/api/v3p/rs`            | `legy-jp.line-apps.com` | loginV2 / confirmE2EELogin                      |
+| `/LF1`                   | `legy-jp.line-apps.com` | E2EE 鍵情報取得                                 |
+| `/S4`                    | `legy-jp.line-apps.com` | TalkService (メッセージ等)                      |
+| `/SQ1`                   | `legy-jp.line-apps.com` | fetchMyEvents (long polling)                    |
+| `/CH4`                   | `legy-jp.line-apps.com` | Channel                                         |
+| `/RE4`                   | `legy-jp.line-apps.com` | RelationService                                 |
 
 ---
 
@@ -150,15 +150,15 @@ i32/i64: [zigzag varint]
 
 ---
 
-## Vyline（nezuline）での実装方針
+## Vyline（protocol）での実装方針
 
-外部 `@evex/linejs` は使わない。backend が `@vyline/nezuline` 経由でログインする。
+外部 `@evex/linejs` は使わない。backend が `@vyline/protocol` 経由でログインする。
 
 ```typescript
-import { loginWithQR, loginWithEmail, loginWithToken } from "@vyline/nezuline";
+import { loginWithQR, loginWithEmail, loginWithToken } from "@vyline/protocol";
 
 // QR ログイン（backend: POST /auth/qr 等）
-const session = await loginWithQR({ /* … */ });
+const session = await loginWithQR({/* … */});
 
 // メールログイン（E2EE フロー — 本ドキュメント前半参照）
 const session = await loginWithEmail({ email, password });
@@ -167,9 +167,9 @@ const session = await loginWithEmail({ email, password });
 const session = await loginWithToken({ accessToken, refreshToken });
 ```
 
-- Desktop ヘッダー追従: `patchDesktopTransport` / `NezuUpdater`
+- Desktop ヘッダー追従: `patchDesktopTransport` / `VylineUpdater`
 - ログイン RPC パッチ: `patchDesktopLogin`（DESKTOPWIN 時）
-- 詳細: [packages/nezuline/README.md](../Vyline/packages/nezuline/README.md)
+- 詳細: [packages/protocol/README.md](../Vyline/packages/protocol/README.md)
 
 ---
 

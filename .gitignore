@@ -67,3 +67,8 @@ tools/data/
 *.exe
 *.dll
 *.pdb
+
+# ── Editor / AI config (never commit) ───────────────────────────
+.cursor/
+.claude/
+.agents/skills/handoff/

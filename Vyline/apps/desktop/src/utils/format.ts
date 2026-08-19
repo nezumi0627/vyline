@@ -25,11 +25,7 @@ export function formatTime(ms: number): string {
 }
 
 const STICKER_TYPES = new Set(["STICKER", "7", "STICKER_IMAGE"]);
-const SYSTEM_TYPES = new Set([
-  "CHATEVENT",
-  "SERVICE",
-  "INFO",
-]);
+const SYSTEM_TYPES = new Set(["CHATEVENT", "SERVICE", "INFO"]);
 
 export function isStickerContent(contentType: string): boolean {
   return STICKER_TYPES.has(contentType) || contentType.toUpperCase().includes("STICKER");
@@ -65,6 +61,16 @@ export function isFileContent(contentType: string): boolean {
   return u === "FILE" || u === "14";
 }
 
+export function isContactContent(contentType: string): boolean {
+  const u = contentType.toUpperCase();
+  return u === "CONTACT" || u === "13";
+}
+
+export function isLocationContent(contentType: string): boolean {
+  const u = contentType.toUpperCase();
+  return u === "LOCATION" || u === "15";
+}
+
 export function isSystemLikeContent(contentType: string): boolean {
   const u = contentType.toUpperCase();
   if (
@@ -88,17 +94,10 @@ export function isSystemLikeContent(contentType: string): boolean {
   ) {
     return false;
   }
-  return (
-    SYSTEM_TYPES.has(contentType) ||
-    u.includes("CHATEVENT") ||
-    u === "SERVICE"
-  );
+  return SYSTEM_TYPES.has(contentType) || u.includes("CHATEVENT") || u === "SERVICE";
 }
 
-export function systemEventLabel(
-  contentType: string,
-  meta?: MessageContentMeta | null,
-): string {
+export function systemEventLabel(contentType: string, meta?: MessageContentMeta | null): string {
   const u = contentType.toUpperCase();
   if (meta?.eventType) return meta.eventType;
   if (u.includes("VIDEO") && u.includes("CALL")) return "ビデオ通話";
@@ -204,7 +203,12 @@ export function isUnsentMessage(
   const u = String(contentType).toUpperCase();
   if (u === "UNSENT" || u === "UNSEND") return true;
   if (meta?.UNSENT || meta?.UNSEND) return true;
-  if (String(meta?.REPLACE ?? "").toUpperCase().includes("UNSEND")) return true;
+  if (
+    String(meta?.REPLACE ?? "")
+      .toUpperCase()
+      .includes("UNSEND")
+  )
+    return true;
   if (hasChunks) return false;
   if (text && text.trim()) return false;
   if (u !== "NONE" && u !== "0") return false;

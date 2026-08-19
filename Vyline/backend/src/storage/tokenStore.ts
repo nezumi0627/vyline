@@ -27,8 +27,7 @@ import { childLogger } from "../logger.js";
 const log = childLogger("tokenStore");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR =
-  process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
+const DATA_DIR = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
 const TOKENS_FILE = join(DATA_DIR, "tokens.json");
 
 export interface TokenEntry {
@@ -107,8 +106,7 @@ export async function saveToken(
   const existing = tokens[accountId];
   const entry: TokenEntry = {
     authToken: token,
-    storageFile:
-      existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
+    storageFile: existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
     savedAt: new Date().toISOString(),
   };
   const mid = meta?.mid ?? existing?.mid;
@@ -122,16 +120,10 @@ export async function saveToken(
   tokens[accountId] = entry;
 
   await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
-  log.info(
-    { accountId, displayName: entry.displayName, mid: entry.mid },
-    "token saved",
-  );
+  log.info({ accountId, displayName: entry.displayName, mid: entry.mid }, "token saved");
 }
 
-export async function updateSessionMeta(
-  accountId: string,
-  meta: SessionMeta,
-): Promise<void> {
+export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {
   const tokens = await loadTokens();
   const existing = tokens[accountId];
   if (!existing) return;
@@ -151,9 +143,7 @@ export async function deleteToken(accountId: string): Promise<void> {
   log.info({ accountId }, "token deleted");
 }
 
-export async function getToken(
-  accountId: string,
-): Promise<TokenEntry | undefined> {
+export async function getToken(accountId: string): Promise<TokenEntry | undefined> {
   const tokens = await loadTokens();
   return tokens[accountId];
 }

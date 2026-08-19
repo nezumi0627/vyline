@@ -1,4 +1,6 @@
-import { cn } from "@/lib/utils"
+import { useState } from "react";
+import { cn } from "@/lib/utils";
+import { lineAvatarUrl } from "@/utils/lineMedia";
 
 export function Toggle({
   checked,
@@ -6,10 +8,10 @@ export function Toggle({
   label,
   id,
 }: {
-  checked: boolean
-  onChange: (v: boolean) => void
-  label?: string
-  id?: string
+  checked: boolean;
+  onChange: (v: boolean) => void;
+  label?: string;
+  id?: string;
 }) {
   return (
     <button
@@ -21,7 +23,9 @@ export function Toggle({
       onClick={() => onChange(!checked)}
       className={cn(
         "relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--vy-surface)]",
-        checked ? "bg-[var(--vy-accent)]" : "bg-[color-mix(in_oklab,var(--vy-text-dim)_35%,transparent)]",
+        checked
+          ? "bg-[var(--vy-accent)]"
+          : "bg-[color-mix(in_oklab,var(--vy-text-dim)_35%,transparent)]",
       )}
     >
       <span
@@ -31,7 +35,7 @@ export function Toggle({
         )}
       />
     </button>
-  )
+  );
 }
 
 export function Avatar({
@@ -41,20 +45,26 @@ export function Avatar({
   online,
   ring,
   imageUrl,
+  icon,
 }: {
-  glyph: string
-  color: string
-  size?: number
-  online?: boolean
-  ring?: boolean
-  imageUrl?: string
+  glyph: string;
+  color: string;
+  size?: number;
+  online?: boolean;
+  ring?: boolean;
+  imageUrl?: string;
+  /** 文字の代わりに表示するアイコン（Keepメモ など） */
+  icon?: React.ReactNode;
 }) {
+  const [broken, setBroken] = useState(false);
+  const showImg = imageUrl && !broken;
   return (
     <span className="relative inline-flex shrink-0" style={{ width: size, height: size }}>
-      {imageUrl ? (
+      {showImg ? (
         <img
-          src={imageUrl}
+          src={lineAvatarUrl(imageUrl!)}
           alt=""
+          onError={() => setBroken(true)}
           className={cn(
             "h-full w-full rounded-full object-cover",
             ring && "ring-2 ring-[var(--vy-accent)] ring-offset-2 ring-offset-[var(--vy-surface)]",
@@ -74,7 +84,7 @@ export function Avatar({
           }}
           aria-hidden
         >
-          {glyph}
+          {icon ?? glyph}
         </span>
       )}
       {online && (
@@ -89,5 +99,5 @@ export function Avatar({
         />
       )}
     </span>
-  )
+  );
 }

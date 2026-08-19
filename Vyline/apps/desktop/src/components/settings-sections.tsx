@@ -12,7 +12,7 @@ function formatRelativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}日前`
 }
 import { Toggle, Avatar } from "@/components/vy-ui"
-import { NezuThemePanel } from "@/components/nezu-theme-panel"
+import { VyThemePanel } from "@/components/vy-theme-panel"
 import {
   IconArrowLeft,
   IconEye,
@@ -482,7 +482,7 @@ function ThemeSectionWithPreview() {
         <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">
           着せ替えを選ぶ・カスタムして自分だけの Vyline に
         </p>
-        <NezuThemePanel />
+        <VyThemePanel />
       </div>
       <aside className="hidden lg:block">
         <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">ライブプレビュー</p>
@@ -713,7 +713,7 @@ function AdvancedSection() {
                   }
                   // 非表示チャット
                   if (Array.isArray(data.hiddenChats)) {
-                    for (const id of data.hiddenChats) state.toggleHide(id)
+                    for (const id of data.hiddenChats) state.setHidden(id, true)
                   }
                   // ピン留め
                   if (Array.isArray(data.pinnedChats)) {
@@ -1015,6 +1015,9 @@ function PrivacySection() {
       const res = await api.line.unblockContact(accountId, mid)
       if (res.ok) {
         setBlocked((prev) => prev.filter((b) => b.mid !== mid))
+        useStore.setState((st) => ({
+          blockedMids: st.blockedMids.filter((m) => m !== mid),
+        }))
       }
     } catch {
       /* ignore */

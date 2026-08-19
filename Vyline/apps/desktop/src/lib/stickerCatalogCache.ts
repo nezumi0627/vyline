@@ -25,21 +25,14 @@ export type StickersCatalogCache = {
 const MEM_TTL_MS = 30 * 60_000;
 const DISK_TTL_MS = 24 * 60 * 60_000;
 
-let mem: { accountId: string; at: number; data: StickersCatalogCache } | null =
-  null;
+let mem: { accountId: string; at: number; data: StickersCatalogCache } | null = null;
 
 function storageKey(accountId: string): string {
   return `vyline:stickers-catalog:v2:${accountId}`;
 }
 
-export function getCachedStickersCatalog(
-  accountId: string,
-): StickersCatalogCache | null {
-  if (
-    mem &&
-    mem.accountId === accountId &&
-    Date.now() - mem.at < MEM_TTL_MS
-  ) {
+export function getCachedStickersCatalog(accountId: string): StickersCatalogCache | null {
+  if (mem && mem.accountId === accountId && Date.now() - mem.at < MEM_TTL_MS) {
     return mem.data;
   }
   try {
@@ -72,16 +65,10 @@ export function isStickersCatalogFresh(accountId: string): boolean {
   }
 }
 
-export function setCachedStickersCatalog(
-  accountId: string,
-  data: StickersCatalogCache,
-): void {
+export function setCachedStickersCatalog(accountId: string, data: StickersCatalogCache): void {
   mem = { accountId, at: Date.now(), data };
   try {
-    localStorage.setItem(
-      storageKey(accountId),
-      JSON.stringify({ at: Date.now(), data }),
-    );
+    localStorage.setItem(storageKey(accountId), JSON.stringify({ at: Date.now(), data }));
   } catch {
     /* quota */
   }

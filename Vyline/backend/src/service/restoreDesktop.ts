@@ -15,10 +15,10 @@ import {
   loadDesktopE2EEKeyDump,
   seedSelfPublicKeyCache,
   detectInstalledDesktop,
-} from "@vyline/nezuline";
+} from "@vyline/protocol";
 import { childLogger } from "../logger.js";
 import { getClient } from "../line/clientManager.js";
-import { refreshNezuProfile } from "../nezu/profileBridge.js";
+import { refreshVylineProfile } from "../vyline/profileBridge.js";
 
 const log = childLogger("service:restore-desktop");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -28,8 +28,8 @@ function backendDataDir(): string {
   return join(_dir, "../../data");
 }
 
-function nezuProfileCachePath(): string {
-  return join(backendDataDir(), "nezuline", "desktop-profile.json");
+function vylineProfileCachePath(): string {
+  return join(backendDataDir(), "vyline", "desktop-profile.json");
 }
 
 function resolveDesktopKeysPath(): string | null {
@@ -85,9 +85,7 @@ export async function getRestoreStatus(accountId: string) {
     await client.base.talk.getProfile();
     mid = client.base.profile?.mid ?? null;
     const serverKeys = await client.base.talk.getE2EEPublicKeys();
-    serverKeyIds = serverKeys.map((k: { keyId?: number; 2?: number }) =>
-      Number(k.keyId ?? k[2]),
-    );
+    serverKeyIds = serverKeys.map((k: { keyId?: number; 2?: number }) => Number(k.keyId ?? k[2]));
     for (const keyId of serverKeyIds) {
       const raw = await client.base.storage.get(`e2eeKeys:${keyId}`);
       if (raw && typeof raw === "string") matched += 1;
@@ -132,7 +130,7 @@ export async function restoreFromDesktop(accountId: string) {
   const restoredProfile = loadSourceProfile();
   let restoredProfileCachePath: string | null = null;
   if (restoredProfile) {
-    restoredProfileCachePath = nezuProfileCachePath();
+    restoredProfileCachePath = vylineProfileCachePath();
     mkdirSync(dirname(restoredProfileCachePath), { recursive: true });
     writeFileSync(
       restoredProfileCachePath,
@@ -144,9 +142,9 @@ export async function restoreFromDesktop(accountId: string) {
   // Desktop プロファイル再スキャン（UA / X-Line-Application）
   let profileRefresh: unknown = null;
   try {
-    profileRefresh = await refreshNezuProfile();
+    profileRefresh = await refreshVylineProfile();
   } catch (err) {
-    log.warn({ err }, "nezu profile refresh failed (continuing)");
+    log.warn({ err }, "vyline profile refresh failed (continuing)");
   }
 
   const imported = await importDesktopE2EEKeys(client, dump);

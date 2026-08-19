@@ -11,7 +11,7 @@ Vyline: `ensureE2EE.ts`, `e2ee/letterSealing.ts`, backend `lineService.ts`
 
 `lineService.sendMessage()` は linejs 標準の
 「`e2ee: true` を渡して内部で `encryptE2EEMessage` → 自分自身を再帰呼び出し」
-という実装には依存しない。代わりに `@vyline/nezuline` の
+という実装には依存しない。代わりに `@vyline/protocol` の
 `encryptLetterSealingMessage()` で chunks を自前に組み立て、
 `client.base.talk.sendMessage({ chunks, contentMetadata, relatedMessageId })`
 を 1 回で呼ぶ明示的な実装に置き換えた。

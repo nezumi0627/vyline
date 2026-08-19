@@ -1,0 +1,1232 @@
+.vfx,
+.vfx * {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+  border: 0 solid transparent;
+  font-size: 100%;
+  font-weight: normal;
+  font-style: normal;
+  list-style: none;
+  line-height: 1.4;
+  color: #444;
+  font-family: -apple-system, "BlinkMacSystemFont", Helvetica, Roboto, Sans-Serif;
+}
+.vfx b,
+.vfx em,
+.vfx strong {
+  font-weight: bold;
+}
+.vfx .LyGi .T1 {
+  border-radius: 5px;
+  max-width: 500px;
+  margin: 0 7px;
+}
+.vfx .LyMe .T1 {
+  border-radius: 17px;
+}
+.vfx .LyKi .T1 {
+  border-radius: 10px;
+}
+.vfx .LyHe .T1 {
+  border-radius: 10px;
+}
+.vfx .LyDe .T1 {
+  border-radius: 10px;
+}
+.vfx .LyMi .T1 {
+  border-radius: 10px;
+}
+.vfx .LyNa .T1 {
+  border-radius: 10px;
+}
+.vfx .T1 {
+  border-radius: 17px;
+  overflow: hidden;
+  background-color: #ffffff;
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  flex-direction: column;
+}
+.vfx .T1 .t1Body,
+.vfx .T1 .t1Footer,
+.vfx .T1 .t1Header,
+.vfx .T1 .t1Hero {
+  display: inherit;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  flex-direction: column;
+}
+.vfx .T1 .t1Body > div,
+.vfx .T1 .t1Footer > div,
+.vfx .T1 .t1Header > div,
+.vfx .T1 .t1Hero > div {
+  flex-basis: auto;
+}
+.vfx .T1 .t1Hero:first-child,
+.vfx .T1 .t1Hero:first-child .MdImg.ExFull,
+.vfx .T1 .t1Hero:first-child .MdImg.ExFull > div,
+.vfx .T1 .t1Hero:first-child .MdImg.ExFull > div > a,
+.vfx .T1 .t1Hero:first-child .MdImg.ExFull > div > a > span {
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+.vfx .T1 .t1Hero:last-child,
+.vfx .T1 .t1Hero:last-child .MdImg.ExFull,
+.vfx .T1 .t1Hero:last-child .MdImg.ExFull > div,
+.vfx .T1 .t1Hero:last-child .MdImg.ExFull > div > a,
+.vfx .T1 .t1Hero:last-child .MdImg.ExFull > div > a > span {
+  border-bottom-left-radius: inherit;
+  border-bottom-right-radius: inherit;
+}
+.vfx .T1 .t1Hero:first-child .MdImg.ExFull > div > a > span,
+.vfx .T1 .t1Hero:last-child .MdImg.ExFull > div > a > span {
+  overflow: hidden;
+}
+.vfx .T1 .t1Header > .MdBx {
+  padding: 20px;
+}
+.vfx .LyKi .T1 .t1Header > .MdBx {
+  padding: 13px;
+}
+.vfx .LyHe .T1 .t1Header > .MdBx {
+  padding: 11px 14px 13px;
+}
+.vfx .LyDe .T1 .t1Header > .MdBx {
+  padding: 11px 14px 13px;
+}
+.vfx .LyMi .T1 .t1Header > .MdBx {
+  padding: 10px;
+}
+.vfx .LyNa .T1 .t1Header > .MdBx {
+  padding: 10px;
+}
+.vfx .T1 .t1Body > .MdBx {
+  padding: 20px;
+  padding-top: 19px;
+}
+.vfx .LyKi .T1 .t1Body > .MdBx {
+  padding: 13px;
+}
+.vfx .LyHe .T1 .t1Body > .MdBx {
+  padding: 11px 14px 13px;
+}
+.vfx .LyDe .T1 .t1Body > .MdBx {
+  padding: 11px 14px 13px;
+}
+.vfx .LyMi .T1 .t1Body > .MdBx {
+  padding: 10px;
+}
+.vfx .LyNa .T1 .t1Body > .MdBx {
+  padding: 10px;
+}
+.vfx .T1 .t1Body.ExHasFooter > .MdBx {
+  padding-bottom: 10px;
+}
+.vfx .LyKi .T1 .t1Body.ExHasFooter > .MdBx {
+  padding-bottom: 17px;
+}
+.vfx .LyHe .T1 .t1Body.ExHasFooter > .MdBx {
+  padding-bottom: 17px;
+}
+.vfx .LyDe .T1 .t1Body.ExHasFooter > .MdBx {
+  padding-bottom: 17px;
+}
+.vfx .T1 .t1Footer > .MdBx {
+  padding: 10px;
+}
+.vfx .fxLTR,
+.vfx [dir="ltr"] {
+  direction: ltr;
+}
+.vfx .fxRTL,
+.vfx [dir="rtl"] {
+  direction: rtl;
+}
+.vfx .MdBtn,
+.vfx .MdBx,
+.vfx .MdIco,
+.vfx .MdImg,
+.vfx .MdTxt,
+.vfx [class*="MdSep"] {
+  display: -webkit-box;
+  display: flex;
+  -webkit-box-orient: vertical;
+  -webkit-box-direction: normal;
+  flex-direction: column;
+  -webkit-box-flex: 1;
+  flex: 1 0 0;
+  min-width: 0;
+  max-width: 100%;
+}
+@media (-webkit-min-device-pixel-ratio: 1) {
+  .vfx .MdBtn,
+  .vfx .MdBx,
+  .vfx .MdIco,
+  .vfx .MdImg,
+  .vfx .MdTxt,
+  .vfx [class*="MdSep"] {
+    width: 0;
+  }
+}
+@media (-webkit-min-device-pixel-ratio: 1) and (min-width: 0.001vmax) {
+  .vfx .MdBtn,
+  .vfx .MdBx,
+  .vfx .MdIco,
+  .vfx .MdImg,
+  .vfx .MdTxt,
+  .vfx [class*="MdSep"] {
+    width: auto;
+  }
+}
+@media (min-resolution: 1dpi) {
+  .vfx .MdBtn,
+  .vfx .MdBx,
+  .vfx .MdIco,
+  .vfx .MdImg,
+  .vfx .MdTxt,
+  .vfx [class*="MdSep"] {
+    width: auto;
+  }
+}
+.vfx .MdBx {
+  overflow: hidden;
+  position: relative;
+}
+.vfx .MdBx.vr > div {
+  -webkit-box-flex: 0;
+  flex: none;
+  flex-basis: auto;
+}
+.vfx .MdBx.hr {
+  -webkit-box-orient: horizontal;
+  -webkit-box-direction: normal;
+  flex-direction: row;
+  width: 100%;
+}
+.vfx .MdBx.hr > div {
+  overflow: hidden;
+  -webkit-box-flex: 1;
+  flex: 1 0 0;
+}
+@media (-webkit-min-device-pixel-ratio: 1) {
+  .vfx .MdBx.hr > div {
+    width: 0;
+  }
+}
+@media (-webkit-min-device-pixel-ratio: 1) and (min-width: 0.001vmax) {
+  .vfx .MdBx.hr > div {
+    width: auto;
+  }
+}
+@media (min-resolution: 1dpi) {
+  .vfx .MdBx.hr > div {
+    width: auto;
+  }
+}
+.vfx .MdBx.hr > div.MdSep {
+  overflow: visible;
+}
+.vfx .MdBx.hr > div.fl0 {
+  width: auto;
+}
+.vfx .MdBx.hr > div.fl0.MdImg.ExFull {
+  width: 100%;
+}
+.vfx .MdBx.hr > div[class*="MdSep"] {
+  -webkit-box-flex: 0;
+  flex: none;
+}
+.vfx .MdBx.hr.bl {
+  -webkit-box-align: baseline;
+  align-items: baseline;
+}
+.vfx .MdBx.hr > div.ExAbs {
+  width: auto;
+}
+.vfx .MdBx.hr.ExAbs {
+  width: auto;
+}
+.vfx .MdBx.hr.ExAbs > div {
+  width: auto;
+}
+.vfx .ExAbs .MdBx.hr {
+  width: auto;
+}
+.vfx .ExAbs .MdBx.hr > div {
+  width: auto;
+}
+.vfx .T1 .MdBx.hr.spcXs > div {
+  margin-left: 2px;
+}
+.vfx .T1 .MdBx.hr.spcSm > div {
+  margin-left: 4px;
+}
+.vfx .T1 .MdBx.hr.spcMd > div {
+  margin-left: 8px;
+}
+.vfx .T1 .MdBx.hr.spcLg > div {
+  margin-left: 12px;
+}
+.vfx .T1 .MdBx.hr.spcXl > div {
+  margin-left: 16px;
+}
+.vfx .T1 .MdBx.hr.spcXXl > div {
+  margin-left: 20px;
+}
+.vfx .T1 .MdBx.hr > div.mdBxFiller,
+.vfx .T1 .MdBx.hr > div.mdBxSpacer,
+.vfx .T1 .MdBx.hr > div:first-child {
+  margin-left: 0;
+}
+.vfx .T1.fxRTL .MdBx.hr > div {
+  margin-left: 0;
+}
+.vfx .T1.fxRTL .MdBx.hr.spcXs > div {
+  margin-right: 2px;
+}
+.vfx .T1.fxRTL .MdBx.hr.spcSm > div {
+  margin-right: 4px;
+}
+.vfx .T1.fxRTL .MdBx.hr.spcMd > div {
+  margin-right: 8px;
+}
+.vfx .T1.fxRTL .MdBx.hr.spcLg > div {
+  margin-right: 12px;
+}
+.vfx .T1.fxRTL .MdBx.hr.spcXl > div {
+  margin-right: 16px;
+}
+.vfx .T1.fxRTL .MdBx.hr.spcXXl > div {
+  margin-right: 20px;
+}
+.vfx .T1.fxRTL .MdBx.hr > div.mdBxFiller,
+.vfx .T1.fxRTL .MdBx.hr > div.mdBxSpacer,
+.vfx .T1.fxRTL .MdBx.hr > div:first-child {
+  margin-right: 0;
+}
+.vfx .MdBx.itms-jfcS {
+  -webkit-box-pack: start;
+  justify-content: flex-start;
+}
+.vfx .MdBx.itms-jfcE {
+  -webkit-box-pack: end;
+  justify-content: flex-end;
+}
+.vfx .MdBx.itms-jfcC {
+  -webkit-box-pack: center;
+  justify-content: center;
+}
+.vfx .MdBx.itms-jfcSB {
+  -webkit-box-pack: justify;
+  justify-content: space-between;
+}
+.vfx .MdBx.itms-jfcSA {
+  justify-content: space-around;
+}
+.vfx .MdBx.itms-jfcSE {
+  justify-content: space-evenly;
+}
+.vfx .MdBx.itms-algS {
+  -webkit-box-align: start;
+  align-items: flex-start;
+}
+.vfx .MdBx.itms-algE {
+  -webkit-box-align: end;
+  align-items: flex-end;
+}
+.vfx .MdBx.itms-algC {
+  -webkit-box-align: center;
+  align-items: center;
+}
+.vfx .MdBx.itms-algBL {
+  -webkit-box-align: baseline;
+  align-items: baseline;
+}
+.vfx .MdBx.itms-algSR {
+  -webkit-box-align: stretch;
+  align-items: stretch;
+}
+.vfx .MdBx.vr.spcXs > div {
+  margin-top: 2px;
+}
+.vfx .MdBx.vr.spcSm > div {
+  margin-top: 4px;
+}
+.vfx .MdBx.vr.spcMd > div {
+  margin-top: 8px;
+}
+.vfx .MdBx.vr.spcLg > div {
+  margin-top: 12px;
+}
+.vfx .MdBx.vr.spcXl > div {
+  margin-top: 16px;
+}
+.vfx .MdBx.vr.spcXXl > div {
+  margin-top: 20px;
+}
+.vfx .MdBx.vr > div.mdBxFiller,
+.vfx .MdBx.vr > div.mdBxSpacer,
+.vfx .MdBx.vr > div:first-child {
+  margin-top: 0;
+}
+.vfx .MdBx > div.fl0 {
+  -webkit-box-flex: 0 !important;
+  flex: none !important;
+}
+.vfx .MdBx > div.fl1 {
+  -webkit-box-flex: 1 !important;
+  flex: 1 0 0 !important;
+}
+.vfx .MdBx > div.fl2 {
+  -webkit-box-flex: 2 !important;
+  flex: 2 0 0 !important;
+}
+.vfx .MdBx > div.fl3 {
+  -webkit-box-flex: 3 !important;
+  flex: 3 0 0 !important;
+}
+.vfx .MdBx > div.algS {
+  -webkit-box-align: start;
+  align-items: flex-start;
+}
+.vfx .MdBx > div.algE {
+  -webkit-box-align: end;
+  align-items: flex-end;
+}
+.vfx .MdBx > div.grvC {
+  -webkit-box-pack: center;
+  justify-content: center;
+}
+.vfx .MdBx > div.grvB {
+  -webkit-box-pack: end;
+  justify-content: flex-end;
+}
+.vfx .T1 .MdBx > div.mdBxFiller {
+  -webkit-box-flex: 1;
+  flex: 1 0 0;
+}
+@media (-webkit-min-device-pixel-ratio: 1) {
+  .vfx .T1 .MdBx > div.mdBxFiller {
+    width: 0;
+  }
+}
+@media (-webkit-min-device-pixel-ratio: 1) and (min-width: 0.001vmax) {
+  .vfx .T1 .MdBx > div.mdBxFiller {
+    width: auto;
+  }
+}
+@media (min-resolution: 1dpi) {
+  .vfx .T1 .MdBx > div.mdBxFiller {
+    width: auto;
+  }
+}
+.vfx .MdBx > div.mdBxSpacer {
+  -webkit-box-flex: 0;
+  flex: none;
+}
+.vfx .MdBx.hr > div.mdBxSpacer {
+  height: 1px;
+}
+.vfx .MdBx.hr > div.mdBxSpacer.spcXs {
+  width: 2px;
+}
+.vfx .MdBx.hr > div.mdBxSpacer.spcSm {
+  width: 4px;
+}
+.vfx .MdBx.hr > div.mdBxSpacer.spcMd {
+  width: 8px;
+}
+.vfx .MdBx.hr > div.mdBxSpacer.spcLg {
+  width: 12px;
+}
+.vfx .MdBx.hr > div.mdBxSpacer.spcXl {
+  width: 16px;
+}
+.vfx .MdBx.hr > div.mdBxSpacer.spcXXl {
+  width: 20px;
+}
+.vfx .MdBx.hr[class*="spc"] > div.mdBxSpacer + div {
+  margin-left: 0;
+}
+.vfx .MdBx.hr > .MdSep {
+  align-self: stretch;
+}
+.vfx .MdBx.vr > div.mdBxSpacer {
+  width: 1px;
+}
+.vfx .MdBx.vr > div.mdBxSpacer.spcXs {
+  height: 2px;
+}
+.vfx .MdBx.vr > div.mdBxSpacer.spcSm {
+  height: 4px;
+}
+.vfx .MdBx.vr > div.mdBxSpacer.spcMd {
+  height: 8px;
+}
+.vfx .MdBx.vr > div.mdBxSpacer.spcLg {
+  height: 12px;
+}
+.vfx .MdBx.vr > div.mdBxSpacer.spcXl {
+  height: 16px;
+}
+.vfx .MdBx.vr > div.mdBxSpacer.spcXXl {
+  height: 20px;
+}
+.vfx .MdBx.vr > div.fl0 {
+  -webkit-box-flex: 0 !important;
+  flex: none !important;
+}
+.vfx .MdBx.vr > div.fl1 {
+  -webkit-box-flex: 1 !important;
+  flex: 1 0 auto !important;
+}
+.vfx .MdBx.vr > div.fl2 {
+  -webkit-box-flex: 2 !important;
+  flex: 2 0 auto !important;
+}
+.vfx .MdBx.vr > div.fl3 {
+  -webkit-box-flex: 3 !important;
+  flex: 3 0 auto !important;
+}
+.vfx .MdBx[class*="spc"] > div.mdBxSpacer + div {
+  margin-top: 0;
+}
+.vfx [class*="MdSep"] {
+  -webkit-box-flex: 0;
+  flex: none;
+  box-sizing: content-box;
+  width: 100%;
+  border: 0 solid #d4d6da;
+}
+.vfx .MdSep {
+  position: relative;
+  -webkit-box-flex: 0;
+  flex: none;
+}
+.vfx .MdSep::before {
+  box-sizing: content-box;
+  content: "";
+  display: block;
+  position: absolute;
+  z-index: 1;
+  width: 100%;
+  height: 1px;
+  border: inherit;
+  border-top-width: 1px;
+  -webkit-transform-origin: left top;
+  transform-origin: left top;
+  -webkit-transform: scaleY(0.5);
+  transform: scaleY(0.5);
+}
+.vfx .MdSep:last-child::before {
+  margin-top: -1px;
+  border-top-width: 0;
+  border-bottom-width: 1px;
+}
+.vfx .fxRTL .MdSep::before {
+  -webkit-transform-origin: right top;
+  transform-origin: right top;
+}
+.vfx .MdSepB {
+  border-top-width: 1px;
+}
+.vfx .MdBx.hr > div.MdSep::before {
+  width: 1px;
+  height: 100%;
+  border-top-width: 0;
+  border-left-width: 1px;
+  -webkit-transform: scaleX(0.5);
+  transform: scaleX(0.5);
+}
+.vfx .MdBx.hr > div.MdSep:last-child::before {
+  margin-top: 0;
+  margin-left: -1px;
+  border-left-width: 0;
+  border-right-width: 1px;
+}
+.vfx .MdBx.hr > div.MdSepB {
+  border-top-width: 0;
+  border-left-width: 1px;
+}
+.vfx .fxRTL .MdBx.hr > div.MdSep::before {
+  border-left-width: 0;
+  border-right-width: 1px;
+}
+.vfx .fxRTL .MdBx.hr > div.MdSep:last-child::before {
+  margin-left: 0;
+  margin-right: -1px;
+  border-right-width: 0;
+  border-left-width: 1px;
+}
+.vfx .MdTxt {
+  position: relative;
+}
+.vfx .MdTxt p {
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.vfx .MdTxt p:empty {
+  height: 1.4em;
+}
+.vfx .MdTxt.ExWrap p {
+  text-overflow: clip;
+  word-wrap: break-word;
+  white-space: normal;
+}
+.vfx .MdTxt.Ex2nd {
+  color: #aaa;
+}
+.vfx .MdTxt.ExAlgC p {
+  text-align: center;
+}
+.vfx .MdTxt.ExAlgE p {
+  text-align: end;
+}
+.vfx .MdSpn {
+  font-style: inherit;
+  font-weight: inherit;
+  text-decoration: inherit;
+}
+.vfx .MdSpn.ExXXs {
+  font-size: 11px;
+}
+.vfx .MdSpn.ExXs {
+  font-size: 13px;
+}
+.vfx .MdSpn.ExSm {
+  font-size: 14px;
+}
+.vfx .MdSpn.ExMd {
+  font-size: 16px;
+}
+.vfx .MdSpn.ExLg {
+  font-size: 19px;
+}
+.vfx .MdSpn.ExXl {
+  font-size: 22px;
+}
+.vfx .MdSpn.ExXXl {
+  font-size: 29px;
+}
+.vfx .MdSpn.Ex3Xl {
+  font-size: 35px;
+}
+.vfx .MdSpn.Ex4Xl {
+  font-size: 48px;
+}
+.vfx .MdSpn.Ex5Xl {
+  font-size: 74px;
+}
+.vfx .MdIco {
+  position: relative;
+}
+.vfx .MdIco span {
+  display: inline-block;
+  overflow: hidden;
+  background: no-repeat center;
+  background-size: contain;
+  width: 1em;
+  height: 1em;
+  vertical-align: baseline;
+}
+.vfx .MdIco.ExAr2to1 span {
+  width: 2em;
+}
+.vfx .MdIco.ExAr3to1 span {
+  width: 3em;
+}
+.vfx .MdIco.ExXXs,
+.vfx .MdTxt.ExXXs {
+  font-size: 11px;
+}
+.vfx .MdIco.ExXs,
+.vfx .MdTxt.ExXs {
+  font-size: 13px;
+}
+.vfx .MdIco.ExSm,
+.vfx .MdTxt.ExSm {
+  font-size: 14px;
+}
+.vfx .MdIco.ExMd,
+.vfx .MdTxt.ExMd {
+  font-size: 16px;
+}
+.vfx .MdIco.ExLg,
+.vfx .MdTxt.ExLg {
+  font-size: 19px;
+}
+.vfx .MdIco.ExXl,
+.vfx .MdTxt.ExXl {
+  font-size: 22px;
+}
+.vfx .MdIco.ExXXl,
+.vfx .MdTxt.ExXXl {
+  font-size: 29px;
+}
+.vfx .MdIco.Ex3Xl,
+.vfx .MdTxt.Ex3Xl {
+  font-size: 35px;
+}
+.vfx .MdIco.Ex4Xl,
+.vfx .MdTxt.Ex4Xl {
+  font-size: 48px;
+}
+.vfx .MdIco.Ex5Xl,
+.vfx .MdTxt.Ex5Xl {
+  font-size: 74px;
+}
+.vfx .MdBtn {
+  position: relative;
+}
+.vfx .MdBtn a {
+  display: inherit;
+  -webkit-box-align: center;
+  align-items: center;
+  -webkit-box-pack: center;
+  justify-content: center;
+  width: 100%;
+  height: 52px;
+  padding: 0 16px;
+  border-radius: 8px;
+  font-size: 16px;
+}
+.vfx .MdBtn div {
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  max-width: 100%;
+}
+.vfx .MdBtn.ExBtn1 a {
+  background-color: #17c950;
+  color: #ffffff;
+}
+.vfx .MdBtn.ExBtn2 a {
+  background-color: #dcdfe5;
+  color: #111111;
+}
+.vfx .MdBtn.ExBtnL a {
+  color: #42659a;
+}
+.vfx .MdBtn.ExSm a {
+  height: 40px;
+}
+.vfx .MdImg {
+  -webkit-box-align: center;
+  align-items: center;
+  overflow: hidden;
+  position: relative;
+}
+.vfx .MdImg > div {
+  max-width: 100%;
+}
+.vfx .MdImg a {
+  display: block;
+  position: relative;
+  width: 100%;
+}
+.vfx .MdImg span {
+  display: block;
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  overflow: hidden;
+  background-repeat: no-repeat;
+  background-position: center center;
+}
+.vfx .MdImg.ExXXs > div {
+  width: 40px;
+}
+.vfx .MdImg.ExXs > div {
+  width: 60px;
+}
+.vfx .MdImg.ExSm > div {
+  width: 80px;
+}
+.vfx .MdImg.ExMd > div {
+  width: 100px;
+}
+.vfx .MdImg.ExLg > div {
+  width: 120px;
+}
+.vfx .MdImg.ExXl > div {
+  width: 140px;
+}
+.vfx .MdImg.ExXXl > div {
+  width: 160px;
+}
+.vfx .MdImg.Ex3Xl > div {
+  width: 180px;
+}
+.vfx .MdImg.Ex4Xl > div {
+  width: 200px;
+}
+.vfx .MdImg.Ex5Xl > div {
+  width: 220px;
+}
+.vfx .MdImg.ExFull > div {
+  width: 100%;
+}
+.vfx .MdImg.ExAr1to1 a {
+  padding-bottom: 100%;
+}
+.vfx .MdImg.ExAr1_51to1 a {
+  padding-bottom: 66.22517%;
+}
+.vfx .MdImg.ExAr1_91to1 a {
+  padding-bottom: 52.35602%;
+}
+.vfx .MdImg.ExAr20to13 a {
+  padding-bottom: 65%;
+}
+.vfx .MdImg.ExAr4to3 a {
+  padding-bottom: 75%;
+}
+.vfx .MdImg.ExAr16to9 a {
+  padding-bottom: 56.25%;
+}
+.vfx .MdImg.ExAr2to1 a {
+  padding-bottom: 50%;
+}
+.vfx .MdImg.ExAr3to1 a {
+  padding-bottom: 33.33333%;
+}
+.vfx .MdImg.ExAr3to4 a {
+  padding-bottom: 133.33333%;
+}
+.vfx .MdImg.ExAr9to16 a {
+  padding-bottom: 177.77778%;
+}
+.vfx .MdImg.ExAr1to2 a {
+  padding-bottom: 200%;
+}
+.vfx .MdImg.ExAr1to3 a {
+  padding-bottom: 300%;
+}
+.vfx .MdImg.ExFit span {
+  background-size: contain;
+}
+.vfx .MdImg.ExCover span {
+  background-size: cover;
+}
+.vfx .MdImg.ExCircle span {
+  border-radius: 50%;
+}
+.vfx .MdImg.ExMirrored span {
+  -webkit-transform: scaleX(-1);
+  transform: scaleX(-1);
+}
+.vfx .MdImg.ExAbs.ExFull {
+  width: 100%;
+}
+.vfx .ExMgnANone {
+  margin: 0 !important;
+}
+.vfx .ExMgnAXs {
+  margin: 2px !important;
+}
+.vfx .ExMgnASm {
+  margin: 4px !important;
+}
+.vfx .ExMgnAMd {
+  margin: 8px !important;
+}
+.vfx .ExMgnALg {
+  margin: 12px !important;
+}
+.vfx .ExMgnAXl {
+  margin: 16px !important;
+}
+.vfx .ExMgnAXXl {
+  margin: 20px !important;
+}
+.vfx .ExMgnTNone {
+  margin-top: 0 !important;
+}
+.vfx .ExMgnTXs {
+  margin-top: 2px !important;
+}
+.vfx .ExMgnTSm {
+  margin-top: 4px !important;
+}
+.vfx .ExMgnTMd {
+  margin-top: 8px !important;
+}
+.vfx .ExMgnTLg {
+  margin-top: 12px !important;
+}
+.vfx .ExMgnTXl {
+  margin-top: 16px !important;
+}
+.vfx .ExMgnTXXl {
+  margin-top: 20px !important;
+}
+.vfx .ExMgnBNone {
+  margin-bottom: 0 !important;
+}
+.vfx .ExMgnBXs {
+  margin-bottom: 2px !important;
+}
+.vfx .ExMgnBSm {
+  margin-bottom: 4px !important;
+}
+.vfx .ExMgnBMd {
+  margin-bottom: 8px !important;
+}
+.vfx .ExMgnBLg {
+  margin-bottom: 12px !important;
+}
+.vfx .ExMgnBXl {
+  margin-bottom: 16px !important;
+}
+.vfx .ExMgnBXXl {
+  margin-bottom: 20px !important;
+}
+.vfx .ExMgnLNone {
+  margin-left: 0 !important;
+}
+.vfx .ExMgnLXs {
+  margin-left: 2px !important;
+}
+.vfx .ExMgnLSm {
+  margin-left: 4px !important;
+}
+.vfx .ExMgnLMd {
+  margin-left: 8px !important;
+}
+.vfx .ExMgnLLg {
+  margin-left: 12px !important;
+}
+.vfx .ExMgnLXl {
+  margin-left: 16px !important;
+}
+.vfx .ExMgnLXXl {
+  margin-left: 20px !important;
+}
+.vfx .ExMgnRNone {
+  margin-right: 0 !important;
+}
+.vfx .ExMgnRXs {
+  margin-right: 2px !important;
+}
+.vfx .ExMgnRSm {
+  margin-right: 4px !important;
+}
+.vfx .ExMgnRMd {
+  margin-right: 8px !important;
+}
+.vfx .ExMgnRLg {
+  margin-right: 12px !important;
+}
+.vfx .ExMgnRXl {
+  margin-right: 16px !important;
+}
+.vfx .ExMgnRXXl {
+  margin-right: 20px !important;
+}
+.vfx .ExPadANone {
+  padding: 0 !important;
+}
+.vfx .ExPadAXs {
+  padding: 2px !important;
+}
+.vfx .ExPadASm {
+  padding: 4px !important;
+}
+.vfx .ExPadAMd {
+  padding: 8px !important;
+}
+.vfx .ExPadALg {
+  padding: 12px !important;
+}
+.vfx .ExPadAXl {
+  padding: 16px !important;
+}
+.vfx .ExPadAXXl {
+  padding: 20px !important;
+}
+.vfx .ExPadTNone {
+  padding-top: 0 !important;
+}
+.vfx .ExPadTXs {
+  padding-top: 2px !important;
+}
+.vfx .ExPadTSm {
+  padding-top: 4px !important;
+}
+.vfx .ExPadTMd {
+  padding-top: 8px !important;
+}
+.vfx .ExPadTLg {
+  padding-top: 12px !important;
+}
+.vfx .ExPadTXl {
+  padding-top: 16px !important;
+}
+.vfx .ExPadTXXl {
+  padding-top: 20px !important;
+}
+.vfx .ExPadBNone {
+  padding-bottom: 0 !important;
+}
+.vfx .ExPadBXs {
+  padding-bottom: 2px !important;
+}
+.vfx .ExPadBSm {
+  padding-bottom: 4px !important;
+}
+.vfx .ExPadBMd {
+  padding-bottom: 8px !important;
+}
+.vfx .ExPadBLg {
+  padding-bottom: 12px !important;
+}
+.vfx .ExPadBXl {
+  padding-bottom: 16px !important;
+}
+.vfx .ExPadBXXl {
+  padding-bottom: 20px !important;
+}
+.vfx .ExPadLNone {
+  padding-left: 0 !important;
+}
+.vfx .ExPadLXs {
+  padding-left: 2px !important;
+}
+.vfx .ExPadLSm {
+  padding-left: 4px !important;
+}
+.vfx .ExPadLMd {
+  padding-left: 8px !important;
+}
+.vfx .ExPadLLg {
+  padding-left: 12px !important;
+}
+.vfx .ExPadLXl {
+  padding-left: 16px !important;
+}
+.vfx .ExPadLXXl {
+  padding-left: 20px !important;
+}
+.vfx .ExPadRNone {
+  padding-right: 0 !important;
+}
+.vfx .ExPadRXs {
+  padding-right: 2px !important;
+}
+.vfx .ExPadRSm {
+  padding-right: 4px !important;
+}
+.vfx .ExPadRMd {
+  padding-right: 8px !important;
+}
+.vfx .ExPadRLg {
+  padding-right: 12px !important;
+}
+.vfx .ExPadRXl {
+  padding-right: 16px !important;
+}
+.vfx .ExPadRXXl {
+  padding-right: 20px !important;
+}
+.vfx .ExBdrWdtNone {
+  border-width: 0 !important;
+}
+.vfx .ExBdrWdtLgh {
+  border-width: 0.5px !important;
+}
+.vfx .ExBdrWdtNml {
+  border-width: 1px !important;
+}
+.vfx .ExBdrWdtMdm {
+  border-width: 2px !important;
+}
+.vfx .ExBdrWdtSbd {
+  border-width: 3px !important;
+}
+.vfx .ExBdrWdtBld {
+  border-width: 4px !important;
+}
+.vfx .ExBdrRadNone {
+  border-radius: 0 !important;
+}
+.vfx .ExBdrRadXs {
+  border-radius: 2px !important;
+}
+.vfx .ExBdrRadSm {
+  border-radius: 4px !important;
+}
+.vfx .ExBdrRadMd {
+  border-radius: 8px !important;
+}
+.vfx .ExBdrRadLg {
+  border-radius: 12px !important;
+}
+.vfx .ExBdrRadXl {
+  border-radius: 16px !important;
+}
+.vfx .ExBdrRadXXl {
+  border-radius: 20px !important;
+}
+.vfx .ExAbs {
+  position: absolute;
+  margin: 0 !important;
+  width: auto;
+}
+.vfx .ExTNone {
+  top: 0;
+}
+.vfx .ExTXs {
+  top: 2px;
+}
+.vfx .ExTSm {
+  top: 4px;
+}
+.vfx .ExTMd {
+  top: 8px;
+}
+.vfx .ExTLg {
+  top: 12px;
+}
+.vfx .ExTXl {
+  top: 16px;
+}
+.vfx .ExTXXl {
+  top: 20px;
+}
+.vfx .ExBNone {
+  bottom: 0;
+}
+.vfx .ExBXs {
+  bottom: 2px;
+}
+.vfx .ExBSm {
+  bottom: 4px;
+}
+.vfx .ExBMd {
+  bottom: 8px;
+}
+.vfx .ExBLg {
+  bottom: 12px;
+}
+.vfx .ExBXl {
+  bottom: 16px;
+}
+.vfx .ExBXXl {
+  bottom: 20px;
+}
+.vfx .ExLNone {
+  left: 0;
+}
+.vfx .ExLXs {
+  left: 2px;
+}
+.vfx .ExLSm {
+  left: 4px;
+}
+.vfx .ExLMd {
+  left: 8px;
+}
+.vfx .ExLLg {
+  left: 12px;
+}
+.vfx .ExLXl {
+  left: 16px;
+}
+.vfx .ExLXXl {
+  left: 20px;
+}
+.vfx .ExRNone {
+  right: 0;
+}
+.vfx .ExRXs {
+  right: 2px;
+}
+.vfx .ExRSm {
+  right: 4px;
+}
+.vfx .ExRMd {
+  right: 8px;
+}
+.vfx .ExRLg {
+  right: 12px;
+}
+.vfx .ExRXl {
+  right: 16px;
+}
+.vfx .ExRXXl {
+  right: 20px;
+}
+.vfx .ExWR {
+  font-weight: normal !important;
+}
+.vfx .ExWR * {
+  font-weight: inherit;
+}
+.vfx .ExWB {
+  font-weight: bold !important;
+}
+.vfx .ExWB * {
+  font-weight: inherit;
+}
+.vfx .ExFntStyNml {
+  font-style: normal !important;
+}
+.vfx .ExFntStyNml * {
+  font-style: inherit;
+}
+.vfx .ExFntStyIt {
+  font-style: italic !important;
+}
+.vfx .ExFntStyIt * {
+  font-style: inherit;
+}
+.vfx .ExTxtDecNone {
+  text-decoration: none !important;
+}
+.vfx .ExTxtDecUl {
+  text-decoration: underline !important;
+}
+.vfx .ExTxtDecLt {
+  text-decoration: line-through !important;
+}
+.vfx .LyNa {
+  width: 100%;
+  max-width: 120px;
+  min-width: 0;
+}
+.vfx .LyMi {
+  width: 100%;
+  max-width: 160px;
+  min-width: 0;
+}
+.vfx .LyKi {
+  width: 100%;
+  max-width: 220px;
+  min-width: 0;
+}
+.vfx .LyHe {
+  width: 100%;
+  max-width: 240px;
+  min-width: 0;
+}
+.vfx .LyDe {
+  width: 100%;
+  max-width: 280px;
+  min-width: 0;
+}
+.vfx .LyMe {
+  width: 100%;
+  max-width: 300px;
+  min-width: 0;
+}
+.vfx .LyGi {
+  width: 100%;
+  max-width: 300px;
+  min-width: 0;
+}

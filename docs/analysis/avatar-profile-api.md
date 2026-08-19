@@ -7,15 +7,15 @@
 
 ## 結論（現状）
 
-| 面 | 状態 |
-|---|---|
-| 自分プロフィール（Sidebar 上部） | 動く。`GET /profile` → `thumbnailUrl` / `picturePath` |
-| 相手コンタクトプロフィール API | 動く。`GET /contact/:targetMid`（`u*` / `c*` / `r*`） |
-| メッセージ行アバター | 動く（lazy）。`avatarCache` + `fetchAvatar` |
-| チャットヘッダー（direct） | 部分的。cache にあれば表示。選択時の prefetch なし |
-| チャットヘッダー（group/room） | **欠落**。常にイニシャル / `"G"` |
-| チャット一覧アイコン | **欠落**。常にイニシャル色丸 |
-| アバタークリック → プロフィール UI | **欠落**。クリックハンドラなし |
+| 面                                 | 状態                                                  |
+| ---------------------------------- | ----------------------------------------------------- |
+| 自分プロフィール（Sidebar 上部）   | 動く。`GET /profile` → `thumbnailUrl` / `picturePath` |
+| 相手コンタクトプロフィール API     | 動く。`GET /contact/:targetMid`（`u*` / `c*` / `r*`） |
+| メッセージ行アバター               | 動く（lazy）。`avatarCache` + `fetchAvatar`           |
+| チャットヘッダー（direct）         | 部分的。cache にあれば表示。選択時の prefetch なし    |
+| チャットヘッダー（group/room）     | **欠落**。常にイニシャル / `"G"`                      |
+| チャット一覧アイコン               | **欠落**。常にイニシャル色丸                          |
+| アバタークリック → プロフィール UI | **欠落**。クリックハンドラなし                        |
 
 ---
 
@@ -83,9 +83,9 @@ interface LineProfile {
   displayName: string;
   phoneticName: string;
   pictureStatus: string;
-  thumbnailUrl: string;   // 実画像 URL（CDN）
+  thumbnailUrl: string; // 実画像 URL（CDN）
   statusMessage: string;
-  picturePath: string;    // "/profile/.../vp/..." 形式。contact 経路では常に ""
+  picturePath: string; // "/profile/.../vp/..." 形式。contact 経路では常に ""
   musicProfile: string;
   videoProfile: string;
   profileId: string;
@@ -106,16 +106,16 @@ type ChatsResponse = { ok: true; chats: Chat[] } | { ok: false; error: string };
 
 ### `fetchContactProfile` が埋めるフィールド（実装上）
 
-| フィールド | user (`u*`) | group/room |
-|---|---|---|
-| `mid` | `targetUserMid` | `chatMid` |
-| `displayName` | overriddenName \|\| profileName | `chat.name` |
-| `thumbnailUrl` | from `pictureStatus` | from `pictureStatus` |
-| `pictureStatus` | yes | yes |
-| `statusMessage` | yes | `""` |
-| `profileId` | yes | `""` |
-| `picturePath` | 常に `""` | 常に `""` |
-| `userid` / `phoneticName` / music / video | `""` | `""` |
+| フィールド                                | user (`u*`)                     | group/room           |
+| ----------------------------------------- | ------------------------------- | -------------------- |
+| `mid`                                     | `targetUserMid`                 | `chatMid`            |
+| `displayName`                             | overriddenName \|\| profileName | `chat.name`          |
+| `thumbnailUrl`                            | from `pictureStatus`            | from `pictureStatus` |
+| `pictureStatus`                           | yes                             | yes                  |
+| `statusMessage`                           | yes                             | `""`                 |
+| `profileId`                               | yes                             | `""`                 |
+| `picturePath`                             | 常に `""`                       | 常に `""`            |
+| `userid` / `phoneticName` / music / video | `""`                            | `""`                 |
 
 Frontend client: `api.line.contactProfile(accountId, targetMid)`  
 → `Vyline/apps/desktop/src/api/client.ts`
@@ -211,48 +211,48 @@ HomePage
 
 ### 1. ChatListItem に実アバター画像
 
-| ファイル | 触る関数 / 箇所 |
-|---|---|
-| `Vyline/packages/types/src/index.ts` | `Chat` に任意で `thumbnailUrl?: string`（方針 B の場合） |
-| `Vyline/backend/src/service/lineService.ts` | `fetchChats` — users/chats から pictureStatus → URL（方針 B） |
-| `Vyline/apps/desktop/src/hooks/useLineData.ts` | `fetchAvatar` / 新規 `prefetchAvatars(mids)`（方針 A） |
-| `Vyline/apps/desktop/src/pages/HomePage.tsx` | `avatarCache` / `fetchAvatar` を Sidebar へ渡す |
-| `Vyline/apps/desktop/src/components/layout/Sidebar.tsx` | props 追加 → `ChatList` へ転送 |
-| `Vyline/apps/desktop/src/components/sidebar/ChatList.tsx` | `avatarCache`, `onFetchAvatar` を受け `ChatListItem` へ |
+| ファイル                                                      | 触る関数 / 箇所                                                 |
+| ------------------------------------------------------------- | --------------------------------------------------------------- |
+| `Vyline/packages/types/src/index.ts`                          | `Chat` に任意で `thumbnailUrl?: string`（方針 B の場合）        |
+| `Vyline/backend/src/service/lineService.ts`                   | `fetchChats` — users/chats から pictureStatus → URL（方針 B）   |
+| `Vyline/apps/desktop/src/hooks/useLineData.ts`                | `fetchAvatar` / 新規 `prefetchAvatars(mids)`（方針 A）          |
+| `Vyline/apps/desktop/src/pages/HomePage.tsx`                  | `avatarCache` / `fetchAvatar` を Sidebar へ渡す                 |
+| `Vyline/apps/desktop/src/components/layout/Sidebar.tsx`       | props 追加 → `ChatList` へ転送                                  |
+| `Vyline/apps/desktop/src/components/sidebar/ChatList.tsx`     | `avatarCache`, `onFetchAvatar` を受け `ChatListItem` へ         |
 | `Vyline/apps/desktop/src/components/sidebar/ChatListItem.tsx` | `Avatar` — `avatarUrl` 対応、mount 時 `onFetchAvatar(chat.mid)` |
 
 ### 2. MessageItem アバター（強化）
 
 現状は表示＋ lazy fetch 済み。追加作業:
 
-| ファイル | 触る関数 / 箇所 |
-|---|---|
+| ファイル                                                  | 触る関数 / 箇所                                              |
+| --------------------------------------------------------- | ------------------------------------------------------------ |
 | `Vyline/apps/desktop/src/components/chat/MessageItem.tsx` | `MessageItem` — アバターに `onClick` / `onAvatarClick?(mid)` |
-| `Vyline/apps/desktop/src/components/chat/MessageList.tsx` | props 転送 |
-| `Vyline/apps/desktop/src/components/chat/ChatArea.tsx` | props 転送 |
-| `Vyline/apps/desktop/src/pages/HomePage.tsx` | クリックでプロフィール UI を開く state |
-| `Vyline/apps/desktop/src/hooks/useLineData.ts` | 任意: profile 本体 cache（URL だけでなく `LineProfile`） |
+| `Vyline/apps/desktop/src/components/chat/MessageList.tsx` | props 転送                                                   |
+| `Vyline/apps/desktop/src/components/chat/ChatArea.tsx`    | props 転送                                                   |
+| `Vyline/apps/desktop/src/pages/HomePage.tsx`              | クリックでプロフィール UI を開く state                       |
+| `Vyline/apps/desktop/src/hooks/useLineData.ts`            | 任意: profile 本体 cache（URL だけでなく `LineProfile`）     |
 
 ### 3. クリック → Desktop 風プロフィール drawer / modal
 
-| ファイル | 触る関数 / 箇所 |
-|---|---|
-| **新規** `Vyline/apps/desktop/src/components/sidebar/ContactProfileDrawer.tsx`（仮） | 相手／グループ用 UI（名前・ステータス・mid・アイコン） |
-| `Vyline/apps/desktop/src/components/sidebar/ProfilePanel.tsx` | `resolveAvatarUrl` を共有 util へ切り出し可（任意） |
-| `Vyline/apps/desktop/src/components/chat/ChatHeader.tsx` | `ChatHeader` — アバター／名前クリック → `onOpenProfile` |
-| `Vyline/apps/desktop/src/components/chat/MessageItem.tsx` | 同上 |
-| `Vyline/apps/desktop/src/components/sidebar/ChatListItem.tsx` | アバタークリック（行選択と分離） |
-| `Vyline/apps/desktop/src/pages/HomePage.tsx` | `selectedProfileMid` state、`api.line.contactProfile` 結果表示 |
-| `Vyline/apps/desktop/src/api/client.ts` | `api.line.contactProfile`（既存のまま利用可） |
-| `Vyline/backend/src/service/lineService.ts` | `fetchContactProfile` — 必要なら group メンバー／追加フィールド |
+| ファイル                                                                             | 触る関数 / 箇所                                                 |
+| ------------------------------------------------------------------------------------ | --------------------------------------------------------------- |
+| **新規** `Vyline/apps/desktop/src/components/sidebar/ContactProfileDrawer.tsx`（仮） | 相手／グループ用 UI（名前・ステータス・mid・アイコン）          |
+| `Vyline/apps/desktop/src/components/sidebar/ProfilePanel.tsx`                        | `resolveAvatarUrl` を共有 util へ切り出し可（任意）             |
+| `Vyline/apps/desktop/src/components/chat/ChatHeader.tsx`                             | `ChatHeader` — アバター／名前クリック → `onOpenProfile`         |
+| `Vyline/apps/desktop/src/components/chat/MessageItem.tsx`                            | 同上                                                            |
+| `Vyline/apps/desktop/src/components/sidebar/ChatListItem.tsx`                        | アバタークリック（行選択と分離）                                |
+| `Vyline/apps/desktop/src/pages/HomePage.tsx`                                         | `selectedProfileMid` state、`api.line.contactProfile` 結果表示  |
+| `Vyline/apps/desktop/src/api/client.ts`                                              | `api.line.contactProfile`（既存のまま利用可）                   |
+| `Vyline/backend/src/service/lineService.ts`                                          | `fetchContactProfile` — 必要なら group メンバー／追加フィールド |
 
 ### ChatHeader グループアイコン（関連の小ギャップ）
 
-| ファイル | 触る箇所 |
-|---|---|
-| `Vyline/apps/desktop/src/pages/HomePage.tsx` | `chatAvatarUrl` を group/room も `avatarCache.get(selectedChatMid)` に |
-| `Vyline/apps/desktop/src/pages/HomePage.tsx` | `useEffect` で `fetchAvatar(selectedChatMid)` |
-| `Vyline/apps/desktop/src/components/chat/ChatHeader.tsx` | 表示は既存のまま（URL が来れば画像になる） |
+| ファイル                                                 | 触る箇所                                                               |
+| -------------------------------------------------------- | ---------------------------------------------------------------------- |
+| `Vyline/apps/desktop/src/pages/HomePage.tsx`             | `chatAvatarUrl` を group/room も `avatarCache.get(selectedChatMid)` に |
+| `Vyline/apps/desktop/src/pages/HomePage.tsx`             | `useEffect` で `fetchAvatar(selectedChatMid)`                          |
+| `Vyline/apps/desktop/src/components/chat/ChatHeader.tsx` | 表示は既存のまま（URL が来れば画像になる）                             |
 
 ---
 

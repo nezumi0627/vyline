@@ -73,15 +73,7 @@ export function useMessageActions({
         setSending(false);
       }
     },
-    [
-      accountId,
-      selectedChatMid,
-      messageText,
-      replyTo,
-      reloadMessages,
-      clearDraft,
-      setDraft,
-    ],
+    [accountId, selectedChatMid, messageText, replyTo, reloadMessages, clearDraft, setDraft],
   );
 
   const unsend = useCallback(

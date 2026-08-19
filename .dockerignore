@@ -1,0 +1,42 @@
+# ── Git / VCS ───────────────────────────────
+.git
+.github
+.vscode
+.agents
+.claude
+.cursor
+
+# ── データ（トークン / E2EE 鍵 / 履歴 — コンテナに含めない） ──
+**/data/
+data/
+Vyline/backend/data/
+*.har
+*.session.json
+*.local
+.env
+.env.*
+
+# ── ビルド・依存 ───────────────────────────
+node_modules/
+dist/
+*.tsbuildinfo
+*.log
+logs/
+
+# ── リサーチ / ツール成果物 ─────────────────
+research/
+source/
+tools/data/
+*.exe
+*.dll
+*.pdb
+archive/
+
+# ── Docker 自身 ─────────────────────────────
+Dockerfile
+docker-compose.yml
+.dockerignore
+README.md
+docs/
+CHANGELOG.md
+LICENSE

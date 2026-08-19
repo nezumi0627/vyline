@@ -14,8 +14,7 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR =
-  process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
+const DATA_DIR = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "..", "..", "data");
 
 const SAVE_DEBOUNCE_MS = Number(process.env["VYLINE_CHATDB_SAVE_MS"] ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env["VYLINE_BOOTSTRAP_TOP_CHATS"] ?? 12);
@@ -313,10 +312,7 @@ export async function getCacheMeta(accountId: string): Promise<ChatDbMeta> {
   return { ...db.meta };
 }
 
-export function messageSyncAgeMs(
-  meta: ChatDbMeta,
-  chatMid: string,
-): number | null {
+export function messageSyncAgeMs(meta: ChatDbMeta, chatMid: string): number | null {
   const iso = meta.messagesSyncedAt?.[chatMid];
   if (!iso) return null;
   const t = Date.parse(iso);
@@ -327,4 +323,56 @@ export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promi
   const db = await getDb(accountId);
   db.meta.boxOrder = boxOrder;
   scheduleSave(accountId);
+}
+
+/** VylineBackup: 全チャット・メッセージのディープコピーを返す */
+export async function exportChatDb(accountId: string): Promise<ChatDb> {
+  const db = await getDb(accountId);
+  return {
+    meta: JSON.parse(JSON.stringify(db.meta)) as ChatDbMeta,
+    chats: JSON.parse(JSON.stringify(db.chats)) as ChatDb["chats"],
+    messages: JSON.parse(JSON.stringify(db.messages)) as ChatDb["messages"],
+  };
+}
+
+/** VylineBackup: 復元（マージ書き込み）。新規端末なら空 DB への上書きと同義 */
+export async function importChatDb(
+  accountId: string,
+  data: Pick<ChatDb, "meta" | "chats" | "messages">,
+): Promise<{ chats: number; messages: number }> {
+  const db = await getDb(accountId);
+  let chatCount = 0;
+  let messageCount = 0;
+  for (const [mid, chat] of Object.entries(data.chats ?? {})) {
+    db.chats[mid] = chat;
+    chatCount++;
+  }
+  for (const [chatMid, byChat] of Object.entries(data.messages ?? {})) {
+    const target = db.messages[chatMid] ?? {};
+    for (const [id, message] of Object.entries(byChat)) {
+      target[id] = message;
+      messageCount++;
+    }
+    db.messages[chatMid] = target;
+  }
+  if (data.meta?.boxOrder) db.meta.boxOrder = data.meta.boxOrder;
+  if (data.meta?.chatsSyncedAt) db.meta.chatsSyncedAt = data.meta.chatsSyncedAt;
+  db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
+  for (const [chatMid, iso] of Object.entries(data.meta?.messagesSyncedAt ?? {})) {
+    db.meta.messagesSyncedAt[chatMid] = iso;
+  }
+  scheduleSave(accountId);
+  return { chats: chatCount, messages: messageCount };
+}
+
+/** VylineBackup: チャット一覧とメッセージ件数（選択 UI 用） */
+export async function listChatsWithCounts(
+  accountId: string,
+): Promise<Array<{ mid: string; name: string; messageCount: number }>> {
+  const db = await getDb(accountId);
+  return Object.keys(db.chats).map((mid) => {
+    const chat = db.chats[mid];
+    const messageCount = Object.keys(db.messages[mid] ?? {}).length;
+    return { mid, name: chat?.name ?? mid, messageCount };
+  });
 }

@@ -16,9 +16,9 @@
 │              Backend (Hono on Bun)                       │
 │  api/  →  service/lineService  →  line/clientManager     │
 └──────────────────────────┬──────────────────────────────┘
-                           │ @vyline/nezuline
+                           │ @vyline/protocol
 ┌──────────────────────────▼──────────────────────────────┐
-│  nezuline                                                │
+│  protocol                                                │
 │  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐ │
 │  │ domain/     │  │ dictionary/  │  │ login/ e2ee/    │ │
 │  │ (facade)    │  │ (RPC map)    │  │ obs/ desktop/   │ │
@@ -39,16 +39,16 @@
 
 ## レイヤー責務
 
-| 層 | パス | 責務 |
-|---|---|---|
-| BFF | `backend/src/api/` | HTTP 入出力・バリデーションのみ |
-| Service | `backend/src/service/` | アカウント単位のビジネス |
-| Client mgr | `backend/src/line/` | セッション・トークン |
-| Domain | `nezuline/src/domain/` | プロフィール / チャット / 連絡先 / トーク facade |
-| Dictionary | `nezuline/src/dictionary/` | LINE.js 名 ↔ Desktop 証拠 |
-| Stack | `nezuline/stack/` | Thrift RPC（Talk `/S4` 等）。型は `_dist/`、実装は段階的ネイティブ化中 |
-| Protocol | `nezuline/src/protocol/` | stack 非依存の薄い RPC ラッパ（domain から利用） |
-| Desktop patches | `nezuline/src/login/` | ヘッダー・login RPC の Desktop 追従 |
+| 層              | パス                       | 責務                                                                   |
+| --------------- | -------------------------- | ---------------------------------------------------------------------- |
+| BFF             | `backend/src/api/`         | HTTP 入出力・バリデーションのみ                                        |
+| Service         | `backend/src/service/`     | アカウント単位のビジネス                                               |
+| Client mgr      | `backend/src/line/`        | セッション・トークン                                                   |
+| Domain          | `protocol/src/domain/`     | プロフィール / チャット / 連絡先 / トーク facade                       |
+| Dictionary      | `protocol/src/dictionary/` | LINE.js 名 ↔ Desktop 証拠                                              |
+| Stack           | `protocol/stack/`          | Thrift RPC（Talk `/S4` 等）。型は `_dist/`、実装は段階的ネイティブ化中 |
+| Protocol        | `protocol/src/protocol/`   | stack 非依存の薄い RPC ラッパ（domain から利用）                       |
+| Desktop patches | `protocol/src/login/`      | ヘッダー・login RPC の Desktop 追従                                    |
 
 ---
 
@@ -74,12 +74,12 @@ Vyline/
 │   ├── service/           # lineService 等
 │   └── line/              # clientManager
 └── packages/
-    ├── nezuline/
+    ├── protocol/
     │   ├── src/
     │   │   ├── domain/    # VylineSession, ProfileDomain, …
     │   │   ├── dictionary/
     │   │   ├── login/ e2ee/ obs/
-    │   │   └── client/    # NezuClient
+    │   │   └── client/    # VylineClient
     │   └── stack/         # 内部 protocol
     ├── line-types/        # Thrift 型
     └── types/             # 共有 API 型
@@ -89,7 +89,7 @@ Vyline/
 
 ## Desktop 準拠の原則
 
-1. **RPC 名は Desktop で確認** — `bun run nezu:find-native`
+1. **RPC 名は Desktop で確認** — `bun run vyline:find-native`
 2. **Path は patchTransport / modules.map 準拠** — `/S4`, `/api/v3p/rs` 等
 3. **E2EE 送信は letterSealing 優先** — stack e2ee は fallback
 4. **通話 UI は未接続** — `acquireRoute` のみ backend 残置
@@ -100,18 +100,18 @@ Vyline/
 
 `Vyline/backend/src/service/lineService.ts` が実際に叩く API。ここが業務ロジックの正本。
 
-### nezuline 直接 import
+### protocol 直接 import
 
 `ensureValidE2EEIdentity`, `groupE2EE` 一式, `encryptLetterSealingMessage` / `decryptLetterSealingMessage`, `downloadObsMessageBytes`
 
-### `Client`（= NezuClient）
+### `Client`（= VylineClient）
 
-| API | 用途 |
-|---|---|
-| `fetchJoinedChats()` | グループ/ルーム一覧 |
-| `fetchUsers()` | 友だち一覧 |
-| `getUser(mid)` | DM プロフィール |
-| `getChat(mid)` | グループ情報 |
+| API                                       | 用途                    |
+| ----------------------------------------- | ----------------------- |
+| `fetchJoinedChats()`                      | グループ/ルーム一覧     |
+| `fetchUsers()`                            | 友だち一覧              |
+| `getUser(mid)`                            | DM プロフィール         |
+| `getChat(mid)`                            | グループ情報            |
 | `call.acquireRoute` / `acquireGroupRoute` | 通話ルート（UI 未接続） |
 
 ### `client.base.talk.*`
@@ -129,7 +129,7 @@ Vyline/
 ### 互換レイヤの関係
 
 ```
-NezuClient → patchDesktopTransport / patchDesktopLogin（DESKTOPWIN 時）
+VylineClient → patchDesktopTransport / patchDesktopLogin（DESKTOPWIN 時）
           → letterSealing + groupE2EE（自前 E2EE）
           → stack talk/obs/e2ee（vendored RPC 本体）
 ```

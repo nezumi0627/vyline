@@ -5,7 +5,7 @@
     "lib": ["ES2020", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "skipLibCheck": true,
-    "moduleResolution": "node",
+    "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,
     "moduleDetection": "force",
@@ -16,15 +16,9 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "noUncheckedSideEffectImports": true,
-    "baseUrl": ".",
     "paths": {
-      "@/*": ["src/*"],
-      "@vyline/types": ["../../packages/types/src/index.ts"],
-      "react": ["./node_modules/@types/react"],
-      "react-dom": ["./node_modules/@types/react-dom"],
-      "react-router-dom": ["./node_modules/react-router-dom"],
-      "zustand": ["./node_modules/zustand"],
-      "qrcode.react": ["./node_modules/qrcode.react"]
+      "@/*": ["./src/*"],
+      "@vyline/types": ["./../../packages/types/src/index.ts"]
     }
   },
   "include": ["src"]
