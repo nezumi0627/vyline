@@ -599,8 +599,8 @@ resetAccountData: () =>
       showNotice: (msg, ms = 4_000) => {
         set({ notice: msg });
         const prev = noticeTimer.current;
-        if (prev) window.clearTimeout(prev);
-        noticeTimer.current = window.setTimeout(() => set({ notice: null }), ms);
+        if (prev) clearTimeout(prev);
+        noticeTimer.current = setTimeout(() => set({ notice: null }), ms);
       },
 
       resetSettings: () =>
