@@ -1,4 +1,7 @@
-/** LINE Flex サイズ／余白キーワード → CSS（公式 layout ドキュメント準拠の近似） */
+/** LINE Flex Message 描画の公式値を移植。
+ *  source: LINE Flex Simulator が返す公式 CSS
+ *  (static.line-scdn.net/line_flexible_msg/{rev}/css/sp/main.css) の実測値。
+ */
 
 const SPACING: Record<string, string> = {
   none: "0px",
@@ -17,22 +20,71 @@ const FONT: Record<string, string> = {
   md: "16px",
   lg: "19px",
   xl: "22px",
-  xxl: "26px",
-  "3xl": "29px",
-  "4xl": "32px",
-  "5xl": "40px",
+  xxl: "29px",
+  "3xl": "35px",
+  "4xl": "48px",
+  "5xl": "74px",
 };
 
-/** bubble 幅（LINE Messaging API 準拠 + Desktop 実測） */
+/** bubble 幅（LINE 公式仕様値。シミュレータ sp CSS はモバイル用に大きめのため、Desktop 準拠の公式値を使用） */
 export const BUBBLE_WIDTH: Record<string, number> = {
   nano: 120,
   micro: 160,
   kilo: 220,
   mega: 300,
   giga: 300,
-  /** LINE 新サイズ（未対応クライアントは kilo 扱い） */
   hecto: 240,
   deca: 280,
+};
+
+/** bubble 角丸（公式 .T1 + サイズ別） */
+export const BUBBLE_RADIUS: Record<string, number> = {
+  nano: 10,
+  micro: 10,
+  kilo: 10,
+  mega: 17,
+  giga: 17,
+  hecto: 10,
+  deca: 10,
+};
+
+/** ブロックの既定 padding（px）。ブロックのルート box が自身の padding を持つ場合は使われない。
+ *  公式 CSS: .t1Header/.t1Body/.t1Footer > .MdBx の padding（サイズ別） */
+export type BlockPad = { top: number; right: number; bottom: number; left: number };
+
+const P = (v: number): BlockPad => ({ top: v, right: v, bottom: v, left: v });
+
+export const BLOCK_PAD: Record<
+  string,
+  { header: BlockPad; body: BlockPad; bodyFooterBottom: number; footer: BlockPad }
+> = {
+  nano: { header: P(10), body: P(10), bodyFooterBottom: 10, footer: P(10) },
+  micro: { header: P(10), body: P(10), bodyFooterBottom: 10, footer: P(10) },
+  kilo: { header: P(13), body: P(13), bodyFooterBottom: 17, footer: P(10) },
+  hecto: {
+    header: { top: 11, right: 14, bottom: 13, left: 14 },
+    body: { top: 11, right: 14, bottom: 13, left: 14 },
+    bodyFooterBottom: 17,
+    footer: P(10),
+  },
+  deca: {
+    header: { top: 11, right: 14, bottom: 13, left: 14 },
+    body: { top: 11, right: 14, bottom: 13, left: 14 },
+    bodyFooterBottom: 17,
+    footer: P(10),
+  },
+  mega: {
+    header: P(20),
+    body: { top: 19, right: 20, bottom: 20, left: 20 },
+    bodyFooterBottom: 10,
+    footer: P(10),
+  },
+  giga: {
+    header: P(20),
+    body: { top: 19, right: 20, bottom: 20, left: 20 },
+    bodyFooterBottom: 10,
+    footer: P(10),
+  },
 };
 
 export function spacingCss(value?: string | null): string | undefined {
@@ -53,39 +105,39 @@ export function fontSizeCss(value?: string | null): string | undefined {
   return value;
 }
 
-/** image / icon size → 幅（親に対する % または px） */
+/** image size → 幅（公式 MdImg.Ex*）。size 未指定時は md=100px */
 export function imageSizeCss(size?: string | null): string {
-  if (!size || size === "md") return "60%";
-  if (size === "full") return "100%";
   const map: Record<string, string> = {
     xxs: "40px",
     xs: "60px",
     sm: "80px",
-    lg: "80%",
-    xl: "90%",
-    xxl: "95%",
-    "3xl": "100%",
-    "4xl": "100%",
-    "5xl": "100%",
+    md: "100px",
+    lg: "120px",
+    xl: "140px",
+    xxl: "160px",
+    "3xl": "180px",
+    "4xl": "200px",
+    "5xl": "220px",
+    full: "100%",
   };
-  return map[size] ?? spacingCss(size) ?? "60%";
+  return map[size ?? ""] ?? "100px";
 }
 
+/** icon size → 辺長（公式 MdIco: 1em × 1em、サイズは font-size） */
 export function iconSizeCss(size?: string | null): string {
   const map: Record<string, string> = {
-    xxs: "16px",
-    xs: "20px",
-    sm: "24px",
-    md: "28px",
-    lg: "32px",
-    xl: "36px",
-    xxl: "40px",
-    "3xl": "44px",
+    xxs: "11px",
+    xs: "13px",
+    sm: "14px",
+    md: "16px",
+    lg: "19px",
+    xl: "22px",
+    xxl: "29px",
+    "3xl": "35px",
     "4xl": "48px",
-    "5xl": "52px",
+    "5xl": "74px",
   };
-  if (!size) return map.md!;
-  return map[size] ?? spacingCss(size) ?? map.md!;
+  return map[size ?? ""] ?? "16px";
 }
 
 export function parseAspectRatio(ratio?: string | null): number {
@@ -98,12 +150,14 @@ export function parseAspectRatio(ratio?: string | null): number {
   return w / h;
 }
 
-export function openFlexAction(action?: {
-  type?: string;
-  uri?: string;
-  text?: string;
-  label?: string;
-} | null): void {
+export function openFlexAction(
+  action?: {
+    type?: string;
+    uri?: string;
+    text?: string;
+    label?: string;
+  } | null,
+): void {
   if (!action) return;
   const t = (action.type ?? "").toLowerCase();
   if (t === "uri" && action.uri) {

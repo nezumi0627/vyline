@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@vyline/nezuline": "workspace:*",
+    "@vyline/protocol": "workspace:*",
     "@vyline/types": "workspace:*",
     "hono": "^4.7.11",
     "pino": "^9.6.0",

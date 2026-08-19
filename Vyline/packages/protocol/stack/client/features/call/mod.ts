@@ -1,0 +1,309 @@
+// Call control-plane wrappers + CallSession glue.
+import type { Client } from "../../mod.ts";
+import type * as LINETypes from "@vyline/line-types";
+import type { DeviceDetails } from "../../../base/mod.ts";
+import type { CodecFactory } from "./audio.js";
+import { defaultCodecFactory } from "./audio.js";
+import { CallSession, type CallSessionOpts, type CallTransport } from "./session.js";
+
+export type {
+  CallSession,
+  CallSessionEvents,
+  CallSessionOpts,
+  CallSessionState,
+  CallTransport,
+} from "./session.js";
+export {
+  type AudioDecoder,
+  type AudioEncoder,
+  type AudioSink,
+  type AudioSource,
+  bufferSink,
+  bufferSource,
+  type CodecFactory,
+  decodeWavSync,
+  defaultCodecFactory,
+  type FileDecoder,
+  type NativeGroupOpusPacketizeOptions,
+  packetizeNativeGroupOpusPairs,
+  type PcmFrame,
+  resampleLinear,
+  streamSink,
+  streamSource,
+} from "./audio.js";
+export { stubTransport } from "./session.js";
+export { AndromedaTransport, type AndromedaTransportOpts } from "./andromeda.js";
+export {
+  buildExchangeAppStrData as planetBuildExchangeAppStrData,
+  buildFrameHeader as planetBuildFrameHeader,
+  buildRelReq as planetBuildRelReq,
+  buildSetupReq as planetBuildSetupReq,
+  type CassiniBody,
+  type CassiniEnvelope,
+  type CassiniHeader,
+  decodeMpKey as planetDecodeMpKey,
+  decodeNativeSetupOffer as planetDecodeNativeSetupOffer,
+  decodePlanetMsg as planetDecodePlanetMsg,
+  deriveCallKeys as planetDeriveCallKeys,
+  type EphemeralKeypair,
+  generateEphemeralKeypair as planetGenerateEphemeralKeypair,
+  makeChunkHdr as planetMakeChunkHdr,
+  packCassini,
+  parseChunkHdr as planetParseChunkHdr,
+  parseFrameHeader as planetParseFrameHeader,
+  type PlanetAnswerResult,
+  type PlanetFixedHdr,
+  type PlanetInviteResult,
+  type PlanetLocalMediaOffer,
+  PlanetTransport,
+  type PlanetTransportOpts,
+  type TransportKeys,
+  unpackCassini,
+} from "./planet/mod.js";
+export { opusCodecFactory } from "./opus.js";
+export {
+  buildRtcpBye,
+  buildRtcpCompound,
+  nowNtp as rtcpNowNtp,
+  type ParsedRtcp,
+  parseRtcp,
+  type ReportBlock,
+  type SenderInfo,
+} from "./rtcp.js";
+export {
+  buildBindingRequestAsync,
+  parseStun,
+  readMappedAddress,
+  type StunMessage,
+} from "./stun.js";
+export {
+  DEFAULT_STUN_HOSTS,
+  formatCandidate,
+  gatherHost,
+  gatherIceCandidates,
+  gatherSrflx,
+  type IceCandidate,
+  type IceCandidateType,
+  icePriority,
+  parseCandidate,
+} from "./ice.js";
+export {
+  buildAudioOffer,
+  buildAudioOfferMikey,
+  buildSdp,
+  cryptoAttr,
+  keyMgmtMikeyAttr,
+  parseSdp,
+  readCrypto,
+  readKeyMgmt,
+  readRtpmap,
+  type SdpMedia,
+  type SdpSession,
+} from "./sdp.js";
+export {
+  buildMikeyPke,
+  mikeyFromBase64,
+  type MikeyParsed,
+  type MikeyPkeOpts,
+  mikeyToBase64,
+  parseMikey,
+} from "./mikey.js";
+export {
+  buildRtp,
+  deriveSrtpContext,
+  parseRtp,
+  SRTP_KEYING_LEN,
+  type SrtpCryptoContext,
+  srtpDecrypt,
+  srtpEncrypt,
+} from "./srtp.js";
+export {
+  buildSip,
+  digestResponse,
+  getStatusCode,
+  newBranch,
+  parseDigestChallenge,
+  parseSip,
+  randomCallId,
+  type SipMessage,
+} from "./sip.js";
+
+export type CallType = "AUDIO" | "VIDEO" | "FACEPLAY";
+
+export function defaultCallFromEnvInfo(deviceDetails: DeviceDetails): Record<string, string> {
+  const devname = (() => {
+    switch (deviceDetails.device) {
+      case "ANDROID":
+      case "ANDROIDSECONDARY":
+        return "Android";
+      case "IOS":
+        return "iPhone";
+      case "IOSIPAD":
+        return "iPad";
+      case "DESKTOPWIN":
+        return "Windows";
+      case "DESKTOPMAC":
+        return "Mac";
+      case "WATCHOS":
+        return "Watch";
+      case "WEAROS":
+        return "Wear OS";
+      default:
+        return deviceDetails.systemName || deviceDetails.device;
+    }
+  })();
+  return { devname };
+}
+
+export interface CallClient {
+  acquireRoute(opts: {
+    to: string;
+    callType?: CallType;
+    fromEnvInfo?: Record<string, string>;
+  }): Promise<LINETypes.CallRoute>;
+
+  acquireGroupRoute(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["acquireGroupCallRoute"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["acquireGroupCallRoute"]>;
+
+  acquireOARoute(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["acquireOACallRoute"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["acquireOACallRoute"]>;
+
+  getGroupCall(chatMid: string): Promise<LINETypes.GroupCall>;
+
+  createGroupCallUrl(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["createGroupCallUrl"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["createGroupCallUrl"]>;
+  getGroupCallUrl(
+    ticket: string,
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["getGroupCallUrlInfo"]>;
+  listGroupCallUrls(): ReturnType<
+    import("../../../base/service/call/mod.ts").CallService["getGroupCallUrls"]
+  >;
+  updateGroupCallUrl(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["updateGroupCallUrl"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["updateGroupCallUrl"]>;
+  deleteGroupCallUrl(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["deleteGroupCallUrl"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["deleteGroupCallUrl"]>;
+  joinChatByUrl(ticket: string): Promise<unknown>;
+  invite(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["inviteIntoGroupCall"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["inviteIntoGroupCall"]>;
+  kick(
+    ...args: Parameters<
+      import("../../../base/service/call/mod.ts").CallService["kickoutFromGroupCall"]
+    >
+  ): ReturnType<import("../../../base/service/call/mod.ts").CallService["kickoutFromGroupCall"]>;
+
+  readonly service: import("../../../base/service/call/mod.ts").CallService;
+  startSession(opts: CallSessionOpts): CallSession;
+  setCodecFactory(factory: CodecFactory): void;
+}
+
+class ClientCall implements CallClient {
+  #client: Client;
+  #codecs: CodecFactory = defaultCodecFactory;
+  constructor(client: Client) {
+    this.#client = client;
+  }
+  get service() {
+    return this.#client.base.call;
+  }
+  startSession(opts: CallSessionOpts): CallSession {
+    return new CallSession(this.#client, { codecs: this.#codecs, ...opts });
+  }
+  setCodecFactory(factory: CodecFactory): void {
+    this.#codecs = factory;
+  }
+
+  acquireRoute(opts: { to: string; callType?: CallType; fromEnvInfo?: Record<string, string> }) {
+    return this.service.acquireCallRoute({
+      to: opts.to,
+      callType: opts.callType ?? "AUDIO",
+      fromEnvInfo: opts.fromEnvInfo ?? defaultCallFromEnvInfo(this.#client.base.deviceDetails),
+    } as never);
+  }
+  acquireGroupRoute(...args: Parameters<typeof this.service.acquireGroupCallRoute>) {
+    return this.service.acquireGroupCallRoute(...args);
+  }
+  acquireOARoute(...args: Parameters<typeof this.service.acquireOACallRoute>) {
+    return this.service.acquireOACallRoute(...args);
+  }
+  getGroupCall(chatMid: string) {
+    return this.service.getGroupCall({ chatMid } as never);
+  }
+  createGroupCallUrl(...args: Parameters<typeof this.service.createGroupCallUrl>) {
+    return this.service.createGroupCallUrl(...args);
+  }
+  getGroupCallUrl(ticket: string) {
+    return this.service.getGroupCallUrlInfo({ groupCallUrlTicket: ticket } as never);
+  }
+  listGroupCallUrls() {
+    return this.service.getGroupCallUrls({} as never);
+  }
+  updateGroupCallUrl(...args: Parameters<typeof this.service.updateGroupCallUrl>) {
+    return this.service.updateGroupCallUrl(...args);
+  }
+  deleteGroupCallUrl(...args: Parameters<typeof this.service.deleteGroupCallUrl>) {
+    return this.service.deleteGroupCallUrl(...args);
+  }
+  joinChatByUrl(ticket: string) {
+    return this.service.joinChatByCallUrl({ groupCallUrlTicket: ticket } as never);
+  }
+  invite(...args: Parameters<typeof this.service.inviteIntoGroupCall>) {
+    return this.service.inviteIntoGroupCall(...args);
+  }
+  kick(...args: Parameters<typeof this.service.kickoutFromGroupCall>) {
+    return this.service.kickoutFromGroupCall(...args);
+  }
+}
+
+export function createCallClient(client: Client): CallClient {
+  return new ClientCall(client);
+}
+
+export interface IncomingCallEvent {
+  callMid: string;
+  from: string;
+  kind?: string;
+  raw: LINETypes.Operation;
+}
+
+export interface CancelCallEvent {
+  callMid: string;
+  from: string;
+  reason?: string;
+  raw: LINETypes.Operation;
+}
+
+export function parseIncomingCall(op: LINETypes.Operation): IncomingCallEvent {
+  return {
+    callMid: (op as { param1?: string }).param1 ?? "",
+    from: (op as { param2?: string }).param2 ?? "",
+    kind: (op as { param3?: string }).param3,
+    raw: op,
+  };
+}
+
+export function parseCancelCall(op: LINETypes.Operation): CancelCallEvent {
+  return {
+    callMid: (op as { param1?: string }).param1 ?? "",
+    from: (op as { param2?: string }).param2 ?? "",
+    reason: (op as { param3?: string }).param3,
+    raw: op,
+  };
+}

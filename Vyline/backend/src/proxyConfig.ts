@@ -14,12 +14,10 @@ export type ProxyConfig = {
 };
 
 let current: ProxyConfig = {
-  enabled: Boolean(process.env["HTTP_PROXY"] || process.env["HTTPS_PROXY"] || process.env["ALL_PROXY"]),
-  url:
-    process.env["ALL_PROXY"] ||
-    process.env["HTTPS_PROXY"] ||
-    process.env["HTTP_PROXY"] ||
-    "",
+  enabled: Boolean(
+    process.env["HTTP_PROXY"] || process.env["HTTPS_PROXY"] || process.env["ALL_PROXY"],
+  ),
+  url: process.env["ALL_PROXY"] || process.env["HTTPS_PROXY"] || process.env["HTTP_PROXY"] || "",
 };
 
 export function getProxyConfig(): ProxyConfig {

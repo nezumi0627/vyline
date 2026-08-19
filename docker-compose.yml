@@ -1,0 +1,31 @@
+# Vyline — セルフホスト用 docker-compose
+#
+# 使い方:
+#   docker compose up -d --build
+#   → http://localhost:3001 で Vyline が起動
+# データは Docker ボリューム vyline_data に永続化される
+# （トークン / E2EE 鍵 / チャット履歴 / メディアキャッシュ / 設定）
+
+services:
+  vyline:
+    build: .
+    container_name: vyline
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      # ブラウザからのアクセスオリジンを指定（未設定なら localhost:5173）
+      # 同一オリジン（Docker 直接アクセス / Cloudflare Access 後方）なら未設定で OK
+      # VYLINE_CORS_ORIGIN: "https://vyline.example.com"
+      # リバースプロキシ越しの場合はトークン発行元の公開ドメインを指定
+      VYLINE_HOST: "0.0.0.0"
+      PORT: "3001"
+      VYLINE_DATA_DIR: "/data"
+      VYLINE_CDN_CACHE_DIR: "/data/cdn-cache"
+      VYLINE_MEDIA_CACHE_DIR: "/data/media-cache"
+    volumes:
+      - vyline_data:/data
+
+volumes:
+  vyline_data:
+    name: vyline_data

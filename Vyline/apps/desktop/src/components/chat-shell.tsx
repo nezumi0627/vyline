@@ -1,48 +1,48 @@
-import { useCallback, useEffect, useRef, useState } from "react"
-import { useStore } from "@/lib/store"
-import { Sidebar } from "@/components/sidebar"
-import { ChatArea } from "@/components/chat-area"
-import { cn } from "@/lib/utils"
-import { IconPanelLeft } from "@/components/icons"
+import { useCallback, useEffect, useRef, useState } from "react";
+import { useStore } from "@/lib/store";
+import { Sidebar } from "@/components/sidebar";
+import { ChatArea } from "@/components/chat-area";
+import { cn } from "@/lib/utils";
+import { IconPanelLeft } from "@/components/icons";
 
 export function ChatShell() {
-  const activeChatId = useStore((s) => s.activeChatId)
-  const sidebarWidth = useStore((s) => s.sidebarWidth)
-  const setSidebarWidth = useStore((s) => s.setSidebarWidth)
-  const collapsed = useStore((s) => s.sidebarCollapsed)
-  const toggleSidebar = useStore((s) => s.toggleSidebar)
+  const activeChatId = useStore((s) => s.activeChatId);
+  const sidebarWidth = useStore((s) => s.sidebarWidth);
+  const setSidebarWidth = useStore((s) => s.setSidebarWidth);
+  const collapsed = useStore((s) => s.sidebarCollapsed);
+  const toggleSidebar = useStore((s) => s.toggleSidebar);
 
-  const [dragging, setDragging] = useState(false)
-  const shellRef = useRef<HTMLDivElement>(null)
+  const [dragging, setDragging] = useState(false);
+  const shellRef = useRef<HTMLDivElement>(null);
 
   const onMove = useCallback(
     (clientX: number) => {
-      const left = shellRef.current?.getBoundingClientRect().left ?? 0
-      setSidebarWidth(clientX - left)
+      const left = shellRef.current?.getBoundingClientRect().left ?? 0;
+      setSidebarWidth(clientX - left);
     },
     [setSidebarWidth],
-  )
+  );
 
   useEffect(() => {
-    if (!dragging) return
-    const handleMouse = (e: MouseEvent) => onMove(e.clientX)
-    const handleTouch = (e: TouchEvent) => onMove(e.touches[0].clientX)
-    const stop = () => setDragging(false)
-    document.body.style.cursor = "col-resize"
-    document.body.style.userSelect = "none"
-    window.addEventListener("mousemove", handleMouse)
-    window.addEventListener("touchmove", handleTouch)
-    window.addEventListener("mouseup", stop)
-    window.addEventListener("touchend", stop)
+    if (!dragging) return;
+    const handleMouse = (e: MouseEvent) => onMove(e.clientX);
+    const handleTouch = (e: TouchEvent) => onMove(e.touches[0].clientX);
+    const stop = () => setDragging(false);
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", handleMouse);
+    window.addEventListener("touchmove", handleTouch);
+    window.addEventListener("mouseup", stop);
+    window.addEventListener("touchend", stop);
     return () => {
-      document.body.style.cursor = ""
-      document.body.style.userSelect = ""
-      window.removeEventListener("mousemove", handleMouse)
-      window.removeEventListener("touchmove", handleTouch)
-      window.removeEventListener("mouseup", stop)
-      window.removeEventListener("touchend", stop)
-    }
-  }, [dragging, onMove])
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+      window.removeEventListener("mousemove", handleMouse);
+      window.removeEventListener("touchmove", handleTouch);
+      window.removeEventListener("mouseup", stop);
+      window.removeEventListener("touchend", stop);
+    };
+  }, [dragging, onMove]);
 
   return (
     <div
@@ -78,7 +78,9 @@ export function ChatShell() {
         </div>
       )}
 
-      <div className={cn("relative h-full min-w-0 flex-1", activeChatId ? "flex" : "hidden md:flex")}>
+      <div
+        className={cn("relative h-full min-w-0 flex-1", activeChatId ? "flex" : "hidden md:flex")}
+      >
         {/* collapse / expand toggle */}
         <button
           type="button"
@@ -91,5 +93,5 @@ export function ChatShell() {
         <ChatArea />
       </div>
     </div>
-  )
+  );
 }

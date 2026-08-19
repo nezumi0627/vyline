@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useState } from "react";
 import {
   useStore,
   memberDisplayName,
@@ -6,60 +6,105 @@ import {
   displayName,
   commonGroupsWith,
   type Chat,
-} from "@/lib/store"
-import { api } from "@/api/client"
-import { Avatar } from "@/components/vy-ui"
-import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons"
+} from "@/lib/store";
+import { api } from "@/api/client";
+import { looksLikeMid } from "@/lib/mappers";
+import { Avatar } from "@/components/vy-ui";
+import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
 
 export function MemberProfilePopover({ chat }: { chat: Chat }) {
-  const memberProfile = useStore((s) => s.memberProfile)
-  const close = useStore((s) => s.closeMemberProfile)
-  const openDirectChatWith = useStore((s) => s.openDirectChatWith)
-  const openChat = useStore((s) => s.openChat)
-  const chats = useStore((s) => s.chats)
-  const streamerMode = useStore((s) => s.settings.streamerMode)
-  const accountId = useStore((s) => s.accountId)
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
+  const memberProfile = useStore((s) => s.memberProfile);
+  const close = useStore((s) => s.closeMemberProfile);
+  const openDirectChatWith = useStore((s) => s.openDirectChatWith);
+  const openChat = useStore((s) => s.openChat);
+  const chats = useStore((s) => s.chats);
+  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const accountId = useStore((s) => s.accountId);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") close()
+      if (e.key === "Escape") close();
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [close])
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [close]);
 
-  const member = chat.members?.find((m) => m.id === memberProfile?.memberId)
+  const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
   const commonGroups = useMemo(
-    () => (member ? commonGroupsWith(chats, member.id, chat.id) : []),
-    [chats, member, chat.id],
-  )
+    () => apiCommonGroups ?? (member ? commonGroupsWith(chats, member.id, chat.id) : []),
+    [apiCommonGroups, chats, member, chat.id],
+  );
 
-  if (!member) return null
+  useEffect(() => {
+    setApiCommonGroups(null);
+    if (!accountId || !member || streamerMode) return;
+    let cancelled = false;
+    void api.line
+      .commonGroups(accountId, member.id, chat.id)
+      .then((res) => {
+        if (cancelled || !res.ok || !res.groups) return;
+        const byId = new Map(chats.map((c) => [c.id, c]));
+        setApiCommonGroups(
+          res.groups.map((g) => {
+            const local = byId.get(g.chatMid);
+            const name = local?.name && !looksLikeMid(local.name) ? local.name : g.name;
+            const initial = (name || "G").trim().charAt(0).toUpperCase();
+            return {
+              id: g.chatMid,
+              type: "group" as const,
+              name,
+              avatar: looksLikeMid(initial) ? "G" : initial,
+              avatarUrl: g.thumbnailUrl || local?.avatarUrl,
+              color: local?.color ?? "#7c5cff",
+              status: "グループ",
+              unread: 0,
+            } satisfies Chat;
+          }),
+        );
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, member?.id, chat.id, streamerMode, chats]);
 
-  const name = memberDisplayName(member.name, streamerMode)
-  const glyph = memberGlyph(member.avatar, streamerMode)
+  if (!member) return null;
+
+  const name = memberDisplayName(member.name, streamerMode);
+  const glyph = memberGlyph(member.avatar, streamerMode);
 
   const blockMember = async () => {
-    if (!accountId || busy) return
-    if (!window.confirm(`「${name}」をブロックしますか？`)) return
-    setBusy(true)
-    setMsg(null)
+    if (!accountId || busy) return;
+    const isBlocked = useStore.getState().blockedMids.includes(member.id);
+    if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
+    setBusy(true);
+    setMsg(null);
     try {
-      const res = await api.line.blockContact(accountId, member.id)
+      const res = isBlocked
+        ? await api.line.unblockContact(accountId, member.id)
+        : await api.line.blockContact(accountId, member.id);
       if (!res.ok) {
-        setMsg(res.error ?? "ブロックに失敗しました")
-        return
+        setMsg(res.error ?? (isBlocked ? "ブロック解除に失敗しました" : "ブロックに失敗しました"));
+        return;
       }
-      setMsg("ブロックしました")
-      close()
+      useStore.setState((st) => ({
+        blockedMids: isBlocked
+          ? st.blockedMids.filter((m) => m !== member.id)
+          : st.blockedMids.includes(member.id)
+            ? st.blockedMids
+            : [...st.blockedMids, member.id],
+      }));
+      setMsg(isBlocked ? "ブロックを解除しました" : "ブロックしました");
+      close();
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div
@@ -120,7 +165,11 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
               onClick={() => void blockMember()}
               className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:opacity-50"
             >
-              {busy ? "処理中…" : "ブロック"}
+              {busy
+                ? "処理中…"
+                : useStore.getState().blockedMids.includes(member.id)
+                  ? "ブロックを解除"
+                  : "ブロック"}
             </button>
             {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
           </div>
@@ -148,20 +197,13 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
                     <button
                       type="button"
                       onClick={() => {
-                        close()
-                        openChat(g.id)
+                        close();
+                        openChat(g.id);
                       }}
                       className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
                     >
-                      <Avatar
-                        glyph={g.avatar}
-                        color={g.color}
-                        size={32}
-                        imageUrl={g.avatarUrl}
-                      />
-                      <span className="truncate text-sm font-medium">
-                        {displayName(g, false)}
-                      </span>
+                      <Avatar glyph={g.avatar} color={g.color} size={32} imageUrl={g.avatarUrl} />
+                      <span className="truncate text-sm font-medium">{displayName(g, false)}</span>
                     </button>
                   </li>
                 ))}
@@ -171,7 +213,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
         )}
       </div>
     </div>
-  )
+  );
 }
 
 function MiniAction({
@@ -180,10 +222,10 @@ function MiniAction({
   onClick,
   disabled,
 }: {
-  icon: React.ReactNode
-  label: string
-  onClick?: () => void
-  disabled?: boolean
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -195,5 +237,5 @@ function MiniAction({
       <span style={{ color: "var(--vy-accent)" }}>{icon}</span>
       {label}
     </button>
-  )
+  );
 }

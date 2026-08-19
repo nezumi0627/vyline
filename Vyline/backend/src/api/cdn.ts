@@ -6,12 +6,21 @@
 
 import { Hono } from "hono";
 import {
+  CdnNotFoundError,
   getCachedLineCdn,
   isAllowedLineCdnUrl,
 } from "../storage/cdnAssetCache.js";
 import { childLogger } from "../logger.js";
 
 const log = childLogger("bff:cdn");
+
+// 1x1 透明 PNG（404 フォールバック。壊れた画像アイコンを出さない）
+const TRANSPARENT_PNG = Uint8Array.from(
+  Buffer.from(
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    "base64",
+  ),
+);
 
 export const cdnRouter = new Hono();
 
@@ -40,9 +49,17 @@ cdnRouter.get("/line", async (c) => {
     });
   } catch (err) {
     log.debug({ err, url }, "cdn proxy failed");
-    return c.json(
-      { ok: false, error: err instanceof Error ? err.message : String(err) },
-      502,
-    );
+    // 404 は透過 PNG を返してフォールバック（画像エラーを出さない）
+    if (err instanceof CdnNotFoundError) {
+      return new Response(Buffer.from(TRANSPARENT_PNG), {
+        status: 200,
+        headers: {
+          "Content-Type": "image/png",
+          "Cache-Control": "public, max-age=604800, immutable",
+          "X-Vyline-Cdn-Cache": "MISS-404",
+        },
+      });
+    }
+    return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
   }
 });

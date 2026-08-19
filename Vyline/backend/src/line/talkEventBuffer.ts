@@ -7,7 +7,8 @@ import type { Message } from "@vyline/types";
 export type TalkPollEventPayload =
   | { kind: "message"; chatMid: string; message: Message }
   | { kind: "revoke"; chatMid: string; messageId: string }
-  | { kind: "read"; chatMid: string };
+  | { kind: "read"; chatMid: string }
+  | { kind: "reaction"; chatMid: string; messageId: string };
 
 export type TalkPollEvent = TalkPollEventPayload & { seq: number };
 
@@ -37,8 +38,7 @@ export function drainTalkEvents(
   const buf = buffers.get(accountId);
   const seq = buf?.seq ?? 0;
   // 再起動で seq が巻き戻る / MAX_EVENTS を超えて追い出された場合は再同期が必要
-  const reset =
-    afterSeq > 0 && (!buf || buf.seq < afterSeq || afterSeq < buf.seq - MAX_EVENTS);
+  const reset = afterSeq > 0 && (!buf || buf.seq < afterSeq || afterSeq < buf.seq - MAX_EVENTS);
   if (!buf || reset) {
     return { cursor: reset ? seq : afterSeq, events: [], reset, seq };
   }

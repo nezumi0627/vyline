@@ -1,0 +1,16 @@
+{
+  "compilerOptions": {
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": false,
+    "skipLibCheck": true,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "types": ["node"],
+    "outDir": "_dist",
+    "rootDir": "."
+  },
+  "include": ["base/**/*.ts", "client/**/*.ts"],
+  "exclude": ["**/*.test.ts", "_dist/**"]
+}

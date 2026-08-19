@@ -7,6 +7,7 @@
  * POST /auth/login/qr      — QR ログイン開始
  * GET  /auth/login/qr/:id  — QR URL ポーリング
  * POST /auth/restore        — 保存済みトークンで復元
+ * POST /auth/switch/:id     — アカウント切替（未ログインなら restore）
  * GET  /auth/accounts       — ログイン中 + 保存セッション一覧
  * GET  /auth/sessions       — 保存済みセッション詳細
  * DELETE /auth/sessions/:id — 保存セッション削除
@@ -19,9 +20,11 @@ import {
   loginWithEmail,
   loginWithQRCode,
   loginWithToken,
+  loginWithAuthToken,
   listAccounts,
   getQrState,
   getLoggedInAt,
+  getAuthToken,
   removeClient,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
@@ -29,7 +32,10 @@ import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStor
 const log = childLogger("api:auth");
 export const authRouter = new Hono();
 type EmailLoginStatus = "idle" | "pending" | "completed" | "failed";
-const emailLoginState = new Map<string, { status: EmailLoginStatus; pincode: string | null; error: string | null }>();
+const emailLoginState = new Map<
+  string,
+  { status: EmailLoginStatus; pincode: string | null; error: string | null }
+>();
 
 function random6DigitPin(): string {
   return String(Math.floor(100000 + Math.random() * 900000));
@@ -60,7 +66,7 @@ authRouter.post("/login/email", async (c) => {
     body.password,
     (pin) => {
       emailLoginState.set(body.accountId, { status: "pending", pincode: pin, error: null });
-      log.info({ accountId: body.accountId, pin }, "PINCODE REQUIRED — enter on LINE app");
+      log.info({ accountId: body.accountId, pin: Boolean(pin) }, "PINCODE REQUIRED — enter on LINE app");
     },
     pincode,
   )
@@ -126,7 +132,7 @@ authRouter.post("/login/qr", async (c) => {
 
   // 非同期でログイン開始
   loginWithQRCode(body.accountId, (url) => {
-    log.info({ accountId: body.accountId, url }, "QR URL ready");
+    log.info({ accountId: body.accountId, urlReady: Boolean(url) }, "QR URL ready");
   })
     .then(() => {
       log.info({ accountId: body.accountId }, "QR login completed");
@@ -195,6 +201,60 @@ authRouter.post("/restore", async (c) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /auth/login/token
+// body: { accountId, authToken }  — トークン直接指定でログイン
+// ─────────────────────────────────────────────
+authRouter.post("/login/token", async (c) => {
+  const body = await c.req.json<{ accountId: string; authToken: string }>();
+  if (!body.accountId || !body.authToken) {
+    return c.json({ ok: false, error: "accountId and authToken required" }, 400);
+  }
+
+  try {
+    await loginWithAuthToken(body.accountId, body.authToken);
+
+    // トークンを保存（次回から restore で復元可能）
+    const { saveToken } = await import("../storage/tokenStore.js");
+    await saveToken(body.accountId, body.authToken, {});
+
+    log.info({ accountId: body.accountId }, "token login success");
+    return c.json({ ok: true, accountId: body.accountId });
+  } catch (err) {
+    log.error({ accountId: body.accountId, err }, "token login failed");
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────
+// POST /auth/switch/:id
+// 未ログインなら restore → ログイン済みならそのまま active 切替
+// ─────────────────────────────────────────────
+authRouter.post("/switch/:id", async (c) => {
+  const accountId = c.req.param("id");
+  if (!accountId) {
+    return c.json({ ok: false, error: "accountId required" }, 400);
+  }
+
+  const active = listAccounts();
+  if (active.includes(accountId)) {
+    return c.json({ ok: true, accountId, restored: false });
+  }
+
+  const tokens = await loadTokens();
+  if (!tokens[accountId]) {
+    return c.json({ ok: false, error: "account not found" }, 404);
+  }
+
+  try {
+    await loginWithToken(accountId);
+    return c.json({ ok: true, accountId, restored: true });
+  } catch (err) {
+    log.error({ accountId, err }, "switch restore failed");
+    return c.json({ ok: false, error: String(err) }, 500);
+  }
+});
+
+// ─────────────────────────────────────────────
 // GET /auth/accounts
 // ─────────────────────────────────────────────
 authRouter.get("/accounts", async (c) => {
@@ -207,6 +267,18 @@ authRouter.get("/accounts", async (c) => {
     saved: Object.keys(saved),
     sessions,
   });
+});
+
+// ─────────────────────────────────────────────
+// GET /auth/token/:id — 現在の authToken 取得（ログイン中のみ）
+// ─────────────────────────────────────────────
+authRouter.get("/token/:id", async (c) => {
+  const accountId = c.req.param("id");
+  const token = getAuthToken(accountId);
+  if (!token) {
+    return c.json({ ok: false, error: "not logged in" }, 401);
+  }
+  return c.json({ ok: true, token });
 });
 
 // ─────────────────────────────────────────────

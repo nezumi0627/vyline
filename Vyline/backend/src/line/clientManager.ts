@@ -1,23 +1,33 @@
 /**
  * clientManager.ts
  *
- * NezuLINE クライアントのライフサイクル管理。
- * LINE Desktop 互換 identity は NezuUpdater が供給する。
+ * Vyline クライアントのライフサイクル管理。
+ * LINE Desktop 互換 identity は VylineUpdater が供給する。
  */
 
 import {
-  loginWithEmail as nezuLoginEmail,
-  loginWithQR as nezuLoginQR,
-  loginWithToken as nezuLoginToken,
+  loginWithEmail as vylineLoginEmail,
+  loginWithQR as vylineLoginQR,
+  loginWithToken as vylineLoginToken,
   resolveDeviceMode,
   kicksOfficialDesktop,
   patchGroupKeyLookup,
-  type NezuClient,
-} from "@vyline/nezuline";
+  type VylineClient,
+} from "@vyline/protocol";
 import { childLogger } from "../logger.js";
-import { saveToken, getToken, loadTokens, deleteToken, updateSessionMeta } from "../storage/tokenStore.js";
-import { getNezuProfile } from "../nezu/profileBridge.js";
-import { attachTalkPushBridge, detachTalkPushBridge, warmLineCache } from "../service/lineService.js";
+import {
+  saveToken,
+  getToken,
+  loadTokens,
+  deleteToken,
+  updateSessionMeta,
+} from "../storage/tokenStore.js";
+import { getVylineProfile } from "../vyline/profileBridge.js";
+import {
+  attachTalkPushBridge,
+  detachTalkPushBridge,
+  warmLineCache,
+} from "../service/lineService.js";
 
 const log = childLogger("clientManager");
 
@@ -30,7 +40,7 @@ function deviceLogFields() {
 }
 
 interface ManagedClient {
-  client: NezuClient;
+  client: VylineClient;
   accountId: string;
   qrUrl: string | null;
   qrExpired: boolean;
@@ -46,7 +56,7 @@ type TalkListenState = {
 const clients = new Map<string, ManagedClient>();
 const talkListenByAccount = new Map<string, TalkListenState>();
 
-function mountTalkListen(client: NezuClient, accountId: string): void {
+function mountTalkListen(client: VylineClient, accountId: string): void {
   const abort = new AbortController();
   talkListenByAccount.set(accountId, { abort, mounted: true });
   client.listen({ talk: true, square: false, signal: abort.signal });
@@ -57,10 +67,7 @@ const talkRpcBackground = new Map<string, Promise<unknown>>();
 /** 履歴取得の直列化（Desktop 準拠: push は維持したまま /S4 RPC を実行） */
 const talkFetchGate = new Map<string, { chain: Promise<unknown>; depth: number }>();
 
-export function enqueueTalkRpcBackground<T>(
-  accountId: string,
-  work: () => Promise<T>,
-): Promise<T> {
+export function enqueueTalkRpcBackground<T>(accountId: string, work: () => Promise<T>): Promise<T> {
   const prev = talkRpcBackground.get(accountId) ?? Promise.resolve();
   const next = prev.catch(() => undefined).then(work);
   talkRpcBackground.set(accountId, next);
@@ -170,14 +177,14 @@ function storagePathFor(accountId: string): string {
 function loginInit(accountId: string) {
   const deviceMode = process.env["VYLINE_DEVICE"];
   return {
-    profile: getNezuProfile(),
+    profile: getVylineProfile(),
     storagePath: storagePathFor(accountId),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
 }
 
-function startTalkListeners(client: NezuClient, accountId: string): void {
+function startTalkListeners(client: VylineClient, accountId: string): void {
   if (process.env["VYLINE_TALK_LISTEN"] === "0") {
     log.info({ accountId }, "talk listener disabled (VYLINE_TALK_LISTEN=0)");
     return;
@@ -206,7 +213,7 @@ function startTalkListeners(client: NezuClient, accountId: string): void {
   }, delayMs);
 }
 
-function watchAuthToken(client: NezuClient, accountId: string): void {
+function watchAuthToken(client: VylineClient, accountId: string): void {
   try {
     patchGroupKeyLookup(client);
   } catch (err) {
@@ -218,7 +225,10 @@ function watchAuthToken(client: NezuClient, accountId: string): void {
 
   // スタック内部ログ（[LEGY/PUSH] 等）を pino へ — 接続状態の観測用
   client.base.on("log", ({ type, data }) => {
-    log.debug({ nezuType: type, ...(data as Record<string, unknown> | undefined) }, "nezu stack log");
+    log.debug(
+      { vylineType: type, ...(data as Record<string, unknown> | undefined) },
+      "vyline stack log",
+    );
   });
 
   const persist = async (reason: string) => {
@@ -273,13 +283,16 @@ function watchAuthToken(client: NezuClient, accountId: string): void {
     });
 
   let lastToken = String(client.authToken ?? client.base.authToken ?? "");
-  const interval = setInterval(() => {
-    const current = String(client.authToken ?? client.base.authToken ?? "");
-    if (current && current !== lastToken) {
-      lastToken = current;
-      void persist("token-refresh");
-    }
-  }, 5 * 60 * 1000);
+  const interval = setInterval(
+    () => {
+      const current = String(client.authToken ?? client.base.authToken ?? "");
+      if (current && current !== lastToken) {
+        lastToken = current;
+        void persist("token-refresh");
+      }
+    },
+    5 * 60 * 1000,
+  );
 
   process.on("exit", () => clearInterval(interval));
 }
@@ -290,8 +303,8 @@ export async function loginWithEmail(
   password: string,
   onPincode: (pin: string) => void,
   pincode?: string,
-): Promise<NezuClient> {
-  const profile = getNezuProfile();
+): Promise<VylineClient> {
+  const profile = getVylineProfile();
   log.info(
     {
       accountId,
@@ -299,10 +312,10 @@ export async function loginWithEmail(
       appVersion: profile.identity.appVersion,
       desktopXLineApplication: profile.identity.xLineApplication,
     },
-    "starting email login via NezuLINE",
+    "starting email login via Vyline",
   );
 
-  const client = await nezuLoginEmail(
+  const client = await vylineLoginEmail(
     {
       email,
       password,
@@ -332,8 +345,8 @@ export async function loginWithEmail(
 export async function loginWithQRCode(
   accountId: string,
   onQrUrl: (url: string) => void,
-): Promise<NezuClient> {
-  const profile = getNezuProfile();
+): Promise<VylineClient> {
+  const profile = getVylineProfile();
   log.info(
     {
       accountId,
@@ -341,11 +354,11 @@ export async function loginWithQRCode(
       appVersion: profile.identity.appVersion,
       desktopXLineApplication: profile.identity.xLineApplication,
     },
-    "starting QR login via NezuLINE",
+    "starting QR login via Vyline",
   );
 
   const managed: ManagedClient = {
-    client: null as unknown as NezuClient,
+    client: null as unknown as VylineClient,
     accountId,
     qrUrl: null,
     qrExpired: false,
@@ -367,7 +380,7 @@ export async function loginWithQRCode(
   };
 
   try {
-    const client = await nezuLoginQR(
+    const client = await vylineLoginQR(
       {
         onReceiveQRUrl(url: string) {
           log.info({ accountId, url }, "QR URL received");
@@ -405,14 +418,14 @@ export async function loginWithQRCode(
   }
 }
 
-export async function loginWithToken(accountId: string): Promise<NezuClient> {
+export async function loginWithToken(accountId: string): Promise<VylineClient> {
   const entry = await getToken(accountId);
   if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
-  log.info({ accountId }, "restoring session with authToken via NezuLINE");
+  log.info({ accountId }, "restoring session with authToken via Vyline");
 
-  const client = await nezuLoginToken(entry.authToken, {
-    profile: getNezuProfile(),
+  const client = await vylineLoginToken(entry.authToken, {
+    profile: getVylineProfile(),
     storagePath: entry.storageFile,
   });
 
@@ -427,6 +440,37 @@ export async function loginWithToken(accountId: string): Promise<NezuClient> {
     loggedInAt: Date.now(),
   });
   log.info({ accountId }, "token login success");
+  return client;
+}
+
+export async function loginWithAuthToken(
+  accountId: string,
+  authToken: string,
+): Promise<VylineClient> {
+  const { dirname, join } = await import("node:path");
+  const { fileURLToPath } = await import("node:url");
+  const _dir = dirname(fileURLToPath(import.meta.url));
+  const dataDir = process.env["VYLINE_DATA_DIR"] ?? join(_dir, "../../data");
+  const storagePath = join(dataDir, `storage-${accountId}.json`);
+
+  log.info({ accountId }, "login with authToken via Vyline");
+
+  const client = await vylineLoginToken(authToken, {
+    profile: getVylineProfile(),
+    storagePath,
+  });
+
+  watchAuthToken(client, accountId);
+  void warmLineCache(accountId).catch(() => undefined);
+  clients.set(accountId, {
+    client,
+    accountId,
+    qrUrl: null,
+    qrExpired: false,
+    pincode: null,
+    loggedInAt: Date.now(),
+  });
+  log.info({ accountId }, "authToken login success");
   return client;
 }
 
@@ -454,10 +498,7 @@ export async function restoreAllSessions(): Promise<void> {
         if (authFailed) {
           await deleteToken(id);
           removeClient(id);
-          log.warn(
-            { accountId: id },
-            "cleared invalid saved token",
-          );
+          log.warn({ accountId: id }, "cleared invalid saved token");
         } else {
           log.warn({ accountId: id, err }, "failed to restore session");
         }
@@ -466,7 +507,7 @@ export async function restoreAllSessions(): Promise<void> {
   );
 }
 
-export function getClient(accountId: string): NezuClient | undefined {
+export function getClient(accountId: string): VylineClient | undefined {
   return clients.get(accountId)?.client;
 }
 
@@ -490,6 +531,12 @@ export function getQrState(accountId: string): {
     pincode: m.pincode,
     inProgress,
   };
+}
+
+export function getAuthToken(accountId: string): string | null {
+  const m = clients.get(accountId);
+  if (!m?.client) return null;
+  return m.client.authToken ?? m.client.base.authToken ?? null;
 }
 
 export function getQrUrl(accountId: string): string | null {

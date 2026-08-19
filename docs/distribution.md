@@ -8,11 +8,11 @@
 
 ## バージョン正本
 
-| 場所 | 役割 |
-|---|---|
+| 場所                                                            | 役割                             |
+| --------------------------------------------------------------- | -------------------------------- |
 | `Vyline/apps/desktop/src/lib/store.ts` → `UPDATE_NOTES.version` | UI / What's New / updater が参照 |
-| ルート `package.json` / `apps/desktop/package.json` | npm / ビルドメタ |
-| GitHub Release tag (`vX.Y.Z`) | `checkForUpdates()` が比較 |
+| ルート `package.json` / `apps/desktop/package.json`             | npm / ビルドメタ                 |
+| GitHub Release tag (`vX.Y.Z`)                                   | `checkForUpdates()` が比較       |
 
 リリース時は **3 箇所を同じセマンティックバージョン** に揃える。
 

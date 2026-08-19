@@ -20,7 +20,7 @@
 - **`client.listen()`** で `NOTIFIED_RECEIVED_CALL` / `CANCEL_CALL` を受信（着信ログ）
 
 ```
-backend/sessionFactory → pickCallTransportForClient (nezuline/call/context)
+backend/sessionFactory → pickCallTransportForClient (protocol/call/context)
   acquireRoute(fromEnvInfo: devname=iPad|Windows|Android)
   PlanetTransport(userAgent=端末一致, appReleaseInfo=x-line-application 相当)
 ```
@@ -29,14 +29,14 @@ backend/sessionFactory → pickCallTransportForClient (nezuline/call/context)
 
 ## API
 
-| メソッド | パス | 用途 |
-|---|---|---|
-| POST | `/line/:id/call/start` | フルセッション開始 `{ to, callType? }` |
-| POST | `/line/:id/call/end` | `{ sessionId }` |
-| GET | `/line/:id/call/status?sessionId=` | 状態 |
-| GET | `/line/:id/call/active` | アカウントのアクティブ通話 |
-| POST | `/line/:id/call` | route のみ（デバッグ） |
-| WS | `/line/:id/call/ws?sessionId=` | PCM Int16LE @48kHz |
+| メソッド | パス                               | 用途                                   |
+| -------- | ---------------------------------- | -------------------------------------- |
+| POST     | `/line/:id/call/start`             | フルセッション開始 `{ to, callType? }` |
+| POST     | `/line/:id/call/end`               | `{ sessionId }`                        |
+| GET      | `/line/:id/call/status?sessionId=` | 状態                                   |
+| GET      | `/line/:id/call/active`            | アカウントのアクティブ通話             |
+| POST     | `/line/:id/call`                   | route のみ（デバッグ）                 |
+| WS       | `/line/:id/call/ws?sessionId=`     | PCM Int16LE @48kHz                     |
 
 ---
 
@@ -44,23 +44,23 @@ backend/sessionFactory → pickCallTransportForClient (nezuline/call/context)
 
 ```powershell
 # 名前で解決（友だち一覧から）
-bun run nezu:call-test -- --account main --name ACECRAFT
-bun run nezu:call-test -- --account main --name 7sGood
+bun run vyline:call-test -- --account main --name ACECRAFT
+bun run vyline:call-test -- --account main --name 7sGood
 
 # mid 指定 + 440Hz テストトーン 3 秒
-bun run nezu:call-test -- --account main --to uXXXXXXXX --tone
+bun run vyline:call-test -- --account main --to uXXXXXXXX --tone
 ```
 
 ---
 
 ## linejs テスト参照
 
-| テスト | 内容 |
-|---|---|
-| `stack/client/features/call/session.test.ts` | 状態遷移 |
-| `stack/client/features/call/full_call.test.ts` | Andromeda + mock UAS + Opus echo |
-| `stack/client/features/call/planet/transport.test.ts` | Planet SETUP/CONN |
-| `stack/client/features/call/e2e.test.ts` | PCM→SRTP loopback |
+| テスト                                                | 内容                             |
+| ----------------------------------------------------- | -------------------------------- |
+| `stack/client/features/call/session.test.ts`          | 状態遷移                         |
+| `stack/client/features/call/full_call.test.ts`        | Andromeda + mock UAS + Opus echo |
+| `stack/client/features/call/planet/transport.test.ts` | Planet SETUP/CONN                |
+| `stack/client/features/call/e2e.test.ts`              | PCM→SRTP loopback                |
 
 ---
 
@@ -76,4 +76,4 @@ bun run nezu:call-test -- --account main --to uXXXXXXXX --tone
 
 - [protocol/dictionary.md](../protocol/dictionary.md) — `acquireCallRoute`
 - `Vyline/backend/src/call/allowlist.ts`
-- `Vyline/packages/nezuline/stack/client/features/call/`
+- `Vyline/packages/protocol/stack/client/features/call/`

@@ -1,10 +1,19 @@
-import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react"
-import { useStore, displayName, formatTime, sortChats, CHAT_SORT_LABELS, type Chat, type ChatSort } from "@/lib/store"
-import { cn } from "@/lib/utils"
-import { Avatar } from "@/components/vy-ui"
-import { OfficialBadge } from "@/components/official-badge"
-import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu"
-import { api } from "@/api/client"
+import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
+import {
+  useStore,
+  displayName,
+  formatTime,
+  sortChats,
+  CHAT_SORT_LABELS,
+  type Chat,
+  type ChatSort,
+} from "@/lib/store";
+import { cn } from "@/lib/utils";
+import { Avatar } from "@/components/vy-ui";
+import { OfficialBadge } from "@/components/official-badge";
+import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
+import { api } from "@/api/client";
+import { useAuthStore } from "@/stores/authStore";
 import {
   IconSearch,
   IconSettings,
@@ -19,188 +28,203 @@ import {
   IconPlus,
   IconBlock,
   IconCopy,
-} from "@/components/icons"
-import { CreateGroupDialog } from "@/components/create-group-dialog"
+  IconMemo,
+  IconLogout,
+  IconChevron,
+} from "@/components/icons";
+import { CreateGroupDialog } from "@/components/create-group-dialog";
 
-type Tab = "all" | "friend" | "group" | "hidden"
+type Tab = "all" | "friend" | "group" | "hidden" | "official";
+
+/** ブロックしてはいけない MID（公式 LINE アカウント等） */
+const BLOCK_PROTECTED_MIDS = new Set(["u085311ecd9e3e3d74ae4c9f5437cbcb5"]);
 
 const TABS: { key: Tab; label: string }[] = [
   { key: "all", label: "全体" },
   { key: "friend", label: "友だち" },
   { key: "group", label: "グループ" },
+  { key: "official", label: "公式" },
   { key: "hidden", label: "非表示" },
-]
+];
 
-const SORTS: ChatSort[] = ["recent", "unread", "custom"]
+const SORTS: ChatSort[] = ["recent", "unread", "custom"];
 
 function buildPreviewMap(
   messages: ReturnType<typeof useStore.getState>["messages"],
   chats: Chat[],
 ): Map<string, { text: string; time: number } | null> {
-  const lastByChat = new Map<string, (typeof messages)[number]>()
+  const lastByChat = new Map<string, (typeof messages)[number]>();
   for (const m of messages) {
-    lastByChat.set(m.chatId, m)
+    lastByChat.set(m.chatId, m);
   }
-  const out = new Map<string, { text: string; time: number } | null>()
+  const out = new Map<string, { text: string; time: number } | null>();
   for (const chat of chats) {
-    const last = lastByChat.get(chat.id)
-    const apiTime = chat.lastMessageTime ?? 0
+    const last = lastByChat.get(chat.id);
+    const apiTime = chat.lastMessageTime ?? 0;
     if (!last) {
       out.set(
         chat.id,
-        chat.lastMessagePreview
-          ? { text: chat.lastMessagePreview, time: apiTime }
-          : null,
-      )
-      continue
+        chat.lastMessagePreview ? { text: chat.lastMessagePreview, time: apiTime } : null,
+      );
+      continue;
     }
-    let text = ""
-    if (last.revoked) text = "メッセージの送信を取り消しました"
-    else if (last.kind === "sticker") text = last.altText || "[スタンプ]"
-    else if (last.kind === "image") text = "[画像]"
-    else if (last.kind === "video") text = "[動画]"
-    else if (last.kind === "audio") text = "[音声メッセージ]"
+    let text = "";
+    if (last.revoked) text = "メッセージの送信を取り消しました";
+    else if (last.kind === "sticker") text = last.altText || "[スタンプ]";
+    else if (last.kind === "image") text = "[画像]";
+    else if (last.kind === "video") text = "[動画]";
+    else if (last.kind === "audio") text = "[音声メッセージ]";
     else if (last.kind === "flex" || last.kind === "rich")
-      text = last.altText || last.text || (last.kind === "flex" ? "[Flex]" : "[リッチメッセージ]")
-    else if (last.kind === "call") text = "[通話]"
-    else if (last.kind === "emoji") text = "[絵文字]"
-    else if (last.kind === "system") text = last.text ?? ""
-    else text = last.text ?? chat.lastMessagePreview ?? ""
-    if (last.authorId === "me" && text) text = `あなた: ${text}`
-    out.set(chat.id, { text, time: Math.max(last.createdAt, apiTime) })
+      text = last.altText || last.text || (last.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
+    else if (last.kind === "call") text = "[通話]";
+    else if (last.kind === "emoji") text = "[絵文字]";
+    else if (last.kind === "location") text = "[位置情報]";
+    else if (last.kind === "contact") text = "[連絡先]";
+    else if (last.kind === "system") text = last.text ?? "";
+    else text = last.text ?? chat.lastMessagePreview ?? "";
+    if (last.authorId === "me" && text) text = `あなた: ${text}`;
+    out.set(chat.id, { text, time: Math.max(last.createdAt, apiTime) });
   }
-  return out
+  return out;
 }
 
 function moveId(order: string[], fromId: string, toId: string): string[] {
-  if (fromId === toId) return order
-  const next = [...order]
-  const from = next.indexOf(fromId)
-  const to = next.indexOf(toId)
-  if (from < 0 || to < 0) return order
-  next.splice(from, 1)
-  next.splice(to, 0, fromId)
-  return next
+  if (fromId === toId) return order;
+  const next = [...order];
+  const from = next.indexOf(fromId);
+  const to = next.indexOf(toId);
+  if (from < 0 || to < 0) return order;
+  next.splice(from, 1);
+  next.splice(to, 0, fromId);
+  return next;
 }
 
 export function Sidebar() {
-  const chats = useStore((s) => s.chats)
-  const messages = useStore((s) => s.messages)
-  const [createGroupOpen, setCreateGroupOpen] = useState(false)
-  const activeChatId = useStore((s) => s.activeChatId)
-  const openChat = useStore((s) => s.openChat)
-  const setScreen = useStore((s) => s.setScreen)
-  const streamerMode = useStore((s) => s.settings.streamerMode)
-  const sort = useStore((s) => s.settings.chatSort)
-  const updateSetting = useStore((s) => s.updateSetting)
-  const customOrder = useStore((s) => s.customOrder)
-  const setCustomOrder = useStore((s) => s.setCustomOrder)
-  const self = useStore((s) => s.self)
+  const chats = useStore((s) => s.chats);
+  const messages = useStore((s) => s.messages);
+  const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const activeChatId = useStore((s) => s.activeChatId);
+  const openChat = useStore((s) => s.openChat);
+  const setScreen = useStore((s) => s.setScreen);
+  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const sort = useStore((s) => s.settings.chatSort);
+  const updateSetting = useStore((s) => s.updateSetting);
+  const customOrder = useStore((s) => s.customOrder);
+  const setCustomOrder = useStore((s) => s.setCustomOrder);
+  const self = useStore((s) => s.self);
 
-  const togglePin = useStore((s) => s.togglePin)
-  const toggleHide = useStore((s) => s.toggleHide)
-  const toggleMute = useStore((s) => s.toggleMute)
-  const markChatRead = useStore((s) => s.markChatRead)
+  const togglePin = useStore((s) => s.togglePin);
+  const toggleHide = useStore((s) => s.toggleHide);
+  const toggleMute = useStore((s) => s.toggleMute);
+  const markChatRead = useStore((s) => s.markChatRead);
+  const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
+  const readDisabledMids = useStore((s) => s.readDisabledMids);
 
-  const accountId = useStore((s) => s.accountId)
-  const [tab, setTab] = useState<Tab>("all")
-  const [query, setQuery] = useState("")
-  const [sortOpen, setSortOpen] = useState(false)
-  const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null)
-  const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set())
-  const [blockBusy, setBlockBusy] = useState(false)
-  const [dragId, setDragId] = useState<string | null>(null)
+  const accountId = useStore((s) => s.accountId);
+  const [tab, setTab] = useState<Tab>("all");
+  const [query, setQuery] = useState("");
+  const [sortOpen, setSortOpen] = useState(false);
+  const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
+  const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
+  const [blockBusy, setBlockBusy] = useState(false);
+  const [dragId, setDragId] = useState<string | null>(null);
   /** ドラッグ中の一時順序（ストアは drop 時のみ更新してチラつきを防ぐ） */
-  const [liveOrder, setLiveOrder] = useState<string[] | null>(null)
-  const dragIdRef = useRef<string | null>(null)
-  const liveOrderRef = useRef<string[] | null>(null)
+  const [liveOrder, setLiveOrder] = useState<string[] | null>(null);
+  const dragIdRef = useRef<string | null>(null);
+  const liveOrderRef = useRef<string[] | null>(null);
 
-  const previewMap = useMemo(() => buildPreviewMap(messages, chats), [messages, chats])
+  const previewMap = useMemo(() => buildPreviewMap(messages, chats), [messages, chats]);
 
   const filtered = useMemo(() => {
-    let list = chats
-    if (tab === "friend") list = chats.filter((c) => c.type === "friend" && !c.hidden && !c.left)
-    else if (tab === "group") list = chats.filter((c) => c.type === "group" && !c.hidden && !c.left)
-    else if (tab === "hidden") list = chats.filter((c) => c.hidden)
-    else list = chats.filter((c) => !c.hidden && !c.left)
+    let list = chats;
+    if (tab === "friend") list = chats.filter((c) => c.type === "friend" && !c.hidden && !c.left);
+    else if (tab === "group")
+      list = chats.filter((c) => c.type === "group" && !c.hidden && !c.left);
+    else if (tab === "hidden") list = chats.filter((c) => c.hidden);
+    else if (tab === "official") list = chats.filter((c) => c.isOfficial && !c.hidden && !c.left);
+    else
+      list = chats.filter(
+        (c) => !c.hidden && (!c.left || (c.members != null && c.members.length > 0)),
+      );
 
     if (query.trim()) {
-      const q = query.toLowerCase()
-      list = list.filter((c) => displayName(c, false).toLowerCase().includes(q))
+      const q = query.toLowerCase();
+      list = list.filter((c) => displayName(c, false).toLowerCase().includes(q));
     }
     // custom は messages 非依存にして再レンダーを減らす
     if (sort === "custom") {
-      return sortChats(list, "custom", [], liveOrder ?? customOrder)
+      return sortChats(list, "custom", [], liveOrder ?? customOrder);
     }
-    return sortChats(list, sort, messages, customOrder)
-  }, [chats, tab, query, messages, sort, customOrder, liveOrder])
+    return sortChats(list, sort, messages, customOrder);
+  }, [chats, tab, query, messages, sort, customOrder, liveOrder]);
 
   useEffect(() => {
-    liveOrderRef.current = liveOrder
-  }, [liveOrder])
+    liveOrderRef.current = liveOrder;
+  }, [liveOrder]);
 
   const onDragStart = useCallback(
     (chatId: string) => {
-      dragIdRef.current = chatId
-      setDragId(chatId)
+      dragIdRef.current = chatId;
+      setDragId(chatId);
       const order =
         (liveOrderRef.current?.length ? liveOrderRef.current : null) ??
-        (customOrder.length ? customOrder : chats.map((c) => c.id))
-      setLiveOrder([...order])
+        (customOrder.length ? customOrder : chats.map((c) => c.id));
+      setLiveOrder([...order]);
     },
     [chats, customOrder],
-  )
+  );
 
   const onDragOverRow = useCallback(
     (targetId: string) => {
-      const fromId = dragIdRef.current
-      if (!fromId || fromId === targetId) return
+      const fromId = dragIdRef.current;
+      if (!fromId || fromId === targetId) return;
       setLiveOrder((prev) => {
-        const base = prev ?? customOrder
-        const next = moveId(base, fromId, targetId)
-        liveOrderRef.current = next
-        return next
-      })
+        const base = prev ?? customOrder;
+        const next = moveId(base, fromId, targetId);
+        liveOrderRef.current = next;
+        return next;
+      });
     },
     [customOrder],
-  )
+  );
 
   const finishDrag = useCallback(() => {
-    const order = liveOrderRef.current
-    if (order?.length) setCustomOrder(order)
-    dragIdRef.current = null
-    liveOrderRef.current = null
-    setDragId(null)
-    setLiveOrder(null)
-  }, [setCustomOrder])
+    const order = liveOrderRef.current;
+    if (order?.length) setCustomOrder(order);
+    dragIdRef.current = null;
+    liveOrderRef.current = null;
+    setDragId(null);
+    setLiveOrder(null);
+  }, [setCustomOrder]);
 
   // ブロック状態のキャッシュ（メニュー表示・確認用）
   useEffect(() => {
-    if (!accountId) return
-    let cancelled = false
+    if (!accountId) return;
+    let cancelled = false;
     void api.line
       .blockedContacts(accountId)
       .then((res) => {
-        if (cancelled || !res.ok || !res.mids) return
-        setBlockedSet(new Set(res.mids))
+        if (cancelled || !res.ok || !res.mids) return;
+        setBlockedSet(new Set(res.mids));
+        useStore.setState({ blockedMids: res.mids });
       })
-      .catch(() => undefined)
+      .catch(() => undefined);
     return () => {
-      cancelled = true
-    }
-  }, [accountId])
+      cancelled = true;
+    };
+  }, [accountId]);
 
   function openRowMenu(e: React.MouseEvent, chat: Chat) {
-    e.preventDefault()
-    e.stopPropagation()
-    const x = "clientX" in e && typeof e.clientX === "number" ? e.clientX : 0
-    const y = "clientY" in e && typeof e.clientY === "number" ? e.clientY : 0
-    setMenu({ x: x || 12, y: y || 12, chat })
+    e.preventDefault();
+    e.stopPropagation();
+    const x = "clientX" in e && typeof e.clientX === "number" ? e.clientX : 0;
+    const y = "clientY" in e && typeof e.clientY === "number" ? e.clientY : 0;
+    setMenu({ x: x || 12, y: y || 12, chat });
   }
 
-  const closeMenu = useCallback(() => setMenu(null), [])
+  const closeMenu = useCallback(() => setMenu(null), []);
 
-  const isBlocked = menu ? blockedSet.has(menu.chat.id) : false
+  const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
 
   const menuItems: MenuItem[] = menu
     ? [
@@ -210,8 +234,19 @@ export function Sidebar() {
           onClick: () => togglePin(menu.chat.id),
         },
         ...(menu.chat.unread > 0
-          ? [{ label: "既読にする", icon: <IconCheck size={16} />, onClick: () => markChatRead(menu.chat.id) }]
+          ? [
+              {
+                label: "既読にする",
+                icon: <IconCheck size={16} />,
+                onClick: () => markChatRead(menu.chat.id),
+              },
+            ]
           : []),
+        {
+          label: readDisabledMids[menu.chat.id] ? "既読を有効にする" : "既読を無効化",
+          icon: readDisabledMids[menu.chat.id] ? <IconEye size={16} /> : <IconEyeOff size={16} />,
+          onClick: () => toggleChatReadDisabled(menu.chat.id),
+        },
         {
           label: menu.chat.muted ? "ミュートを解除" : "通知をミュート",
           icon: menu.chat.muted ? <IconBell size={16} /> : <IconBellOff size={16} />,
@@ -223,56 +258,65 @@ export function Sidebar() {
           onClick: () => toggleHide(menu.chat.id),
         },
         {
-          label: "MID をコピー",
+          label: menu.chat.type === "group" ? "GID をコピー" : "MID をコピー",
           icon: <IconCopy size={16} />,
           onClick: () => {
-            void navigator.clipboard.writeText(menu.chat.id)
+            void navigator.clipboard.writeText(menu.chat.id);
           },
         },
-        ...(menu.chat.type === "friend"
+        ...(menu.chat.type === "friend" &&
+        !menu.chat.isSelf &&
+        !BLOCK_PROTECTED_MIDS.has(menu.chat.id)
           ? [
               {
                 label: isBlocked ? "ブロックを解除" : "ブロック",
                 icon: <IconBlock size={16} />,
                 danger: !isBlocked,
                 onClick: () => {
-                  if (!accountId || blockBusy) return
-                  const mid = menu.chat.id
-                  const name = displayName(menu.chat, false)
-                  if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return
-                  setBlockBusy(true)
+                  if (!accountId || blockBusy) return;
+                  const mid = menu.chat.id;
+                  const name = displayName(menu.chat, false);
+                  if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
+                  setBlockBusy(true);
                   const req = isBlocked
                     ? api.line.unblockContact(accountId, mid)
-                    : api.line.blockContact(accountId, mid)
+                    : api.line.blockContact(accountId, mid);
                   void req
                     .then((res) => {
                       if (!res.ok) {
-                        window.alert(res.error ?? "ブロック操作に失敗しました")
-                        return
+                        window.alert(res.error ?? "ブロック操作に失敗しました");
+                        return;
                       }
                       setBlockedSet((s) => {
-                        const n = new Set(s)
-                        if (isBlocked) n.delete(mid)
-                        else n.add(mid)
-                        return n
-                      })
+                        const n = new Set(s);
+                        if (isBlocked) n.delete(mid);
+                        else n.add(mid);
+                        return n;
+                      });
+                      useStore.setState((st) => ({
+                        blockedMids: isBlocked
+                          ? st.blockedMids.filter((m) => m !== mid)
+                          : st.blockedMids.includes(mid)
+                            ? st.blockedMids
+                            : [...st.blockedMids, mid],
+                      }));
                       if (!isBlocked) {
                         useStore.setState((st) => ({
                           chats: st.chats.filter((c) => c.id !== mid),
                           activeChatId: st.activeChatId === mid ? null : st.activeChatId,
-                        }))
+                        }));
                       }
                     })
                     .catch((err) => {
-                      window.alert(err instanceof Error ? err.message : String(err))
+                      window.alert(err instanceof Error ? err.message : String(err));
                     })
-                    .finally(() => setBlockBusy(false))
+                    .finally(() => setBlockBusy(false));
                 },
               },
             ]
           : []),
       ]
-    : []
+    : [];
 
   return (
     <aside className="flex h-full w-full flex-col bg-[var(--vy-sidebar)] md:border-r md:border-[var(--vy-border)]">
@@ -283,7 +327,12 @@ export function Sidebar() {
           className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           aria-label="プロフィール設定"
         >
-          <Avatar glyph={self.avatar} color="var(--vy-accent)" size={42} imageUrl={self.avatarUrl} />
+          <Avatar
+            glyph={self.avatar}
+            color="var(--vy-accent)"
+            size={42}
+            imageUrl={self.avatarUrl}
+          />
         </button>
         <button
           type="button"
@@ -340,7 +389,9 @@ export function Sidebar() {
             aria-expanded={sortOpen}
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
-              sortOpen ? "text-[var(--vy-accent)]" : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
+              sortOpen
+                ? "text-[var(--vy-accent)]"
+                : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
             )}
           >
             <IconSort size={18} />
@@ -349,14 +400,16 @@ export function Sidebar() {
             <>
               <div className="fixed inset-0 z-40" onClick={() => setSortOpen(false)} aria-hidden />
               <div className="vy-scale-in absolute right-0 top-11 z-50 w-40 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl">
-                <p className="px-3 py-1.5 text-[0.7rem] font-medium text-[var(--vy-text-dim)]">並び順</p>
+                <p className="px-3 py-1.5 text-[0.7rem] font-medium text-[var(--vy-text-dim)]">
+                  並び順
+                </p>
                 {SORTS.map((s) => (
                   <button
                     key={s}
                     type="button"
                     onClick={() => {
-                      updateSetting("chatSort", s)
-                      setSortOpen(false)
+                      updateSetting("chatSort", s);
+                      setSortOpen(false);
                     }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
                   >
@@ -405,9 +458,7 @@ export function Sidebar() {
       )}
 
       {sort === "custom" && (
-        <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
-          ドラッグして並び替え
-        </p>
+        <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
       )}
 
       <div className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
@@ -428,19 +479,20 @@ export function Sidebar() {
               active={chat.id === activeChatId}
               draggable={sort === "custom"}
               dragging={dragId === chat.id}
+              blocked={blockedSet.has(chat.id)}
               onClick={() => openChat(chat.id)}
               onContextMenu={(e) => openRowMenu(e, chat)}
               onDragStart={() => onDragStart(chat.id)}
               onDragEnd={finishDrag}
               onDragOver={(e) => {
-                if (sort !== "custom" || !dragIdRef.current) return
-                e.preventDefault()
-                e.dataTransfer.dropEffect = "move"
-                onDragOverRow(chat.id)
+                if (sort !== "custom" || !dragIdRef.current) return;
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                onDragOverRow(chat.id);
               }}
               onDrop={(e) => {
-                e.preventDefault()
-                finishDrag()
+                e.preventDefault();
+                finishDrag();
               }}
               streamerMode={streamerMode}
               preview={previewMap.get(chat.id) ?? null}
@@ -453,8 +505,11 @@ export function Sidebar() {
         <MessageContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
+
+      {/* account switcher */}
+      <AccountSwitcher />
     </aside>
-  )
+  );
 }
 
 const ChatRow = memo(function ChatRow({
@@ -462,6 +517,7 @@ const ChatRow = memo(function ChatRow({
   active,
   draggable,
   dragging,
+  blocked,
   onClick,
   onContextMenu,
   onDragStart,
@@ -471,64 +527,71 @@ const ChatRow = memo(function ChatRow({
   streamerMode,
   preview,
 }: {
-  chat: Chat
-  active: boolean
-  draggable: boolean
-  dragging: boolean
-  onClick: () => void
-  onContextMenu: (e: React.MouseEvent) => void
-  onDragStart: () => void
-  onDragEnd: () => void
-  onDragOver: (e: React.DragEvent) => void
-  onDrop: (e: React.DragEvent) => void
-  streamerMode: boolean
-  preview: { text: string; time: number } | null
+  chat: Chat;
+  active: boolean;
+  draggable: boolean;
+  dragging: boolean;
+  blocked?: boolean;
+  onClick: () => void;
+  onContextMenu: (e: React.MouseEvent) => void;
+  onDragStart: () => void;
+  onDragEnd: () => void;
+  onDragOver: (e: React.DragEvent) => void;
+  onDrop: (e: React.DragEvent) => void;
+  streamerMode: boolean;
+  preview: { text: string; time: number } | null;
 }) {
-  const name = displayName(chat, streamerMode)
-  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({ timer: null, fired: false })
+  const name = displayName(chat, streamerMode);
+  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
+    timer: null,
+    fired: false,
+  });
 
-  const onTouchStart = useCallback((e: React.TouchEvent) => {
-    const t = e.touches[0]
-    if (!t) return
-    const cx = t.clientX
-    const cy = t.clientY
-    longPressRef.current.fired = false
-    longPressRef.current.timer = setTimeout(() => {
-      longPressRef.current.fired = true
-      if (navigator.vibrate) navigator.vibrate(12)
-      onContextMenu({
-        preventDefault() {},
-        stopPropagation() {},
-        clientX: cx,
-        clientY: cy,
-      } as React.MouseEvent)
-    }, 480)
-  }, [onContextMenu])
+  const onTouchStart = useCallback(
+    (e: React.TouchEvent) => {
+      const t = e.touches[0];
+      if (!t) return;
+      const cx = t.clientX;
+      const cy = t.clientY;
+      longPressRef.current.fired = false;
+      longPressRef.current.timer = setTimeout(() => {
+        longPressRef.current.fired = true;
+        if (navigator.vibrate) navigator.vibrate(12);
+        onContextMenu({
+          preventDefault() {},
+          stopPropagation() {},
+          clientX: cx,
+          clientY: cy,
+        } as React.MouseEvent);
+      }, 480);
+    },
+    [onContextMenu],
+  );
 
   const onTouchMove = useCallback(() => {
-    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer)
-    longPressRef.current.timer = null
-  }, [])
+    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
+    longPressRef.current.timer = null;
+  }, []);
 
   const onTouchEnd = useCallback(() => {
-    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer)
-    longPressRef.current.timer = null
+    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
+    longPressRef.current.timer = null;
     if (longPressRef.current.fired) {
-      longPressRef.current.fired = false
+      longPressRef.current.fired = false;
     }
-  }, [])
+  }, []);
 
   return (
     <div
       draggable={draggable}
       onDragStart={(e) => {
-        if (!draggable) return
-        e.dataTransfer.effectAllowed = "move"
-        e.dataTransfer.setData("text/plain", chat.id)
+        if (!draggable) return;
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", chat.id);
         if (e.currentTarget instanceof HTMLElement) {
-          e.dataTransfer.setDragImage(e.currentTarget, 24, 24)
+          e.dataTransfer.setDragImage(e.currentTarget, 24, 24);
         }
-        onDragStart()
+        onDragStart();
       }}
       onDragEnd={onDragEnd}
       onDragOver={onDragOver}
@@ -543,7 +606,7 @@ const ChatRow = memo(function ChatRow({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         className={cn(
-          "vy-sidebar-row flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+          "vy-sidebar-row relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
           active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
           draggable && "cursor-grab active:cursor-grabbing",
         )}
@@ -555,32 +618,68 @@ const ChatRow = memo(function ChatRow({
           size={48}
           online={chat.online}
           imageUrl={streamerMode ? undefined : chat.avatarUrl}
+          icon={!streamerMode && chat.isSelf ? <IconMemo size={24} /> : undefined}
         />
+        {blocked && (
+          <span
+            title="ブロック済み"
+            className={cn(
+              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[0.55rem] font-bold text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
+              active ? "bg-[var(--vy-danger)]" : "bg-[var(--vy-danger)]",
+            )}
+          >
+            !
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
-            {chat.pinned && <IconPin size={12} className={active ? "opacity-90" : "text-[var(--vy-text-dim)]"} />}
-            {chat.muted && <IconBellOff size={12} className={active ? "opacity-90" : "text-[var(--vy-text-dim)]"} />}
-            {chat.hidden && <IconEyeOff size={12} className={active ? "opacity-90" : "text-[var(--vy-text-dim)]"} />}
+            {chat.pinned && (
+              <IconPin size={12} className={active ? "opacity-90" : "text-[var(--vy-text-dim)]"} />
+            )}
+            {chat.muted && (
+              <IconBellOff
+                size={12}
+                className={active ? "opacity-90" : "text-[var(--vy-text-dim)]"}
+              />
+            )}
+            {chat.hidden && (
+              <IconEyeOff
+                size={12}
+                className={active ? "opacity-90" : "text-[var(--vy-text-dim)]"}
+              />
+            )}
             <span className="truncate text-sm font-semibold">{name}</span>
             {chat.isOfficial && <OfficialBadge />}
             {chat.left && (
               <span
                 className={cn(
                   "shrink-0 rounded px-1 py-0.5 text-[0.65rem] font-medium",
-                  active ? "bg-black/20" : "bg-[color-mix(in_oklab,var(--vy-danger)_16%,transparent)] text-[var(--vy-danger)]",
+                  active
+                    ? "bg-black/20"
+                    : "bg-[color-mix(in_oklab,var(--vy-danger)_16%,transparent)] text-[var(--vy-danger)]",
                 )}
               >
                 退出
               </span>
             )}
             {preview && preview.time > 0 && (
-              <span className={cn("ml-auto shrink-0 text-[0.7rem]", active ? "opacity-80" : "text-[var(--vy-text-dim)]")}>
+              <span
+                className={cn(
+                  "ml-auto shrink-0 text-[0.7rem]",
+                  active ? "opacity-80" : "text-[var(--vy-text-dim)]",
+                )}
+              >
                 {formatTime(preview.time)}
               </span>
             )}
           </span>
           <span className="mt-0.5 flex items-center gap-2">
-            <span className={cn("vy-sidebar-preview truncate", active ? "opacity-90" : "text-[var(--vy-text-dim)]")}>
+            <span
+              className={cn(
+                "vy-sidebar-preview truncate",
+                active ? "opacity-90" : "text-[var(--vy-text-dim)]",
+              )}
+            >
               {preview?.text ?? chat.status}
             </span>
             {chat.unread > 0 && (
@@ -588,16 +687,134 @@ const ChatRow = memo(function ChatRow({
                 className={cn(
                   "ml-auto flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[0.7rem] font-bold",
                   chat.muted && "opacity-60",
-                  active ? "bg-[var(--vy-accent-contrast)] text-[var(--vy-accent)]" : "text-[var(--vy-accent-contrast)]",
+                  active
+                    ? "bg-[var(--vy-accent-contrast)] text-[var(--vy-accent)]"
+                    : "text-[var(--vy-accent-contrast)]",
                 )}
-                style={active ? undefined : { background: chat.muted ? "var(--vy-text-dim)" : "var(--vy-accent)" }}
+                style={
+                  active
+                    ? undefined
+                    : { background: chat.muted ? "var(--vy-text-dim)" : "var(--vy-accent)" }
+                }
               >
                 {chat.unread}
               </span>
             )}
           </span>
-        </span>
+      </span>
+    </button>
+  </div>
+  );
+});
+
+function AccountSwitcher() {
+  const accountId = useStore((s) => s.accountId);
+  const accounts = useAuthStore((s) => s.accounts);
+  const sessions = useAuthStore((s) => s.sessions);
+  const openLogin = useAuthStore((s) => s.openLogin);
+  const logout = useAuthStore((s) => s.logout);
+  const setScreen = useStore((s) => s.setScreen);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  const currentSession = sessions.find((s) => s.accountId === accountId);
+  const currentName = currentSession?.displayName || accountId || "未ログイン";
+
+  const handleSwitch = (id: string) => {
+    setOpen(false);
+    // 別アカウントへの切替はログイン画面を経由する（戻るで元のチャットへ）
+    openLogin("manual", id);
+    setScreen("login");
+  };
+
+  const handleLogout = async () => {
+    if (!accountId) return;
+    setBusy(true);
+    await logout(accountId);
+    setBusy(false);
+    setOpen(false);
+    openLogin("manual", null);
+    setScreen("login");
+  };
+
+  return (
+    <div className="border-t border-[var(--vy-border)] px-3 py-2">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className="flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)]"
+      >
+        <Avatar
+          glyph={currentName.charAt(0).toUpperCase()}
+          color="var(--vy-accent)"
+          size={36}
+          imageUrl={currentSession?.picturePath}
+        />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-semibold">{currentName}</p>
+          <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{accountId}</p>
+        </div>
+        <IconChevron
+          size={16}
+          className={cn("shrink-0 transition-transform", open ? "rotate-180" : "")}
+        />
       </button>
+
+      {open && (
+        <div className="mt-1 space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-1 shadow-lg">
+          {accounts
+            .filter((id) => id !== accountId)
+            .map((id) => {
+              const s = sessions.find((s) => s.accountId === id);
+              const name = s?.displayName || id;
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleSwitch(id)}
+                  className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+                >
+                  <Avatar
+                    glyph={name.charAt(0).toUpperCase()}
+                    color="var(--vy-accent)"
+                    size={28}
+                    imageUrl={s?.picturePath}
+                  />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-xs font-medium">{name}</p>
+                    <p className="truncate text-[0.6rem] text-[var(--vy-text-dim)]">{id}</p>
+                  </div>
+                </button>
+              );
+            })}
+<button
+            type="button"
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+            onClick={() => {
+              setOpen(false);
+              openLogin("manual", null);
+              setScreen("login");
+            }}
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">
+              <IconPlus size={14} />
+            </span>
+            アカウントを追加
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void handleLogout()}
+            className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-left text-xs text-[var(--vy-danger)] transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+          >
+            <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">
+              <IconLogout size={14} />
+            </span>
+            ログアウト
+          </button>
+        </div>
+      )}
     </div>
-  )
-})
+  );
+}

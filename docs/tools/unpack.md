@@ -36,18 +36,18 @@ bun run find -- sendMessage --list-only
 
 ## オプション
 
-| オプション | 既定 | 説明 |
-|---|---|---|
-| `--exe <path>` | 自動検出 | 対象 LINE.exe |
-| `--out <path>` | `data/unpacked_LINE.exe` | 出力 |
-| `--timeout <sec>` | 120 | OEP 到達待ち |
-| `--skip-download` | off | unlicense 自動取得をスキップ |
-| `--keep-work` | off | `data/unpack-work/` を残す |
-| `--verbose` | off | unlicense 詳細ログ |
+| オプション        | 既定                     | 説明                         |
+| ----------------- | ------------------------ | ---------------------------- |
+| `--exe <path>`    | 自動検出                 | 対象 LINE.exe                |
+| `--out <path>`    | `data/unpacked_LINE.exe` | 出力                         |
+| `--timeout <sec>` | 120                      | OEP 到達待ち                 |
+| `--skip-download` | off                      | unlicense 自動取得をスキップ |
+| `--keep-work`     | off                      | `data/unpack-work/` を残す   |
+| `--verbose`       | off                      | unlicense 詳細ログ           |
 
 ## 動作概要
 
-1. `%LOCALAPPDATA%\LINE`（または `NEZU_LINE_ROOT`）から最新 `LINE.exe` を解決
+1. `%LOCALAPPDATA%\LINE`（または `VYLINE_LINE_ROOT`）から最新 `LINE.exe` を解決
 2. 無ければ [unlicense Releases](https://github.com/ergrelet/unlicense/releases) の x64 zip を `data/re-tools/unlicense/` へ取得（`curl` 優先）
 3. **インストールディレクトリを cwd にして** `unlicense.exe LINE.exe` を実行  
    （exe 単体コピーだと Qt/DLL 不足で Frida inject が失敗する）

@@ -22,7 +22,7 @@ identity 文字列・（E2EE 鍵抽出時は）keychain 相当は **プロセス
 
 ### Identity 向け（実装済み）
 
-`Vyline/packages/nezuline/src/desktop/extract.ts` の `dumpRuntimeIdentity`:
+`Vyline/packages/protocol/src/desktop/extract.ts` の `dumpRuntimeIdentity`:
 
 - PowerShell + `ReadProcessMemory` / `VirtualQueryEx`
 - プロセス名 `LINE` を検索
@@ -44,7 +44,7 @@ Vyline/backend/data/desktop-e2ee-keys.json
 - 任意: `mid`, `extractedAt`, `e2eeVersion`
 - Vyline 起動時 / `ensureValidE2EEIdentity` が自動 import
 
-**注意:** 鍵ダンプ用スキャナの詳細バイナリシグネチャは環境依存のため、ここでは「稼働中メモリ → JSON」という手順だけを固定する。実装は nezuline / research 側の現行スクリプトに従う。
+**注意:** 鍵ダンプ用スキャナの詳細バイナリシグネチャは環境依存のため、ここでは「稼働中メモリ → JSON」という手順だけを固定する。実装は protocol / research 側の現行スクリプトに従う。
 
 ---
 
@@ -83,7 +83,7 @@ user-agent: DESKTOP:WINDOWS:{sysVer}-{ntSuffix}({appVer})
 DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT
 ```
 
-コード: `Vyline/packages/nezuline/src/desktop/identity.ts`
+コード: `Vyline/packages/protocol/src/desktop/identity.ts`
 
 ---
 
@@ -95,8 +95,8 @@ DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT
 2. **インストールパス**配下のバイナリ名・フォルダ（例: `%LOCALAPPDATA%\LINE`）
 3. **`update_info`** 等の更新メタデータ（存在すれば）
 
-コード: `Vyline/packages/nezuline/src/desktop/version.ts` / `paths.ts`  
-Updater: `Vyline/packages/nezuline/src/updater/NezuUpdater.ts`（更新検知・差分メモ）
+コード: `Vyline/packages/protocol/src/desktop/version.ts` / `paths.ts`  
+Updater: `Vyline/packages/protocol/src/updater/VylineUpdater.ts`（更新検知・差分メモ）
 
 ---
 
@@ -109,13 +109,13 @@ Updater: `Vyline/packages/nezuline/src/updater/NezuUpdater.ts`（更新検知・
 
 ### 実装中の復号ツール（2026-07-29）
 
-論文: Kang et al., *Electronics* 2024, 13(7), 1325（wxSQLite3 + LINE Desktop）。
+論文: Kang et al., _Electronics_ 2024, 13(7), 1325（wxSQLite3 + LINE Desktop）。
 
 - パスフレーズ: ログイン後にサーバから来る **32 文字 hex**（アカウント固有）
 - 鍵派生: wxSQLite3 AES-128-CBC + LINE 改変 Algorithm 3
 - 実装:
-  - `Vyline/packages/nezuline/src/desktop/wxSqlite3.ts`
-  - `bun run --cwd Vyline/packages/nezuline decrypt-edb`（`LINE.exe` 稼働中にメモリから候補スキャン）
+  - `Vyline/packages/protocol/src/desktop/wxSqlite3.ts`
+  - `bun run --cwd Vyline/packages/protocol decrypt-edb`（`LINE.exe` 稼働中にメモリから候補スキャン）
 - 現状: `LINE.exe` 未起動だと候補 0。起動中に再実行して検証する。
 - `.edb` ヘッダ offsets 16–23 が平文メタ（本環境では `1000…` = pageSize 4096）で wxSQLite3 判定済み。
 
@@ -123,12 +123,12 @@ Updater: `Vyline/packages/nezuline/src/updater/NezuUpdater.ts`（更新検知・
 
 ## 5. 成果物の置き場
 
-| 成果物 | パス | git |
-|---|---|---|
-| E2EE 自己鍵 dump | `Vyline/backend/data/desktop-e2ee-keys.json` | **禁止** |
-| その他 data | `Vyline/backend/data/` | **禁止** |
-| 解析メモ（秘密なし） | `docs/analysis/` | 可 |
-| research 生データ | `/research/` | gitignore 済み |
+| 成果物               | パス                                         | git            |
+| -------------------- | -------------------------------------------- | -------------- |
+| E2EE 自己鍵 dump     | `Vyline/backend/data/desktop-e2ee-keys.json` | **禁止**       |
+| その他 data          | `Vyline/backend/data/`                       | **禁止**       |
+| 解析メモ（秘密なし） | `docs/analysis/`                             | 可             |
+| research 生データ    | `/research/`                                 | gitignore 済み |
 
 `.gitignore` 関連エントリ例:
 
@@ -142,7 +142,7 @@ Updater: `Vyline/packages/nezuline/src/updater/NezuUpdater.ts`（更新検知・
 ## 6. チェックリスト（毎回）
 
 1. LINE Desktop を対象アカウントで起動する
-2. identity が取れるか（debug / nezuline extract）を確認する
+2. identity が取れるか（debug / protocol extract）を確認する
 3. E2EE 鍵 dump を `desktop-e2ee-keys.json` に書く
 4. `git status` で data ファイルが **出ていない**ことを確認する
 5. Vyline で `ensureValidE2EEIdentity` / decrypt-test を回す
@@ -154,4 +154,4 @@ Updater: `Vyline/packages/nezuline/src/updater/NezuUpdater.ts`（更新検知・
 
 - [e2ee-decrypt-journey.md](./e2ee-decrypt-journey.md)
 - [../login-flow.md](../login-flow.md)
-- `Vyline/packages/nezuline/src/desktop/*`
+- `Vyline/packages/protocol/src/desktop/*`

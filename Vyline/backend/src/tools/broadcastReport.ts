@@ -17,13 +17,7 @@ export type PhaseReport = {
 
 export function formatPhaseReport(r: PhaseReport): string {
   const mark =
-    r.status === "done"
-      ? "✅"
-      : r.status === "blocked"
-        ? "⛔"
-        : r.status === "start"
-          ? "🚀"
-          : "🔧";
+    r.status === "done" ? "✅" : r.status === "blocked" ? "⛔" : r.status === "start" ? "🚀" : "🔧";
   const now = new Date().toLocaleString("ja-JP", { timeZone: "Asia/Tokyo" });
   return [
     `【Vyline 進捗 #${r.phase} ${mark}】`,
@@ -47,7 +41,5 @@ if (import.meta.main) {
       status: (process.argv[5] as PhaseReport["status"]) ?? "wip",
     }),
   );
-  console.log(
-    "\n(本文を LINE MCP broadcast_text_message に渡してください)",
-  );
+  console.log("\n(本文を LINE MCP broadcast_text_message に渡してください)");
 }

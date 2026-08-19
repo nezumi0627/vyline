@@ -14,10 +14,10 @@ import { api } from "../api/client.js";
 import type { Chat, LineProfile, Message } from "../types/index.js";
 import { looksLikeMid, type ContactInfo } from "../lib/mappers.js";
 import {
-  nezuClientPut,
-  nezuClientPutMany,
-  nezuClientToContactMap,
-} from "../lib/nezu-cache.js";
+  vylineClientPut,
+  vylineClientPutMany,
+  vylineClientToContactMap,
+} from "../lib/vyline-cache.js";
 import { useStore } from "../lib/store.js";
 
 interface UseLineDataOptions {
@@ -58,28 +58,31 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const accountIdRef = useRef(accountId);
   accountIdRef.current = accountId;
 
-  const mergeContact = useCallback((mid: string, info: ContactInfo) => {
-    setContactCache((prev) => {
-      const cur = prev.get(mid) ?? {};
-      const nextInfo: ContactInfo = {
-        name: info.name && !looksLikeMid(info.name) ? info.name : cur.name,
-        thumbnailUrl: info.thumbnailUrl || cur.thumbnailUrl,
-      };
-      if (nextInfo.name === cur.name && nextInfo.thumbnailUrl === cur.thumbnailUrl) {
-        return prev;
-      }
-      const next = new Map(prev);
-      next.set(mid, nextInfo);
-      return next;
-    });
-    if (accountId && info.name) {
-      nezuClientPut(accountId, {
-        mid,
-        displayName: info.name,
-        thumbnailUrl: info.thumbnailUrl,
+  const mergeContact = useCallback(
+    (mid: string, info: ContactInfo) => {
+      setContactCache((prev) => {
+        const cur = prev.get(mid) ?? {};
+        const nextInfo: ContactInfo = {
+          name: info.name && !looksLikeMid(info.name) ? info.name : cur.name,
+          thumbnailUrl: info.thumbnailUrl || cur.thumbnailUrl,
+        };
+        if (nextInfo.name === cur.name && nextInfo.thumbnailUrl === cur.thumbnailUrl) {
+          return prev;
+        }
+        const next = new Map(prev);
+        next.set(mid, nextInfo);
+        return next;
       });
-    }
-  }, [accountId]);
+      if (accountId && info.name) {
+        vylineClientPut(accountId, {
+          mid,
+          displayName: info.name,
+          thumbnailUrl: info.thumbnailUrl,
+        });
+      }
+    },
+    [accountId],
+  );
 
   const applyChatsToContactCache = useCallback((list: Chat[]) => {
     setContactCache((prev) => {
@@ -87,10 +90,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       for (const c of list) {
         const cur = next.get(c.mid) ?? {};
         next.set(c.mid, {
-          name:
-            c.name && !looksLikeMid(c.name) && c.name !== "(No Name)"
-              ? c.name
-              : cur.name,
+          name: c.name && !looksLikeMid(c.name) && c.name !== "(No Name)" ? c.name : cur.name,
           thumbnailUrl: c.thumbnailUrl || cur.thumbnailUrl,
         });
       }
@@ -171,7 +171,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           setFromLocalCache(Boolean(res.fromCache));
           const warmTargets = res.chats
             .slice(0, 80)
-            .filter((c) => !c.thumbnailUrl || !c.name || looksLikeMid(c.name) || c.name === "(No Name)")
+            .filter(
+              (c) => !c.thumbnailUrl || !c.name || looksLikeMid(c.name) || c.name === "(No Name)",
+            )
             .map((c) => c.mid);
           prefetchContacts(warmTargets, 10);
         }
@@ -334,16 +336,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       return;
     }
 
-    // Nezu ローカルキャッシュを即 hydrate（mid 生出し回避）
-    setContactCache(nezuClientToContactMap(accountId));
+    // Vyline ローカルキャッシュを即 hydrate（mid 生出し回避）
+    setContactCache(vylineClientToContactMap(accountId));
 
     void (async () => {
-      // サーバ NezuCache を取り込んでから UI を温める
+      // サーバ VylineCache を取り込んでから UI を温める
       try {
-        const nezu = await api.line.nezuCache(accountId);
+        const cache = await api.line.vylineCache(accountId);
         if (accountIdRef.current !== accountId) return;
-        if (nezu.ok && nezu.profiles) {
-          const entries = Object.values(nezu.profiles).map((p) => ({
+        if (cache.ok && cache.profiles) {
+          const entries = Object.values(cache.profiles).map((p) => ({
             mid: p.mid,
             displayName: p.displayName,
             thumbnailUrl: p.thumbnailUrl,
@@ -352,8 +354,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
             birthday: p.birthday,
             backgroundUrl: p.backgroundUrl,
           }));
-          nezuClientPutMany(accountId, entries);
-          setContactCache(nezuClientToContactMap(accountId));
+          vylineClientPutMany(accountId, entries);
+          setContactCache(vylineClientToContactMap(accountId));
         }
       } catch {
         /* optional */
@@ -367,8 +369,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
       // 初回インデックス: 過去メッセージ等を chatdb に先読み（1アカウント1回）
       const indexKey = `vyline:indexed:${accountId}`;
-      const needIndex =
-        typeof localStorage !== "undefined" && !localStorage.getItem(indexKey);
+      const needIndex = typeof localStorage !== "undefined" && !localStorage.getItem(indexKey);
       if (needIndex) {
         useStore.getState().setIndexing({
           active: true,
@@ -429,4 +430,3 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     fetchContact,
   };
 }
-
