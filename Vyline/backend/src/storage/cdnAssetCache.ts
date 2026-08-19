@@ -26,6 +26,8 @@ const CACHE_ROOT = process.env["VYLINE_CDN_CACHE_DIR"] ?? join(_dir, "../../data
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;
 const MEMORY_TTL_MS = 30 * 60_000;
+/** CDN から取得するレスポンスの最大サイズ（不正/巨大レスポンスからの保護） */
+const MAX_CDN_RESPONSE_BYTES = 10 * 1024 * 1024;
 
 /** 同一 URL の同時リクエストを 1 回の CDN 取得にまとめる */
 const inflight = new Map<string, Promise<{ buf: Uint8Array; contentType: string }>>();
@@ -40,6 +42,47 @@ export class CdnNotFoundError extends Error {
     super(`cdn fetch 404: ${url}`);
     this.name = "CdnNotFoundError";
   }
+}
+
+/**
+ * レスポンスボディを上限バイト数まで読み込む。
+ * Content-Length が無い/偽っているレスポンスでも、ストリーム読み込み中に
+ * 累積サイズを検査し、上限を超えたら読み込みを中断する。
+ */
+async function readBoundedBody(res: Response, maxBytes: number): Promise<Uint8Array> {
+  const reader = res.body?.getReader();
+  if (!reader) {
+    const ab = await res.arrayBuffer();
+    if (ab.byteLength > maxBytes) {
+      throw new Error(`cdn response too large: ${ab.byteLength} bytes`);
+    }
+    return new Uint8Array(ab);
+  }
+
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        throw new Error(`cdn response exceeded ${maxBytes} bytes`);
+      }
+      chunks.push(value);
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => {});
+    throw err;
+  }
+
+  const buf = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    buf.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return buf;
 }
 
 function extFromContentType(ct: string, url: string): string {
@@ -153,8 +196,13 @@ export async function getCachedLineCdn(
       throw new Error(`cdn fetch ${res.status}`);
     }
     const contentType = res.headers.get("content-type") ?? "application/octet-stream";
-    const ab = await res.arrayBuffer();
-    const buf = new Uint8Array(ab);
+
+    const declaredLength = Number(res.headers.get("content-length") ?? "0");
+    if (declaredLength > MAX_CDN_RESPONSE_BYTES) {
+      throw new Error(`cdn response too large: ${declaredLength} bytes`);
+    }
+
+    const buf = await readBoundedBody(res, MAX_CDN_RESPONSE_BYTES);
     return { buf, contentType };
   })();
   inflight.set(url, netPromise);
