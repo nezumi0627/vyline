@@ -2,9 +2,9 @@ name: CI
 
 on:
   pull_request:
-    branches: [main]
+    branches: [master]
   push:
-    branches: [main]
+    branches: [master]
 
 # 既定の GITHUB_TOKEN 権限を最小限（read-only）に絞る。各ジョブは checkout とビルドのみで、
 # リポジトリへの書き戻し・Release 作成等は行わないためこれで十分。
