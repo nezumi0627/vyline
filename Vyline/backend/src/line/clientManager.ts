@@ -241,6 +241,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           if (lastOp?.revision != null) {
             opsRevision.set(accountId, { ...getCursor(), revision: lastOp.revision });
           }
+          log.debug({ accountId, count: ops.length }, "ops received");
           const { processFetchedOperations } = await import("../service/lineService.js");
           await processFetchedOperations(accountId, ops);
         }
@@ -258,7 +259,8 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
         });
       } catch (err) {
         if (abort.signal.aborted) break;
-        log.debug({ accountId, err }, "ops loop error, retrying");
+        const msg = err instanceof Error ? err.message : String(err);
+        log.warn({ accountId, msg }, "ops loop error, retrying in 5s");
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
       }
     }
@@ -284,10 +286,25 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
 
   startTalkListeners(client, accountId);
 
-  // スタック内部ログ（[LEGY/PUSH] 等）を pino へ — 接続状態の観測用
+  // スタック内部ログ（RPC request/response 等）は trace で埋める。
+  // LOG_LEVEL=trace で詳細確認、通常運用では表示しない。
+  // 認証関連など重要なものだけ debug で残す。
   client.base.on("log", ({ type, data }) => {
-    log.debug(
-      { vylineType: type, ...(data as Record<string, unknown> | undefined) },
+    const t = type as string;
+    if (
+      t === "update:authtoken" ||
+      t.startsWith("vyline:e2ee") ||
+      t.startsWith("vyline:init")
+    ) {
+      log.debug(
+        { vylineType: t, ...(data as Record<string, unknown> | undefined) },
+        "vyline stack event",
+      );
+      return;
+    }
+    // RPC request/response など高頻度ログ → trace のみ
+    log.trace(
+      { vylineType: t, ...(data as Record<string, unknown> | undefined) },
       "vyline stack log",
     );
   });
