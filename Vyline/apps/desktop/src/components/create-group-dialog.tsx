@@ -1,113 +1,115 @@
-import { useEffect, useMemo, useState } from "react"
-import { api } from "@/api/client"
-import { useStore, displayName } from "@/lib/store"
-import { Avatar } from "@/components/vy-ui"
-import { IconClose, IconUsers } from "@/components/icons"
+import { useEffect, useMemo, useState } from "react";
+import { api } from "@/api/client";
+import { useStore, displayName } from "@/lib/store";
+import { Avatar } from "@/components/vy-ui";
+import { IconClose, IconUsers } from "@/components/icons";
 
 export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
-  const accountId = useStore((s) => s.accountId)
-  const chats = useStore((s) => s.chats)
-  const streamerMode = useStore((s) => s.settings.streamerMode)
-  const openChat = useStore((s) => s.openChat)
-  const refreshChats = useStore((s) => s.refreshChats)
+  const accountId = useStore((s) => s.accountId);
+  const chats = useStore((s) => s.chats);
+  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const openChat = useStore((s) => s.openChat);
+  const refreshChats = useStore((s) => s.refreshChats);
 
-  const friends = useMemo(
-    () => chats.filter((c) => c.type === "friend" && !c.hidden),
-    [chats],
-  )
+  const friends = useMemo(() => chats.filter((c) => c.type === "friend" && !c.hidden), [chats]);
 
-  const [name, setName] = useState("")
-  const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [query, setQuery] = useState("")
-  const [busy, setBusy] = useState(false)
-  const [msg, setMsg] = useState<string | null>(null)
-  const [banned, setBanned] = useState(false)
-  const [unlocking, setUnlocking] = useState(false)
+  const [name, setName] = useState("");
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [banned, setBanned] = useState(false);
+  const [unlocking, setUnlocking] = useState(false);
 
   useEffect(() => {
-    if (!accountId) return
+    if (!accountId) return;
     void api.line.featureLocks(accountId).then((res) => {
-      if (res.ok && res.locks?.createGroupBanned) setBanned(true)
-    })
-  }, [accountId])
+      if (res.ok && res.locks?.createGroupBanned) setBanned(true);
+    });
+  }, [accountId]);
 
   const handleUnlock = async () => {
-    if (!accountId || unlocking) return
-    if (!window.confirm("グループ作成の禁止を解除しますか？\n（ABUSE_BLOCK のリスクがあるため自己責任でお願いします）")) return
-    setUnlocking(true)
+    if (!accountId || unlocking) return;
+    if (
+      !window.confirm(
+        "グループ作成の禁止を解除しますか？\n（ABUSE_BLOCK のリスクがあるため自己責任でお願いします）",
+      )
+    )
+      return;
+    setUnlocking(true);
     try {
-      const res = await api.line.clearCreateGroupBan(accountId)
+      const res = await api.line.clearCreateGroupBan(accountId);
       if (res.ok && !res.locks?.createGroupBanned) {
-        setBanned(false)
-        setMsg("グループ作成の禁止を解除しました")
+        setBanned(false);
+        setMsg("グループ作成の禁止を解除しました");
       } else {
-        setMsg("解除に失敗しました")
+        setMsg("解除に失敗しました");
       }
     } catch (err) {
-      setMsg(err instanceof Error ? err.message : String(err))
+      setMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setUnlocking(false)
+      setUnlocking(false);
     }
-  }
+  };
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose()
+      if (e.key === "Escape") onClose();
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [onClose])
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase()
-    if (!q) return friends
-    return friends.filter((f) => displayName(f, streamerMode).toLowerCase().includes(q))
-  }, [friends, query, streamerMode])
+    const q = query.trim().toLowerCase();
+    if (!q) return friends;
+    return friends.filter((f) => displayName(f, streamerMode).toLowerCase().includes(q));
+  }, [friends, query, streamerMode]);
 
   const toggle = (id: string) => {
     setSelected((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
 
   const create = async () => {
-    if (!accountId || banned || busy) return
-    const mids = [...selected]
+    if (!accountId || banned || busy) return;
+    const mids = [...selected];
     if (mids.length === 0) {
-      setMsg("メンバーを1人以上選んでください")
-      return
+      setMsg("メンバーを1人以上選んでください");
+      return;
     }
-    setBusy(true)
-    setMsg(null)
+    setBusy(true);
+    setMsg(null);
     try {
-      const res = await api.line.createGroup(accountId, name.trim() || "グループ", mids)
+      const res = await api.line.createGroup(accountId, name.trim() || "グループ", mids);
       if (!res.ok || !res.chat) {
         if (res.createGroupBanned || res.code === "CREATE_GROUP_BANNED") {
-          setBanned(true)
-          setMsg("グループ作成は永久に無効化されています（ABUSE_BLOCK / BAN 防止）")
+          setBanned(true);
+          setMsg("グループ作成は永久に無効化されています（ABUSE_BLOCK / BAN 防止）");
         } else {
-          setMsg(res.error ?? "作成に失敗しました")
+          setMsg(res.error ?? "作成に失敗しました");
         }
-        return
+        return;
       }
-      await refreshChats()
-      openChat(res.chat.chatMid)
-      onClose()
+      await refreshChats();
+      openChat(res.chat.chatMid);
+      onClose();
     } catch (err) {
-      const text = err instanceof Error ? err.message : String(err)
+      const text = err instanceof Error ? err.message : String(err);
       if (text.includes("CREATE_GROUP_BANNED") || text.includes("ABUSE_BLOCK")) {
-        setBanned(true)
-        setMsg("グループ作成は永久に無効化されています（ABUSE_BLOCK / BAN 防止）")
+        setBanned(true);
+        setMsg("グループ作成は永久に無効化されています（ABUSE_BLOCK / BAN 防止）");
       } else {
-        setMsg(text)
+        setMsg(text);
       }
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div
@@ -138,9 +140,12 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
 
         {banned ? (
           <div className="space-y-2 p-5">
-            <p className="text-sm font-medium text-[var(--vy-danger)]">グループ作成は利用できません</p>
+            <p className="text-sm font-medium text-[var(--vy-danger)]">
+              グループ作成は利用できません
+            </p>
             <p className="text-xs leading-relaxed text-[var(--vy-text-dim)]">
-              LINE から ABUSE_BLOCK が返ったため、アカウント BAN を避ける目的でグループ作成を無効化しています。
+              LINE から ABUSE_BLOCK が返ったため、アカウント BAN
+              を避ける目的でグループ作成を無効化しています。
             </p>
             <div className="flex gap-2 pt-2">
               <button
@@ -177,9 +182,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                 placeholder="友だちを検索"
                 className="w-full rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               />
-              <p className="text-[0.7rem] text-[var(--vy-text-dim)]">
-                選択中 {selected.size} 人
-              </p>
+              <p className="text-[0.7rem] text-[var(--vy-text-dim)]">選択中 {selected.size} 人</p>
             </div>
 
             <div className="vy-scroll min-h-0 flex-1 overflow-y-auto">
@@ -189,7 +192,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                 </p>
               ) : (
                 filtered.map((f) => {
-                  const on = selected.has(f.id)
+                  const on = selected.has(f.id);
                   return (
                     <button
                       key={f.id}
@@ -221,7 +224,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                         {on ? "✓" : ""}
                       </span>
                     </button>
-                  )
+                  );
                 })
               )}
             </div>
@@ -242,5 +245,5 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
         )}
       </div>
     </div>
-  )
+  );
 }

@@ -16,11 +16,11 @@
 
 ## Desktop 側の鍵の置き場
 
-| 場所 | 内容 | 備考 |
-|---|---|---|
-| メモリ keychain | 自己鍵ペア一式（過去分含む） | **稼働中 LINE.exe** から抽出可能 |
-| `.edb` (wxSQLite3) | ローカル DB（暗号化 at rest） | ディスクからの直接読取は未確立 |
-| サーバ `getE2EEPublicKeys` | 登録済み **公開鍵** のみ | 秘密鍵はサーバに無い |
+| 場所                       | 内容                          | 備考                             |
+| -------------------------- | ----------------------------- | -------------------------------- |
+| メモリ keychain            | 自己鍵ペア一式（過去分含む）  | **稼働中 LINE.exe** から抽出可能 |
+| `.edb` (wxSQLite3)         | ローカル DB（暗号化 at rest） | ディスクからの直接読取は未確立   |
+| サーバ `getE2EEPublicKeys` | 登録済み **公開鍵** のみ      | 秘密鍵はサーバに無い             |
 
 Vyline が必要とするのは:
 
@@ -53,13 +53,13 @@ linejs storage: e2eeKeys:{keyId} / e2eeKeys:{mid}
 
 ### 主要ファイル
 
-| ファイル | 役割 |
-|---|---|
-| `Vyline/packages/nezuline/src/login/ensureE2EE.ts` | 検証・import 呼び出し・sender 修復 |
-| `Vyline/packages/nezuline/src/login/importDesktopE2EE.ts` | JSON dump → storage マージ |
-| `Vyline/backend/src/service/lineService.ts` | 取得時 decrypt / 送信時 ensure |
-| `Vyline/backend/src/api/debug.ts` | `/debug/decrypt-test/...` |
-| `Vyline/apps/desktop/src/utils/format.ts` | `E2EE_UNAVAILABLE` ラベル |
+| ファイル                                                  | 役割                               |
+| --------------------------------------------------------- | ---------------------------------- |
+| `Vyline/packages/protocol/src/login/ensureE2EE.ts`        | 検証・import 呼び出し・sender 修復 |
+| `Vyline/packages/protocol/src/login/importDesktopE2EE.ts` | JSON dump → storage マージ         |
+| `Vyline/backend/src/service/lineService.ts`               | 取得時 decrypt / 送信時 ensure     |
+| `Vyline/backend/src/api/debug.ts`                         | `/debug/decrypt-test/...`          |
+| `Vyline/apps/desktop/src/utils/format.ts`                 | `E2EE_UNAVAILABLE` ラベル          |
 
 Dump 探索パス（`ensureE2EE.ts`）:
 
@@ -111,12 +111,12 @@ Dump 探索パス（`ensureE2EE.ts`）:
 
 ## 失敗モードと UI
 
-| 観測 | 意味 | UI / 挙動 |
-|---|---|---|
-| `BAD_DECRYPT` | 鍵不一致・キャッシュ不整合・鍵欠落 | 再試行後も失敗なら chunks あり・text 空 → `E2EE_UNAVAILABLE` |
-| 空メッセージ (`NONE` + 空 text + chunks) | 実質復号失敗 | 「🔒 暗号化メッセージ（復号キーなし）」 |
-| `E2EE_UPDATE_SENDER_KEY` | mid 鍵がサーバ最新でない | `forceNewSenderKey` で新規登録して再送 |
-| `E2EE_UNAVAILABLE` (contentType) | フロント向け明示フラグ | `format.ts` の `contentTypeLabel` |
+| 観測                                     | 意味                               | UI / 挙動                                                    |
+| ---------------------------------------- | ---------------------------------- | ------------------------------------------------------------ |
+| `BAD_DECRYPT`                            | 鍵不一致・キャッシュ不整合・鍵欠落 | 再試行後も失敗なら chunks あり・text 空 → `E2EE_UNAVAILABLE` |
+| 空メッセージ (`NONE` + 空 text + chunks) | 実質復号失敗                       | 「🔒 暗号化メッセージ（復号キーなし）」                      |
+| `E2EE_UPDATE_SENDER_KEY`                 | mid 鍵がサーバ最新でない           | `forceNewSenderKey` で新規登録して再送                       |
+| `E2EE_UNAVAILABLE` (contentType)         | フロント向け明示フラグ             | `format.ts` の `contentTypeLabel`                            |
 
 ---
 

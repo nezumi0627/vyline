@@ -6,8 +6,8 @@
 
 <!-- 具体的な変更点 -->
 
-- 
-- 
+-
+-
 
 ## Test Plan
 
@@ -15,7 +15,7 @@
 
 - [ ] `bun run typecheck` が通る
 - [ ] `bun run dev` で起動確認
-- [ ] 
+- [ ]
 
 ## Screenshots
 

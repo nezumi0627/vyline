@@ -10,7 +10,7 @@ Vyline: `ensureE2EE.ts`, `importDesktopE2EE.ts`, `e2ee/letterSealing.ts`, backen
 ## 実装方針 (2026-07 更新)
 
 `lineService.ts` の `decryptE2EEMessageSafe()` は、まず
-`@vyline/nezuline` の `decryptLetterSealingMessage()` (Vyline 自前実装、
+`@vyline/protocol` の `decryptLetterSealingMessage()` (Vyline 自前実装、
 グループ鍵を by-id マルチキャッシュから直接引く) で復号を試み、
 失敗したら linejs 標準の `client.base.e2ee.decryptE2EEMessage()` に
 フォールバックする (`decryptViaLetterSealingOrLinejs` ヘルパー)。

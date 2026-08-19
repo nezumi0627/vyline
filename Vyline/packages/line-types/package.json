@@ -3,11 +3,11 @@
   "version": "3.2.1",
   "private": true,
   "type": "module",
-  "dependencies": {
-    "@vyline/loose-types": "workspace:*"
-  },
   "exports": {
     ".": "./line_types.ts",
     "./thrift": "./thrift.ts"
+  },
+  "dependencies": {
+    "@vyline/loose-types": "workspace:*"
   }
 }

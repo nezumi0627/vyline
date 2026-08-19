@@ -26,10 +26,47 @@ export type CatalogPack = {
 
 type Catalog = StickersCatalogCache;
 
+/** 絵文字/スタンプ画像を先読みしてブラウザ＋CDNキャッシュを温める */
+function prefetchImgs(urls: string[]): void {
+  for (const u of urls) {
+    const src = u.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(u)}` : u;
+    const img = new Image();
+    img.decoding = "async";
+    img.src = src;
+  }
+}
+
 const UNICODE_EMOJI = [
-  "😀", "😂", "🥹", "😊", "😍", "🤔", "😎", "😴", "🥳", "😇",
-  "🙌", "👍", "🙏", "👏", "🔥", "💯", "✨", "🎉", "❤️", "💙",
-  "💚", "💛", "🧡", "💜", "😭", "😤", "🥺", "😘", "🤝", "👀",
+  "😀",
+  "😂",
+  "🥹",
+  "😊",
+  "😍",
+  "🤔",
+  "😎",
+  "😴",
+  "🥳",
+  "😇",
+  "🙌",
+  "👍",
+  "🙏",
+  "👏",
+  "🔥",
+  "💯",
+  "✨",
+  "🎉",
+  "❤️",
+  "💙",
+  "💚",
+  "💛",
+  "🧡",
+  "💜",
+  "😭",
+  "😤",
+  "🥺",
+  "😘",
+  "🤝",
+  "👀",
 ];
 
 type Tab = "sticker" | "emoji" | "unicode" | "favorite";
@@ -61,11 +98,7 @@ export function StickerEmojiPanel({
   const [error, setError] = useState<string | null>(null);
   const [packId, setPackId] = useState<string | null>(() => {
     const cached = accountId ? getCachedStickersCatalog(accountId) : null;
-    return (
-      cached?.stickerPacks[0]?.packageId ??
-      cached?.emojiPacks[0]?.packageId ??
-      null
-    );
+    return cached?.stickerPacks[0]?.packageId ?? cached?.emojiPacks[0]?.packageId ?? null;
   });
 
   useEffect(() => {
@@ -78,11 +111,7 @@ export function StickerEmojiPanel({
       setLoading(false);
       setError(null);
       if (!packId) {
-        setPackId(
-          cached.stickerPacks[0]?.packageId ??
-            cached.emojiPacks[0]?.packageId ??
-            null,
-        );
+        setPackId(cached.stickerPacks[0]?.packageId ?? cached.emojiPacks[0]?.packageId ?? null);
       }
       if (isStickersCatalogFresh(accountId)) return;
     } else {
@@ -113,11 +142,7 @@ export function StickerEmojiPanel({
           ) {
             return prev;
           }
-          return (
-            next.stickerPacks[0]?.packageId ??
-            next.emojiPacks[0]?.packageId ??
-            null
-          );
+          return next.stickerPacks[0]?.packageId ?? next.emojiPacks[0]?.packageId ?? null;
         });
       })
       .catch((err) => {
@@ -147,6 +172,20 @@ export function StickerEmojiPanel({
       setPackId(packs[0]?.packageId ?? null);
     }
   }, [tab, packs, packId]);
+
+  // カタログ／選択パックが変わったら画像を先読み（開く前にキャッシュを温める）
+  useEffect(() => {
+    if (!catalog) return;
+    const tabIcons = [
+      ...catalog.stickerPacks.map((p) => p.tabUrl),
+      ...catalog.emojiPacks.map((p) => p.tabUrl),
+    ];
+    const active =
+      catalog.stickerPacks.find((p) => p.packageId === packId) ??
+      catalog.emojiPacks.find((p) => p.packageId === packId);
+    const items = active ? active.items.map((i) => i.url) : [];
+    prefetchImgs([...tabIcons, ...items]);
+  }, [catalog, packId]);
 
   return (
     <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[320px] w-[min(380px,92vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
@@ -243,7 +282,8 @@ export function StickerEmojiPanel({
                 type="button"
                 title={f.name || f.id}
                 onClick={() => {
-                  if (f.type === "sticker") onPickSticker(f.packageId, f.id, catalog?.premium?.active);
+                  if (f.type === "sticker")
+                    onPickSticker(f.packageId, f.id, catalog?.premium?.active);
                   else onPickEmoji(f.packageId, f.id);
                 }}
                 onContextMenu={(e) => {
@@ -253,7 +293,11 @@ export function StickerEmojiPanel({
                 className="flex aspect-square items-center justify-center rounded-xl p-1 transition-colors hover:bg-[var(--vy-surface-2)] active:scale-95"
               >
                 <img
-                  src={f.url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(f.url)}` : f.url}
+                  src={
+                    f.url.startsWith("http")
+                      ? `/api/cdn/line?u=${encodeURIComponent(f.url)}`
+                      : f.url
+                  }
                   alt={f.name || ""}
                   className="max-h-full max-w-full object-contain"
                   loading="lazy"
@@ -264,16 +308,9 @@ export function StickerEmojiPanel({
           </div>
         )}
         {catalog && tab !== "unicode" && tab !== "favorite" && activePack && (
-          <div
-            className={cn(
-              "grid gap-1",
-              tab === "sticker" ? "grid-cols-4" : "grid-cols-6",
-            )}
-          >
+          <div className={cn("grid gap-1", tab === "sticker" ? "grid-cols-4" : "grid-cols-6")}>
             {activePack.items.map((item) => {
-              const isFav = favorites.some(
-                (f) => f.type === activePack.type && f.id === item.id,
-              );
+              const isFav = favorites.some((f) => f.type === activePack.type && f.id === item.id);
               return (
                 <div key={item.id} className="relative">
                   <button
@@ -303,7 +340,11 @@ export function StickerEmojiPanel({
                     className="flex aspect-square items-center justify-center rounded-xl p-1 transition-colors hover:bg-[var(--vy-surface-2)] active:scale-95"
                   >
                     <img
-                      src={item.url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(item.url)}` : item.url}
+                      src={
+                        item.url.startsWith("http")
+                          ? `/api/cdn/line?u=${encodeURIComponent(item.url)}`
+                          : item.url
+                      }
                       alt={item.alt || ""}
                       className="max-h-full max-w-full object-contain"
                       loading="lazy"
@@ -329,54 +370,54 @@ export function StickerEmojiPanel({
 
       {menu && accountId && (
         <>
-        <div
-          className="fixed inset-0 z-[119]"
-          onClick={() => setMenu(null)}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setMenu(null);
-          }}
-        />
-        <div
-          className="fixed z-[120] flex min-w-44 flex-col overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl"
-          style={{ left: menu.x, top: menu.y }}
-          onContextMenu={(e) => e.preventDefault()}
-        >
-          <button
-            type="button"
-            className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
-            onClick={() => {
-              const { favorites: next, added } = toggleStickerFavorite(accountId, menu.fav);
-              setFavorites(next);
-              setMenu(null);
-              void copyText(added ? "お気に入りに追加しました" : "お気に入りから外しました");
-            }}
-          >
-            {favorites.some((f) => f.type === menu.fav.type && f.id === menu.fav.id)
-              ? "★ お気に入りから外す"
-              : "☆ お気に入りに追加"}
-          </button>
-          <button
-            type="button"
-            className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
-            onClick={() => {
-              void copyText(lineStoreUrl(menu.fav.type, menu.fav.packageId));
+          <div
+            className="fixed inset-0 z-[119]"
+            onClick={() => setMenu(null)}
+            onContextMenu={(e) => {
+              e.preventDefault();
               setMenu(null);
             }}
+          />
+          <div
+            className="fixed z-[120] flex min-w-44 flex-col overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl"
+            style={{ left: menu.x, top: menu.y }}
+            onContextMenu={(e) => e.preventDefault()}
           >
-            Store URL をコピー
-          </button>
-          <button
-            type="button"
-            className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
-            onClick={() => {
-              window.open(lineStoreUrl(menu.fav.type, menu.fav.packageId), "_blank", "noopener");
-              setMenu(null);
-            }}
-          >
-            Store で開く
-          </button>
-        </div>
+            <button
+              type="button"
+              className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+              onClick={() => {
+                const { favorites: next, added } = toggleStickerFavorite(accountId, menu.fav);
+                setFavorites(next);
+                setMenu(null);
+                void copyText(added ? "お気に入りに追加しました" : "お気に入りから外しました");
+              }}
+            >
+              {favorites.some((f) => f.type === menu.fav.type && f.id === menu.fav.id)
+                ? "★ お気に入りから外す"
+                : "☆ お気に入りに追加"}
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+              onClick={() => {
+                void copyText(lineStoreUrl(menu.fav.type, menu.fav.packageId));
+                setMenu(null);
+              }}
+            >
+              Store URL をコピー
+            </button>
+            <button
+              type="button"
+              className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+              onClick={() => {
+                window.open(lineStoreUrl(menu.fav.type, menu.fav.packageId), "_blank", "noopener");
+                setMenu(null);
+              }}
+            >
+              Store で開く
+            </button>
+          </div>
         </>
       )}
     </div>

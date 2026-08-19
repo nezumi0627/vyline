@@ -24,6 +24,8 @@ export function graphemes(text: string): string[] {
 
 /** 1 書記素が絵文字（Extended_Pictographic）を含むか */
 export function isEmojiGrapheme(g: string): boolean {
+  // Exclude "￼" from being considered as emoji graphemes
+  if (g === "￼") return false;
   return /\p{Extended_Pictographic}/u.test(g);
 }
 

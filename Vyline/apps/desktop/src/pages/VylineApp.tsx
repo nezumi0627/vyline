@@ -1,15 +1,17 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
 import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
-import { CustomCursor } from "../components/nezu-cursor.js";
+import { CustomCursor } from "../components/vyline-cursor.js";
 import { PinLockScreen } from "../components/pin-lock-screen.js";
 import { HubHome } from "../components/hub-home.js";
 import { ChatShell } from "../components/chat-shell.js";
 import { SettingsSections } from "../components/settings-sections.js";
+import { LoginPage } from "./LoginPage.js";
 import { FloatNotice } from "../components/float-notice.js";
+import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -20,12 +22,15 @@ export function VylineApp() {
   const screen = useStore((s) => s.screen);
   const showUpdateNote = useStore((s) => s.showUpdateNote);
   const indexing = useStore((s) => s.indexing);
+  const notice = useStore((s) => s.notice);
+  const [consented, setConsented] = useState(() => hasTosConsent());
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
 
-  useVylineSync(initialized && accounts.length > 0);
+  // 同意前は同期・通信を開始しない
+  useVylineSync(initialized && accounts.length > 0 && consented);
 
   if (!initialized || loading) {
     return (
@@ -50,12 +55,24 @@ export function VylineApp() {
     return <Navigate to="/login" replace />;
   }
 
+  // ログイン後・同意前は利用規約画面のみ（同意しない限りアプリは動作しない）
+  if (!consented) {
+    return (
+      <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
+        <ThemeApplier />
+        <TosConsentGate onConsent={() => setConsented(true)} />
+      </main>
+    );
+  }
+
   return (
     <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
       <CustomCursor />
       {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
+      {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
       {screen === "lock" && <PinLockScreen />}
+      {screen === "login" && <LoginPage />}
       {screen === "home" && showUpdateNote && <HubHome />}
       {(screen === "chat" || (screen === "home" && !showUpdateNote)) && <ChatShell />}
       {screen === "settings" && <SettingsSections />}

@@ -25,7 +25,8 @@ function readLineBotEnv(): { token: string; userId: string } {
   // プロジェクトスコープ（projects.<path>.mcpServers.line-bot）から探す
   const projects = cfg?.projects ?? {};
   for (const p of Object.values(projects)) {
-    const env = (p as { mcpServers?: Record<string, { env?: Record<string, string> }> })?.mcpServers?.["line-bot"]?.env;
+    const env = (p as { mcpServers?: Record<string, { env?: Record<string, string> }> })
+      ?.mcpServers?.["line-bot"]?.env;
     if (env?.CHANNEL_ACCESS_TOKEN && env?.DESTINATION_USER_ID) {
       return { token: env.CHANNEL_ACCESS_TOKEN, userId: env.DESTINATION_USER_ID };
     }

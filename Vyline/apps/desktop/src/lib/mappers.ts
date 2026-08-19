@@ -1,13 +1,12 @@
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
-import {
-  extractStickerId,
-  lineStickerUrl,
-} from "../utils/lineMedia.js";
+import { extractStickerId, lineStickerUrl } from "../utils/lineMedia.js";
 import {
   contentTypeLabel,
   isAudioContent,
   isCallContent,
+  isContactContent,
   isImageContent,
+  isLocationContent,
   isStickerContent,
   isSystemLikeContent,
   isVideoContent,
@@ -25,15 +24,7 @@ import { parseSticonReplace } from "../utils/lineSticon.js";
 import { parseMentions } from "../utils/mention.js";
 import type { Chat, Member, Message, MessageKind, MessageStatus } from "./store-types.js";
 
-const COLORS = [
-  "#2aabee",
-  "#06c755",
-  "#f0728f",
-  "#7c5cff",
-  "#f5a623",
-  "#2dd4bf",
-  "#a78bfa",
-];
+const COLORS = ["#2aabee", "#06c755", "#f0728f", "#7c5cff", "#f5a623", "#2dd4bf", "#a78bfa"];
 
 /** LINE mid っぽい文字列（u/c/r + hex32） */
 export function looksLikeMid(value: string | null | undefined): boolean {
@@ -98,6 +89,7 @@ export function mapChat(
     isOfficial: c.isOfficial,
     statusMessage: !isGroup ? c.statusMessage : undefined,
     backgroundUrl: c.backgroundUrl,
+    isSelf: c.isSelf,
     left,
     unread: c.unreadCount ?? 0,
     hidden,
@@ -107,12 +99,10 @@ export function mapChat(
 }
 
 export function mapMember(mid: string, name?: string, avatarUrl?: string): Member {
-  const resolved =
-    name && !looksLikeMid(name) ? name : looksLikeMid(mid) ? mid : name || mid;
+  const resolved = name && !looksLikeMid(name) ? name : looksLikeMid(mid) ? mid : name || mid;
   // MIDのままの場合は短く表示（u7c6ea... 形式）
-  const displayName = resolved.length > 14 && looksLikeMid(resolved)
-    ? resolved.slice(0, 12) + "..."
-    : resolved;
+  const displayName =
+    resolved.length > 14 && looksLikeMid(resolved) ? resolved.slice(0, 12) + "..." : resolved;
   return {
     id: mid,
     name: displayName,
@@ -136,10 +126,13 @@ function messageKind(m: LineMessage): MessageKind {
   if (ct === "E2EE_UNAVAILABLE") return "system";
   if (isCallContent(ct)) return "call";
   if (isSystemLikeContent(ct)) return "system";
-  if (isStickerContent(ct) || Boolean(extractStickerId(m.contentMetadata ?? null))) return "sticker";
+  if (isStickerContent(ct) || Boolean(extractStickerId(m.contentMetadata ?? null)))
+    return "sticker";
   if (isVideoContent(ct)) return "video";
   if (isImageContent(ct)) return "image";
   if (isAudioContent(ct)) return "audio";
+  if (isLocationContent(ct)) return "location";
+  if (isContactContent(ct)) return "contact";
   if (isFlexContentType(ct)) return "flex";
   if (isRichContentType(ct)) return "rich";
   const text = sanitizeText(m.text);
@@ -189,10 +182,14 @@ export function chatEventText(
       return args.length ? `${joinNames()}がグループに参加しました` : "メンバーが参加しました";
     case "C_MR":
     case "A_MR":
-      return args[0] ? `${display(args[0])}さんが退会させられました` : "メンバーが退会させられました";
+      return args[0]
+        ? `${display(args[0])}さんが退会させられました`
+        : "メンバーが退会させられました";
     case "C_IC":
     case "A_IC":
-      return args[0] ? `${display(args[0])}さんが招待を辞退しました` : "メンバーが招待を辞退しました";
+      return args[0]
+        ? `${display(args[0])}さんが招待を辞退しました`
+        : "メンバーが招待を辞退しました";
     case "C_PN":
       return args[0] ? `グループ名が「${args[0]}」に変更されました` : "グループ名が変更されました";
     case "C_PI":
@@ -228,7 +225,7 @@ export function mapMessage(
   accountId: string,
   _contactCache?: Map<string, ContactInfo>,
 ): Message {
-  const kind = messageKind(m);
+  let kind = messageKind(m);
   const revoked = m.contentType === "UNSENT" || m.contentType === "UNSEND";
   const stickerId = extractStickerId(m.contentMetadata ?? null);
   const authorId = m.isMyMessage ? "me" : m.from;
@@ -242,10 +239,7 @@ export function mapMessage(
     audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
   }
 
-  const read =
-    m.isMyMessage
-      ? Boolean(m.seen || (m.readCount != null && m.readCount > 0))
-      : true;
+  const read = m.isMyMessage ? Boolean(m.seen || (m.readCount != null && m.readCount > 0)) : true;
 
   let text = sanitizeText(m.text);
   if (kind === "system") {
@@ -276,13 +270,27 @@ export function mapMessage(
     kind === "flex" ? parseFlexContainer(meta, sanitizeText(m.text) ?? null) : undefined;
   const richMarkup = kind === "rich" ? parseRichMarkup(meta) : undefined;
 
-  return {
+  const location =
+    kind === "location"
+      ? parseLocationFromMeta(m.contentMetadata as Record<string, unknown> | null, text)
+      : undefined;
+  const contact =
+    kind === "contact"
+      ? parseContactFromMeta(m.contentMetadata as Record<string, unknown> | null, text)
+      : undefined;
+
+  const result: Message = {
     id: m.id,
     chatId,
     authorId,
     kind,
     text,
-    sticker: kind === "sticker" && stickerId ? lineStickerUrl(stickerId) : kind === "sticker" ? "🎴" : undefined,
+    sticker:
+      kind === "sticker" && stickerId
+        ? lineStickerUrl(stickerId)
+        : kind === "sticker"
+          ? "🎴"
+          : undefined,
     imageSrc,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
@@ -305,14 +313,76 @@ export function mapMessage(
     readBy: m.readBy,
     revoked,
     replyToId: m.relatedMessageId ?? undefined,
-    reactions: m.reactions?.filter((r) => Number.isFinite(r.type)).map((r) => ({
-      fromMid: r.fromMid,
-      atMillis: r.atMillis,
-      type: r.type,
-    })),
+    reactions: m.reactions
+      ?.filter((r) => Number.isFinite(r.type))
+      .map((r) => ({
+        fromMid: r.fromMid,
+        atMillis: r.atMillis,
+        type: r.type,
+      })),
     stickerAnimated: m.stickerAnimated,
     stickerSticky: m.stickerSticky,
+    contact,
+    location,
   };
+
+  // sticon のみの本文は emoji 扱いにして本家同等の大きさで表示
+  if (result.kind === "text" && result.sticons && result.sticons.length > 0) {
+    const stripped = (result.text ?? "").replace(/[￼$]/g, "");
+    if (!stripped.trim()) result.kind = "emoji";
+  }
+
+  return result;
+}
+
+function parseLocationFromMeta(
+  meta: Record<string, unknown> | null,
+  text: string | undefined,
+): Message["location"] {
+  if (!meta) return { address: text };
+  const num = (k: string) => {
+    const v = meta?.[k];
+    if (v == null) return undefined;
+    const n = Number(v);
+    return Number.isFinite(n) ? n : undefined;
+  };
+  const lat = num("latitude") ?? num("lat");
+  const lng = num("longitude") ?? num("lon") ?? num("long");
+  const title = typeof meta.title === "string" ? meta.title.trim() : undefined;
+  const address =
+    typeof meta.address === "string" && meta.address.trim()
+      ? meta.address.trim()
+      : typeof text === "string" && text.trim()
+        ? text.trim()
+        : undefined;
+  if (!lat && !lng && !title && !address) return undefined;
+  return {
+    title: title || undefined,
+    address: address || undefined,
+    latitude: lat,
+    longitude: lng,
+  };
+}
+
+function parseContactFromMeta(
+  meta: Record<string, unknown> | null,
+  text: string | undefined,
+): Message["contact"] {
+  if (!meta) return text ? { name: text } : undefined;
+  const mid =
+    typeof meta.mid === "string"
+      ? meta.mid.trim()
+      : typeof meta.MID === "string"
+        ? meta.MID.trim()
+        : undefined;
+  const name =
+    typeof meta.displayName === "string" && meta.displayName.trim()
+      ? meta.displayName.trim()
+      : typeof text === "string" && text.trim()
+        ? text.trim()
+        : undefined;
+  if (!mid && !name) return undefined;
+  return { mid, name };
 }
 
 function parseCallMeta(
@@ -322,9 +392,7 @@ function parseCallMeta(
   const u = contentType.toUpperCase();
   const typeHint = String(meta?.CALL_TYPE ?? meta?.TYPE ?? "").toUpperCase();
   const video =
-    (u.includes("VIDEO") && u.includes("CALL")) ||
-    typeHint.includes("VIDEO") ||
-    typeHint === "1";
+    (u.includes("VIDEO") && u.includes("CALL")) || typeHint.includes("VIDEO") || typeHint === "1";
   const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
   const durationRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.duration;
   let durationSec: number | undefined;

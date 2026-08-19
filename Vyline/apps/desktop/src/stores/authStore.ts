@@ -21,16 +21,29 @@ interface AuthState {
   loading: boolean;
   initialized: boolean;
   error: string | null;
+  /** ログイン画面で事前選択するアカウント（アカウント追加・切替時） */
+  pendingLoginAccountId: string | null;
+  /** login 画面を開いた理由。auto=起動時のみ / manual=サイドバーからの追加・切替 */
+  loginMode: "auto" | "manual";
 
   setActiveAccount: (id: string) => void;
+  setPendingLogin: (id: string | null) => void;
+  /** ログイン画面を開く。manual の場合は戻るボタンを表示する */
+  openLogin: (mode: "auto" | "manual", accountId?: string | null) => void;
   /** 保存済みトークンを restore し、active 一覧を更新 */
   refreshAccounts: () => Promise<void>;
   /** 自動 restore せず一覧だけ更新（ログイン画面用） */
   refreshSessions: () => Promise<void>;
   bootstrap: () => Promise<void>;
-  loginEmail: (accountId: string, email: string, password: string) => Promise<{ ok: boolean; error?: string }>;
+  loginEmail: (
+    accountId: string,
+    email: string,
+    password: string,
+  ) => Promise<{ ok: boolean; error?: string }>;
   loginQrStart: (accountId: string) => Promise<{ ok: boolean; error?: string }>;
+  loginToken: (accountId: string, authToken: string) => Promise<{ ok: boolean; error?: string }>;
   restore: (accountId: string) => Promise<{ ok: boolean; error?: string }>;
+  switchAccount: (accountId: string) => Promise<{ ok: boolean; error?: string }>;
   deleteSession: (accountId: string) => Promise<void>;
   logout: (accountId: string) => Promise<void>;
   onLoginSuccess: (accountId: string) => Promise<void>;
@@ -63,8 +76,15 @@ export const useAuthStore = create<AuthState>()(
       loading: false,
       initialized: false,
       error: null,
+      pendingLoginAccountId: null,
+      loginMode: "auto",
 
       setActiveAccount: (id) => set({ activeAccountId: id }),
+
+      setPendingLogin: (id) => set({ pendingLoginAccountId: id }),
+
+      openLogin: (mode, accountId = null) =>
+        set({ loginMode: mode, pendingLoginAccountId: accountId }),
 
       refreshSessions: async () => {
         const res = await api.auth.sessions();
@@ -88,9 +108,7 @@ export const useAuthStore = create<AuthState>()(
         // メモリに無いが tokens.json にある → restore
         const missing = saved.filter((id) => !active.includes(id));
         if (missing.length > 0) {
-          await Promise.allSettled(
-            missing.map((id) => api.auth.restore(id)),
-          );
+          await Promise.allSettled(missing.map((id) => api.auth.restore(id)));
           const again = await api.auth.accounts();
           if (again.ok) {
             active = again.active;
@@ -135,7 +153,7 @@ export const useAuthStore = create<AuthState>()(
       },
 
       onLoginSuccess: async (accountId) => {
-        set({ activeAccountId: accountId, error: null });
+        set({ activeAccountId: accountId, error: null, loginMode: "auto", pendingLoginAccountId: null });
         // 少し待ってトークン保存・プロフィール追記を待つ
         await new Promise((r) => setTimeout(r, 400));
         await get().refreshAccounts();
@@ -180,12 +198,54 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
+      loginToken: async (accountId, authToken) => {
+        set({ loading: true, error: null });
+        try {
+          const res = await api.auth.loginToken({ accountId, authToken });
+          if (!res.ok) {
+            const message = res.error ?? "token login failed";
+            set({ error: message });
+            return { ok: false, error: message };
+          }
+          await get().refreshAccounts();
+          set({ activeAccountId: accountId });
+          return { ok: true };
+        } catch (err) {
+          const message = String(err);
+          set({ error: message });
+          return { ok: false, error: message };
+        } finally {
+          set({ loading: false });
+        }
+      },
+
       restore: async (accountId) => {
         set({ loading: true, error: null });
         try {
           const res = await api.auth.restore(accountId);
           if (!res.ok) {
             const message = res.error ?? "restore failed";
+            set({ error: message });
+            return { ok: false, error: message };
+          }
+          await get().refreshAccounts();
+          set({ activeAccountId: accountId });
+          return { ok: true };
+        } catch (err) {
+          const message = String(err);
+          set({ error: message });
+          return { ok: false, error: message };
+        } finally {
+          set({ loading: false });
+        }
+      },
+
+      switchAccount: async (accountId) => {
+        set({ loading: true, error: null });
+        try {
+          const res = await api.auth.switch_(accountId);
+          if (!res.ok) {
+            const message = res.error ?? "switch failed";
             set({ error: message });
             return { ok: false, error: message };
           }

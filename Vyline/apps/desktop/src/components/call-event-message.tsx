@@ -35,13 +35,7 @@ function labelFor(meta: CallMessageMeta): { title: string; detail?: string } {
   }
 }
 
-export function CallEventMessage({
-  meta,
-  isMe,
-}: {
-  meta?: CallMessageMeta;
-  isMe?: boolean;
-}) {
+export function CallEventMessage({ meta, isMe }: { meta?: CallMessageMeta; isMe?: boolean }) {
   const resolved: CallMessageMeta = meta ?? {
     video: false,
     group: false,

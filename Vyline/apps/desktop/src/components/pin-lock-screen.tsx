@@ -1,50 +1,63 @@
-import { useEffect, useState } from "react"
-import { useStore } from "@/lib/store"
-import { cn } from "@/lib/utils"
-import { IconLock } from "@/components/icons"
+import { useEffect, useRef, useState } from "react";
+import { useStore } from "@/lib/store";
+import { usePrivacyStore } from "../stores/privacyStore";
+import { cn } from "@/lib/utils";
+import { IconLock } from "@/components/icons";
 
-const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"]
+const KEYS = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "back"];
 
 export function PinLockScreen() {
-  const unlock = useStore((s) => s.unlock)
-  const pinLength = useStore((s) => s.settings.pin.length)
-  const [entry, setEntry] = useState("")
-  const [error, setError] = useState(false)
+  const unlock = usePrivacyStore((s) => s.unlock);
+  const pinLength = useStore((s) => s.settings.pin.length);
+  const [entry, setEntry] = useState("");
+  const [error, setError] = useState(false);
+  const entryRef = useRef("");
 
-  function submit(value: string) {
-    const ok = unlock(value)
+  async function submit(value: string) {
+    const ok = await unlock(value);
     if (!ok) {
-      setError(true)
+      setError(true);
       setTimeout(() => {
-        setError(false)
-        setEntry("")
-      }, 500)
+        setError(false);
+        entryRef.current = "";
+        setEntry("");
+      }, 600);
     }
   }
 
   function push(k: string) {
+    if (error) return;
     if (k === "back") {
-      setEntry((e) => e.slice(0, -1))
-      return
+      entryRef.current = entryRef.current.slice(0, -1);
+      setEntry(entryRef.current);
+      return;
     }
-    if (k === "" ) return
-    setEntry((e) => {
-      if (e.length >= 8) return e
-      const next = e + k
-      if (next.length >= pinLength) submit(next)
-      return next
-    })
+    if (k === "") return;
+    if (entryRef.current.length >= 32) return;
+    const next = entryRef.current + k;
+    entryRef.current = next;
+    setEntry(next);
+    // 数字PINは固定長、パスワードは Enter で送信するためここでは満たした時のみ
+    if (pinLength > 0 && next.length >= pinLength) submit(next);
   }
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (/^[0-9]$/.test(e.key)) push(e.key)
-      else if (e.key === "Backspace") push("back")
+      if (error) return;
+      if (/^[0-9]$/.test(e.key)) push(e.key);
+      else if (e.key === "Backspace") push("back");
+      else if (e.key === "Enter" && entryRef.current.length > 0) submit(entryRef.current);
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [pinLength])
+  }, [pinLength, error]);
+
+  function onPasswordChange(value: string) {
+    if (error) return;
+    entryRef.current = value;
+    setEntry(value);
+  }
 
   return (
     <div className="flex min-h-dvh flex-col items-center justify-center bg-[var(--vy-bg)] px-6">
@@ -65,7 +78,9 @@ export function PinLockScreen() {
               className={cn(
                 "h-3.5 w-3.5 rounded-full border transition-colors",
                 i < entry.length ? "bg-[var(--vy-accent)]" : "bg-transparent",
-                error ? "border-[var(--vy-danger)]" : "border-[color-mix(in_oklab,var(--vy-text-dim)_60%,transparent)]",
+                error
+                  ? "border-[var(--vy-danger)]"
+                  : "border-[color-mix(in_oklab,var(--vy-text-dim)_60%,transparent)]",
               )}
               style={i < entry.length && !error ? { borderColor: "var(--vy-accent)" } : undefined}
             />
@@ -94,8 +109,21 @@ export function PinLockScreen() {
             </button>
           ))}
         </div>
-        <p className="mt-8 text-xs text-[var(--vy-text-dim)]">ヒント: デモ用パスコードは 1234</p>
+
+        <input
+          type="password"
+          value={entry}
+          onChange={(e) => onPasswordChange(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" && entryRef.current.length > 0) submit(entryRef.current);
+          }}
+          placeholder="パスワードでも可"
+          aria-label="パスワード入力"
+          autoFocus
+          className="mt-6 w-56 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-center text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+        />
+        <p className="mt-6 text-xs text-[var(--vy-text-dim)]">ヒント: デモ用パスコードは 1234</p>
       </div>
     </div>
-  )
+  );
 }

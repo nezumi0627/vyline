@@ -72,38 +72,35 @@ export function useCall(accountId: string | null) {
     setCall(null);
   }, [accountId, call?.sessionId, cleanupMedia]);
 
-  const startMicPipeline = useCallback(
-    (ws: WebSocket) => {
-      if (!navigator.mediaDevices?.getUserMedia) return;
-      void (async () => {
-        const stream = await navigator.mediaDevices.getUserMedia({
-          audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
-          video: false,
-        });
-        micStreamRef.current = stream;
-        const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
-        audioCtxRef.current = ctx;
-        const source = ctx.createMediaStreamSource(stream);
-        const processor = ctx.createScriptProcessor(4096, 1, 1);
-        micProcessorRef.current = processor;
-        processor.onaudioprocess = (ev) => {
-          if (ws.readyState !== WebSocket.OPEN || mutedRef.current) return;
-          const input = ev.inputBuffer.getChannelData(0);
-          const out = new Int16Array(input.length);
-          for (let i = 0; i < input.length; i++) {
-            const s = Math.max(-1, Math.min(1, input[i] ?? 0));
-            out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
-          }
-          ws.send(out.buffer);
-        };
-        source.connect(processor);
-        processor.connect(ctx.destination);
-      })().catch(() => {
-        /* mic optional */
+  const startMicPipeline = useCallback((ws: WebSocket) => {
+    if (!navigator.mediaDevices?.getUserMedia) return;
+    void (async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
+        video: false,
       });
-    },
-    [],
-  );
+      micStreamRef.current = stream;
+      const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
+      audioCtxRef.current = ctx;
+      const source = ctx.createMediaStreamSource(stream);
+      const processor = ctx.createScriptProcessor(4096, 1, 1);
+      micProcessorRef.current = processor;
+      processor.onaudioprocess = (ev) => {
+        if (ws.readyState !== WebSocket.OPEN || mutedRef.current) return;
+        const input = ev.inputBuffer.getChannelData(0);
+        const out = new Int16Array(input.length);
+        for (let i = 0; i < input.length; i++) {
+          const s = Math.max(-1, Math.min(1, input[i] ?? 0));
+          out[i] = s < 0 ? s * 0x8000 : s * 0x7fff;
+        }
+        ws.send(out.buffer);
+      };
+      source.connect(processor);
+      processor.connect(ctx.destination);
+    })().catch(() => {
+      /* mic optional */
+    });
+  }, []);
 
   const playRemotePcm = useCallback((buf: ArrayBuffer) => {
     const ctx = audioCtxRef.current;

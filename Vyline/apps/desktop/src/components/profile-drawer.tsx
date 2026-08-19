@@ -1,7 +1,7 @@
-import { useEffect, useMemo, useState } from "react"
-import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store"
-import { api } from "@/api/client"
-import { Avatar } from "@/components/vy-ui"
+import { useEffect, useMemo, useState } from "react";
+import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store";
+import { api } from "@/api/client";
+import { Avatar } from "@/components/vy-ui";
 import {
   IconClose,
   IconChat,
@@ -12,300 +12,370 @@ import {
   IconUsers,
   IconCheck,
   IconDownload,
-} from "@/components/icons"
-import { looksLikeMid, mapMember } from "@/lib/mappers"
-import { parseMusicProfile } from "@/lib/nezu-cache"
-import { dismissChatMid } from "@/utils/dismissedChats"
+  IconMemo,
+} from "@/components/icons";
+import { looksLikeMid, mapMember } from "@/lib/mappers";
+import { parseMusicProfile } from "@/lib/vyline-cache";
+import { dismissChatMid } from "@/utils/dismissedChats";
 
 type RichInfo = {
-  statusMessage?: string
-  musicProfile?: string
-  birthday?: string
-  backgroundUrl?: string
-}
+  statusMessage?: string;
+  musicProfile?: string;
+  birthday?: string;
+  backgroundUrl?: string;
+};
 
 export function ProfileDrawer({ chat }: { chat: Chat }) {
-  const setProfileDrawer = useStore((s) => s.setProfileDrawer)
-  const openChat = useStore((s) => s.openChat)
-  const openDirectChatWith = useStore((s) => s.openDirectChatWith)
-  const openMemberProfile = useStore((s) => s.openMemberProfile)
-  const chats = useStore((s) => s.chats)
-  const streamerMode = useStore((s) => s.settings.streamerMode)
-  const settings = useStore((s) => s.settings)
-  const setLocalName = useStore((s) => s.setLocalName)
-  const accountId = useStore((s) => s.accountId)
+  const setProfileDrawer = useStore((s) => s.setProfileDrawer);
+  const openChat = useStore((s) => s.openChat);
+  const openDirectChatWith = useStore((s) => s.openDirectChatWith);
+  const openMemberProfile = useStore((s) => s.openMemberProfile);
+  const chats = useStore((s) => s.chats);
+  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const settings = useStore((s) => s.settings);
+  const setLocalName = useStore((s) => s.setLocalName);
+  const accountId = useStore((s) => s.accountId);
 
-  const [editing, setEditing] = useState(false)
-  const [nameInput, setNameInput] = useState(chat.localName ?? chat.name)
-  const [rich, setRich] = useState<RichInfo>({})
-  const [busy, setBusy] = useState(false)
-  const [actionMsg, setActionMsg] = useState<string | null>(null)
-  const [membersLoading, setMembersLoading] = useState(false)
-  const [isBlocked, setIsBlocked] = useState(false)
+  const [editing, setEditing] = useState(false);
+  const [nameInput, setNameInput] = useState(chat.localName ?? chat.name);
+  const [rich, setRich] = useState<RichInfo>({});
+  const [busy, setBusy] = useState(false);
+  const [actionMsg, setActionMsg] = useState<string | null>(null);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [isBlocked, setIsBlocked] = useState(false);
+  const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
 
+  // 共通グループ: VylineCache 一括読み（RPC なし）→ 失敗時は従来のローカル判定へ
   const commonGroups = useMemo(() => {
-    if (chat.type !== "friend") return []
-    return commonGroupsWith(chats, chat.id)
-  }, [chats, chat.id, chat.type])
+    if (chat.type !== "friend") return [];
+    if (apiCommonGroups) return apiCommonGroups;
+    return commonGroupsWith(chats, chat.id);
+  }, [chat.type, apiCommonGroups, chats, chat.id]);
 
   useEffect(() => {
-    setNameInput(chat.localName ?? chat.name)
-    setEditing(false)
-    setRich({})
-    setActionMsg(null)
-    setMembersLoading(false)
-    setIsBlocked(false)
-  }, [chat.id, chat.localName, chat.name])
+    setApiCommonGroups(null);
+    if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
+    let cancelled = false;
+    void api.line
+      .commonGroups(accountId, chat.id)
+      .then((res) => {
+        if (cancelled || !res.ok || !res.groups) return;
+        const byId = new Map(chats.map((c) => [c.id, c]));
+        const built = res.groups.map((g) => {
+          const local = byId.get(g.chatMid);
+          const name = local?.name && !looksLikeMid(local.name) ? local.name : g.name;
+          const initial = (name || "G").trim().charAt(0).toUpperCase();
+          return {
+            id: g.chatMid,
+            type: "group" as const,
+            name,
+            avatar: looksLikeMid(initial) ? "G" : initial,
+            avatarUrl: g.thumbnailUrl || local?.avatarUrl,
+            color: local?.color ?? "#7c5cff",
+            status: "グループ",
+            unread: 0,
+          } satisfies Chat;
+        });
+        setApiCommonGroups(built);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf, chats]);
 
   useEffect(() => {
-    if (!accountId || chat.type !== "friend" || streamerMode) return
-    let cancelled = false
+    setNameInput(chat.localName ?? chat.name);
+    setEditing(false);
+    setRich({});
+    setActionMsg(null);
+    setMembersLoading(false);
+    setIsBlocked(false);
+  }, [chat.id, chat.localName, chat.name]);
+
+  useEffect(() => {
+    if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
+    let cancelled = false;
     void api.line
       .blockedContacts(accountId)
       .then((res) => {
-        if (cancelled || !res.ok || !res.mids) return
-        setIsBlocked(res.mids.includes(chat.id))
+        if (cancelled || !res.ok || !res.mids) return;
+        setIsBlocked(res.mids.includes(chat.id));
       })
-      .catch(() => undefined)
+      .catch(() => undefined);
     return () => {
-      cancelled = true
-    }
-  }, [accountId, chat.id, chat.type, streamerMode])
+      cancelled = true;
+    };
+  }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") setProfileDrawer(false)
+      if (e.key === "Escape") setProfileDrawer(false);
     }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [setProfileDrawer])
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [setProfileDrawer]);
 
   useEffect(() => {
-    if (!accountId || streamerMode) return
-    let cancelled = false
+    if (!accountId || streamerMode || chat.isSelf) return;
+    let cancelled = false;
 
     const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> =>
       new Promise((resolve) => {
-        const timer = setTimeout(() => resolve("timeout" as const), ms)
+        const timer = setTimeout(() => resolve("timeout" as const), ms);
         promise.then(
-          (v) => { clearTimeout(timer); resolve(v) },
-          () => { clearTimeout(timer); resolve("timeout" as const) },
-        )
-      })
+          (v) => {
+            clearTimeout(timer);
+            resolve(v);
+          },
+          () => {
+            clearTimeout(timer);
+            resolve("timeout" as const);
+          },
+        );
+      });
 
     void (async () => {
       // プロフィール詳細（statusMessage など）— 短めのタイムアウト
       try {
-        const res = await withTimeout(
-          api.line.contactProfile(accountId, chat.id),
-          6_000,
-        )
-        if (cancelled || res === "timeout" || !(res as { ok?: boolean }).ok) return
+        const res = await withTimeout(api.line.contactProfile(accountId, chat.id), 6_000);
+        if (cancelled || res === "timeout" || !(res as { ok?: boolean }).ok) return;
         const r = res as {
-          ok: boolean
+          ok: boolean;
           profile?: {
-            statusMessage?: string
-            musicProfile?: string
-            birthday?: { display?: string }
-            backgroundUrl?: string
-            displayName?: string
-            thumbnailUrl?: string
-          }
-        }
-        if (!r.profile) return
+            statusMessage?: string;
+            musicProfile?: string;
+            birthday?: { display?: string };
+            backgroundUrl?: string;
+            displayName?: string;
+            thumbnailUrl?: string;
+          };
+        };
+        if (!r.profile) return;
         setRich({
           statusMessage: r.profile.statusMessage,
           musicProfile: r.profile.musicProfile,
           birthday: r.profile.birthday?.display,
           backgroundUrl: r.profile.backgroundUrl,
-        })
-        if (r.profile.displayName && !looksLikeMid(r.profile.displayName)) {
-          const nextName = r.profile.displayName
-          const nextAvatar = r.profile.thumbnailUrl
-          const nextStatus = r.profile.statusMessage
-          useStore.setState((st) => ({
-            chats: st.chats.map((c) =>
-              c.id === chat.id
-                ? {
-                    ...c,
-                    name: nextName,
-                    avatarUrl: nextAvatar || c.avatarUrl,
-                    status: nextStatus || c.status,
-                    left: c.left,
-                  }
-                : c,
-            ),
-          }))
-        }
+        });
+        const nextName =
+          r.profile.displayName && !looksLikeMid(r.profile.displayName)
+            ? r.profile.displayName
+            : undefined;
+        const nextAvatar = r.profile.thumbnailUrl;
+        const nextStatus = r.profile.statusMessage;
+        const nextBackground = r.profile.backgroundUrl;
+        useStore.setState((st) => ({
+          chats: st.chats.map((c) =>
+            c.id === chat.id
+              ? {
+                  ...c,
+                  name: nextName ?? c.name,
+                  avatarUrl: nextAvatar || c.avatarUrl,
+                  status: nextStatus || c.status,
+                  backgroundUrl: nextBackground || c.backgroundUrl,
+                  left: c.left,
+                }
+              : c,
+          ),
+        }));
       } catch {
         /* optional */
       }
 
       if (chat.type === "group") {
-        setMembersLoading(true)
+        setMembersLoading(true);
         try {
-          const mem = await withTimeout(
-            api.line.chatMembers(accountId, chat.id),
-            10_000,
-          )
+          const mem = await withTimeout(api.line.chatMembers(accountId, chat.id), 10_000);
           if (cancelled || mem === "timeout") {
-            setMembersLoading(false)
-            return
+            setMembersLoading(false);
+            return;
           }
-          const rm = mem as { ok: boolean; members?: Array<{ mid: string; displayName: string; thumbnailUrl?: string }> }
+          const rm = mem as {
+            ok: boolean;
+            members?: Array<{ mid: string; displayName: string; thumbnailUrl?: string }>;
+          };
           if (!rm.ok || !rm.members?.length) {
-            setMembersLoading(false)
-            return
+            setMembersLoading(false);
+            return;
           }
-          const members = rm.members.map((m) =>
-            mapMember(m.mid, m.displayName, m.thumbnailUrl),
-          )
+          const members = rm.members.map((m) => mapMember(m.mid, m.displayName, m.thumbnailUrl));
           useStore.setState((st) => ({
             chats: st.chats.map((c) => (c.id === chat.id ? { ...c, members } : c)),
-          }))
+          }));
         } catch {
           /* optional */
         } finally {
-          setMembersLoading(false)
+          setMembersLoading(false);
         }
       }
-    })()
+    })();
     return () => {
-      cancelled = true
-    }
-  }, [accountId, chat.id, chat.type, streamerMode])
+      cancelled = true;
+    };
+  }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
-  const name = displayName(chat, streamerMode)
-  const music = parseMusicProfile(rich.musicProfile)
+  const name = displayName(chat, streamerMode);
+  const music = parseMusicProfile(rich.musicProfile);
 
   const handleTalk = () => {
     if (chat.type === "friend") {
-      openDirectChatWith(chat.id)
+      openDirectChatWith(chat.id);
     } else {
-      openChat(chat.id)
-      setProfileDrawer(false)
+      openChat(chat.id);
+      setProfileDrawer(false);
     }
-  }
+  };
 
   const saveName = async () => {
-    const next = nameInput.trim()
-    setLocalName(chat.id, next)
-    setEditing(false)
-    if (!accountId || chat.type !== "friend" || !next) return
-    setBusy(true)
-    setActionMsg(null)
+    const next = nameInput.trim();
+    setLocalName(chat.id, next);
+    setEditing(false);
+    if (!accountId || chat.type !== "friend" || !next) return;
+    setBusy(true);
+    setActionMsg(null);
     try {
-      const res = await api.line.renameContact(accountId, chat.id, next)
+      const res = await api.line.renameContact(accountId, chat.id, next);
       if (!res.ok) {
-        setActionMsg(res.error ?? "表示名の同期に失敗しました（ローカルのみ保存）")
+        setActionMsg(res.error ?? "表示名の同期に失敗しました（ローカルのみ保存）");
       } else {
         useStore.setState((st) => ({
           chats: st.chats.map((c) =>
             c.id === chat.id ? { ...c, name: next, localName: next } : c,
           ),
-        }))
-        setActionMsg("友だち表示名を更新しました")
+        }));
+        setActionMsg("友だち表示名を更新しました");
       }
     } catch (err) {
-      setActionMsg(err instanceof Error ? err.message : String(err))
+      setActionMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   const leaveOrBlock = async () => {
-    if (!accountId || busy) return
+    if (!accountId || busy) return;
+    // ブロック解除
+    if (chat.type === "friend" && isBlocked) {
+      if (!window.confirm(`「${name}」のブロックを解除しますか？`)) return;
+      setBusy(true);
+      setActionMsg(null);
+      try {
+        const res = await api.line.unblockContact(accountId, chat.id);
+        if (!res.ok) {
+          setActionMsg(res.error ?? "ブロック解除に失敗しました");
+          return;
+        }
+        setIsBlocked(false);
+        useStore.setState((st) => ({
+          blockedMids: st.blockedMids.filter((m) => m !== chat.id),
+        }));
+      } catch (err) {
+        setActionMsg(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     if (chat.type === "group") {
       // すでに退出・キック済み → API なしで一覧から完全除外
       if (chat.left) {
-        if (!window.confirm(`「${name}」を一覧から削除しますか？\n（以降このグループは表示されません）`)) return
-        dismissChatMid(accountId, chat.id)
+        if (
+          !window.confirm(
+            `「${name}」を一覧から削除しますか？\n（以降このグループは表示されません）`,
+          )
+        )
+          return;
+        dismissChatMid(accountId, chat.id);
         useStore.setState((st) => ({
           chats: st.chats.filter((c) => c.id !== chat.id),
           activeChatId: st.activeChatId === chat.id ? null : st.activeChatId,
           profileDrawerOpen: false,
           messages: st.messages.filter((m) => m.chatId !== chat.id),
-        }))
-        return
+        }));
+        return;
       }
-      if (!window.confirm(`「${name}」から退出しますか？`)) return
-      setBusy(true)
-      setActionMsg(null)
+      if (!window.confirm(`「${name}」から退出しますか？`)) return;
+      setBusy(true);
+      setActionMsg(null);
       try {
-        const res = await api.line.leaveChat(accountId, chat.id)
+        const res = await api.line.leaveChat(accountId, chat.id);
         if (!res.ok) {
           // フロント側でも NOT_A_MEMBER 相当を拾って除外
-          const errText = res.error ?? ""
+          const errText = res.error ?? "";
           if (errText.includes("NOT_A_MEMBER")) {
-            dismissChatMid(accountId, chat.id)
+            dismissChatMid(accountId, chat.id);
             useStore.setState((st) => ({
               chats: st.chats.filter((c) => c.id !== chat.id),
               activeChatId: st.activeChatId === chat.id ? null : st.activeChatId,
               profileDrawerOpen: false,
               messages: st.messages.filter((m) => m.chatId !== chat.id),
-            }))
-            return
+            }));
+            return;
           }
-          setActionMsg(errText || "退出に失敗しました")
-          return
+          setActionMsg(errText || "退出に失敗しました");
+          return;
         }
         // キック済み（alreadyLeft）は一覧から消す。通常退出は退出済みバッジ付きで残す
         if (res.alreadyLeft) {
-          dismissChatMid(accountId, chat.id)
+          dismissChatMid(accountId, chat.id);
           useStore.setState((st) => ({
             chats: st.chats.filter((c) => c.id !== chat.id),
             activeChatId: st.activeChatId === chat.id ? null : st.activeChatId,
             profileDrawerOpen: false,
             messages: st.messages.filter((m) => m.chatId !== chat.id),
-          }))
+          }));
         } else {
           useStore.setState((st) => ({
             chats: st.chats.map((c) =>
               c.id === chat.id ? { ...c, left: true, status: "退出済み" } : c,
             ),
             profileDrawerOpen: false,
-          }))
+          }));
         }
       } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err)
+        const msg = err instanceof Error ? err.message : String(err);
         if (msg.includes("NOT_A_MEMBER")) {
-          dismissChatMid(accountId, chat.id)
+          dismissChatMid(accountId, chat.id);
           useStore.setState((st) => ({
             chats: st.chats.filter((c) => c.id !== chat.id),
             activeChatId: st.activeChatId === chat.id ? null : st.activeChatId,
             profileDrawerOpen: false,
             messages: st.messages.filter((m) => m.chatId !== chat.id),
-          }))
-          return
+          }));
+          return;
         }
-        setActionMsg(msg)
+        setActionMsg(msg);
       } finally {
-        setBusy(false)
+        setBusy(false);
       }
-      return
+      return;
     }
 
-    if (!window.confirm(`「${name}」をブロックしますか？`)) return
-    setBusy(true)
-    setActionMsg(null)
+    if (!window.confirm(`「${name}」をブロックしますか？`)) return;
+    setBusy(true);
+    setActionMsg(null);
     try {
-      const res = await api.line.blockContact(accountId, chat.id)
+      const res = await api.line.blockContact(accountId, chat.id);
       if (!res.ok) {
-        setActionMsg(res.error ?? "ブロックに失敗しました")
-        return
+        setActionMsg(res.error ?? "ブロックに失敗しました");
+        return;
       }
-      setIsBlocked(true)
+      setIsBlocked(true);
       useStore.setState((st) => ({
         chats: st.chats.filter((c) => c.id !== chat.id),
         activeChatId: st.activeChatId === chat.id ? null : st.activeChatId,
         profileDrawerOpen: false,
-      }))
+        blockedMids: st.blockedMids.includes(chat.id)
+          ? st.blockedMids
+          : [...st.blockedMids, chat.id],
+      }));
     } catch (err) {
-      setActionMsg(err instanceof Error ? err.message : String(err))
+      setActionMsg(err instanceof Error ? err.message : String(err));
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <>
@@ -332,7 +402,9 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             <div
               className="h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
               style={
-                !streamerMode && settings.showBackground && (chat.backgroundUrl ?? rich.backgroundUrl)
+                !streamerMode &&
+                settings.showBackground &&
+                (chat.backgroundUrl ?? rich.backgroundUrl)
                   ? {
                       backgroundImage: `url(${rich.backgroundUrl})`,
                       backgroundSize: "cover",
@@ -348,6 +420,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                 size={88}
                 online={chat.online}
                 imageUrl={streamerMode ? undefined : chat.avatarUrl}
+                icon={!streamerMode && chat.isSelf ? <IconMemo size={44} /> : undefined}
               />
               {editing ? (
                 <div className="mt-3 flex w-full items-center gap-2">
@@ -372,7 +445,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               ) : (
                 <div className="mt-3 flex items-center gap-2">
                   <h2 className="text-xl font-bold">{name}</h2>
-                  {!streamerMode && (
+                  {!streamerMode && !chat.isSelf && (
                     <button
                       type="button"
                       onClick={() => setEditing(true)}
@@ -399,9 +472,13 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                   {chat.id}
                 </p>
               )}
-              {!streamerMode && settings.showStatusMessage && (chat.statusMessage ?? rich.statusMessage) && (
-                <p className="mt-1 text-sm text-[var(--vy-text-dim)]">{chat.statusMessage ?? rich.statusMessage}</p>
-              )}
+              {!streamerMode &&
+                settings.showStatusMessage &&
+                (chat.statusMessage ?? rich.statusMessage) && (
+                  <p className="mt-1 text-sm text-[var(--vy-text-dim)]">
+                    {chat.statusMessage ?? rich.statusMessage}
+                  </p>
+                )}
             </div>
           </div>
 
@@ -431,20 +508,20 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               icon={<IconDownload size={20} />}
               label="トーク保存"
               onClick={() => {
-                const { accountId } = useStore.getState()
-                if (!accountId) return
-                setActionMsg("保存中…")
+                const { accountId } = useStore.getState();
+                if (!accountId) return;
+                setActionMsg("保存中…");
                 void api.line
                   .exportMessages(accountId, chat.id, "txt")
                   .then(() => setActionMsg("トークを保存しました"))
                   .catch((err) =>
                     setActionMsg(err instanceof Error ? err.message : "保存に失敗しました"),
-                  )
+                  );
               }}
             />
           </div>
 
-          {chat.type === "friend" && !streamerMode && commonGroups.length > 0 && (
+          {chat.type === "friend" && !streamerMode && !chat.isSelf && commonGroups.length > 0 && (
             <div className="mt-6">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                 <IconUsers size={15} />
@@ -456,8 +533,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                     key={g.id}
                     type="button"
                     onClick={() => {
-                      setProfileDrawer(false)
-                      openChat(g.id)
+                      setProfileDrawer(false);
+                      openChat(g.id);
                     }}
                     className="flex w-full items-center gap-3 px-3 py-2.5 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
                     style={i > 0 ? { borderTop: "1px solid var(--vy-border)" } : undefined}
@@ -504,12 +581,16 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                 ))}
               </div>
               {!streamerMode && accountId && (
-                <InviteToGroupRow chatMid={chat.id} accountId={accountId} onDone={(msg) => setActionMsg(msg)} />
+                <InviteToGroupRow
+                  chatMid={chat.id}
+                  accountId={accountId}
+                  onDone={(msg) => setActionMsg(msg)}
+                />
               )}
             </div>
           )}
 
-          {!streamerMode && (
+          {!streamerMode && !chat.isSelf && (
             <button
               type="button"
               disabled={busy}
@@ -525,18 +606,20 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                   : busy
                     ? "退出中…"
                     : "グループを退出"
-                : busy
-                  ? "処理中…"
-                  : "ブロック"}
+                : isBlocked
+                  ? busy
+                    ? "解除中…"
+                    : "ブロックを解除"
+                  : busy
+                    ? "処理中…"
+                    : "ブロック"}
             </button>
           )}
-          {actionMsg && (
-            <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{actionMsg}</p>
-          )}
+          {actionMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{actionMsg}</p>}
         </div>
       </aside>
     </>
-  )
+  );
 }
 
 function Action({
@@ -545,10 +628,10 @@ function Action({
   onClick,
   disabled,
 }: {
-  icon: React.ReactNode
-  label: string
-  onClick?: () => void
-  disabled?: boolean
+  icon: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -560,7 +643,7 @@ function Action({
       <span style={{ color: "var(--vy-accent)" }}>{icon}</span>
       {label}
     </button>
-  )
+  );
 }
 
 function InviteToGroupRow({
@@ -568,39 +651,39 @@ function InviteToGroupRow({
   accountId,
   onDone,
 }: {
-  chatMid: string
-  accountId: string
-  onDone: (msg: string) => void
+  chatMid: string;
+  accountId: string;
+  onDone: (msg: string) => void;
 }) {
-  const [open, setOpen] = useState(false)
-  const [mids, setMids] = useState("")
-  const [busy, setBusy] = useState(false)
+  const [open, setOpen] = useState(false);
+  const [mids, setMids] = useState("");
+  const [busy, setBusy] = useState(false);
 
   const invite = async () => {
     const list = mids
       .split(/[\s,]+/)
       .map((s) => s.trim())
-      .filter((s) => s.startsWith("u"))
+      .filter((s) => s.startsWith("u"));
     if (list.length === 0) {
-      onDone("招待する mid（u…）を入力してください")
-      return
+      onDone("招待する mid（u…）を入力してください");
+      return;
     }
-    setBusy(true)
+    setBusy(true);
     try {
-      const res = await api.line.inviteToGroup(accountId, chatMid, list)
+      const res = await api.line.inviteToGroup(accountId, chatMid, list);
       if (!res.ok) {
-        onDone(res.error || "招待に失敗しました")
-        return
+        onDone(res.error || "招待に失敗しました");
+        return;
       }
-      onDone(`${list.length}人を招待しました`)
-      setMids("")
-      setOpen(false)
+      onDone(`${list.length}人を招待しました`);
+      setMids("");
+      setOpen(false);
     } catch (e) {
-      onDone(e instanceof Error ? e.message : "招待に失敗しました")
+      onDone(e instanceof Error ? e.message : "招待に失敗しました");
     } finally {
-      setBusy(false)
+      setBusy(false);
     }
-  }
+  };
 
   return (
     <div className="mt-3">
@@ -632,5 +715,5 @@ function InviteToGroupRow({
         </div>
       )}
     </div>
-  )
+  );
 }

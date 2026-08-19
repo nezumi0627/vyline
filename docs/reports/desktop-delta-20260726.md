@@ -5,14 +5,14 @@ status: **unchanged**
 
 ## バージョン
 
-| | 値 |
-|---|---|
+|                          | 値            |
+| ------------------------ | ------------- |
 | キャッシュ (or fallback) | `26.3.0.3916` |
-| インストール | `26.3.0.3916` |
-| versionChanged | false |
-| shaChanged | false |
-| profile source | cache |
-| detectionMethod | scan |
+| インストール             | `26.3.0.3916` |
+| versionChanged           | false         |
+| shaChanged               | false         |
+| profile source           | cache         |
+| detectionMethod          | scan          |
 
 ### Identity (cached/fallback)
 
@@ -42,9 +42,10 @@ exeSha256 (installed): `8d26fbf87ba4cfe303649cf702213bada2145530705e9e2db7f979c5
 ### login-qr — QR ログイン (`high`)
 
 **Vyline files**
-- `Vyline/packages/nezuline/src/login/patchLogin.ts`
-- `Vyline/packages/nezuline/src/login/pcIdentity.ts`
-- `Vyline/packages/nezuline/src/client/NezuClient.ts`
+
+- `Vyline/packages/protocol/src/login/patchLogin.ts`
+- `Vyline/packages/protocol/src/login/pcIdentity.ts`
+- `Vyline/packages/protocol/src/client/VylineClient.ts`
 - `Vyline/backend/src/line/clientManager.ts`
 - `Vyline/backend/src/api/auth.ts`
 
@@ -60,16 +61,18 @@ qrCodeLoginV2ForSecure
 ```
 
 **Analysis docs**
+
 - [docs/login-flow.md](../login-flow.md)
 - [docs/analysis/login-qr.md](../analysis/login-qr.md)
 
 ### login-email — メールログイン (E2EE) (`high`)
 
 **Vyline files**
-- `Vyline/packages/nezuline/src/login/patchLogin.ts`
-- `Vyline/packages/nezuline/src/login/patchTransport.ts`
-- `Vyline/packages/nezuline/src/login/pcIdentity.ts`
-- `Vyline/packages/nezuline/src/client/NezuClient.ts`
+
+- `Vyline/packages/protocol/src/login/patchLogin.ts`
+- `Vyline/packages/protocol/src/login/patchTransport.ts`
+- `Vyline/packages/protocol/src/login/pcIdentity.ts`
+- `Vyline/packages/protocol/src/client/VylineClient.ts`
 - `Vyline/backend/src/line/clientManager.ts`
 - `Vyline/backend/src/api/auth.ts`
 
@@ -86,18 +89,20 @@ e2eeData
 ```
 
 **Analysis docs**
+
 - [docs/login-flow.md](../login-flow.md)
 - [docs/analysis/login-email.md](../analysis/login-email.md)
 
 ### headers-transport — ヘッダー / トランスポート (`high`)
 
 **Vyline files**
-- `Vyline/packages/nezuline/src/login/patchTransport.ts`
-- `Vyline/packages/nezuline/src/desktop/identity.ts`
-- `Vyline/packages/nezuline/src/desktop/extract.ts`
-- `Vyline/packages/nezuline/src/desktop/version.ts`
-- `Vyline/packages/nezuline/src/updater/NezuUpdater.ts`
-- `Vyline/backend/src/nezu/profileBridge.ts`
+
+- `Vyline/packages/protocol/src/login/patchTransport.ts`
+- `Vyline/packages/protocol/src/desktop/identity.ts`
+- `Vyline/packages/protocol/src/desktop/extract.ts`
+- `Vyline/packages/protocol/src/desktop/version.ts`
+- `Vyline/packages/protocol/src/updater/VylineUpdater.ts`
+- `Vyline/backend/src/vyline/profileBridge.ts`
 
 **Desktop search strings**
 
@@ -114,6 +119,7 @@ legy-jp.line-apps.com
 ```
 
 **Analysis docs**
+
 - [docs/login-flow.md](../login-flow.md)
 - [docs/analysis/headers-transport.md](../analysis/headers-transport.md)
 - [docs/tools/desktop-delta.md](../tools/desktop-delta.md)
@@ -121,9 +127,10 @@ legy-jp.line-apps.com
 ### e2ee-keys — E2EE 鍵管理 (`high`)
 
 **Vyline files**
-- `Vyline/packages/nezuline/src/login/ensureE2EE.ts`
-- `Vyline/packages/nezuline/src/login/importDesktopE2EE.ts`
-- `Vyline/packages/nezuline/src/login/patchLogin.ts`
+
+- `Vyline/packages/protocol/src/login/ensureE2EE.ts`
+- `Vyline/packages/protocol/src/login/importDesktopE2EE.ts`
+- `Vyline/packages/protocol/src/login/patchLogin.ts`
 - `Vyline/backend/src/api/debug.ts`
 
 **Desktop search strings**
@@ -137,14 +144,16 @@ e2eeKeys
 ```
 
 **Analysis docs**
+
 - [docs/login-flow.md](../login-flow.md)
 - [docs/analysis/e2ee-keys.md](../analysis/e2ee-keys.md)
 
 ### e2ee-send — E2EE 送信 (`high`)
 
 **Vyline files**
-- `Vyline/packages/nezuline/src/login/ensureE2EE.ts`
-- `Vyline/packages/nezuline/src/client/NezuClient.ts`
+
+- `Vyline/packages/protocol/src/login/ensureE2EE.ts`
+- `Vyline/packages/protocol/src/client/VylineClient.ts`
 - `Vyline/backend/src/service/lineService.ts`
 - `Vyline/backend/src/api/line.ts`
 
@@ -158,14 +167,16 @@ negotiateE2EEPublicKey
 ```
 
 **Analysis docs**
+
 - [docs/analysis/e2ee-send.md](../analysis/e2ee-send.md)
 - [docs/login-flow.md](../login-flow.md)
 
 ### e2ee-decrypt — E2EE 復号 (`high`)
 
 **Vyline files**
-- `Vyline/packages/nezuline/src/login/ensureE2EE.ts`
-- `Vyline/packages/nezuline/src/login/importDesktopE2EE.ts`
+
+- `Vyline/packages/protocol/src/login/ensureE2EE.ts`
+- `Vyline/packages/protocol/src/login/importDesktopE2EE.ts`
 - `Vyline/backend/src/service/lineService.ts`
 - `Vyline/backend/src/api/debug.ts`
 
@@ -179,6 +190,7 @@ BAD_DECRYPT
 ```
 
 **Analysis docs**
+
 - [docs/analysis/e2ee-decrypt.md](../analysis/e2ee-decrypt.md)
 - [docs/login-flow.md](../login-flow.md)
 
@@ -192,7 +204,7 @@ BAD_DECRYPT
 1. 上記モジュールを優先度順に確認する
 2. LINE.exe から searchStrings を strings / メモリダンプで探す
 3. 差分があれば `docs/analysis/<feature>.md` にメモし、対応ソースを直す
-4. 必要なら NezuUpdater.refresh() または `POST /debug/nezu/refresh`
+4. 必要なら VylineUpdater.refresh() または `POST /debug/vyline/refresh`
 5. CDN: https://desktop.line-scdn.net/win/v2/real/update_info.json
 
 詳細: [docs/tools/desktop-delta.md](../tools/desktop-delta.md)

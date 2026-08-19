@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-07-31
+最終更新: 2026-08-19
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -8,11 +8,11 @@
 
 ## プロジェクト概要
 
-**Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/nezuline`) を持ちます。
+**Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/protocol`) を持ちます。
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
 - **ライセンス**: MIT
-- **ステータス**: Phase 1-3 進行中（E2EE 復号・送信・Desktop 鍵 import・NezuLINE）
+- **ステータス**: Phase 1-3 進行中（E2EE 復号・送信・Desktop 鍵 import・Vyline）
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
 
 ---
@@ -21,7 +21,7 @@
 
 ### 検索ツール: RPC_DICTIONARY
 
-**`Vyline/packages/nezuline/src/dictionary/rpcMap.ts`** — LINE.js 名 → Desktop 証拠 → Vyline 実装の対応表。
+**`Vyline/packages/protocol/src/dictionary/rpcMap.ts`** — LINE.js 名 → Desktop 証拠 → Vyline 実装の対応表。
 
 ```ts
 // 機能の実装場所を調べる:
@@ -37,9 +37,9 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ### Desktop 解析ツール (Vyline-Search)
 
-- `bun run nezu:find-native -- <name>` — Desktop LINE.exe 内シンボル検索 (unpack → string scan → Ghidra)
-- `bun run nezu:focus-recovered` — 逆コンパイル結果のキーワード分類
-- `bun run nezu:unpack` — Themida 保護された LINE.exe の unpack
+- `bun run vyline:find-native -- <name>` — Desktop LINE.exe 内シンボル検索 (unpack → string scan → Ghidra)
+- `bun run vyline:focus-recovered` — 逆コンパイル結果のキーワード分類
+- `bun run vyline:unpack` — Themida 保護された LINE.exe の unpack
 - `tools/` — スタンドアロンツール (src: [Vyline-Search](https://github.com/nezumi0627/Vyline-Search))
 - `source/desktop/` — 解析データ (gitignore)
 - `docs/tools/` — ツール使用ガイド
@@ -50,15 +50,24 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 詳細ボード: **[docs/tasks/STATUS.md](docs/tasks/STATUS.md)** / 受け入れ条件: **[docs/tasks/PHASES.md](docs/tasks/PHASES.md)**
 
-| Phase | 内容 | 状態 |
-|---|---|---|
-| 0 | Kickoff（docs） | done |
-| 1 | E2EE decrypt / send | done |
-| 2 | Docs / AGENTS / tasks | done |
-| 3 | NezuLINE + Desktop import + update-diff | done |
-| 4 | Telegram-like UI | in progress |
-| 5 | Quality / perf | in progress |
-| 6 | Beta 公開準備 | in progress |
+| Phase | 内容                                  | 状態        |
+| ----- | ------------------------------------- | ----------- |
+| 0     | Kickoff（docs）                       | done        |
+| 1     | E2EE decrypt / send                   | done        |
+| 2     | Docs / AGENTS / tasks                 | done        |
+| 3     | Vyline + Desktop import + update-diff | done        |
+| 4     | Telegram-like UI                      | in progress |
+| 5     | Quality / perf                        | in progress |
+| 6     | Beta 公開準備                         | in progress |
+
+### 最近の主な変更 (2026-08-18)
+
+- **リブランディング**: `@vyline/nezuline` → `@vyline/protocol`、`Nezu*` → `Vyline*`。旧 `nezu-*.json` / `nezuline` データディレクトリからの自動移行
+- **VylineBackup**: 設定 > VylineBackup からトーク履歴・メディアのスナップショットを作成/復元/削除（`data/backups/`）。復元は「すべて / チャット選択」「メディア含む / テキストのみ」を選択可
+- **チャット詳細ログ**: 送受信・アナウンス（CHATEVENT）をタイミング付き JSONL で記録（`data/logs/`）。画像・動画・音声・ファイル・スタンプのメディア情報も記録。設定 > 詳細・復元 > デバッグログで閲覧
+- **高画質送信**: 表示タブに「高画質で画像送信」トグル（圧縮せず元画質で送信）
+- **useVirtualList**: 実測高さ変更時にオフセットを再計算するよう修正
+- **ブロックリスト**: キャッシュ + background キュー + 8s タイムアウトで 504 回避
 
 ### 最近の主な変更 (2026-08-17)
 
@@ -98,20 +107,20 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ## 技術スタック
 
-| レイヤー | 技術 | 理由 |
-|---|---|---|
-| Runtime | **Bun** | 超高速起動・TypeScript 直接実行・Node 互換 |
-| Backend Framework | **Hono** | 軽量・高速・構造がシンプル |
-| LINE Backend | **@vyline/nezuline** (stack + Desktop patches) | 自前プロトコル・外部 linejs 依存なし |
-| Frontend | **React + Vite** | HMR 最速クラス |
-| 言語 | **TypeScript** | AI 生成との相性最高 |
-| State 管理 | **Zustand** | 軽量・高速 |
-| UI | **Tailwind + shadcn/ui** | 高速 UI 構築 |
-| Mobile | **Capacitor** (後で追加) | iOS / iPad 対応 |
-| Plugin | **ES Modules** | 動的ロード可能 |
-| Theme | **CSS Variables** | 完全テーマ化 |
-| Storage | **SQLite / JSON** | 軽量 |
-| Logging | **pino** | 高速 |
+| レイヤー          | 技術                                           | 理由                                       |
+| ----------------- | ---------------------------------------------- | ------------------------------------------ |
+| Runtime           | **Bun**                                        | 超高速起動・TypeScript 直接実行・Node 互換 |
+| Backend Framework | **Hono**                                       | 軽量・高速・構造がシンプル                 |
+| LINE Backend      | **@vyline/protocol** (stack + Desktop patches) | 自前プロトコル・外部 linejs 依存なし       |
+| Frontend          | **React + Vite**                               | HMR 最速クラス                             |
+| 言語              | **TypeScript**                                 | AI 生成との相性最高                        |
+| State 管理        | **Zustand**                                    | 軽量・高速                                 |
+| UI                | **Tailwind + shadcn/ui**                       | 高速 UI 構築                               |
+| Mobile            | **Capacitor** (後で追加)                       | iOS / iPad 対応                            |
+| Plugin            | **ES Modules**                                 | 動的ロード可能                             |
+| Theme             | **CSS Variables**                              | 完全テーマ化                               |
+| Storage           | **SQLite / JSON**                              | 軽量                                       |
+| Logging           | **pino**                                       | 高速                                       |
 
 ### 避けるもの
 
@@ -137,9 +146,9 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 │  ├── api/line.ts         BFF routes (入出力のみ)         │
 │  ├── service/lineService.ts  ビジネスロジック (正本)     │
 │  ├── line/clientManager.ts   セッション管理              │
-│  └── storage/            NezuCache, featureLocks, CDN   │
-├─ NezuLINE Protocol ────────────────────────────────────┤
-│  packages/nezuline/                                     │
+│  └── storage/            VylineCache, featureLocks, CDN   │
+├─ Vyline Protocol ────────────────────────────────────┤
+│  packages/protocol/                                     │
 │  ├── src/domain/         VylineSession facade           │
 │  ├── src/dictionary/     RPC_DICTIONARY (検索ツール)     │
 │  ├── src/login/          E2EE, 鍵管理, Desktop patches  │
@@ -149,31 +158,34 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ### 主要ファイル一覧
 
-| ファイル | 役割 |
-|---|---|
-| `backend/src/service/lineService.ts` | 全ビジネスロジック。メッセージ送受信、E2EE、メディア、スタンプ、プロフィール |
-| `apps/desktop/src/lib/store.ts` | Zustand ストア。`hydrateLineData`, `pollIncoming`, `pollMessagesDelta` |
-| `apps/desktop/src/lib/mappers.ts` | `mapChat`, `mapMessage`, `mapMember`, `looksLikeMid` |
-| `apps/desktop/src/api/client.ts` | backend HTTP client |
-| `packages/nezuline/src/dictionary/rpcMap.ts` | RPC_DICTIONARY (検索ツール) |
-| `packages/nezuline/stack/base/e2ee/mod.ts` | E2EE 復号エンジン |
-| `backend/src/storage/nezuCache.ts` | プロフィール/グループキャッシュ |
-| `backend/src/storage/featureLocks.ts` | 操作ロック管理 |
+| ファイル                                     | 役割                                                                         |
+| -------------------------------------------- | ---------------------------------------------------------------------------- |
+| `backend/src/service/lineService.ts`         | 全ビジネスロジック。メッセージ送受信、E2EE、メディア、スタンプ、プロフィール |
+| `apps/desktop/src/lib/store.ts`              | Zustand ストア。`hydrateLineData`, `pollIncoming`, `pollMessagesDelta`       |
+| `apps/desktop/src/lib/mappers.ts`            | `mapChat`, `mapMessage`, `mapMember`, `looksLikeMid`                         |
+| `apps/desktop/src/api/client.ts`             | backend HTTP client                                                          |
+| `packages/protocol/src/dictionary/rpcMap.ts` | RPC_DICTIONARY (検索ツール)                                                  |
+| `packages/protocol/stack/base/e2ee/mod.ts`   | E2EE 復号エンジン                                                            |
+| `backend/src/storage/vylineCache.ts`         | プロフィール/グループキャッシュ                                              |
+| `backend/src/storage/featureLocks.ts`        | 操作ロック管理                                                               |
+| `backend/src/storage/messageLog.ts`          | チャット詳細ログ（JSONL、`data/logs/`）                                      |
+| `backend/src/service/backupService.ts`       | VylineBackup スナップショット作成/復元（`data/backups/`）                    |
 
 ### 重要定数
 
-| 定数 | デフォルト | 場所 |
-|---|---|---|
-| `CONTACT_RPC_TIMEOUT_MS` | 8_000 | lineService.ts |
-| `CONTACT_BATCH_CHUNK` | 4 | lineService.ts |
-| `CONTACT_INDIVIDUAL_TIMEOUT_MS` | 2_500 | lineService.ts |
-| `MY_PROFILE_RPC_TIMEOUT_MS` | 10_000 | lineService.ts |
-| `DELTA_POLL_MIN_MS` | 45_000 | store.ts |
-| `MAX_MESSAGES_PER_CHAT` | 120 | store.ts |
+| 定数                            | デフォルト | 場所           |
+| ------------------------------- | ---------- | -------------- |
+| `CONTACT_RPC_TIMEOUT_MS`        | 8_000      | lineService.ts |
+| `CONTACT_BATCH_CHUNK`           | 4          | lineService.ts |
+| `CONTACT_INDIVIDUAL_TIMEOUT_MS` | 2_500      | lineService.ts |
+| `MY_PROFILE_RPC_TIMEOUT_MS`     | 10_000     | lineService.ts |
+| `DELTA_POLL_MIN_MS`             | 45_000     | store.ts       |
+| `MAX_MESSAGES_PER_CHAT`         | 120        | store.ts       |
 
 ### 共通パターン
 
 **E2EE グループ鍵の重複抑制:**
+
 ```ts
 // groupKeyWarm / groupKeyWarmFailed / groupKeyWarmInflight で三重抑制
 const groupKeyWarmInflight = new Map<string, Promise<void>>();
@@ -181,6 +193,7 @@ const groupKeyWarmInflight = new Map<string, Promise<void>>();
 ```
 
 **メディアダウンロードのフォールバック:**
+
 ```
 groupKeyMissing? → E2EE skip → OBS plain
 E2EE decrypt → fail → OBS plain → fail
@@ -188,10 +201,11 @@ E2EE decrypt → fail → OBS plain → fail
 ```
 
 **メンバー名解決とキャッシュ汚染防止:**
+
 ```
 fetchChatMemberMids → fetchContactsBatch → individual fallback
-→ 全失敗時はMIDのまま → nezuPutGroup で skip (allUnresolved)
-→ nezuGroupNeedsRefresh がMIDキャッシュを検出して再取得
+→ 全失敗時はMIDのまま → vylinePutGroup で skip (allUnresolved)
+→ vylineGroupNeedsRefresh がMIDキャッシュを検出して再取得
 ```
 
 ---
@@ -211,23 +225,23 @@ bun run typecheck
 bun run lint
 bun test
 
-# NezuLINE 特化
-cd Vyline/packages/nezuline
+# Vyline 特化
+cd Vyline/packages/protocol
 bun run delta          # Desktop 差分調査
 bun run stack:types    # Thrift 型ビルド
-bun run nezu:find-native -- <name>  # Desktop シンボル検索
+bun run vyline:find-native -- <name>  # Desktop シンボル検索
 ```
 
 ## バージョン管理（重要）
 
 バージョンは **4 箇所を同一に揃える必須**：
 
-| 場所 | フィールド |
-|---|---|
+| 場所                                   | フィールド             |
+| -------------------------------------- | ---------------------- |
 | `Vyline/apps/desktop/src/lib/store.ts` | `UPDATE_NOTES.version` |
-| ルート `package.json` | `version` |
-| `Vyline/apps/desktop/package.json` | `version` |
-| `README.md` | バッジの `version-...` |
+| ルート `package.json`                  | `version`              |
+| `Vyline/apps/desktop/package.json`     | `version`              |
+| `README.md`                            | バッジの `version-...` |
 
 - バージョン形式: セマンティックバージョン（`X.Y.Z` または `X.Y.Z-beta`）
 - beta は非公開テスト段階。public リリース前に外す
@@ -241,6 +255,7 @@ bun run nezu:find-native -- <name>  # Desktop シンボル検索
 
 - `desktop-e2ee-keys.json` / tokens / session / `Vyline/backend/data/` は **gitignore・コミット禁止**
 - PR・チャット・docs に鍵・トークン実値を貼らない
+- **Pull Request**: マージは承認された場合のみ可能。repo所有者以外のマージはブロックされます（Branch Protection Rules設定済み）
 
 ## 報告プロトコル
 
@@ -260,18 +275,18 @@ bun run nezu:find-native -- <name>  # Desktop シンボル検索
 
 ## ドキュメント索引
 
-| ドキュメント | 内容 |
-|---|---|
-| [docs/README.md](docs/README.md) | 全体索引 |
-| [docs/onboarding.md](docs/onboarding.md) | 初日チェックリスト |
-| [docs/architecture.md](docs/architecture.md) | 層構造・データフロー |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | 機能追加フロー (辞書→Desktop→domain→BFF) |
-| [docs/development.md](docs/development.md) | 開発コマンド・環境変数 |
-| [docs/protocol/dictionary.md](docs/protocol/dictionary.md) | RPC 辞書・Desktop 検証表 |
-| [docs/tools/find-native-symbol.md](docs/tools/find-native-symbol.md) | Desktop 内シンボル検索 |
-| [packages/nezuline/src/dictionary/rpcMap.ts](Vyline/packages/nezuline/src/dictionary/rpcMap.ts) | RPC_DICTIONARY (検索ツール) |
-| [packages/nezuline/README.md](Vyline/packages/nezuline/README.md) | NezuLINE パッケージ |
-| [docs/analysis/README.md](docs/analysis/README.md) | 機能別解析メモ索引 |
+| ドキュメント                                                                                    | 内容                                     |
+| ----------------------------------------------------------------------------------------------- | ---------------------------------------- |
+| [docs/README.md](docs/README.md)                                                                | 全体索引                                 |
+| [docs/onboarding.md](docs/onboarding.md)                                                        | 初日チェックリスト                       |
+| [docs/architecture.md](docs/architecture.md)                                                    | 層構造・データフロー                     |
+| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)                                                    | 機能追加フロー (辞書→Desktop→domain→BFF) |
+| [docs/development.md](docs/development.md)                                                      | 開発コマンド・環境変数                   |
+| [docs/protocol/dictionary.md](docs/protocol/dictionary.md)                                      | RPC 辞書・Desktop 検証表                 |
+| [docs/tools/find-native-symbol.md](docs/tools/find-native-symbol.md)                            | Desktop 内シンボル検索                   |
+| [packages/protocol/src/dictionary/rpcMap.ts](Vyline/packages/protocol/src/dictionary/rpcMap.ts) | RPC_DICTIONARY (検索ツール)              |
+| [packages/protocol/README.md](Vyline/packages/protocol/README.md)                               | Vyline パッケージ                        |
+| [docs/analysis/README.md](docs/analysis/README.md)                                              | 機能別解析メモ索引                       |
 
 ## 編集哲学
 

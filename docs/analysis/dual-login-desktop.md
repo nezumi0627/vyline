@@ -7,11 +7,11 @@
 **Vyline の既定デバイスを `IOSIPAD` にする。**  
 公式 Windows Desktop（`DESKTOPWIN`）と別スロットで、メール認証は v3p（安定）。
 
-| 項目 | 値 |
-|---|---|
-| 推奨（既定） | `VYLINE_DEVICE=IOSIPAD` |
-| 代替 | `ANDROIDSECONDARY`（v4p。環境によりメール login が x-lc:400） |
-| 競合 | `DESKTOPWIN` / `DESKTOPMAC`（公式 Desktop と同スロット → 蹴る） |
+| 項目         | 値                                                              |
+| ------------ | --------------------------------------------------------------- |
+| 推奨（既定） | `VYLINE_DEVICE=IOSIPAD`                                         |
+| 代替         | `ANDROIDSECONDARY`（v4p。環境によりメール login が x-lc:400）   |
+| 競合         | `DESKTOPWIN` / `DESKTOPMAC`（公式 Desktop と同スロット → 蹴る） |
 
 ```powershell
 # 既定（同時ログイン可）
@@ -21,7 +21,7 @@ $env:VYLINE_DEVICE = "IOSIPAD"
 $env:VYLINE_DEVICE = "DESKTOPWIN"
 ```
 
-実装: `Vyline/packages/nezuline/src/login/deviceMode.ts` + `NezuClient.ts`
+実装: `Vyline/packages/protocol/src/login/deviceMode.ts` + `VylineClient.ts`
 
 ## 注意
 

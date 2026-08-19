@@ -24,6 +24,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
+import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import {
@@ -44,11 +45,13 @@ import {
   unsendMessage,
   acquireCallRoute,
   acquireGroupCallRoute,
+  getGroupCallStatus,
+  getCommonGroupsForUser,
   getReadReceiptsForChat,
   fetchChatMemberMids,
   fetchChatMembersDetailed,
   fetchContactsBatch,
-  loadNezuProfileCache,
+  loadVylineProfileCache,
   leaveChat,
   blockContactMid,
   unblockContactMid,
@@ -70,15 +73,55 @@ import {
   CallNotAllowedError,
   NotLoggedInError,
 } from "../service/lineService.js";
+import {
+  LiffNotLoggedInError,
+  ladderMembers,
+  ladderGenerate,
+  ladderResult,
+  ladderMessage,
+  scheduleCreate,
+  scheduleAnswer,
+  scheduleShare,
+  scheduleEvent,
+  scheduleGroups,
+  scheduleGroup,
+  scheduleFriends,
+  pollList,
+  pollCreate,
+  pollVote,
+  pollQuestion,
+  pollClose,
+  pollRemove,
+  pollAnnounce,
+  liffWarm,
+  pollRemind,
+} from "../service/liffFeatures.js";
+
+import {
+  getChatAnnouncements,
+  announceMessage,
+  removeChatAnnouncement,
+} from "../service/lineService.js";
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
+
+// ─── helpers ─────────────────────────────
+
+function isLiffError(res: unknown): { statusCode: number; statusMessage: string } | null {
+  if (res && typeof res === "object" && "statusCode" in res && "statusMessage" in res) {
+    const code = (res as any).statusCode;
+    if (typeof code === "number" && code >= 400) return res as any;
+    if (typeof code === "string" && /^(4|5)\d\d$/.test(code)) return res as any;
+  }
+  return null;
+}
 
 // ─── error helper ─────────────────────────────
 
 // biome-ignore lint/suspicious/noExplicitAny: Hono Context is generic
 function handleError(err: unknown, c: Context<any, any, any>) {
-  if (err instanceof NotLoggedInError) {
+  if (err instanceof NotLoggedInError || err instanceof LiffNotLoggedInError) {
     return c.json({ ok: false, error: "not logged in" }, 401);
   }
   if (err instanceof CallNotAllowedError) {
@@ -90,7 +133,14 @@ function handleError(err: unknown, c: Context<any, any, any>) {
       ? String((err as { code?: unknown }).code ?? "")
       : "";
   if (code === "INVALID_STATE" || message.includes("INVALID_STATE")) {
-    return c.json({ ok: false, error: "通話を開始できません。相手が通話に対応していない可能性があります。", code: "INVALID_STATE" }, 400);
+    return c.json(
+      {
+        ok: false,
+        error: "通話を開始できません。相手が通話に対応していない可能性があります。",
+        code: "INVALID_STATE",
+      },
+      400,
+    );
   }
   if (code === "CREATE_GROUP_BANNED" || message.includes("CREATE_GROUP_BANNED")) {
     log.warn({ err: message }, "create group permanently banned");
@@ -104,6 +154,19 @@ function handleError(err: unknown, c: Context<any, any, any>) {
       403,
     );
   }
+  if (
+    code === "MESSAGE_NOT_DESTRUCTIBLE" ||
+    message.toUpperCase().includes("MESSAGE_NOT_DESTRUCTIBLE")
+  ) {
+    return c.json(
+      {
+        ok: false,
+        error: "MESSAGE_NOT_DESTRUCTIBLE: message too old",
+        code: "MESSAGE_NOT_DESTRUCTIBLE",
+      },
+      400,
+    );
+  }
   const isTimeout =
     message.includes("timed out") ||
     message.includes("Timeout") ||
@@ -112,8 +175,7 @@ function handleError(err: unknown, c: Context<any, any, any>) {
     log.debug({ err: message }, "line api timeout");
     return c.json({ ok: false, error: "timeout", timedOut: true }, 504);
   }
-  const isNetwork =
-    /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
+  const isNetwork = /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
   if (isNetwork) {
     log.warn({ err: message }, "line api network error");
     return c.json({ ok: false, error: message }, 502);
@@ -179,9 +241,7 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
   const limit = Math.min(Math.max(1, limitParam), 100);
   const beforeMessageId = c.req.query("beforeMessageId") || undefined;
   const beforeDeliveredTimeRaw = c.req.query("beforeDeliveredTime");
-  const beforeDeliveredTime = beforeDeliveredTimeRaw
-    ? Number(beforeDeliveredTimeRaw)
-    : undefined;
+  const beforeDeliveredTime = beforeDeliveredTimeRaw ? Number(beforeDeliveredTimeRaw) : undefined;
   const force = c.req.query("force") === "1";
   const localOnly = c.req.query("local") === "1";
 
@@ -223,10 +283,12 @@ lineRouter.get("/:accountId/events/poll", async (c) => {
   const accountId = c.req.param("accountId");
   const cursor = Number(c.req.query("cursor") ?? "0");
   try {
-    const { cursor: next, events, reset, seq } = pollTalkEvents(
-      accountId,
-      Number.isFinite(cursor) ? cursor : 0,
-    );
+    const {
+      cursor: next,
+      events,
+      reset,
+      seq,
+    } = pollTalkEvents(accountId, Number.isFinite(cursor) ? cursor : 0);
     return c.json({ ok: true, cursor: next, events, reset, seq });
   } catch (err) {
     return handleError(err, c);
@@ -264,12 +326,20 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   const preview = (c.req.query("preview") ?? "1") !== "0";
 
   try {
-    const { bytes, contentType } = await fetchMessageMedia(
-      accountId,
-      chatMid,
-      messageId,
-      preview,
-    );
+    // サーバー側キャッシュ優先（端末乗り換え後も画像を保持）
+    const cached = await readMediaCache(accountId, chatMid, messageId);
+    if (cached) {
+      return new Response(cached.buf as unknown as BodyInit, {
+        status: 200,
+        headers: {
+          "Content-Type": cached.contentType,
+          "Cache-Control": "private, max-age=604800, immutable",
+          "X-Vyline-Media-Cache": "HIT",
+        },
+      });
+    }
+    const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
+    void writeMediaCache(accountId, chatMid, messageId, bytes, contentType);
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
@@ -520,7 +590,9 @@ lineRouter.post("/:accountId/read", async (c) => {
 // 自分の送信メッセージの既読状態を軽量取得（ポーリング用）
 
 type ReadReceiptPayload = {
-  receipts: Awaited<ReturnType<typeof getReadReceiptsForChat>>;
+  receipts: Awaited<ReturnType<typeof getReadReceiptsForChat>>["receipts"];
+  peerReadUpTo?: string;
+  memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
   memberMids?: string[];
 };
 
@@ -548,8 +620,14 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
       existing ??
       (() => {
         const p = (async (): Promise<ReadReceiptPayload> => {
-          const receipts = await getReadReceiptsForChat(accountId, chatMid, messageIds);
-          const payload: ReadReceiptPayload = { receipts };
+          const result = await getReadReceiptsForChat(accountId, chatMid, messageIds);
+          const payload: ReadReceiptPayload = {
+            receipts: result.receipts,
+            ...(result.peerReadUpTo ? { peerReadUpTo: result.peerReadUpTo } : {}),
+            ...(result.memberReadWatermarks
+              ? { memberReadWatermarks: result.memberReadWatermarks }
+              : {}),
+          };
           if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
             try {
               payload.memberMids = await fetchChatMemberMids(accountId, chatMid);
@@ -567,8 +645,8 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
         });
         return p;
       })();
-    const { receipts, memberMids } = await task;
-    return c.json({ ok: true, receipts, memberMids });
+    const { receipts, peerReadUpTo, memberReadWatermarks, memberMids } = await task;
+    return c.json({ ok: true, receipts, peerReadUpTo, memberReadWatermarks, memberMids });
   } catch (err) {
     return handleError(err, c);
   }
@@ -604,23 +682,37 @@ lineRouter.patch("/:accountId/profile", async (c) => {
   }
 });
 
-// ─── GET /line/:accountId/nezu/cache ───────────
-// Nezu ブランドのプロフィール/グループキャッシュ一括
+// ─── GET /line/:accountId/vyline/cache ───────────
+// Vyline ブランドのプロフィール/グループキャッシュ一括
 
-lineRouter.get("/:accountId/nezu/cache", async (c) => {
+lineRouter.get("/:accountId/vyline/cache", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const cache = await loadNezuProfileCache(accountId);
+    const cache = await loadVylineProfileCache(accountId);
     return c.json({ ok: true, ...cache });
   } catch (err) {
     return handleError(err, c);
   }
 });
 
-// ─── POST /line/:accountId/nezu/warm ───────────
+// ─── DELETE /line/:accountId/vyline/cache ─────────
+// メディア一時キャッシュ（data/media-cache）を削除
+
+lineRouter.delete("/:accountId/vyline/cache", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { clearMediaCache } = await import("../storage/mediaCache.js");
+    const removed = await clearMediaCache();
+    return c.json({ ok: true, removed });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/vyline/warm ───────────
 // { mids: string[] } — プロフィールをバッチ温める
 
-lineRouter.post("/:accountId/nezu/warm", async (c) => {
+lineRouter.post("/:accountId/vyline/warm", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ mids?: string[] }>();
   const mids = Array.isArray(body.mids) ? body.mids.slice(0, 200) : [];
@@ -693,6 +785,25 @@ lineRouter.post("/:accountId/profile/background", async (c) => {
   }
 });
 
+// ─── GET /line/:accountId/common-groups/:targetMid ─
+// 共通のグループ（VylineCache 一括読み・RPC なし）
+
+lineRouter.get("/:accountId/common-groups/:targetMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const targetMid = c.req.param("targetMid");
+  const exclude = c.req.query("exclude");
+  try {
+    const groups = await getCommonGroupsForUser(
+      accountId,
+      targetMid,
+      exclude ? { excludeChatMid: exclude } : undefined,
+    );
+    return c.json({ ok: true, groups });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 // ─── PATCH /line/:accountId/chats/:chatMid ────
 // Desktop: TalkService_updateChat (NAME)
 
@@ -739,10 +850,7 @@ lineRouter.patch("/:accountId/contacts/:mid", async (c) => {
   try {
     await renameContact(accountId, {
       mid,
-      displayNameOverride:
-        body.displayNameOverride === undefined
-          ? null
-          : body.displayNameOverride,
+      displayNameOverride: body.displayNameOverride === undefined ? null : body.displayNameOverride,
     });
     return c.json({ ok: true });
   } catch (err) {
@@ -984,6 +1092,19 @@ lineRouter.get("/:accountId/call/active", async (c) => {
   return c.json({ ok: true, sessions });
 });
 
+// グループ通話状態（通話中バッジ表示用）
+lineRouter.get("/:accountId/call/group-status", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.query("chatMid");
+  if (!chatMid) return c.json({ ok: false, error: "chatMid required" }, 400);
+  try {
+    const status = await getGroupCallStatus(accountId, chatMid);
+    return c.json({ ok: true, ...status });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.post("/:accountId/call", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{
@@ -1005,6 +1126,447 @@ lineRouter.post("/:accountId/call", async (c) => {
       return c.json({ ok: false, error: "to or chatMid required" }, 400);
     }
     return c.json({ ok: true, route });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── LIFF 機能: あみだくじ ─────────────────────────────────
+
+lineRouter.post("/:accountId/liff/warm", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ app: "ladder" | "schedule" | "poll"; chatMid: string }>();
+  try {
+    await liffWarm(accountId, body.app, body.chatMid);
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/ladder/members/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const ladderRes = await ladderMembers(accountId, chatMid);
+    const liffErr = isLiffError(ladderRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: ladderRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/ladder/generate", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ chatMid: string; memberIds: string[]; options: string[] }>();
+  try {
+    const ladderRes = await ladderGenerate(accountId, body.chatMid, body.memberIds, body.options);
+    const liffErr = isLiffError(ladderRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: ladderRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/ladder/result/:chatMid/:hash", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const hash = c.req.param("hash");
+  try {
+    const ladderRes = await ladderResult(accountId, chatMid, hash);
+    const liffErr = isLiffError(ladderRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: ladderRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/ladder/message", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ chatMid: string; hash: string }>();
+  try {
+    const ladderRes = await ladderMessage(accountId, body.chatMid, body.hash);
+    const liffErr = isLiffError(ladderRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: ladderRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── LIFF 機能: スケジュール ────────────────────────────────
+
+lineRouter.post("/:accountId/schedule/events", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    chatMid: string;
+    name: string;
+    description?: string;
+    candidates: number[];
+    pictureId?: number;
+  }>();
+  try {
+    const schedRes = await scheduleCreate(accountId, body.chatMid, body);
+    const liffErr = isLiffError(schedRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: schedRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/schedule/events/:eventId/answer", async (c) => {
+  const accountId = c.req.param("accountId");
+  const eventId = c.req.param("eventId");
+  const body = await c.req.json<{
+    chatMid: string;
+    answers: { candidate: number; status: string }[];
+    comment?: string;
+  }>();
+  try {
+    const ansRes = await scheduleAnswer(
+      accountId,
+      body.chatMid,
+      eventId,
+      body.answers,
+      body.comment,
+    );
+    const liffErr = isLiffError(ansRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: ansRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/schedule/events/:eventId/share", async (c) => {
+  const accountId = c.req.param("accountId");
+  const eventId = c.req.param("eventId");
+  const body = await c.req.json<{ chatMid: string; groupEncIds: string[]; comment?: string }>();
+  try {
+    const schedRes = await scheduleShare(
+      accountId,
+      body.chatMid,
+      eventId,
+      body.groupEncIds,
+      body.comment,
+    );
+    const liffErr = isLiffError(schedRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: schedRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/schedule/events/:eventId/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const eventId = c.req.param("eventId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const schedRes = await scheduleEvent(accountId, chatMid, eventId);
+    const liffErr = isLiffError(schedRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: schedRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/schedule/groups/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const schedRes = await scheduleGroups(accountId, chatMid);
+    const liffErr = isLiffError(schedRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: schedRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// 特定グループの encId を直接取得（共有先決定のための名前マッチングを不要にする）
+lineRouter.get("/:accountId/schedule/group/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const schedRes = await scheduleGroup(accountId, chatMid);
+    const liffErr = isLiffError(schedRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: schedRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/schedule/friends/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const schedRes = await scheduleFriends(accountId, chatMid);
+    const liffErr = isLiffError(schedRes);
+    if (liffErr) return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    return c.json({ ok: true, data: schedRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── LIFF 機能: アンケート ─────────────────────────────────
+
+lineRouter.post("/:accountId/poll/create", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    chatMid: string;
+    title: string;
+    multiple?: boolean;
+    anonymous?: boolean;
+    closeDate?: number;
+    choiceList: { text: string }[];
+  }>();
+  try {
+    const pollRes = await pollCreate(accountId, body.chatMid, body);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      log.error({ accountId, chatMid: body.chatMid, liffErr, pollRes }, "poll create liff error");
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/poll/:questionId/vote", async (c) => {
+  const accountId = c.req.param("accountId");
+  const questionId = c.req.param("questionId");
+  const body = await c.req.json<{ chatMid: string; choiceIds: string[] }>();
+  try {
+    const pollRes = await pollVote(accountId, body.chatMid, questionId, body.choiceIds);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/poll/:questionId/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const questionId = c.req.param("questionId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const pollRes = await pollQuestion(accountId, chatMid, questionId);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/poll/:questionId/close/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const questionId = c.req.param("questionId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const pollRes = await pollClose(accountId, chatMid, questionId);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/poll/:questionId/remove/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const questionId = c.req.param("questionId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const pollRes = await pollRemove(accountId, chatMid, questionId);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/poll/:questionId/announce", async (c) => {
+  const accountId = c.req.param("accountId");
+  const questionId = c.req.param("questionId");
+  const body = await c.req.json<{ chatMid: string }>();
+  try {
+    const pollRes = await pollAnnounce(accountId, body.chatMid, questionId);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/poll/:questionId/remind", async (c) => {
+  const accountId = c.req.param("accountId");
+  const questionId = c.req.param("questionId");
+  const body = await c.req.json<{ chatMid: string }>();
+  try {
+    const pollRes = await pollRemind(accountId, body.chatMid, questionId);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/poll/list/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    const pollRes = await pollList(accountId, chatMid);
+    const liffErr = isLiffError(pollRes);
+    if (liffErr) {
+      return c.json({ ok: false, error: liffErr.statusMessage }, 502);
+    }
+    return c.json({ ok: true, data: pollRes });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── チャットルーム アナウンス（ピン留め） ─────────────────
+
+lineRouter.get("/:accountId/announcements/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  try {
+    return c.json({ ok: true, data: await getChatAnnouncements(accountId, chatMid) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/announcements", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ chatMid: string; text: string; messageId?: string }>();
+  if (!body.chatMid || !body.text?.trim()) {
+    return c.json({ ok: false, error: "chatMid と text が必要です" }, 400);
+  }
+  try {
+    return c.json({
+      ok: true,
+      data: await announceMessage(accountId, body.chatMid, body.text.trim(), body.messageId),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/announcements/:chatMid/:seq", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const seq = c.req.param("seq");
+  try {
+    await removeChatAnnouncement(accountId, chatMid, seq);
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── VylineBackup: スナップショット作成 / 一覧 / 復元 ───
+
+lineRouter.get("/:accountId/backup/chats", async (c) => {
+  const accountId = c.req.param("accountId");
+  const { getBackupChatList } = await import("../service/backupService.js");
+  try {
+    return c.json({ ok: true, data: await getBackupChatList(accountId) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/backup/create", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ chatMids?: string[]; includeMedia?: boolean }>();
+  const { createBackup } = await import("../service/backupService.js");
+  try {
+    const summary = await createBackup(accountId, {
+      ...(body.chatMids?.length ? { chatMids: body.chatMids } : {}),
+      includeMedia: body.includeMedia === true,
+    });
+    return c.json({ ok: true, summary });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/backup/list", async (c) => {
+  const accountId = c.req.param("accountId");
+  const { listBackups } = await import("../service/backupService.js");
+  try {
+    return c.json({ ok: true, data: await listBackups(accountId) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/backup/restore", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    backupId: string;
+    chatMids?: string[];
+    includeMedia?: boolean;
+  }>();
+  const { restoreBackup } = await import("../service/backupService.js");
+  try {
+    const result = await restoreBackup(accountId, body.backupId, {
+      ...(body.chatMids?.length ? { chatMids: body.chatMids } : {}),
+      includeMedia: body.includeMedia === true,
+    });
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/backup/:backupId", async (c) => {
+  const accountId = c.req.param("accountId");
+  const backupId = c.req.param("backupId");
+  const { deleteBackup } = await import("../service/backupService.js");
+  try {
+    return c.json({ ok: await deleteBackup(accountId, backupId) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/log", async (c) => {
+  const accountId = c.req.param("accountId");
+  const { readRecentMessageLog } = await import("../storage/messageLog.js");
+  const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 2000);
+  try {
+    return c.json({ ok: true, data: await readRecentMessageLog(accountId, limit) });
   } catch (err) {
     return handleError(err, c);
   }

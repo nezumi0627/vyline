@@ -1,6 +1,6 @@
 export type Screen = "lock" | "home" | "chat" | "settings" | "login";
 
-export type NezuTheme = {
+export type VyTheme = {
   id: string;
   name: string;
   accent: string;
@@ -52,7 +52,9 @@ export type MessageKind =
   | "system"
   | "call"
   | "flex"
-  | "rich";
+  | "rich"
+  | "contact"
+  | "location";
 
 export type CallMessageMeta = {
   video: boolean;
@@ -109,6 +111,15 @@ export type Message = {
   linkPreview?: LinkPreview;
   /** 失敗時の再送に使う送信意図（楽観メッセージに保持） */
   retry?: RetryIntent;
+  /** 連絡先メッセージ（contentType=13）の名刺情報 */
+  contact?: { mid?: string; name?: string; thumbnailUrl?: string };
+  /** 位置情報メッセージ（contentType=15） */
+  location?: {
+    title?: string;
+    address?: string;
+    latitude?: number;
+    longitude?: number;
+  };
 };
 
 export type RetryIntent =
@@ -147,6 +158,8 @@ export type Chat = {
   statusMessage?: string;
   /** プロフィール背景 URL */
   backgroundUrl?: string;
+  /** 自分自身（Keepメモ）トーク */
+  isSelf?: boolean;
   members?: Member[];
   hidden?: boolean;
   pinned?: boolean;
@@ -171,6 +184,7 @@ export type Settings = {
   enterToSend: boolean;
   pinEnabled: boolean;
   pin: string;
+  requirePinForOpen: boolean;
   chatSort: ChatSort;
   customCursor: boolean;
   bubbleTail: boolean;
@@ -178,6 +192,8 @@ export type Settings = {
   showStatusMessage: boolean;
   /** トーク背景に相手のプロフィール背景を表示 */
   showBackground: boolean;
+  /** 画像送信時に圧縮せず元画質で送る（通信量は増加） */
+  highQualityImages: boolean;
   /** HTTP/SOCKS プロキシ（例: http://127.0.0.1:7890） */
   proxyEnabled: boolean;
   proxyUrl: string;

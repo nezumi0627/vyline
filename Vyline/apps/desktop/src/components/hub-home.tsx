@@ -1,17 +1,17 @@
-import { useStore, UPDATE_NOTES } from "@/lib/store"
-import { Avatar } from "@/components/vy-ui"
-import { IconChat, IconClose, IconChevron, IconLock, IconSpark } from "@/components/icons"
+import { useStore, UPDATE_NOTES } from "@/lib/store";
+import { Avatar } from "@/components/vy-ui";
+import { IconChat, IconClose, IconChevron, IconLock, IconSpark } from "@/components/icons";
 
 /**
  * アップデート時のみ表示するリリースノート画面。
  * 通常起動では chat へ直行する（store.onRehydrateStorage / useVylineSync）。
  */
 export function HubHome() {
-  const dismissUpdateNote = useStore((s) => s.dismissUpdateNote)
-  const setScreen = useStore((s) => s.setScreen)
-  const lock = useStore((s) => s.lock)
-  const self = useStore((s) => s.self)
-  const pinEnabled = useStore((s) => s.settings.pinEnabled)
+  const dismissUpdateNote = useStore((s) => s.dismissUpdateNote);
+  const setScreen = useStore((s) => s.setScreen);
+  const lock = useStore((s) => s.lock);
+  const self = useStore((s) => s.self);
+  const pinEnabled = useStore((s) => s.settings.pinEnabled);
 
   return (
     <div className="vy-scroll relative h-dvh overflow-y-auto bg-[var(--vy-bg)]">
@@ -91,7 +91,7 @@ export function HubHome() {
             <button
               type="button"
               onClick={() => {
-                dismissUpdateNote()
+                dismissUpdateNote();
               }}
               className="flex flex-1 items-center justify-center gap-1 rounded-xl py-3 text-sm font-semibold text-[var(--vy-accent-contrast)] transition-opacity hover:opacity-90"
               style={{ background: "var(--vy-accent)" }}
@@ -102,8 +102,8 @@ export function HubHome() {
             <button
               type="button"
               onClick={() => {
-                dismissUpdateNote()
-                setScreen("settings")
+                dismissUpdateNote();
+                setScreen("settings");
               }}
               aria-label="設定へ"
               className="rounded-xl border border-[var(--vy-border)] px-4 py-3 text-sm text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
@@ -128,5 +128,5 @@ export function HubHome() {
         </p>
       </div>
     </div>
-  )
+  );
 }

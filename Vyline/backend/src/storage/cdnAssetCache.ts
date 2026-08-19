@@ -6,7 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { mkdir, readFile, writeFile, stat } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -17,18 +17,29 @@ const ALLOWED_HOSTS = new Set([
   "stickershop.line-scdn.net",
   "shop.line-scdn.net",
   "static.line-scdn.net",
+  "profile.line-scdn.net",
 ]);
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const CACHE_ROOT =
-  process.env["VYLINE_CDN_CACHE_DIR"] ?? join(_dir, "../../data/cdn-cache");
+const CACHE_ROOT = process.env["VYLINE_CDN_CACHE_DIR"] ?? join(_dir, "../../data/cdn-cache");
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;
 const MEMORY_TTL_MS = 30 * 60_000;
 
+/** 同一 URL の同時リクエストを 1 回の CDN 取得にまとめる */
+const inflight = new Map<string, Promise<{ buf: Uint8Array; contentType: string }>>();
+
 function hashKey(url: string): string {
   return createHash("sha256").update(url).digest("hex");
+}
+
+/** CDN が 404 を返したことを表すエラー（キャッシュしない） */
+export class CdnNotFoundError extends Error {
+  constructor(url: string) {
+    super(`cdn fetch 404: ${url}`);
+    this.name = "CdnNotFoundError";
+  }
 }
 
 function extFromContentType(ct: string, url: string): string {
@@ -57,13 +68,10 @@ function diskPath(url: string, contentType?: string): string {
   return join(CACHE_ROOT, h.slice(0, 2), `${h}${ext || ""}`);
 }
 
-async function readDisk(
-  url: string,
-): Promise<{ buf: Uint8Array; contentType: string } | null> {
+async function readDisk(url: string): Promise<{ buf: Uint8Array; contentType: string } | null> {
   const h = hashKey(url);
   const dir = join(CACHE_ROOT, h.slice(0, 2));
   try {
-    const { readdir } = await import("node:fs/promises");
     const files = await readdir(dir);
     const hit = files.find((f) => f.startsWith(h));
     if (!hit) return null;
@@ -87,11 +95,7 @@ async function readDisk(
   }
 }
 
-async function writeDisk(
-  url: string,
-  buf: Uint8Array,
-  contentType: string,
-): Promise<void> {
+async function writeDisk(url: string, buf: Uint8Array, contentType: string): Promise<void> {
   const path = diskPath(url, contentType);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, buf);
@@ -127,23 +131,43 @@ export async function getCachedLineCdn(
     return { ...disk, fromCache: true };
   }
 
-  const res = await fetch(url, {
-    headers: {
-      "user-agent": "Vyline/1.0",
-      accept: "image/*,application/json,*/*",
-    },
-  });
-  if (!res.ok) {
-    throw new Error(`cdn fetch ${res.status}`);
+  // 同時リクエストの場合は 1 回のネットワーク取得にまとめる
+  const existing = inflight.get(url);
+  if (existing) {
+    const net = await existing;
+    remember(url, net.buf, net.contentType);
+    return { ...net, fromCache: false };
   }
-  const contentType = res.headers.get("content-type") ?? "application/octet-stream";
-  const ab = await res.arrayBuffer();
-  const buf = new Uint8Array(ab);
-  remember(url, buf, contentType);
-  void writeDisk(url, buf, contentType).catch((err) => {
-    log.debug({ err, url }, "cdn disk write failed");
-  });
-  return { buf, contentType, fromCache: false };
+
+  const netPromise = (async () => {
+    const res = await fetch(url, {
+      headers: {
+        "user-agent": "Vyline/1.0",
+        accept: "image/*,application/json,*/*",
+      },
+    });
+    if (res.status === 404) {
+      throw new CdnNotFoundError(url);
+    }
+    if (!res.ok) {
+      throw new Error(`cdn fetch ${res.status}`);
+    }
+    const contentType = res.headers.get("content-type") ?? "application/octet-stream";
+    const ab = await res.arrayBuffer();
+    const buf = new Uint8Array(ab);
+    return { buf, contentType };
+  })();
+  inflight.set(url, netPromise);
+  try {
+    const net = await netPromise;
+    remember(url, net.buf, net.contentType);
+    void writeDisk(url, net.buf, net.contentType).catch((err) => {
+      log.debug({ err, url }, "cdn disk write failed");
+    });
+    return { buf: net.buf, contentType: net.contentType, fromCache: false };
+  } finally {
+    inflight.delete(url);
+  }
 }
 
 export async function ensureCdnCacheDir(): Promise<void> {
