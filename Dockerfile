@@ -1,1 +1,52 @@
-# Vyline — セルフホスト型 LINE クライアント# マルチステージビルド: フロントビルド → バックエンド実行# bun install は lockfile ベース（再現性確保）# ── Stage 1: 依存インストール ──────────────────────────────FROM oven/bun:1.2-alpine AS depsWORKDIR /appCOPY package.json bun.lock ./COPY Vyline/backend/package.json Vyline/backend/COPY Vyline/apps/desktop/package.json Vyline/apps/desktop/COPY Vyline/packages/types/package.json Vyline/packages/types/COPY Vyline/packages/protocol/package.json Vyline/packages/protocol/COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/# workspace 全体を解決するため root で install（lockfile 使用）RUN bun install --frozen-lockfile --ignore-scripts# ── Stage 2: フロントエンドビルド ──────────────────────────FROM oven/bun:1.2-alpine AS buildWORKDIR /appCOPY --from=deps /app/node_modules ./node_modulesCOPY --from=deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modulesCOPY --from=deps /app/Vyline/apps/desktop/node_modules ./Vyline/apps/desktop/node_modulesCOPY --from=deps /app/Vyline/packages/types/node_modules ./Vyline/packages/types/node_modulesCOPY --from=deps /app/Vyline/packages/protocol/node_modules ./Vyline/packages/protocol/node_modulesCOPY --from=deps /app/Vyline/packages/line-types/node_modules ./Vyline/packages/line-types/node_modulesCOPY --from=deps /app/Vyline/packages/loose-types/node_modules ./Vyline/packages/loose-types/node_modulesCOPY package.json bun.lock ./COPY Vyline ./VylineWORKDIR /app/Vyline/apps/desktopRUN bun run build# ── Stage 3: 実行 ───────────────────────────────────────────FROM oven/bun:1.2-alpine AS runtimeWORKDIR /appENV NODE_ENV=productionENV PORT=3001ENV VYLINE_HOST=0.0.0.0ENV VYLINE_DATA_DIR=/data# ランタイムに必要なファイルのみコピーCOPY package.json bun.lock ./COPY Vyline/backend/package.json Vyline/backend/COPY Vyline/apps/desktop/package.json Vyline/apps/desktop/COPY Vyline/packages/types/package.json Vyline/packages/types/COPY Vyline/packages/protocol/package.json Vyline/packages/protocol/COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/COPY --from=deps /app/node_modules ./node_modulesCOPY --from=deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modulesCOPY --from=deps /app/Vyline/apps/desktop/node_modules ./Vyline/apps/desktop/node_modulesCOPY --from=deps /app/Vyline/packages/types/node_modules ./Vyline/packages/types/node_modulesCOPY --from=deps /app/Vyline/packages/protocol/node_modules ./Vyline/packages/protocol/node_modulesCOPY --from=deps /app/Vyline/packages/line-types/node_modules ./Vyline/packages/line-types/node_modulesCOPY --from=deps /app/Vyline/packages/loose-types/node_modules ./Vyline/packages/loose-types/node_modulesCOPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/distCOPY Vyline/backend/src ./Vyline/backend/srcCOPY Vyline/packages/types/src ./Vyline/packages/types/srcCOPY Vyline/packages/protocol/src ./Vyline/packages/protocol/srcCOPY Vyline/packages/protocol/stack ./Vyline/packages/protocol/stackCOPY Vyline/packages/line-types/src ./Vyline/packages/line-types/srcCOPY Vyline/packages/loose-types/src ./Vyline/packages/loose-types/srcVOLUME ["/data"]EXPOSE 3001HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \  CMD wget -qO- http://127.0.0.1:3001/healthz >/dev/null 2>&1 || exit 1CMD ["bun", "run", "Vyline/backend/src/index.ts"]
+# Vyline — セルフホスト型 LINE クライアント
+# マルチステージビルド: フロントビルド → バックエンド実行
+# bun install は lockfile ベース（再現性確保）
+# ── Stage 1: 依存インストール ──────────────────────────────
+FROM oven/bun:1.2-alpine AS deps
+WORKDIR /app
+COPY package.json bun.lock ./
+COPY Vyline/backend/package.json Vyline/backend/
+COPY Vyline/apps/desktop/package.json Vyline/apps/desktop/
+COPY Vyline/packages/types/package.json Vyline/packages/types/
+COPY Vyline/packages/protocol/package.json Vyline/packages/protocol/
+COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/
+COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/
+# workspace 全体を解決するため root で install（lockfile 使用）
+RUN bun install --frozen-lockfile --ignore-scripts
+# ── Stage 2: フロントエンドビルド ──────────────────────────
+FROM oven/bun:1.2-alpine AS build
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY package.json bun.lock ./
+COPY Vyline ./Vyline
+WORKDIR /app/Vyline/apps/desktop
+RUN bun run build
+# ── Stage 3: 実行 ───────────────────────────────────────────
+FROM oven/bun:1.2-alpine AS runtime
+WORKDIR /app
+ENV NODE_ENV=production
+ENV PORT=3001
+ENV VYLINE_HOST=0.0.0.0
+ENV VYLINE_DATA_DIR=/data
+# ランタイムに必要なファイルのみコピー
+COPY package.json bun.lock ./
+COPY Vyline/backend/package.json Vyline/backend/
+COPY Vyline/apps/desktop/package.json Vyline/apps/desktop/
+COPY Vyline/packages/types/package.json Vyline/packages/types/
+COPY Vyline/packages/protocol/package.json Vyline/packages/protocol/
+COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/
+COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/
+COPY --from=deps /app/node_modules ./node_modules
+COPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/dist
+COPY Vyline/backend/src ./Vyline/backend/src
+COPY Vyline/packages/types/src ./Vyline/packages/types/src
+COPY Vyline/packages/protocol/src ./Vyline/packages/protocol/src
+COPY Vyline/packages/protocol/stack ./Vyline/packages/protocol/stack
+COPY Vyline/packages/line-types/line_types.ts ./Vyline/packages/line-types/line_types.ts
+COPY Vyline/packages/line-types/thrift.ts ./Vyline/packages/line-types/thrift.ts
+COPY Vyline/packages/loose-types/mod.ts ./Vyline/packages/loose-types/mod.ts
+VOLUME ["/data"]
+EXPOSE 3001
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD wget -qO- http://127.0.0.1:3001/healthz >/dev/null 2>&1 || exit 1
+CMD ["bun", "run", "Vyline/backend/src/index.ts"]
