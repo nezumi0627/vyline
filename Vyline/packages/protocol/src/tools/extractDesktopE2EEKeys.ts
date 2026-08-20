@@ -80,6 +80,8 @@ function parseKeys(raw: string): Map<number, DesktopE2EEKey> {
 
 async function main(): Promise<void> {
   const tokensPath = join(DATA, "tokens.json");
+  if (!existsSync(tokensPath)) throw new Error(`missing ${tokensPath}`);
+
   const tokens = JSON.parse(readFileSync(tokensPath, "utf8")) as Record<
     string,
     {
@@ -88,11 +90,41 @@ async function main(): Promise<void> {
     }
   >;
 
-  const selected = Object.entries(tokens).find(
+  const accountArgIndex = process.argv.indexOf("--account");
+  const requestedAccount =
+    accountArgIndex >= 0 ? process.argv[accountArgIndex + 1] : undefined;
+
+  if (accountArgIndex >= 0 && !requestedAccount) {
+    throw new Error("--account requires an account ID");
+  }
+
+  const availableAccounts = Object.entries(tokens).filter(
     ([, entry]) =>
       typeof entry?.authToken === "string" &&
       entry.authToken.length > 0,
   );
+
+  let selected:
+    | [string, { authToken?: string; storageFile?: string }]
+    | undefined;
+
+  if (requestedAccount) {
+    selected = availableAccounts.find(
+      ([accountId]) => accountId === requestedAccount,
+    );
+
+    if (!selected) {
+      throw new Error(
+        `account "${requestedAccount}" not found. available: ${availableAccounts
+          .map(([accountId]) => accountId)
+          .join(", ")}`,
+      );
+    }
+  } else {
+    selected =
+      availableAccounts.find(([accountId]) => accountId === "main") ??
+      availableAccounts[0];
+  }
 
   if (!selected) throw new Error("no authToken");
 
