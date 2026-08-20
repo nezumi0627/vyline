@@ -7,17 +7,17 @@ import type { Client } from "../mod.ts";
  * which subset of the profile is being modified.
  */
 export declare const ProfileAttribute: {
-  readonly EMAIL: 1;
-  readonly DISPLAY_NAME: 2;
-  readonly PHONETIC_NAME: 4;
-  readonly PICTURE: 8;
-  readonly STATUS_MESSAGE: 16;
-  readonly ALLOW_SEARCH_BY_USERID: 32;
-  readonly ALLOW_SEARCH_BY_EMAIL: 64;
-  readonly BUDDY_STATUS: 128;
-  readonly MUSIC_PROFILE: 256;
-  readonly AVATAR_PROFILE: 512;
-  readonly HIDDEN_FROM_LIST: 1024;
+    readonly EMAIL: 1;
+    readonly DISPLAY_NAME: 2;
+    readonly PHONETIC_NAME: 4;
+    readonly PICTURE: 8;
+    readonly STATUS_MESSAGE: 16;
+    readonly ALLOW_SEARCH_BY_USERID: 32;
+    readonly ALLOW_SEARCH_BY_EMAIL: 64;
+    readonly BUDDY_STATUS: 128;
+    readonly MUSIC_PROFILE: 256;
+    readonly AVATAR_PROFILE: 512;
+    readonly HIDDEN_FROM_LIST: 1024;
 };
 export type ProfileAttributeKey = keyof typeof ProfileAttribute;
 /**
@@ -25,13 +25,13 @@ export type ProfileAttributeKey = keyof typeof ProfileAttribute;
  * a `(ProfileAttribute, ProfileContent)` map entry for the server.
  */
 export interface MyProfileUpdate {
-  displayName?: string;
-  statusMessage?: string;
-  phoneticName?: string;
-  musicProfile?: string;
-  allowSearchByUserid?: boolean;
-  allowSearchByEmail?: boolean;
-  hiddenFromList?: boolean;
+    displayName?: string;
+    statusMessage?: string;
+    phoneticName?: string;
+    musicProfile?: string;
+    allowSearchByUserid?: boolean;
+    allowSearchByEmail?: boolean;
+    hiddenFromList?: boolean;
 }
 /**
  * Fetches the signed-in user's own profile (`talk.getProfile`).
@@ -50,12 +50,9 @@ export declare function getMyProfile(client: Client): Promise<line.Profile>;
  * @returns OBS object id + hash. The new picture is live after this
  *          resolves; subsequent friends' `getContacts` will see it.
  */
-export declare function uploadMyProfileImage(
-  client: Client,
-  data: Blob,
-): Promise<{
-  objId: string;
-  objHash: string;
+export declare function uploadMyProfileImage(client: Client, data: Blob): Promise<{
+    objId: string;
+    objHash: string;
 }>;
 /**
  * Uploads a new profile-background image (the cover photo behind the
@@ -67,12 +64,9 @@ export declare function uploadMyProfileImage(
  * via the myhome service; the OBS object alone is enough for the
  * image to be queryable).
  */
-export declare function uploadMyProfileBackground(
-  client: Client,
-  data: Blob,
-): Promise<{
-  objId: string;
-  objHash: string;
+export declare function uploadMyProfileBackground(client: Client, data: Blob): Promise<{
+    objId: string;
+    objHash: string;
 }>;
 /**
  * Updates one or more attributes on the signed-in user's profile.

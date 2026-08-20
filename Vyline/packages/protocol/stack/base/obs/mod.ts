@@ -409,7 +409,7 @@ export class LineObs {
     let fileName: string;
     const plainKey = typeof meta.keyMaterial === "string" && meta.keyMaterial;
     if (plainKey) {
-      keyMaterial = meta.keyMaterial;
+      keyMaterial = plainKey;
       fileName = typeof meta.fileName === "string" ? meta.fileName : "media";
     } else {
       const chunks = message.chunks ?? [];

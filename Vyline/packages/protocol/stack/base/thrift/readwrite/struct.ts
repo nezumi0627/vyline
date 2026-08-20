@@ -8791,6 +8791,43 @@ export function sendMessage_args(
         [12, 2, Message(param.message)],
       ];
 }
+export function editMessage_args(
+  param: {
+    seq: number;
+    from: string;
+    to: string;
+    toType?: number;
+    messageId: string;
+    text: string;
+  } = { seq: 0, from: "", to: "", messageId: "", text: "" },
+): NestedArray {
+  return [
+    [
+      12,
+      1,
+      [
+        [8, 1, param.seq],
+        [
+          12,
+          2,
+          [
+            [11, 1, param.from],
+            [11, 2, param.to],
+            [8, 3, param.toType ?? 4],
+            [11, 4, param.messageId],
+            [11, 10, param.text],
+            [8, 15, 0],
+          ],
+        ],
+      ],
+    ],
+  ];
+}
+export function getMessageEditNotice_args(
+  param: { chatMid: string } = { chatMid: "" },
+): NestedArray {
+  return [[12, 1, [[11, 1, param.chatMid]]]];
+}
 export function sendPostback_args(
   param?: PartialDeep<LINETypes.sendPostback_args> | undefined,
 ): NestedArray {

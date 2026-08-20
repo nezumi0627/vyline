@@ -43,6 +43,8 @@ import {
   fetchStickersCatalog,
   sendLineEmoji,
   unsendMessage,
+  editMessage,
+  getMessageEditNotice,
   acquireCallRoute,
   acquireGroupCallRoute,
   getGroupCallStatus,
@@ -431,6 +433,7 @@ lineRouter.post("/:accountId/send", async (c) => {
     text?: string;
     relatedMessageId?: string;
     contentMetadata?: Record<string, string>;
+    mute?: boolean;
   }>();
 
   if (!body.chatMid || !body.text) {
@@ -438,9 +441,14 @@ lineRouter.post("/:accountId/send", async (c) => {
   }
 
   try {
-    const opts: { relatedMessageId?: string; contentMetadata?: Record<string, string> } = {};
+    const opts: {
+      relatedMessageId?: string;
+      contentMetadata?: Record<string, string>;
+      mute?: boolean;
+    } = {};
     if (body.relatedMessageId) opts.relatedMessageId = body.relatedMessageId;
     if (body.contentMetadata) opts.contentMetadata = body.contentMetadata;
+    if (body.mute) opts.mute = true;
     const message = await sendMessage(accountId, body.chatMid, body.text, opts);
     return c.json({ ok: true, message: message ?? undefined });
   } catch (err) {
@@ -562,6 +570,38 @@ lineRouter.post("/:accountId/unsend", async (c) => {
   try {
     await unsendMessage(accountId, body.messageId);
     return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/edit ───────────────
+
+lineRouter.post("/:accountId/edit", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ chatMid?: string; messageId?: string; text?: string }>();
+
+  if (!body.chatMid || !body.messageId || !body.text) {
+    return c.json({ ok: false, error: "chatMid, messageId and text required" }, 400);
+  }
+
+  try {
+    const res = await editMessage(accountId, body.chatMid, body.messageId, body.text);
+    return c.json({ ok: true, message: res.message });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── GET /line/:accountId/edit-notice/:chatMid ──
+
+lineRouter.get("/:accountId/edit-notice/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+
+  try {
+    const res = await getMessageEditNotice(accountId, chatMid);
+    return c.json({ ok: true, ...res });
   } catch (err) {
     return handleError(err, c);
   }

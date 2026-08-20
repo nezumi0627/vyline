@@ -37371,6 +37371,82 @@ export const Thrift: LooseType = {
       struct: "TalkException",
     },
   ],
+  editMessage_args: [
+    {
+      fid: 1,
+      name: "request",
+      struct: "EditMessageRequest",
+    },
+  ],
+  editMessage_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "EditMessageResult",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "TalkException",
+    },
+  ],
+  EditMessageResult: [
+    {
+      fid: 1,
+      name: "message",
+      struct: "Message",
+    },
+  ],
+  getMessageEditNotice_args: [
+    {
+      fid: 1,
+      name: "request",
+      struct: "GetMessageEditNoticeRequest",
+    },
+  ],
+  getMessageEditNotice_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "GetMessageEditNoticeResult",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "TalkException",
+    },
+  ],
+  EditMessageRequest: [
+    {
+      fid: 1,
+      name: "seq",
+      type: 8,
+    },
+    {
+      fid: 2,
+      name: "message",
+      struct: "Message",
+    },
+  ],
+  GetMessageEditNoticeRequest: [
+    {
+      fid: 1,
+      name: "chatMid",
+      type: 11,
+    },
+  ],
+  GetMessageEditNoticeResult: [
+    {
+      fid: 1,
+      name: "count",
+      type: 8,
+    },
+    {
+      fid: 2,
+      name: "updatedTime",
+      type: 10,
+    },
+  ],
   sendPostback_args: [
     {
       fid: 2,

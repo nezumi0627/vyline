@@ -53,16 +53,16 @@ export declare function makeChunkHdr(logical: number): number;
 export declare function parseChunkHdr(wire: number): number;
 /** Fixed-header fields. */
 export interface PlanetFixedHdr {
-  /** 2-bit type code. Observed: 0 (request? response?). */
-  type: number;
-  /** 1-bit flag A. */
-  flagA: boolean;
-  /** 11-bit body length. */
-  length: number;
-  /** 1-bit flag B. */
-  flagB: boolean;
-  /** Transaction sequence (observed 0x01d5..0x01ec incrementing). */
-  sequence: number;
+    /** 2-bit type code. Observed: 0 (request? response?). */
+    type: number;
+    /** 1-bit flag A. */
+    flagA: boolean;
+    /** 11-bit body length. */
+    length: number;
+    /** 1-bit flag B. */
+    flagB: boolean;
+    /** Transaction sequence (observed 0x01d5..0x01ec incrementing). */
+    sequence: number;
 }
 /**
  * Pack a fixed header into a 4-byte wire value (big-endian).
@@ -79,6 +79,6 @@ export declare function parseFixedHdr(wire: Uint8Array): PlanetFixedHdr;
 export declare function buildFrameHeader(chunkLogical: number, fixed: PlanetFixedHdr): Uint8Array;
 /** Parse a PLANET datagram header. */
 export declare function parseFrameHeader(wire: Uint8Array): {
-  chunkLogical: number;
-  fixed: PlanetFixedHdr;
+    chunkLogical: number;
+    fixed: PlanetFixedHdr;
 };

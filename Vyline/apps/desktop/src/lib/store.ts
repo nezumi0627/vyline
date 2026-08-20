@@ -181,9 +181,11 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: "0.5.0-beta",
-  title: "Vyline 0.5.0-beta — fetchOps 刷新 + 公開 API",
+  title: "Vyline 0.5.0-beta — fetchOps 刷新 + メッセージ編集・ミュート送信",
   items: [
     "受信システムをfetchOps方式に刷新（メッセージ・通話・メンバー変更等の全イベントを統合処理）",
+    "メッセージ編集機能 (editMessage / getMessageEditNotice) の正式追加",
+    "ミュート送信（NOTIFICATION_DISABLED）オプションの追加",
     "公開REST API (/v1/) を追加（Bearer token認証）",
     "Vyline-Desktop カミングスーン",
     "メンション（@ALL / @名前）の送受信・ハイライト表示",
@@ -291,7 +293,7 @@ type State = {
   sendMessage: (
     chatId: string,
     text: string,
-    opts?: { contentMetadata?: Record<string, string> },
+    opts?: { contentMetadata?: Record<string, string>; mute?: boolean },
   ) => Promise<void>;
   sendSticker: (
     chatId: string,
@@ -303,6 +305,7 @@ type State = {
   sendImageFile: (chatId: string, file: File) => Promise<void>;
   sendAudio: (chatId: string, seconds: number, blob: Blob) => Promise<void>;
   revokeMessage: (id: string) => Promise<void>;
+  editMessage: (id: string, newText: string) => Promise<void>;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markChatRead: (id: string) => Promise<void>;
@@ -842,6 +845,7 @@ export const useStore = create<State>()(
             res = await api.line.send(accountId!, chatId, trimmed, {
               relatedMessageId,
               contentMetadata: opts?.contentMetadata,
+              mute: opts?.mute,
             });
           } catch {
             set((st) => ({
@@ -1159,6 +1163,23 @@ export const useStore = create<State>()(
           } else {
             window.alert(errText || "取り消しに失敗しました");
           }
+        }
+      },
+
+      editMessage: async (id, newText) => {
+        const { accountId, activeChatId } = get();
+        if (!accountId) return;
+        // 送信中の楽観メッセージは編集できない
+        const msg = get().messages.find((m) => m.id === id);
+        if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
+          window.alert("送信が完了してから編集できます");
+          return;
+        }
+        const res = await api.line.editMessage(accountId, msg.chatId, id, newText);
+        if (res.ok) {
+          if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
+        } else {
+          window.alert(res.error ?? "メッセージの編集に失敗しました");
         }
       },
 

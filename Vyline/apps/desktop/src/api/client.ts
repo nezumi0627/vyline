@@ -16,6 +16,8 @@ import type {
   ReadReceiptsResponse,
   SendResponse,
   UnsendResponse,
+  EditResponse,
+  EditNoticeResponse,
   AccountsResponse,
   SessionsResponse,
   LoginResult,
@@ -193,7 +195,11 @@ export const api = {
       accountId: string,
       chatMid: string,
       text: string,
-      opts?: { relatedMessageId?: string; contentMetadata?: Record<string, string> },
+      opts?: {
+        relatedMessageId?: string;
+        contentMetadata?: Record<string, string>;
+        mute?: boolean;
+      },
     ) =>
       request<SendResponse>("POST", `/line/${accountId}/send`, {
         chatMid,
@@ -262,6 +268,12 @@ export const api = {
 
     unsend: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
+
+    editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
+      request<EditResponse>("POST", `/line/${accountId}/edit`, { chatMid, messageId, text }),
+
+    editNotice: (accountId: string, chatMid: string) =>
+      request<EditNoticeResponse>("GET", `/line/${accountId}/edit-notice/${chatMid}`),
 
     /** 相手ユーザーのプロフィール取得 (アイコン URL 用) */
     contactProfile: (accountId: string, targetMid: string) =>
