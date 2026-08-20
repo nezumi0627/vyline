@@ -321,8 +321,6 @@ export const api = {
         disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
         vylineTotal: number;
         cacheSize: number;
-        cdnSize: number;
-        iconCacheSize: number;
         savedMediaSize: number;
         error?: string;
       }>("GET", `/line/${accountId}/vyline/storage`),
@@ -337,12 +335,6 @@ export const api = {
       request<{ ok: boolean; removed?: number; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/saved-media`,
-      ),
-
-    clearVylineIcons: (accountId: string) =>
-      request<{ ok: boolean; removed?: number; error?: string }>(
-        "DELETE",
-        `/line/${accountId}/vyline/icons`,
       ),
 
     vylineWarm: (accountId: string, mids: string[]) =>

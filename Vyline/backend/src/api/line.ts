@@ -1702,14 +1702,3 @@ lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
     return handleError(err, c);
   }
 });
-
-lineRouter.delete("/:accountId/vyline/icons", async (c) => {
-  const accountId = c.req.param("accountId");
-  try {
-    const { clearCdnCache } = await import("../storage/cdnAssetCache.js");
-    const removed = await clearCdnCache();
-    return c.json({ ok: true, removed });
-  } catch (err) {
-    return handleError(err, c);
-  }
-});
