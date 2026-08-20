@@ -119,7 +119,6 @@ function isLiffError(res: unknown): { statusCode: number; statusMessage: string 
 
 // ─── error helper ─────────────────────────────
 
-// biome-ignore lint/suspicious/noExplicitAny: Hono Context is generic
 function handleError(err: unknown, c: Context<any, any, any>) {
   if (err instanceof NotLoggedInError || err instanceof LiffNotLoggedInError) {
     return c.json({ ok: false, error: "not logged in" }, 401);

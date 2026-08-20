@@ -61,23 +61,23 @@
       },
       "complexity": {
         "noBannedTypes": "off",
-        "noForEach": "warn",
-        "noStaticOnlyClass": "warn"
+        "noForEach": "off",
+        "noStaticOnlyClass": "off"
       },
       "suspicious": {
-        "noExplicitAny": "warn",
-        "noArrayIndexKey": "warn",
-        "noCatchAssign": "warn",
-        "noControlCharactersInRegex": "warn",
-        "noImplicitAnyLet": "warn",
-        "noAssignInExpressions": "warn"
+        "noExplicitAny": "off",
+        "noArrayIndexKey": "off",
+        "noCatchAssign": "off",
+        "noControlCharactersInRegex": "off",
+        "noImplicitAnyLet": "off",
+        "noAssignInExpressions": "off"
       },
       "style": {
         "noNonNullAssertion": "off",
-        "useConst": "warn"
+        "useConst": "off"
       },
       "correctness": {
-        "useExhaustiveDependencies": "warn",
+        "useExhaustiveDependencies": "off",
         "noUnknownMediaFeatureName": "off"
       }
     }

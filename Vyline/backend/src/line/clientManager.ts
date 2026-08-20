@@ -291,11 +291,7 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   // 認証関連など重要なものだけ debug で残す。
   client.base.on("log", ({ type, data }) => {
     const t = type as string;
-    if (
-      t === "update:authtoken" ||
-      t.startsWith("vyline:e2ee") ||
-      t.startsWith("vyline:init")
-    ) {
+    if (t === "update:authtoken" || t.startsWith("vyline:e2ee") || t.startsWith("vyline:init")) {
       log.debug(
         { vylineType: t, ...(data as Record<string, unknown> | undefined) },
         "vyline stack event",
