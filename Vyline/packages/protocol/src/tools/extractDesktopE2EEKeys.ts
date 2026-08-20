@@ -91,27 +91,20 @@ async function main(): Promise<void> {
   >;
 
   const accountArgIndex = process.argv.indexOf("--account");
-  const requestedAccount =
-    accountArgIndex >= 0 ? process.argv[accountArgIndex + 1] : undefined;
+  const requestedAccount = accountArgIndex >= 0 ? process.argv[accountArgIndex + 1] : undefined;
 
   if (accountArgIndex >= 0 && !requestedAccount) {
     throw new Error("--account requires an account ID");
   }
 
   const availableAccounts = Object.entries(tokens).filter(
-    ([, entry]) =>
-      typeof entry?.authToken === "string" &&
-      entry.authToken.length > 0,
+    ([, entry]) => typeof entry?.authToken === "string" && entry.authToken.length > 0,
   );
 
-  let selected:
-    | [string, { authToken?: string; storageFile?: string }]
-    | undefined;
+  let selected: [string, { authToken?: string; storageFile?: string }] | undefined;
 
   if (requestedAccount) {
-    selected = availableAccounts.find(
-      ([accountId]) => accountId === requestedAccount,
-    );
+    selected = availableAccounts.find(([accountId]) => accountId === requestedAccount);
 
     if (!selected) {
       throw new Error(
@@ -122,8 +115,7 @@ async function main(): Promise<void> {
     }
   } else {
     selected =
-      availableAccounts.find(([accountId]) => accountId === "main") ??
-      availableAccounts[0];
+      availableAccounts.find(([accountId]) => accountId === "main") ?? availableAccounts[0];
   }
 
   if (!selected) throw new Error("no authToken");
@@ -148,9 +140,7 @@ async function main(): Promise<void> {
   const profile = loadCachedOrFallback(join(DATA, "vyline"));
   const client = await loginWithToken(authToken, {
     profile,
-    storagePath:
-      tokenEntry.storageFile ??
-      join(DATA, `storage-${accountId}.json`),
+    storagePath: tokenEntry.storageFile ?? join(DATA, `storage-${accountId}.json`),
   });
   await client.base.talk.getProfile();
   const mid = client.base.profile?.mid;
