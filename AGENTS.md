@@ -44,7 +44,7 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 - `bun run vyline:unpack` — Themida 保護された LINE.exe の unpack（LINE 稼働中は Frida 注入拒否されるため停止して実行）。`--version <ver>` でインストール済み過去版を明示選択可
 - `bun run vyline:find-native -- <name>` — Desktop LINE.exe 内シンボル検索 (unpack → string scan → Ghidra)
 - `bun run vyline:focus-recovered` — 逆コンパイル結果のキーワード分類
-- `tools/` — スタンドアロンツール (src: [Vyline-Search](https://github.com/nezumi0627/Vyline-Search)、`tools/src/` 配下)
+- `tools/` — スタンドアロンツール (Git Submodule として [vyline-search](https://github.com/nezumi0627/vyline-search) リポジトリをリンク)
 - `source/desktop/` — 解析データ (gitignore)
 - `docs/tools/` — ツール使用ガイド
 
