@@ -260,7 +260,16 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
       } catch (err) {
         if (abort.signal.aborted) break;
         const msg = err instanceof Error ? err.message : String(err);
-        log.warn({ accountId, msg }, "ops loop error, retrying in 5s");
+        const isTimeout =
+          err instanceof Error &&
+          (err.name === "TimeoutError" || err.message === "The operation timed out.");
+        if (isTimeout) {
+          // /SYNC4 は長ポール。新着がないままクライアント側の
+          // 期限を迎えるのは通常の待機終了なので、警告にしない。
+          log.debug({ accountId, msg }, "ops long poll timed out, retrying in 5s");
+        } else {
+          log.warn({ accountId, msg }, "ops loop error, retrying in 5s");
+        }
         await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
       }
     }
