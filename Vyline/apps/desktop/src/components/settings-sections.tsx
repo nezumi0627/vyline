@@ -1030,7 +1030,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId))
+            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId!))
           }
           disabled={loading || !accountId}
         />
@@ -1041,7 +1041,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId))
+            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId!))
           }
           disabled={loading || !accountId}
         />
@@ -1052,7 +1052,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId, "image"))
+            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId!, "image"))
           }
           disabled={loading || !accountId}
         />
@@ -1063,7 +1063,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId, "video"))
+            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId!, "video"))
           }
           disabled={loading || !accountId}
         />
@@ -1074,7 +1074,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId, "audio"))
+            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId!, "audio"))
           }
           disabled={loading || !accountId}
         />
@@ -1085,7 +1085,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId, "file"))
+            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId!, "file"))
           }
           disabled={loading || !accountId}
         />
