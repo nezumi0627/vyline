@@ -31,8 +31,16 @@ export const VYLINE_CACHE_DIR = join(VYLINE_STORAGE_DIR, "cache");
 export const VYLINE_SAVED_MEDIA_DIR = join(VYLINE_STORAGE_DIR, "saved-media");
 
 const CDN_CACHE_DIR = join(VYLINE_CACHE_DIR, "cdn-cache");
+const ICON_CACHE_DIR = join(VYLINE_CACHE_DIR, "icons");
 const LEGACY_CDN_CACHE_DIR = join(VYLINE_DATA_DIR, "cdn-cache");
 const LEGACY_MEDIA_CACHE_DIR = join(VYLINE_DATA_DIR, "media-cache");
+
+const MEDIA_TYPE_DIRS = {
+  image: join(VYLINE_SAVED_MEDIA_DIR, "images"),
+  video: join(VYLINE_SAVED_MEDIA_DIR, "videos"),
+  audio: join(VYLINE_SAVED_MEDIA_DIR, "audio"),
+  file: join(VYLINE_SAVED_MEDIA_DIR, "files"),
+} as const;
 
 async function dirSize(target: string): Promise<number> {
   if (!existsSync(target)) return 0;
@@ -93,11 +101,18 @@ async function getDiskInfo(
 
 export async function getVylineStorageInfo() {
   const driveLetter = extractDriveLetter(VYLINE_STORAGE_DIR);
-  const [cacheSize, savedMediaSize] = await Promise.all([
-    dirSize(VYLINE_CACHE_DIR),
-    dirSize(VYLINE_SAVED_MEDIA_DIR),
-  ]);
+  const [cdnCacheSize, iconCacheSize, imagesSize, videosSize, audioSize, filesSize] =
+    await Promise.all([
+      dirSize(CDN_CACHE_DIR),
+      dirSize(ICON_CACHE_DIR),
+      dirSize(MEDIA_TYPE_DIRS.image),
+      dirSize(MEDIA_TYPE_DIRS.video),
+      dirSize(MEDIA_TYPE_DIRS.audio),
+      dirSize(MEDIA_TYPE_DIRS.file),
+    ]);
 
+  const cacheSize = cdnCacheSize + iconCacheSize;
+  const savedMediaSize = imagesSize + videosSize + audioSize + filesSize;
   const vylineTotal = cacheSize + savedMediaSize;
   const disk = await getDiskInfo(driveLetter);
 
@@ -108,5 +123,15 @@ export async function getVylineStorageInfo() {
     vylineTotal,
     cacheSize,
     savedMediaSize,
+    cache: {
+      cdn: cdnCacheSize,
+      icons: iconCacheSize,
+    },
+    savedMedia: {
+      image: imagesSize,
+      video: videosSize,
+      audio: audioSize,
+      file: filesSize,
+    },
   };
 }

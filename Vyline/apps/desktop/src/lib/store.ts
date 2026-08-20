@@ -162,12 +162,10 @@ function applyReadWatermarkLocal(
 
 function messagePreview(m: Message): string {
   if (m.messageState.startsWith("revoked")) {
-    if (m.messageState === "revoked-by-self" && m.history?.length) {
-      const last = [...m.history]
-        .reverse()
-        .find((h) => h.state === "normal" || h.state === "edited");
-      if (last?.text) return last.text;
-    }
+    const last = m.history
+      ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
+      : undefined;
+    if (last?.text) return last.text;
     return "メッセージの送信を取り消しました";
   }
   switch (m.kind) {
@@ -1540,6 +1538,9 @@ export const useStore = create<State>()(
                     readBy: prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
+                }
+                if (prev?.history?.length && !m.history?.length) {
+                  mapped[i] = { ...m, history: prev.history };
                 }
               }
               // pending / 送信直後の確定メッセージをサーバ欠落時も残す

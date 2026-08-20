@@ -322,6 +322,16 @@ export const api = {
         vylineTotal: number;
         cacheSize: number;
         savedMediaSize: number;
+        cache: {
+          cdn: number;
+          icons: number;
+        };
+        savedMedia: {
+          image: number;
+          video: number;
+          audio: number;
+          file: number;
+        };
         error?: string;
       }>("GET", `/line/${accountId}/vyline/storage`),
 
@@ -331,10 +341,28 @@ export const api = {
         `/line/${accountId}/vyline/cache`,
       ),
 
+    clearVylineCdnCache: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/cache/cdn`,
+      ),
+
+    clearVylineIconCache: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/cache/icons`,
+      ),
+
     clearVylineSavedMedia: (accountId: string) =>
       request<{ ok: boolean; removed?: number; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/saved-media`,
+      ),
+
+    clearVylineSavedMediaType: (accountId: string, type: string) =>
+      request<{ ok: boolean; removed?: number; type?: string; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/saved-media/${type}`,
       ),
 
     vylineWarm: (accountId: string, mids: string[]) =>

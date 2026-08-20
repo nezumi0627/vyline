@@ -912,6 +912,8 @@ function StorageSection() {
     vylineTotal: number;
     cacheSize: number;
     savedMediaSize: number;
+    cache: { cdn: number; icons: number };
+    savedMedia: { image: number; video: number; audio: number; file: number };
     error?: string;
   } | null>(null);
   const [loading, setLoading] = useState(false);
@@ -932,48 +934,21 @@ function StorageSection() {
     }
   };
 
-  const clearCache = async () => {
+  const clearType = async (
+    label: string,
+    action: () => Promise<{ ok: boolean; removed?: number }>,
+  ) => {
     if (!accountId) return;
-    if (
-      !window.confirm(
-        "キャッシュを削除します。再取得可能なアイコン・スタンプなどのデータが消えます。よろしいですか？",
-      )
-    )
-      return;
+    if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
     setLoading(true);
     setMsg(null);
     try {
-      const res = await api.line.clearVylineCache(accountId);
+      const res = await action();
       if (res.ok) {
-        setMsg(`キャッシュを削除しました (${res.removed ?? 0} 件)`);
+        setMsg(`${label}を削除しました (${res.removed ?? 0} 件)`);
         await load();
       } else {
-        setMsg(res.error ?? "削除に失敗しました");
-      }
-    } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const clearSavedMedia = async () => {
-    if (!accountId) return;
-    if (
-      !window.confirm(
-        "保存メディアを削除します。チャットの画像・動画・ファイルがすべて消えます。この操作は取り消せません。よろしいですか？",
-      )
-    )
-      return;
-    setLoading(true);
-    setMsg(null);
-    try {
-      const res = await api.line.clearVylineSavedMedia(accountId);
-      if (res.ok) {
-        setMsg(`保存メディアを削除しました (${res.removed ?? 0} 件)`);
-        await load();
-      } else {
-        setMsg(res.error ?? "削除に失敗しました");
+        setMsg("削除に失敗しました");
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -986,10 +961,16 @@ function StorageSection() {
     void load();
   }, [accountId]);
 
-  const cachePct =
-    storage && storage.vylineTotal > 0 ? (storage.cacheSize / storage.vylineTotal) * 100 : 0;
-  const mediaPct =
-    storage && storage.vylineTotal > 0 ? (storage.savedMediaSize / storage.vylineTotal) * 100 : 0;
+  const segments = storage
+    ? [
+        { key: "cdn", label: "CDN", size: storage.cache.cdn, color: "var(--vy-accent)" },
+        { key: "icons", label: "アイコン", size: storage.cache.icons, color: "var(--vy-accent)" },
+        { key: "image", label: "画像", size: storage.savedMedia.image, color: "#3b82f6" },
+        { key: "video", label: "動画", size: storage.savedMedia.video, color: "#a855f7" },
+        { key: "audio", label: "音声", size: storage.savedMedia.audio, color: "#22c55e" },
+        { key: "file", label: "ファイル", size: storage.savedMedia.file, color: "#6b7280" },
+      ]
+    : [];
 
   return (
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
@@ -1014,88 +995,100 @@ function StorageSection() {
             </div>
 
             <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
-              <div
-                className="h-full bg-[var(--vy-accent)] transition-all duration-500"
-                style={{ width: `${cachePct}%` }}
-              />
-              <div
-                className="h-full bg-[var(--vy-danger)] transition-all duration-500"
-                style={{ width: `${mediaPct}%` }}
-              />
+              {segments.map((s) => {
+                const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
+                return (
+                  <div
+                    key={s.key}
+                    className="h-full transition-all duration-500"
+                    style={{ background: s.color, width: `${pct}%` }}
+                  />
+                );
+              })}
             </div>
 
             <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--vy-text-dim)]">
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 rounded-full bg-[var(--vy-accent)]" />
-                キャッシュ {formatBytes(storage.cacheSize)}
-              </span>
-              <span className="flex items-center gap-1.5">
-                <span className="inline-block h-2 w-2 rounded-full bg-[var(--vy-danger)]" />
-                保存メディア {formatBytes(storage.savedMediaSize)}
-              </span>
+              {segments.map((s) => (
+                <span key={s.key} className="flex items-center gap-1.5">
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ background: s.color }}
+                  />
+                  {s.label} {formatBytes(s.size)}
+                </span>
+              ))}
             </div>
           </div>
         </div>
       )}
 
-      <div className="grid gap-4 sm:grid-cols-2">
-        <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-          <div className="p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]">
-                <IconDownload size={20} className="text-[var(--vy-accent)]" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">キャッシュ</p>
-                <p className="text-xs text-[var(--vy-text-dim)]">
-                  アイコン・スタンプなど再取得可能
-                </p>
-              </div>
-            </div>
-            <div className="mt-4 flex items-baseline justify-between">
-              <span className="text-lg font-semibold font-mono">
-                {storage ? formatBytes(storage.cacheSize) : "---"}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={clearCache}
-              disabled={loading || !accountId}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <IconTrash size={14} />
-              {loading ? "処理中…" : "キャッシュを削除"}
-            </button>
-          </div>
-        </div>
-
-        <div className="overflow-hidden rounded-2xl border border-[var(--vy-danger)]/30 bg-[var(--vy-surface)]">
-          <div className="p-5">
-            <div className="flex items-center gap-3">
-              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_oklab,var(--vy-danger)_12%,var(--vy-surface-2))]">
-                <IconHardDrive size={20} className="text-[var(--vy-danger)]" />
-              </div>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium">保存メディア</p>
-                <p className="text-xs text-[var(--vy-text-dim)]">チャット画像・動画・ファイル</p>
-              </div>
-            </div>
-            <div className="mt-4 flex items-baseline justify-between">
-              <span className="text-lg font-semibold font-mono">
-                {storage ? formatBytes(storage.savedMediaSize) : "---"}
-              </span>
-            </div>
-            <button
-              type="button"
-              onClick={clearSavedMedia}
-              disabled={loading || !accountId}
-              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-danger)] px-3 py-2 text-xs font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
-            >
-              <IconTrash size={14} />
-              {loading ? "処理中…" : "保存メディアを削除"}
-            </button>
-          </div>
-        </div>
+      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <TypeCard
+          title="CDN キャッシュ"
+          desc="スタンプ・LINE絵文字など"
+          size={storage?.cache.cdn ?? 0}
+          icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
+          iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId))
+          }
+          disabled={loading || !accountId}
+        />
+        <TypeCard
+          title="アイコンキャッシュ"
+          desc="プロフィール画像など"
+          size={storage?.cache.icons ?? 0}
+          icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
+          iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId))
+          }
+          disabled={loading || !accountId}
+        />
+        <TypeCard
+          title="画像"
+          desc="チャット画像"
+          size={storage?.savedMedia.image ?? 0}
+          icon={<IconDownload size={20} className="text-[#3b82f6]" />}
+          iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId, "image"))
+          }
+          disabled={loading || !accountId}
+        />
+        <TypeCard
+          title="動画"
+          desc="チャット動画"
+          size={storage?.savedMedia.video ?? 0}
+          icon={<IconDownload size={20} className="text-[#a855f7]" />}
+          iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId, "video"))
+          }
+          disabled={loading || !accountId}
+        />
+        <TypeCard
+          title="音声"
+          desc="ボイスメッセージなど"
+          size={storage?.savedMedia.audio ?? 0}
+          icon={<IconDownload size={20} className="text-[#22c55e]" />}
+          iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId, "audio"))
+          }
+          disabled={loading || !accountId}
+        />
+        <TypeCard
+          title="ファイル"
+          desc="PDF など"
+          size={storage?.savedMedia.file ?? 0}
+          icon={<IconDownload size={20} className="text-[#6b7280]" />}
+          iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId, "file"))
+          }
+          disabled={loading || !accountId}
+        />
       </div>
 
       {msg && (
@@ -1109,6 +1102,52 @@ function StorageSection() {
         </p>
       )}
     </Section>
+  );
+}
+
+function TypeCard({
+  title,
+  desc,
+  size,
+  icon,
+  iconBg,
+  onDelete,
+  disabled,
+}: {
+  title: string;
+  desc: string;
+  size: number;
+  icon: React.ReactNode;
+  iconBg: string;
+  onDelete: () => void;
+  disabled: boolean;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div className="p-5">
+        <div className="flex items-center gap-3">
+          <div className={`flex h-10 w-10 items-center justify-center rounded-xl ${iconBg}`}>
+            {icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium">{title}</p>
+            <p className="text-xs text-[var(--vy-text-dim)]">{desc}</p>
+          </div>
+        </div>
+        <div className="mt-4 flex items-baseline justify-between">
+          <span className="text-lg font-semibold font-mono">{formatBytes(size)}</span>
+        </div>
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={disabled}
+          className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <IconTrash size={14} />
+          削除
+        </button>
+      </div>
+    </div>
   );
 }
 
