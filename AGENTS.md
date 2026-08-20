@@ -37,14 +37,10 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ### Desktop 解析ツール (Vyline-Search)
 
-- `bun run vyline:check` — インストール版 / 実行中版 / 最新版の比較 (`--json`)
-- `bun run vyline:latest` — Desktop 最新版バージョンの取得
-- `bun run vyline:update [-- --unpack]` — LINE Desktop を最新版へ更新 (必要なら unpack も一括)
-- `bun run vyline:versions` — インストール済みバージョン一覧 (`--json` 可)
-- `bun run vyline:unpack` — Themida 保護された LINE.exe の unpack（LINE 稼働中は Frida 注入拒否されるため停止して実行）。`--version <ver>` でインストール済み過去版を明示選択可
 - `bun run vyline:find-native -- <name>` — Desktop LINE.exe 内シンボル検索 (unpack → string scan → Ghidra)
 - `bun run vyline:focus-recovered` — 逆コンパイル結果のキーワード分類
-- `tools/` — スタンドアロンツール (Git Submodule として [vyline-search](https://github.com/nezumi0627/vyline-search) リポジトリをリンク)
+- `bun run vyline:unpack` — Themida 保護された LINE.exe の unpack
+- `tools/` — スタンドアロンツール (src: [Vyline-Search](https://github.com/nezumi0627/Vyline-Search))
 - `source/desktop/` — 解析データ (gitignore)
 - `docs/tools/` — ツール使用ガイド
 
@@ -234,9 +230,6 @@ cd Vyline/packages/protocol
 bun run delta          # Desktop 差分調査
 bun run stack:types    # Thrift 型ビルド
 bun run vyline:find-native -- <name>  # Desktop シンボル検索
-bun run vyline:check   # Desktop バージョン確認（root 直下でも可）
-bun run vyline:versions  # インストール済みバージョン一覧（root 直下でも可）
-bun run vyline:update  # Desktop を最新版へ更新（root 直下でも可）
 ```
 
 ## バージョン管理（重要）

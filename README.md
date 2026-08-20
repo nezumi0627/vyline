@@ -30,7 +30,7 @@ Vyline は LINE 非公式のサードパーティクライアントであり、L
 - **同意ゲート**: ログイン直後に利用規約・免責事項を表示し、**同意しない限りアプリは一切動作しません**（同期・通信・表示を含む）。同意せず、または画面をスキップする等の手段で利用した場合も、**その時点で本規約に同意したものとみなされ**、開発者・Vyline のメンバーは一切の責任を負いません。
 - **目的の範囲**: 教育・学習・個人利用の範囲でご利用ください。第三者への攻撃・不正アクセス・迷惑行為・権利侵害は禁止です。
 - **データの扱い**: ログイン情報・セッション・暗号鍵・トーク履歴は端末内にのみ保存され、外部へ送信されません。
-- **解析ツール**: `tools/` 以下の解析ツールは [vyline-search](https://github.com/nezumi0627/vyline-search) リポジトリを Git Submodule としてリンクしたものです。Desktop LINE の unpack・逆コンパイルを行います。**教育・実験目的のみ**で使用し、解析結果を再配布しないでください。詳細: [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md)
+- **解析ツール**: `tools/vyline-search` は Desktop LINE の unpack・逆コンパイルを行います。**教育・実験目的のみ**で使用し、解析結果を再配布しないでください。詳細: [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md)
 - **開発者の免責**: 本ソフトウェアの利用により生じた一切の問題（アカウント停止、データ破損、法的問題等）について、開発者・Vyline のメンバーは責任を負いません。
 
 ### 著作権表示
@@ -178,17 +178,6 @@ Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 /
 > **注意**: LINE デスクトップクライアントが起動中の状態では、解析ツール（unpack 等）が正常に動作しません（単一インスタンス制御により frida の注入が拒否されプロセスが強制終了するため）。必ず LINE アプリを完全に終了させてから実行してください。
 
 **[github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search)**
-
-```powershell
-bun run vyline:check                  # インストール版 / 最新版の比較
-bun run vyline:versions               # インストール済みバージョン一覧
-bun run vyline:unpack -- --version <ver>   # インストール済みバージョンを選択して unpack
-bun run vyline:update                 # LINE Desktop を最新版へ更新
-bun run vyline:find-native -- sendMessage  # ネイティブシンボル検索
-```
-
-> **注意**: `vyline:unpack` / `vyline:update` は **LINE を終了してから実行**してください。
-> 稼働中は Frida 注入が拒否され `ProcessNotRespondingError` になります。
 
 ---
 
