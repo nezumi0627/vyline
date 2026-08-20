@@ -56,6 +56,7 @@ import {
   loadVylineProfileCache,
   leaveChat,
   blockContactMid,
+  setNotificationsEnabled,
   unblockContactMid,
   reactToMessage,
   runAccountIndex,
@@ -937,6 +938,23 @@ lineRouter.get("/:accountId/blocked", async (c) => {
   try {
     const mids = await fetchBlockedContactIds(accountId);
     return c.json({ ok: true, mids });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/notifications ────────
+// モバイルプッシュ通知の有効/無効を切替 (TalkService_setNotificationsEnabled, type=USER)
+
+lineRouter.post("/:accountId/notifications", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ enable?: boolean }>();
+  if (body.enable === undefined) {
+    return c.json({ ok: false, error: "enable required" }, 400);
+  }
+  try {
+    await setNotificationsEnabled(accountId, body.enable);
+    return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
   }

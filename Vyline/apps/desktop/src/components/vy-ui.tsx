@@ -7,11 +7,13 @@ export function Toggle({
   onChange,
   label,
   id,
+  disabled,
 }: {
   checked: boolean;
   onChange: (v: boolean) => void;
   label?: string;
   id?: string;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -20,12 +22,14 @@ export function Toggle({
       id={id}
       aria-checked={checked}
       aria-label={label}
-      onClick={() => onChange(!checked)}
+      disabled={disabled}
+      onClick={() => !disabled && onChange(!checked)}
       className={cn(
         "relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--vy-surface)]",
         checked
           ? "bg-[var(--vy-accent)]"
           : "bg-[color-mix(in_oklab,var(--vy-text-dim)_35%,transparent)]",
+        disabled && "opacity-50 cursor-not-allowed",
       )}
     >
       <span
