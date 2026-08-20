@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-19
+最終更新: 2026-08-20
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -255,7 +255,26 @@ bun run vyline:find-native -- <name>  # Desktop シンボル検索
 
 - `desktop-e2ee-keys.json` / tokens / session / `Vyline/backend/data/` は **gitignore・コミット禁止**
 - PR・チャット・docs に鍵・トークン実値を貼らない
-- **Pull Request**: マージは承認された場合のみ可能。repo所有者以外のマージはブロックされます（Branch Protection Rules設定済み）
+
+## Pull Request ルール（AI・人間共通）
+
+**機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
+
+- `master` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
+- フローは次のとおり:
+
+```
+1. master から作業ブランチを切る
+   git checkout master && git pull && git checkout -b feature/<名前>
+2. 変更をコミットしてブランチに push
+   git push -u origin feature/<名前>
+3. GitHub で PR を作成（base: master ← head: feature/<名前>）
+4. レビュー・承認後にマージする（repo 所有者以外のマージはブロックされる）
+```
+
+- 小さな修正（1 コミットのドキュメント更新など）でも、master への直接 push はせずブランチ経由にする
+- PR の説明には変更内容とテスト確認結果を書く
+- マージ後に作業ブランチは削除し、master を pull して最新に保つ
 
 ## 報告プロトコル
 
