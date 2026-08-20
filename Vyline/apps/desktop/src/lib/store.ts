@@ -675,6 +675,14 @@ export const useStore = create<State>()(
             };
           });
 
+        // hide flag: always preserve prev.hidden when chat already exists,
+        // taking precedence over the newly mapped hidden from hiddenMids
+        const hiddenByPrev = new Map<string, boolean>();
+        mappedChats.forEach((c) => {
+          const prev = useStore.getState().chats.find((p) => p.id === c.id);
+          if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
+        });
+
         const chatId =
           activeChatId && !dismissed.has(activeChatId)
             ? activeChatId
@@ -701,6 +709,7 @@ export const useStore = create<State>()(
                   : prev?.name && !looksLikeMid(prev.name)
                     ? prev.name
                     : c.name;
+              const hiddenFromPrev = hiddenByPrev.get(c.id);
               return prev
                 ? {
                     ...c,
@@ -709,7 +718,7 @@ export const useStore = create<State>()(
                     avatarUrl: c.avatarUrl || prev.avatarUrl,
                     pinned: prev.pinned,
                     muted: prev.muted,
-                    hidden: prev.hidden,
+                    hidden: hiddenFromPrev ?? prev.hidden,
                     localName: prev.localName,
                     members: c.members ?? prev.members,
                   }
