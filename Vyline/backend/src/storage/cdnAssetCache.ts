@@ -6,6 +6,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, readdir, writeFile, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -21,7 +22,18 @@ const ALLOWED_HOSTS = new Set([
 ]);
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const CACHE_ROOT = process.env.VYLINE_CDN_CACHE_DIR ?? join(_dir, "../../data/cdn-cache");
+const LEGACY_ROOT = join(_dir, "../../data/cdn-cache");
+const CACHE_ROOT = process.env.VYLINE_CDN_CACHE_DIR ?? join(_dir, "../../storage/cache/cdn-cache");
+
+try {
+  if (!existsSync(CACHE_ROOT) && existsSync(LEGACY_ROOT)) {
+    const { rename } = await import("node:fs/promises");
+    await mkdir(dirname(CACHE_ROOT), { recursive: true });
+    await rename(LEGACY_ROOT, CACHE_ROOT);
+  }
+} catch {
+  /* ignore */
+}
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;
@@ -225,4 +237,65 @@ export async function ensureCdnCacheDir(): Promise<void> {
   } catch {
     /* ignore */
   }
+}
+
+export async function getCdnCacheSize(): Promise<number> {
+  let total = 0;
+  try {
+    const { readdir, stat } = await import("node:fs/promises");
+    await mkdir(CACHE_ROOT, { recursive: true });
+    const entries = await readdir(CACHE_ROOT, { withFileTypes: true });
+    for (const e of entries) {
+      const p = join(CACHE_ROOT, e.name);
+      if (e.isDirectory()) {
+        const files = await readdir(p);
+        for (const f of files) {
+          try {
+            const s = await stat(join(p, f));
+            total += s.size;
+          } catch {
+            /* ignore */
+          }
+        }
+      } else {
+        try {
+          const s = await stat(p);
+          total += s.size;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch (err) {
+    log.debug({ err }, "cdn cache size check failed");
+  }
+  return total;
+}
+
+export async function clearCdnCache(): Promise<number> {
+  memory.clear();
+  let removed = 0;
+  try {
+    const { readdir, rm, stat } = await import("node:fs/promises");
+    await mkdir(CACHE_ROOT, { recursive: true });
+    const entries = await readdir(CACHE_ROOT, { withFileTypes: true });
+    for (const e of entries) {
+      const p = join(CACHE_ROOT, e.name);
+      if (e.isDirectory()) {
+        const files = await readdir(p);
+        for (const f of files) {
+          await rm(join(p, f), { force: true });
+          removed++;
+        }
+      } else {
+        await rm(p, { force: true });
+        removed++;
+      }
+    }
+    const { logger } = await import("../logger.js");
+    logger.info({ removed }, "cdn cache cleared");
+  } catch (err) {
+    log.debug({ err }, "cdn cache clear failed");
+  }
+  return removed;
 }

@@ -71,6 +71,8 @@ export type LinkPreview = {
   site: string;
 };
 
+export type MessageState = "normal" | "edited" | "revoked-by-other" | "revoked-by-self";
+
 export type Message = {
   id: string;
   chatId: string;
@@ -100,7 +102,7 @@ export type Message = {
   read: boolean;
   readBy?: string[];
   readCount?: number;
-  revoked?: boolean;
+  messageState: MessageState;
   replyToId?: string;
   /** 絵文字リアクション（type は MessageReactionType 数値） */
   reactions?: MessageReaction[];
@@ -116,6 +118,13 @@ export type Message = {
   originalText?: string;
   /** 編集前の元テキストを表示中かどうか */
   showOriginal?: boolean;
+  /** 状態変更履歴 */
+  history?: Array<{
+    state: MessageState;
+    text: string | null;
+    contentType: string;
+    updatedTime: number;
+  }>;
   linkPreview?: LinkPreview;
   /** 失敗時の再送に使う送信意図（楽観メッセージに保持） */
   retry?: RetryIntent;

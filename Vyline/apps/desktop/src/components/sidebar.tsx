@@ -69,7 +69,7 @@ function buildPreviewMap(
       continue;
     }
     let text = "";
-    if (last.revoked) text = "メッセージの送信を取り消しました";
+    if (last.messageState.startsWith("revoked")) text = "メッセージの送信を取り消しました";
     else if (last.kind === "sticker") text = last.altText || "[スタンプ]";
     else if (last.kind === "image") text = "[画像]";
     else if (last.kind === "video") text = "[動画]";

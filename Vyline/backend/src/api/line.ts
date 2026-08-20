@@ -75,6 +75,8 @@ import {
   listDirectCalls,
   CallNotAllowedError,
   NotLoggedInError,
+  restoreRevokedMessage,
+  getMessageHistory,
 } from "../service/lineService.js";
 import {
   LiffNotLoggedInError,
@@ -571,6 +573,43 @@ lineRouter.post("/:accountId/unsend", async (c) => {
   try {
     await unsendMessage(accountId, body.messageId);
     return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/restore ─────────────
+
+lineRouter.post("/:accountId/restore", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ messageId?: string }>();
+
+  if (!body.messageId) {
+    return c.json({ ok: false, error: "messageId required" }, 400);
+  }
+
+  try {
+    const chatMid = c.req.query("chatMid") ?? "";
+    const restored = await restoreRevokedMessage(accountId, chatMid, body.messageId);
+    if (!restored) {
+      return c.json({ ok: false, error: "no history to restore" }, 400);
+    }
+    return c.json({ ok: true, text: restored.text, contentType: restored.contentType });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── GET /line/:accountId/messages/:chatMid/:messageId/history ──
+
+lineRouter.get("/:accountId/messages/:chatMid/:messageId/history", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const messageId = c.req.param("messageId");
+
+  try {
+    const history = await getMessageHistory(accountId, chatMid, messageId);
+    return c.json({ ok: true, history });
   } catch (err) {
     return handleError(err, c);
   }
@@ -1624,6 +1663,52 @@ lineRouter.get("/:accountId/log", async (c) => {
   const limit = Math.min(Number(c.req.query("limit") ?? 200) || 200, 2000);
   try {
     return c.json({ ok: true, data: await readRecentMessageLog(accountId, limit) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── Vyline Storage ────────────────────────────────────────
+
+lineRouter.get("/:accountId/vyline/storage", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { getVylineStorageInfo } = await import("../storage/vylineStorageInfo.js");
+    const info = await getVylineStorageInfo();
+    return c.json(info);
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/vyline/cache", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { clearCdnCache } = await import("../storage/cdnAssetCache.js");
+    const removed = await clearCdnCache();
+    return c.json({ ok: true, removed });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { clearMediaCache } = await import("../storage/mediaCache.js");
+    const removed = await clearMediaCache();
+    return c.json({ ok: true, removed });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/vyline/icons", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { clearCdnCache } = await import("../storage/cdnAssetCache.js");
+    const removed = await clearCdnCache();
+    return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
   }

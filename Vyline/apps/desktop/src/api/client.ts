@@ -28,6 +28,7 @@ import type {
   CallStatusResponse,
   CallActiveResponse,
   CallType,
+  Message,
 } from "@vyline/types";
 
 // re-export for convenience
@@ -269,11 +270,24 @@ export const api = {
     unsend: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
 
+    restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: true; text?: string | null; contentType?: string }>(
+        "POST",
+        `/line/${accountId}/restore?chatMid=${encodeURIComponent(chatMid)}`,
+        { messageId },
+      ),
+
     editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
       request<EditResponse>("POST", `/line/${accountId}/edit`, { chatMid, messageId, text }),
 
     editNotice: (accountId: string, chatMid: string) =>
       request<EditNoticeResponse>("GET", `/line/${accountId}/edit-notice/${chatMid}`),
+
+    messageHistory: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: true; history: Message["history"] }>(
+        "GET",
+        `/line/${accountId}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}/history`,
+      ),
 
     /** 相手ユーザーのプロフィール取得 (アイコン URL 用) */
     contactProfile: (accountId: string, targetMid: string) =>
@@ -299,6 +313,37 @@ export const api = {
         groups?: Record<string, unknown>;
         error?: string;
       }>("GET", `/line/${accountId}/vyline/cache`),
+
+    vylineStorage: (accountId: string) =>
+      request<{
+        ok: boolean;
+        driveLetter?: string;
+        disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
+        vylineTotal: number;
+        cacheSize: number;
+        cdnSize: number;
+        iconCacheSize: number;
+        savedMediaSize: number;
+        error?: string;
+      }>("GET", `/line/${accountId}/vyline/storage`),
+
+    clearVylineCache: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/cache`,
+      ),
+
+    clearVylineSavedMedia: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/saved-media`,
+      ),
+
+    clearVylineIcons: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/icons`,
+      ),
 
     vylineWarm: (accountId: string, mids: string[]) =>
       request<{ ok: boolean; profiles?: Record<string, unknown>; count?: number; error?: string }>(

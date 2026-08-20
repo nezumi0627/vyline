@@ -157,7 +157,7 @@ export function useVylineSync(enabled = true) {
           m.authorId === "me" &&
           m.id &&
           !m.id.startsWith("pending_") &&
-          !m.revoked &&
+          !m.messageState.startsWith("revoked") &&
           now - m.createdAt < 15 * 60_000,
       );
     };

@@ -11,6 +11,15 @@ function formatRelativeTime(ts: number): string {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
   return `${Math.floor(diff / 86_400_000)}日前`;
 }
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
+}
+
 import { Toggle, Avatar } from "@/components/vy-ui";
 import { VyThemePanel } from "@/components/vy-theme-panel";
 import {
@@ -23,6 +32,9 @@ import {
   IconChevron,
   IconSpark,
   IconBell,
+  IconHardDrive,
+  IconTrash,
+  IconDownload,
 } from "@/components/icons";
 
 type Section =
@@ -33,6 +45,7 @@ type Section =
   | "privacy"
   | "notifications"
   | "advanced"
+  | "storage"
   | "info";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
@@ -43,6 +56,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+  { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
@@ -487,6 +501,8 @@ export function SettingsSections() {
 
               {section === "advanced" && <AdvancedSection />}
 
+              {section === "storage" && <StorageSection />}
+
               {section === "info" && <InfoSection />}
             </div>
           </div>
@@ -813,14 +829,6 @@ function AdvancedSection() {
             インポート
           </button>
         </Row>
-        <Row title="キャッシュを削除" desc="メディアの一時ファイルを削除します">
-          <button
-            type="button"
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
-          >
-            削除
-          </button>
-        </Row>
         <Row title="デバッグログを表示" desc="接続状態や送受信ログを確認します（開発者向け）">
           <button
             type="button"
@@ -889,6 +897,215 @@ function AdvancedSection() {
       {!accountId && (
         <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
           復元には LINE ログインが必要です。
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function StorageSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [storage, setStorage] = useState<{
+    ok: boolean;
+    driveLetter?: string;
+    disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
+    vylineTotal: number;
+    cacheSize: number;
+    savedMediaSize: number;
+    error?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!accountId) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await api.line.vylineStorage(accountId);
+      if (res.ok) setStorage(res);
+      else setMsg(res.error ?? "取得に失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearCache = async () => {
+    if (!accountId) return;
+    if (
+      !window.confirm(
+        "キャッシュを削除します。再取得可能なアイコン・スタンプなどのデータが消えます。よろしいですか？",
+      )
+    )
+      return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await api.line.clearVylineCache(accountId);
+      if (res.ok) {
+        setMsg(`キャッシュを削除しました (${res.removed ?? 0} 件)`);
+        await load();
+      } else {
+        setMsg(res.error ?? "削除に失敗しました");
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearSavedMedia = async () => {
+    if (!accountId) return;
+    if (
+      !window.confirm(
+        "保存メディアを削除します。チャットの画像・動画・ファイルがすべて消えます。この操作は取り消せません。よろしいですか？",
+      )
+    )
+      return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await api.line.clearVylineSavedMedia(accountId);
+      if (res.ok) {
+        setMsg(`保存メディアを削除しました (${res.removed ?? 0} 件)`);
+        await load();
+      } else {
+        setMsg(res.error ?? "削除に失敗しました");
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [accountId]);
+
+  const cachePct =
+    storage && storage.vylineTotal > 0 ? (storage.cacheSize / storage.vylineTotal) * 100 : 0;
+  const mediaPct =
+    storage && storage.vylineTotal > 0 ? (storage.savedMediaSize / storage.vylineTotal) * 100 : 0;
+
+  return (
+    <Section title="ストレージ" desc="アプリが使用している容量を管理します">
+      {storage && (
+        <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+          <div className="p-5">
+            <div className="flex flex-col gap-1 sm:flex-row sm:items-baseline sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-[var(--vy-text-dim)]">
+                  ドライブ {storage.driveLetter ?? "---"}
+                </p>
+                {storage.disk && (
+                  <p className="text-xs text-[var(--vy-text-dim)]">
+                    合計 {formatBytes(storage.disk.totalBytes)} / 空き{" "}
+                    {formatBytes(storage.disk.freeBytes)}
+                  </p>
+                )}
+              </div>
+              <p className="text-2xl font-bold tracking-tight">
+                {formatBytes(storage.vylineTotal)}
+              </p>
+            </div>
+
+            <div className="mt-4 flex h-3 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+              <div
+                className="h-full bg-[var(--vy-accent)] transition-all duration-500"
+                style={{ width: `${cachePct}%` }}
+              />
+              <div
+                className="h-full bg-[var(--vy-danger)] transition-all duration-500"
+                style={{ width: `${mediaPct}%` }}
+              />
+            </div>
+
+            <div className="mt-3 flex flex-wrap items-center gap-4 text-xs text-[var(--vy-text-dim)]">
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-2 rounded-full bg-[var(--vy-accent)]" />
+                キャッシュ {formatBytes(storage.cacheSize)}
+              </span>
+              <span className="flex items-center gap-1.5">
+                <span className="inline-block h-2 w-2 rounded-full bg-[var(--vy-danger)]" />
+                保存メディア {formatBytes(storage.savedMediaSize)}
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="grid gap-4 sm:grid-cols-2">
+        <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+          <div className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]">
+                <IconDownload size={20} className="text-[var(--vy-accent)]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">キャッシュ</p>
+                <p className="text-xs text-[var(--vy-text-dim)]">
+                  アイコン・スタンプなど再取得可能
+                </p>
+              </div>
+            </div>
+            <div className="mt-4 flex items-baseline justify-between">
+              <span className="text-lg font-semibold font-mono">
+                {storage ? formatBytes(storage.cacheSize) : "---"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={clearCache}
+              disabled={loading || !accountId}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconTrash size={14} />
+              {loading ? "処理中…" : "キャッシュを削除"}
+            </button>
+          </div>
+        </div>
+
+        <div className="overflow-hidden rounded-2xl border border-[var(--vy-danger)]/30 bg-[var(--vy-surface)]">
+          <div className="p-5">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[color-mix(in_oklab,var(--vy-danger)_12%,var(--vy-surface-2))]">
+                <IconHardDrive size={20} className="text-[var(--vy-danger)]" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium">保存メディア</p>
+                <p className="text-xs text-[var(--vy-text-dim)]">チャット画像・動画・ファイル</p>
+              </div>
+            </div>
+            <div className="mt-4 flex items-baseline justify-between">
+              <span className="text-lg font-semibold font-mono">
+                {storage ? formatBytes(storage.savedMediaSize) : "---"}
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={clearSavedMedia}
+              disabled={loading || !accountId}
+              className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-danger)] px-3 py-2 text-xs font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              <IconTrash size={14} />
+              {loading ? "処理中…" : "保存メディアを削除"}
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {msg && (
+        <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
+          <p className="text-xs text-[var(--vy-text-dim)]">{msg}</p>
+        </div>
+      )}
+      {!accountId && (
+        <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
+          ストレージ情報を取得するにはログインが必要です。
         </p>
       )}
     </Section>

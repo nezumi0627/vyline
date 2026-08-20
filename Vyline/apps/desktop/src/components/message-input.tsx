@@ -17,15 +17,16 @@ import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
 import { PlusMenu } from "@/components/plus-menu";
+import type { MessageState } from "@/lib/store-types";
 
 function replyPreviewText(msg: {
   kind: string;
   text?: string;
   altText?: string;
   sticker?: string;
-  revoked?: boolean;
+  messageState?: MessageState;
 }): string {
-  if (msg.revoked) return "取り消されたメッセージ";
+  if (msg.messageState?.startsWith("revoked")) return "取り消されたメッセージ";
   if (msg.kind === "image") return "写真";
   if (msg.kind === "video") return "動画";
   if (msg.kind === "audio") return "音声メッセージ";

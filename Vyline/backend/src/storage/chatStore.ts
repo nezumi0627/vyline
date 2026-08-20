@@ -52,6 +52,8 @@ export interface StoredMessage {
   stickerSticky?: boolean;
   reactions?: MessageReaction[];
   savedAt: string;
+  messageState?: Message["messageState"];
+  history?: Message["history"];
 }
 
 interface ChatDbMeta {
@@ -168,7 +170,11 @@ export async function upsertMessages(
   const db = await getDb(accountId);
   const byChat = db.messages[chatMid] ?? {};
   for (const message of messages) {
-    byChat[message.id] = message;
+    const prev = byChat[message.id];
+    byChat[message.id] = {
+      ...message,
+      history: prev?.history?.length ? prev.history : message.history,
+    };
   }
   db.messages[chatMid] = byChat;
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
@@ -185,9 +191,55 @@ export async function markMessageRevoked(
   const db = await getDb(accountId);
   const stored = db.messages[chatMid]?.[messageId];
   if (!stored) return;
+  const prevState = stored.messageState ?? "normal";
+  const entry = {
+    state: prevState,
+    text: stored.text,
+    contentType: stored.contentType,
+    updatedTime: Date.now(),
+  };
+  stored.messageState = stored.isMyMessage ? "revoked-by-self" : "revoked-by-other";
+  stored.history = [...(stored.history ?? []), entry];
   stored.contentType = "UNSENT";
   stored.text = null;
   scheduleSave(accountId);
+}
+
+/** 取消し済みメッセージを元に戻す（ローカル永続化）。LINE サーバー側は元に戻せないため chatStore のみ更新 */
+export async function restoreRevokedMessage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<{ text: string | null; contentType: string } | null> {
+  const db = await getDb(accountId);
+  const stored = db.messages[chatMid]?.[messageId];
+  if (!stored || !stored.history?.length) return null;
+  const lastNormal = [...stored.history]
+    .reverse()
+    .find((h) => h.state === "normal" || h.state === "edited");
+  if (!lastNormal) return null;
+  const entry = {
+    state: "normal" as const,
+    text: stored.text,
+    contentType: stored.contentType,
+    updatedTime: Date.now(),
+  };
+  stored.messageState = "normal";
+  stored.history = [...stored.history, entry];
+  stored.text = lastNormal.text;
+  stored.contentType = lastNormal.contentType;
+  scheduleSave(accountId);
+  return { text: lastNormal.text, contentType: lastNormal.contentType };
+}
+
+export async function getMessageHistory(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<Message["history"]> {
+  const db = await getDb(accountId);
+  const stored = db.messages[chatMid]?.[messageId];
+  return stored?.history ?? [];
 }
 
 export async function getMessages(
@@ -229,7 +281,9 @@ function storedMessageToMessage(stored: StoredMessage): Message {
     createdTime: stored.createdTime,
     isMyMessage: stored.isMyMessage,
     contentMetadata: stored.contentMetadata ?? null,
+    messageState: stored.messageState ?? "normal",
   };
+  if (stored.history) msg.history = stored.history;
   if (stored.readCount != null) msg.readCount = stored.readCount;
   if (stored.readBy) msg.readBy = stored.readBy;
   if (stored.seen != null) msg.seen = stored.seen;

@@ -226,7 +226,13 @@ export function mapMessage(
   _contactCache?: Map<string, ContactInfo>,
 ): Message {
   const kind = messageKind(m);
-  const revoked = m.contentType === "UNSENT" || m.contentType === "UNSEND";
+  const messageState =
+    m.messageState ??
+    (m.contentType === "UNSENT" || m.contentType === "UNSEND"
+      ? m.isMyMessage
+        ? "revoked-by-self"
+        : "revoked-by-other"
+      : "normal");
   const stickerId = extractStickerId(m.contentMetadata ?? null);
   const authorId = m.isMyMessage ? "me" : m.from;
 
@@ -239,7 +245,11 @@ export function mapMessage(
     audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
   }
 
-  const read = m.isMyMessage ? Boolean(m.seen || (m.readCount != null && m.readCount > 0)) : true;
+  const read = m.isMyMessage
+    ? m.seen ||
+      (m.readCount != null && m.readCount > 0) ||
+      (m.seen === undefined && m.readCount === undefined)
+    : true;
 
   let text = sanitizeText(m.text);
   if (kind === "system") {
@@ -311,7 +321,7 @@ export function mapMessage(
     status: messageStatus(m),
     read,
     readBy: m.readBy,
-    revoked,
+    messageState,
     replyToId: m.relatedMessageId ?? undefined,
     reactions: m.reactions
       ?.filter((r) => Number.isFinite(r.type))
@@ -330,6 +340,7 @@ export function mapMessage(
       Boolean(m.originalText),
     editedAt: m.updatedTime != null && m.updatedTime > 0 ? m.updatedTime : undefined,
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
+    history: m.history?.length ? m.history : undefined,
     contact,
     location,
   };
