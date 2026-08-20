@@ -41,10 +41,7 @@ function chunkKeyId(chunk: string | Uint8Array | undefined): number | null {
 }
 
 /** メッセージ chunks[4] = グループ時の groupKeyId */
-export function groupKeyIdFromMessage(
-  // biome-ignore lint/suspicious/noExplicitAny: protocol message
-  msg: any,
-): number | null {
+export function groupKeyIdFromMessage(msg: any): number | null {
   if (!Array.isArray(msg?.chunks) || !msg.chunks[4]) return null;
   return chunkKeyId(msg.chunks[4]);
 }
@@ -197,11 +194,7 @@ function tryUnwrapWithPriv(
   }
 }
 
-async function unwrapSharedKey(
-  base: BaseClient,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol shared key blob
-  shared: any,
-): Promise<GroupKeyMaterial> {
+async function unwrapSharedKey(base: BaseClient, shared: any): Promise<GroupKeyMaterial> {
   const groupKeyId = Number(shared.groupKeyId);
   const receiverKeyId = Number(shared.receiverKeyId);
   const creatorKeyId = Number(shared.creatorKeyId);
@@ -218,7 +211,6 @@ async function unwrapSharedKey(
     creatorKey = Buffer.from(creatorSelf.pubKey, "base64");
     await base.storage.set(selfPubCacheKey(creatorKeyId), creatorSelf.pubKey);
   } else {
-    // biome-ignore lint/suspicious/noExplicitAny: protocol e2ee フォールバック専用
     creatorKey = await (base.e2ee as any).getE2EELocalPublicKey(creator, creatorKeyId);
   }
 
@@ -308,7 +300,6 @@ export async function ensureGroupKeyById(
     return cached;
   }
 
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
   let shared: any;
   try {
     shared = await base.talk.getE2EEGroupSharedKey({
@@ -349,7 +340,6 @@ export async function ensureGroupKeyById(
 export async function prepareGroupKeysForMessages(
   client: AnyClient,
   chatMid: string,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol messages
   messages: any[],
 ): Promise<{ prepared: number; failed: number; keyIds: number[] }> {
   const isGroup = chatMid.startsWith("c") || chatMid.startsWith("r");
@@ -411,8 +401,6 @@ export async function prepareGroupKeysForMessages(
  */
 export function patchGroupKeyLookup(client: AnyClient): void {
   const base = asBase(client);
-  // biome-ignore lint/suspicious/noExplicitAny: protocol e2ee
-  const e2ee = base.e2ee as any;
   if (e2ee.__vylineGroupKeyLookupPatchedV3) return;
 
   if (typeof e2ee.tryRegisterE2EEGroupKey === "function" && !e2ee.__vylineTryRegisterBlocked) {
@@ -541,7 +529,6 @@ export async function recreateE2EEGroupKey(
 ): Promise<GroupKeyMaterial> {
   const base = asBase(client);
   patchGroupKeyLookup(client);
-  // biome-ignore lint/suspicious/noExplicitAny: protocol e2ee
   const e2ee = base.e2ee as any;
   const original = e2ee.__vylineOriginalTryRegisterE2EEGroupKey as
     | ((mid: string) => Promise<unknown>)

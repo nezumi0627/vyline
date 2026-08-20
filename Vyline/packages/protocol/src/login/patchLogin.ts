@@ -21,7 +21,6 @@ import type { ThriftField } from "../protocol/thrift.js";
 import { getDesktopPcIdentity } from "./pcIdentity.js";
 import { DESKTOP_AUTH_RS, DESKTOP_TALK_RSA } from "./patchTransport.js";
 
-// biome-ignore lint/suspicious/noExplicitAny: protocol Login は公開型が薄い
 type LoginAny = any;
 
 /**

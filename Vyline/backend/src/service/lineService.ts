@@ -334,10 +334,8 @@ function chunkKeyId(chunk: string | Uint8Array | undefined): number | null {
 async function decryptViaLetterSealingOrProtocol(
   client: NonNullable<ReturnType<typeof getClient>>,
   chatMid: string,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol raw message type
   msg: any,
   isSelf: boolean,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol raw message type
 ): Promise<any> {
   try {
     const rawCt = msg.contentType;
@@ -411,7 +409,6 @@ async function decryptE2EEMessageSafe(
   client: NonNullable<ReturnType<typeof getClient>>,
   accountId: string,
   chatMid: string,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol raw message type
   msg: any,
 ): Promise<any> {
   if (!msg?.chunks || !Array.isArray(msg.chunks) || msg.chunks.length === 0) return msg;
@@ -643,7 +640,6 @@ const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS 
 
 type MessageBoxesCacheEntry = {
   at: number;
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
   boxes: any[];
 };
 const messageBoxesCache = new Map<string, MessageBoxesCacheEntry>();
@@ -659,7 +655,6 @@ const MESSAGE_BOXES_FULL_CACHE_MS = Number(
  *  — getMessageBoxes 全体取得を回避し、個別チャットのメッセージ取得を高速化 */
 type BoxCursorCacheEntry = {
   at: number;
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
   endMessageId: any;
 };
 const boxCursorCache = new Map<string, BoxCursorCacheEntry>();
@@ -682,11 +677,9 @@ function isTimeoutError(err: unknown): boolean {
 async function fetchPreviousMessagesRpc(
   client: NonNullable<ReturnType<typeof getClient>>,
   boxId: string,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
   endMessageId: any,
   limit: number,
   timeoutMs = TALK_FETCH_TIMEOUT_MS,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
 ): Promise<any[]> {
   const talk = client.base.talk;
   return withTimeout(
@@ -724,7 +717,6 @@ const DESKTOP_MESSAGE_BOX_LIST_REQUEST = {
  */
 async function fetchAllMessageBoxes(
   client: NonNullable<ReturnType<typeof getClient>>,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
 ): Promise<any[]> {
   const all: any[] = [];
   const prefixes = ["c", "u", "r"];
@@ -773,7 +765,6 @@ async function fetchMessageBoxesCached(
   accountId: string,
   client: NonNullable<ReturnType<typeof getClient>>,
   opts?: { force?: boolean; forChats?: boolean },
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
 ): Promise<any[]> {
   const forChats = opts?.forChats ?? false;
   const key = messageBoxesCacheKey(accountId, forChats);
@@ -2241,10 +2232,7 @@ export async function getReadReceiptsForChat(
  * グループ/ルーム: client.fetchJoinedChats()
  * 友達 (direct): client.fetchUsers()
  */
-function previewFromBoxMessage(
-  // biome-ignore lint/suspicious/noExplicitAny: protocol lastMessages entry
-  msg: any | undefined,
-): string {
+function previewFromBoxMessage(msg: any | undefined): string {
   if (!msg) return "";
   const meta = (msg.contentMetadata ?? null) as Record<string, unknown> | null;
   const alt = meta && typeof meta.ALT_TEXT === "string" ? meta.ALT_TEXT.trim() : "";
@@ -2297,10 +2285,7 @@ function previewFromBoxMessage(
   }
 }
 
-function boxMeta(
-  // biome-ignore lint/suspicious/noExplicitAny: protocol message box
-  box: any | undefined,
-): {
+function boxMeta(box: any | undefined): {
   lastMessageTime: number;
   lastMessagePreview: string;
   lastMessageId?: string;
@@ -2332,7 +2317,6 @@ function boxMeta(
 }
 
 function chatFromMessageBox(
-  // biome-ignore lint/suspicious/noExplicitAny: protocol message box
   box: any,
   groupByMid: Map<string, { mid: string; name: string; raw?: Record<string, unknown> }>,
   userByMid: Map<
@@ -3309,7 +3293,6 @@ async function fetchMessagesInner(
   const mark = (label: string) => timings.push(`${label}=${Date.now() - t0}ms`);
 
   // messageBoxId は通常 chatMid と同じ。ページング時は getMessageBoxes を省略して高速化
-  // biome-ignore lint/suspicious/noExplicitAny: protocol
   let endMessageId: any;
   let boxId = chatMid;
 
@@ -3347,7 +3330,6 @@ async function fetchMessagesInner(
         endMessageId = cachedBox.endMessageId;
         mark("boxCursorCache");
       } else {
-        // biome-ignore lint/suspicious/noExplicitAny: protocol message box
         let messageBoxes: any[] = [];
         try {
           messageBoxes = await withTimeout(
@@ -3673,7 +3655,6 @@ async function rememberSentRaw(
   accountId: string,
   chatMid: string,
   myMid: string,
-  // biome-ignore lint/suspicious/noExplicitAny: thrift Message
   sent: any,
 ): Promise<Message | null> {
   if (!sent || typeof sent !== "object") return null;
@@ -4919,9 +4900,7 @@ async function findMediaSourceMessage(
   client: NonNullable<ReturnType<typeof getClient>>,
   chatMid: string,
   messageId: string,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol message box
   box: any,
-  // biome-ignore lint/suspicious/noExplicitAny: protocol raw message
 ): Promise<any | null> {
   let endId: bigint;
   try {
@@ -4949,11 +4928,9 @@ async function findMediaSourceMessage(
     )) as unknown[];
     if (!Array.isArray(batch) || batch.length === 0) return null;
 
-    // biome-ignore lint/suspicious/noExplicitAny: protocol
     const found = (batch as any[]).find((m) => String(m.id) === messageId);
     if (found) return found;
 
-    // biome-ignore lint/suspicious/noExplicitAny: protocol
     const oldest = (batch as any[]).reduce((a, b) =>
       BigInt(String(a.id)) < BigInt(String(b.id)) ? a : b,
     );
@@ -5072,7 +5049,6 @@ export async function fetchMessageMedia(
     } catch {
       endId = BigInt(Date.now()) * 1000n;
     }
-    // biome-ignore lint/suspicious/noExplicitAny: protocol message box
     const boxOrSynthetic: any = box ?? {
       id: chatMid,
       lastDeliveredMessageId: {
