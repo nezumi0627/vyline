@@ -26,6 +26,8 @@ import {
   IconDownload,
   IconAtSign,
   IconPin,
+  IconHeart,
+  IconClose,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
 import { segmentUnicodeEmoji } from "@/utils/lineSticon";
@@ -571,12 +573,55 @@ export const MessageBubble = memo(
       { label: "リプライ", icon: <IconReply size={16} />, onClick: () => setReplyTo(message.id) },
       ...(!chat.isOfficial
         ? [
-            { label: "いいね", icon: <ReactionGlyph type={2} />, onClick: () => react(2, false) },
-            { label: "愛してる", icon: <ReactionGlyph type={3} />, onClick: () => react(3, false) },
-            { label: "面白い", icon: <ReactionGlyph type={4} />, onClick: () => react(4, false) },
-            { label: "すごい", icon: <ReactionGlyph type={5} />, onClick: () => react(5, false) },
-            { label: "悲しい", icon: <ReactionGlyph type={6} />, onClick: () => react(6, false) },
-            { label: "びっくり", icon: <ReactionGlyph type={7} />, onClick: () => react(7, false) },
+            {
+              label: "リアクション",
+              icon: <IconHeart size={16} />,
+              children: [
+                ...(message.reactions?.some((r) => r.fromMid === self?.mid)
+                  ? [
+                      {
+                        label: "リアクションを取り消す",
+                        icon: <IconClose size={16} />,
+                        onClick: () =>
+                          react(
+                            message.reactions?.find((r) => r.fromMid === self?.mid)?.type ?? 0,
+                            true,
+                          ),
+                      },
+                    ]
+                  : []),
+                {
+                  label: "いいね",
+                  icon: <ReactionGlyph type={2} />,
+                  onClick: () => react(2, false),
+                },
+                {
+                  label: "愛してる",
+                  icon: <ReactionGlyph type={3} />,
+                  onClick: () => react(3, false),
+                },
+                {
+                  label: "面白い",
+                  icon: <ReactionGlyph type={4} />,
+                  onClick: () => react(4, false),
+                },
+                {
+                  label: "すごい",
+                  icon: <ReactionGlyph type={5} />,
+                  onClick: () => react(5, false),
+                },
+                {
+                  label: "悲しい",
+                  icon: <ReactionGlyph type={6} />,
+                  onClick: () => react(6, false),
+                },
+                {
+                  label: "びっくり",
+                  icon: <ReactionGlyph type={7} />,
+                  onClick: () => react(7, false),
+                },
+              ],
+            },
           ]
         : []),
       ...(message.text || message.altText
