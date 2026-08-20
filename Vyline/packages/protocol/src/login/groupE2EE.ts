@@ -401,6 +401,7 @@ export async function prepareGroupKeysForMessages(
  */
 export function patchGroupKeyLookup(client: AnyClient): void {
   const base = asBase(client);
+  const e2ee = base.e2ee as any;
   if (e2ee.__vylineGroupKeyLookupPatchedV3) return;
 
   if (typeof e2ee.tryRegisterE2EEGroupKey === "function" && !e2ee.__vylineTryRegisterBlocked) {
