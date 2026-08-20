@@ -108,7 +108,14 @@ export class VylineStorage<T extends object> {
     if (!data) return;
     try {
       await mkdir(DATA_DIR, { recursive: true });
-      await writeFile(this.path(accountId), JSON.stringify(data), "utf8");
+      await writeFile(
+        this.path(accountId),
+        JSON.stringify(data, (key, value) => {
+          if (typeof value === "bigint") return value.toString();
+          return value;
+        }),
+        "utf8",
+      );
     } catch (err) {
       this.dirty.add(accountId);
       log.warn({ accountId, namespace: this.namespace, err }, "VylineStorage flush failed");
