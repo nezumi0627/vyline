@@ -174,6 +174,40 @@ export class TalkService implements BaseService {
     }
   }
 
+  async editMessage(param: {
+    seq?: number;
+    from: string;
+    to: string;
+    toType?: number;
+    messageId: string;
+    text: string;
+  }): Promise<{ message: LINETypes.Message }> {
+    return (await this.client.request.request(
+      LINEStruct.editMessage_args({
+        seq: param.seq ?? (await this.client.getReqseq()),
+        from: param.from,
+        to: param.to,
+        toType: param.toType,
+        messageId: param.messageId,
+        text: param.text,
+      }),
+      "editMessage",
+      4, // TCompactProtocol
+      true,
+      "/S4",
+    )) as { message: LINETypes.Message };
+  }
+
+  async getMessageEditNotice(chatMid: string): Promise<{ count: number; updatedTime: number }> {
+    return (await this.client.request.request(
+      LINEStruct.getMessageEditNotice_args({ chatMid }),
+      "getMessageEditNotice",
+      4, // TCompactProtocol
+      true,
+      "/S4",
+    )) as { count: number; updatedTime: number };
+  }
+
   async sendCompactMessage(options: SendCompactMessageOptions): Promise<CompactMessageResponse> {
     if (options.chunks || options.e2ee === true) {
       return this.sendCompactE2EEMessage(options);

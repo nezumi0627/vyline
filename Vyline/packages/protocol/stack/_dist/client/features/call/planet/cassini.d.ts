@@ -31,10 +31,10 @@
  */
 /** Protobuf wire type tags. */
 export declare const enum WireType {
-  Varint = 0,
-  Fixed64 = 1,
-  LengthDelim = 2,
-  Fixed32 = 5,
+    Varint = 0,
+    Fixed64 = 1,
+    LengthDelim = 2,
+    Fixed32 = 5
 }
 /** Encode a protobuf varint. */
 export declare function encodeVarint(n: number | bigint): Uint8Array;
@@ -42,9 +42,9 @@ export declare function encodeVarint(n: number | bigint): Uint8Array;
 export declare function decodeVarint(buf: Uint8Array, off: number): [bigint, number];
 /** A single protobuf field. */
 export interface PbField {
-  tag: number;
-  wireType: WireType;
-  value: bigint | Uint8Array;
+    tag: number;
+    wireType: WireType;
+    value: bigint | Uint8Array;
 }
 /** Encode a sequence of protobuf fields to wire bytes. */
 export declare function encodePb(fields: PbField[]): Uint8Array;
@@ -53,37 +53,37 @@ export declare function decodePb(buf: Uint8Array): PbField[];
 /** Cassini message envelope — the outer protobuf the libandromeda
  *  call control plane uses. Field tags match `pln_msg_pack` output. */
 export interface CassiniEnvelope {
-  header: CassiniHeader;
-  body: Uint8Array;
+    header: CassiniHeader;
+    body: Uint8Array;
 }
 export interface CassiniHeader {
-  /** Owning user mid (Cassini "user_id"). */
-  userId: string;
-  /** Monotonic per-call sequence (the 0x1d5/0x1d6/... we observed). */
-  msgId: number;
-  /** 16-byte call UUID — constant for the call's lifetime. */
-  callUuid16: Uint8Array;
-  /** 16-byte per-message random / HMAC tag — varies per packet. */
-  msgNonce: Uint8Array;
-  /** Wire-observed counter (varint). Increments slowly. */
-  counter: bigint;
-  /** Subscription id (varint) — constant per call. */
-  subscriptionId: bigint;
-  /** Session id (varint) — constant per call, differs slightly by msg
-   *  class (the upper bits encode a class indicator). */
-  sessionId: bigint;
+    /** Owning user mid (Cassini "user_id"). */
+    userId: string;
+    /** Monotonic per-call sequence (the 0x1d5/0x1d6/... we observed). */
+    msgId: number;
+    /** 16-byte call UUID — constant for the call's lifetime. */
+    callUuid16: Uint8Array;
+    /** 16-byte per-message random / HMAC tag — varies per packet. */
+    msgNonce: Uint8Array;
+    /** Wire-observed counter (varint). Increments slowly. */
+    counter: bigint;
+    /** Subscription id (varint) — constant per call. */
+    subscriptionId: bigint;
+    /** Session id (varint) — constant per call, differs slightly by msg
+     *  class (the upper bits encode a class indicator). */
+    sessionId: bigint;
 }
 /** Envelope-body tag varies by message class. Observed values from a
  *  native LINE call: */
 export declare const ENVELOPE_BODY_TAG: {
-  readonly KA: 2;
-  readonly CONTROL: 3;
-  readonly STATE: 4;
+    readonly KA: 2;
+    readonly CONTROL: 3;
+    readonly STATE: 4;
 };
 export declare function packCassiniHeader(h: CassiniHeader): Uint8Array;
 export declare function packCassini(env: CassiniEnvelope, bodyTag?: number): Uint8Array;
 export declare function unpackCassini(wire: Uint8Array): CassiniEnvelope & {
-  bodyTag: number;
+    bodyTag: number;
 };
 /** Body payload — observed contents include:
  *  - call UUID string
@@ -92,12 +92,12 @@ export declare function unpackCassini(wire: Uint8Array): CassiniEnvelope & {
  *  - device info
  */
 export interface CassiniBody {
-  callUuid?: string;
-  msgTypeName?: string;
-  jsonParams?: string;
-  deviceInfo?: string;
-  /** Additional protobuf fields that we don't yet have names for. */
-  extra?: PbField[];
+    callUuid?: string;
+    msgTypeName?: string;
+    jsonParams?: string;
+    deviceInfo?: string;
+    /** Additional protobuf fields that we don't yet have names for. */
+    extra?: PbField[];
 }
 export declare function packCassiniBody(b: CassiniBody): Uint8Array;
 export declare function unpackCassiniBody(wire: Uint8Array): CassiniBody;
@@ -105,31 +105,31 @@ export declare function unpackCassiniBody(wire: Uint8Array): CassiniBody;
  *  values are observed-constant within a single call and need to be
  *  established by an initial bootstrap handshake (still under RE). */
 export interface CassiniSession {
-  fromMid: string;
-  callUuid16: Uint8Array;
-  callUuidString: string;
-  subscriptionId: bigint;
-  sessionId: bigint;
+    fromMid: string;
+    callUuid16: Uint8Array;
+    callUuidString: string;
+    subscriptionId: bigint;
+    sessionId: bigint;
 }
 /** Build a Cassini SETUP envelope (state-class body, tag=4 on the wire). */
 export declare function buildSetupReq(opts: {
-  session: CassiniSession;
-  msgId: number;
-  counter: bigint;
-  deviceInfo: string;
+    session: CassiniSession;
+    msgId: number;
+    counter: bigint;
+    deviceInfo: string;
 }): Uint8Array;
 /** Build a Cassini "exchange_app_str_data" — used mid-call for app-level
  *  signaling (e.g. CSV capability flag). control-class body (tag=3). */
 export declare function buildExchangeAppStrData(opts: {
-  session: CassiniSession;
-  msgId: number;
-  counter: bigint;
-  json: string;
+    session: CassiniSession;
+    msgId: number;
+    counter: bigint;
+    json: string;
 }): Uint8Array;
 /** Build a Cassini REL (release / BYE-equivalent). control-class body. */
 export declare function buildRelReq(opts: {
-  session: CassiniSession;
-  msgId: number;
-  counter: bigint;
-  reason?: string;
+    session: CassiniSession;
+    msgId: number;
+    counter: bigint;
+    reason?: string;
 }): Uint8Array;

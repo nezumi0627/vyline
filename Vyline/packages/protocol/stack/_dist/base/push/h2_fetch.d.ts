@@ -33,10 +33,23 @@
  *     BaseClient that already enables h2.
  */
 import type { Fetch } from "../types.ts";
-/** Returns an h2-capable fetch for Node, or null on every other runtime
- *  (or on Node if undici can't be loaded). The result is cached for the
- *  lifetime of the process; the Agent it wires up keeps an h2 connection
- *  pool alive across push reconnects, which matches what the user code
- *  in `example/node/allow_h2_for_push.ts` was doing with the global
- *  dispatcher. */
+/**
+ * Returns an h2-capable fetch isolated on its own connection pool for the
+ * LINE push endpoint.
+ *
+ * **Why this exists.** LINE's push endpoint serves bidirectional streaming
+ * over HTTP/2. Two problems:
+ *   1. Node.js's native fetch defaults to HTTP/1.1 unless an h2-enabled
+ *      Agent is installed. We swap in an undici-backed fetch with
+ *      `allowH2` for this connection only.
+ *   2. On Bun, native fetch does h2 but pools connections per-host, so
+ *      the long-lived `/PUSH` stream shares an HTTP/2 session with normal
+ *      `/S4` RPCs. A dying `/PUSH` (rejected/reset by the server) churns
+ *      that shared session and makes concurrent `/S4` sends hang until
+ *      timeout. Using the undici Agent here gives the push its OWN
+ *      connection pool, isolated from `/S4`.
+ *
+ * The result is cached for the process lifetime; the Agent keeps the h2
+ * pool alive across push reconnects.
+ */
 export declare function getH2EnabledFetchForNode(): Promise<Fetch | null>;

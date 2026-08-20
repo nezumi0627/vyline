@@ -203,6 +203,8 @@ export type ReadReceiptsResponse = ApiResult<{
 }>;
 export type SendResponse = ApiResult<{ code?: string; message?: Message }>;
 export type UnsendResponse = ApiResult<Record<string, never>>;
+export type EditResponse = ApiResult<{ message?: Message }>;
+export type EditNoticeResponse = ApiResult<{ count?: number; updatedTime?: string }>;
 
 export type SavedSession = {
   accountId: string;

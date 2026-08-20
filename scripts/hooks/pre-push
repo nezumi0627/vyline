@@ -1,0 +1,18 @@
+#!/usr/bin/env sh
+# pre-push hook: biome lint + format check before every git push
+# Installed via: git config core.hooksPath scripts/hooks
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+cd "$REPO_ROOT"
+
+echo "🔍 Running biome check..."
+if ! bun run lint; then
+  echo ""
+  echo "❌ Biome check failed. Fix errors/formatting before pushing."
+  echo "   Tip: run 'bun x biome check --write Vyline' to auto-fix safe issues."
+  exit 1
+fi
+
+echo "✅ Biome check passed"
+echo "🚀 Pushing..."
+
