@@ -44,13 +44,6 @@ export const IconPalette = (p: IconProps) => (
   </svg>
 );
 
-export const IconLock = (p: IconProps) => (
-  <svg {...base(p)}>
-    <rect x="4" y="10" width="16" height="11" rx="2.5" />
-    <path d="M8 10V7a4 4 0 0 1 8 0v3" />
-  </svg>
-);
-
 export const IconShield = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M12 3 5 6v5c0 4.5 3 8 7 10 4-2 7-5.5 7-10V6Z" />

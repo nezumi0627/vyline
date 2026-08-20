@@ -45,10 +45,6 @@ export function useVylineSync(enabled = true) {
 
   const setScreen = useStore((s) => s.setScreen);
 
-  const pinEnabled = useStore((s) => s.settings.pinEnabled);
-
-  const unlocked = useStore((s) => s.unlocked);
-
   const showUpdateNote = useStore((s) => s.showUpdateNote);
 
   const line = useLineData({ accountId: enabled ? accountId : null });
@@ -184,18 +180,12 @@ export function useVylineSync(enabled = true) {
 
     setAccountId(accountId);
 
-    if (accountId && pinEnabled && !unlocked) {
-      setScreen("lock");
-
-      return;
-    }
-
-    if (accountId && unlocked && !showUpdateNote) {
+    if (accountId && !showUpdateNote) {
       const screen = useStore.getState().screen;
 
       if (screen === "home") setScreen("chat");
     }
-  }, [enabled, accountId, setAccountId, pinEnabled, unlocked, setScreen, showUpdateNote]);
+  }, [enabled, accountId, setAccountId, setScreen, showUpdateNote]);
 
   useEffect(() => {
     if (!enabled || !accountId) return;

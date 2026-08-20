@@ -190,10 +190,6 @@ export type Settings = {
   compactDensity: boolean;
   fontScale: number;
   enterToSend: boolean;
-  pinEnabled: boolean;
-  pin: string;
-  pinMode: "pin" | "password";
-  requirePinForOpen: boolean;
   chatSort: ChatSort;
   customCursor: boolean;
   bubbleTail: boolean;

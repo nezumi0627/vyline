@@ -1,6 +1,6 @@
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Avatar } from "@/components/vy-ui";
-import { IconChat, IconClose, IconChevron, IconLock, IconSpark } from "@/components/icons";
+import { IconChat, IconClose, IconChevron, IconSpark } from "@/components/icons";
 
 /**
  * アップデート時のみ表示するリリースノート画面。
@@ -9,12 +9,10 @@ import { IconChat, IconClose, IconChevron, IconLock, IconSpark } from "@/compone
 export function HubHome() {
   const dismissUpdateNote = useStore((s) => s.dismissUpdateNote);
   const setScreen = useStore((s) => s.setScreen);
-  const lock = useStore((s) => s.lock);
   const self = useStore((s) => s.self);
-  const pinEnabled = useStore((s) => s.settings.pinEnabled);
 
   return (
-    <div className="vy-scroll relative h-dvh overflow-y-auto bg-[var(--vy-bg)]">
+    <div className="vy-scroll relative h-dvh overflow-y-auto bg-[var(--vy-bg)] overflow-y-auto">
       <div
         aria-hidden
         className="pointer-events-none absolute inset-x-0 top-0 h-[420px]"
@@ -35,16 +33,6 @@ export function HubHome() {
             </div>
             <span className="text-lg font-semibold tracking-tight">Vyline</span>
           </div>
-          {pinEnabled && (
-            <button
-              type="button"
-              onClick={lock}
-              className="flex items-center gap-2 rounded-full border border-[var(--vy-border)] px-4 py-2 text-sm text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-            >
-              <IconLock size={16} />
-              ロック
-            </button>
-          )}
         </div>
 
         <div className="mt-14 md:mt-16">

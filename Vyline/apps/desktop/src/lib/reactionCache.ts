@@ -1,8 +1,4 @@
-export type MessageReaction = {
-  fromMid: string;
-  atMillis: number;
-  type: number;
-};
+import type { MessageReaction } from "./store-types.js";
 
 export type ReactionsCache = Map<string, MessageReaction[]>;
 
