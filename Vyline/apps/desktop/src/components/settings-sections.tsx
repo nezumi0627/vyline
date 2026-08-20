@@ -22,15 +22,25 @@ import {
   IconEdit,
   IconChevron,
   IconSpark,
+  IconBell,
 } from "@/components/icons";
 
-type Section = "profile" | "read" | "display" | "theme" | "privacy" | "advanced" | "info";
+type Section =
+  | "profile"
+  | "read"
+  | "display"
+  | "theme"
+  | "privacy"
+  | "notifications"
+  | "advanced"
+  | "info";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
   { key: "read", label: "既読", icon: <IconEye size={18} /> },
   { key: "display", label: "表示", icon: <IconSettings size={18} /> },
   { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
+  { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
@@ -470,6 +480,8 @@ export function SettingsSections() {
               )}
 
               {section === "theme" && <ThemeSectionWithPreview />}
+
+              {section === "notifications" && <NotificationsSection />}
 
               {section === "privacy" && <PrivacySection />}
 
@@ -1010,6 +1022,50 @@ function InfoSection() {
       <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
         Made with 💙 · MIT License
       </p>
+    </Section>
+  );
+}
+
+function NotificationsSection() {
+  const settings = useStore((s) => s.settings);
+  const updateSetting = useStore((s) => s.updateSetting);
+  const accountId = useStore((s) => s.accountId);
+  const [saving, setSaving] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const toggle = async () => {
+    if (!accountId) {
+      setMsg("ログインが必要です");
+      return;
+    }
+    const next = !settings.notificationsEnabled;
+    setSaving(true);
+    setMsg(null);
+    try {
+      const res = await api.line.setNotification(accountId, next);
+      if (!res.ok) throw new Error(res.error ?? "失敗");
+      updateSetting("notificationsEnabled", next);
+      setMsg(next ? "通知を有効にしました" : "通知を無効にしました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Section title="通知" desc="モバイルプッシュ通知の有効/無効を切替します">
+      <Card>
+        <Row title="通知を有効にする" desc="OFF にすると LINE からのプッシュ通知を一時停止します">
+          <Toggle
+            checked={settings.notificationsEnabled}
+            onChange={toggle}
+            label="通知を有効にする"
+            disabled={saving || !accountId}
+          />
+        </Row>
+      </Card>
+      {msg && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
     </Section>
   );
 }

@@ -4599,6 +4599,27 @@ export async function unblockContactMid(accountId: string, mid: string): Promise
   log.info({ accountId, mid }, "contact unblocked");
 }
 
+/** モバイルプッシュ通知の有効/無効 — Desktop: TalkService_setNotificationsEnabled (type=USER) */
+export async function setNotificationsEnabled(
+  accountId: string,
+  enablement: boolean,
+): Promise<void> {
+  const authService = require("../auth/mod.js").AuthService;
+  await authService.tryRefreshToken(accountId);
+
+  const client = requireClient(accountId);
+  const mid = client.base.profile?.mid;
+  if (!mid) throw new Error("self MID not found — login required");
+
+  await client.base.talk.setNotificationsEnabled({
+    reqSeq: await client.base.getReqseq(),
+    type: 0,
+    target: mid,
+    enablement,
+  });
+  log.info({ accountId, enablement }, "notificationsEnabled updated");
+}
+
 /** react RPC は稀に 8s を超えるため専用タイムアウト（通常 15s） */
 const REACT_RPC_TIMEOUT_MS = Number(process.env.VYLINE_REACT_RPC_TIMEOUT_MS ?? 15_000);
 

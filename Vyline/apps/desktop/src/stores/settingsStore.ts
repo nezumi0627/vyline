@@ -30,6 +30,8 @@ export type SettingsState = {
   pin: string;
   /** チャット開くたびにPIN入力が必要か */
   requirePinForOpen: boolean;
+  /** モバイルプッシュ通知の有効/無効 */
+  notificationsEnabled: boolean;
   setAutoMarkAsRead: (v: boolean) => void;
   setShowReadReceipts: (v: boolean) => void;
   setShowReadByList: (v: boolean) => void;
@@ -42,6 +44,7 @@ export type SettingsState = {
   setPinEnabled: (v: boolean) => void;
   setPin: (v: string) => void;
   setRequirePinForOpen: (v: boolean) => void;
+  setNotificationsEnabled: (v: boolean) => void;
 };
 
 export const useSettingsStore = create<SettingsState>()(
@@ -59,6 +62,7 @@ export const useSettingsStore = create<SettingsState>()(
       pinEnabled: false,
       pin: "",
       requirePinForOpen: false,
+      notificationsEnabled: true,
       setAutoMarkAsRead: (v) => set({ autoMarkAsRead: v }),
       setShowReadReceipts: (v) => set({ showReadReceipts: v }),
       setShowReadByList: (v) => set({ showReadByList: v }),
@@ -71,6 +75,7 @@ export const useSettingsStore = create<SettingsState>()(
       setPinEnabled: (v) => set({ pinEnabled: v }),
       setPin: (v: string) => set({ pin: v }),
       setRequirePinForOpen: (v) => set({ requirePinForOpen: v }),
+      setNotificationsEnabled: (v) => set({ notificationsEnabled: v }),
     }),
     { name: "vyline:settings" },
   ),
