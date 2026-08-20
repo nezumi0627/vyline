@@ -16,6 +16,7 @@ import { FlexMessageView } from "@/components/flex-message";
 import { FlexActions } from "@/components/flex-actions";
 import { RichMessageView } from "@/components/rich-message";
 import { CallEventMessage } from "@/components/call-event-message";
+import { EditMessageDialog } from "@/components/edit-message-dialog";
 import {
   IconReply,
   IconCopy,
@@ -28,6 +29,7 @@ import {
   IconPin,
   IconHeart,
   IconClose,
+  IconEdit,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
 import { segmentUnicodeEmoji } from "@/utils/lineSticon";
@@ -456,6 +458,7 @@ export const MessageBubble = memo(
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
     const revokeMessage = useStore((s) => s.revokeMessage);
+    const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
     const setReplyTo = useStore((s) => s.setReplyTo);
@@ -468,6 +471,8 @@ export const MessageBubble = memo(
     );
     const self = useStore((s) => s.self);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
+    const [editing, setEditing] = useState(false);
+    const [showOriginal, setShowOriginal] = useState(false);
     const [showReaders, setShowReaders] = useState(false);
     const [lightbox, setLightbox] = useState(false);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -687,6 +692,28 @@ export const MessageBubble = memo(
         : []),
       ...(isMe &&
       !message.revoked &&
+      message.kind === "text" &&
+      message.status !== "sending" &&
+      !message.id.startsWith("pending_")
+        ? [
+            {
+              label: "編集",
+              icon: <IconEdit size={16} />,
+              onClick: () => setEditing(true),
+            },
+          ]
+        : []),
+      ...(message.edited && message.originalText
+        ? [
+            {
+              label: showOriginal ? "編集後のメッセージを表示" : "編集前のメッセージを表示",
+              icon: <IconEdit size={16} />,
+              onClick: () => setShowOriginal((v) => !v),
+            },
+          ]
+        : []),
+      ...(isMe &&
+      !message.revoked &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_")
         ? [
@@ -708,6 +735,8 @@ export const MessageBubble = memo(
           ]
         : []),
     ];
+
+    const isMessageEdited = message.edited || Boolean(message.originalText);
 
     const readReceipt = (() => {
       if (!isMe || message.revoked) return null;
@@ -774,12 +803,38 @@ export const MessageBubble = memo(
     const metaLine = !message.revoked && (
       <div
         className={cn(
-          "mt-1 flex items-center gap-2 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
+          "mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
           isMe ? "flex-row-reverse" : "flex-row",
         )}
       >
         <span>{formatTime(message.createdAt)}</span>
         {readReceipt}
+        {isMessageEdited && (
+          <span
+            className="flex items-center gap-0.5 text-[0.65rem] opacity-80"
+            title={
+              message.originalText
+                ? `クリックで${showOriginal ? "編集後" : "編集前"}を表示`
+                : "編集済み"
+            }
+          >
+            <span className="opacity-50">·</span>
+            {message.originalText ? (
+              <button
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowOriginal((v) => !v);
+                }}
+                className="hover:text-[var(--vy-text)] hover:underline focus-visible:outline-none"
+              >
+                {showOriginal ? "編集前を表示中" : "編集済み"}
+              </button>
+            ) : (
+              <span>編集済み</span>
+            )}
+          </span>
+        )}
         {canReaderList && (
           <button
             type="button"
@@ -1082,15 +1137,36 @@ export const MessageBubble = memo(
               {message.kind === "audio" && message.audioSrc && (
                 <AudioBubble src={message.audioSrc} seconds={message.audioSeconds} />
               )}
-              {message.text && message.kind === "text" && (
-                <p className="vy-msg-text whitespace-pre-wrap break-words">
-                  <Highlighted
-                    text={message.text}
-                    query={highlight}
-                    sticons={message.sticons}
-                    mentions={message.mentions}
-                  />
-                </p>
+              {message.kind === "text" && (
+                <div>
+                  {showOriginal && message.originalText && (
+                    <div className="mb-1 flex items-center justify-between border-b border-current/15 pb-1 text-[0.65rem] opacity-70">
+                      <span>編集前のメッセージ</span>
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setShowOriginal(false);
+                        }}
+                        className="underline hover:opacity-100"
+                      >
+                        戻す
+                      </button>
+                    </div>
+                  )}
+                  <p className="vy-msg-text whitespace-pre-wrap break-words">
+                    <Highlighted
+                      text={
+                        showOriginal && message.originalText
+                          ? message.originalText
+                          : (message.text ?? "")
+                      }
+                      query={highlight}
+                      sticons={message.sticons}
+                      mentions={message.mentions}
+                    />
+                  </p>
+                </div>
               )}
               {message.linkPreview && !streamerMode && (
                 <LinkPreviewCard preview={message.linkPreview} />
@@ -1116,6 +1192,15 @@ export const MessageBubble = memo(
             y={menu.y}
             items={menuItems}
             onClose={() => setMenu(null)}
+          />
+        )}
+        {editing && (
+          <EditMessageDialog
+            initialText={message.text ?? ""}
+            onSave={async (newText) => {
+              await editMessage(message.id, newText);
+            }}
+            onClose={() => setEditing(false)}
           />
         )}
         {lightbox && message.imageSrc && (

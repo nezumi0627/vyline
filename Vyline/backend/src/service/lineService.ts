@@ -4221,12 +4221,26 @@ export async function editMessage(
   return runSendRpc(accountId, async () => {
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
-    const res = await client.base.talk.editMessage({
-      from: myMid,
-      to: chatMid,
-      messageId,
-      text,
-    });
+    let res: { message: unknown };
+    try {
+      res = await client.base.talk.editMessage({
+        from: myMid,
+        to: chatMid,
+        messageId,
+        text,
+      });
+    } catch (err: unknown) {
+      const errStr = String(err);
+      if (errStr.includes("NOT_PREMIUM") || errStr.includes("non-LYP subscriber")) {
+        throw new Error(
+          "メッセージ編集はLYPプレミアム会員限定の機能です（LINE仕様により副端末からの編集はLYP会員のみ許可されています）",
+        );
+      }
+      if (errStr.includes("TOO_OLD") || errStr.includes("too old")) {
+        throw new Error("メッセージの編集可能時間を過ぎています");
+      }
+      throw err;
+    }
     const mapped = mapDecodedRawToMessage(res.message as unknown as Record<string, unknown>, myMid);
     await upsertMessages(accountId, chatMid, [
       { ...mapped, chatMid, savedAt: new Date().toISOString() },
