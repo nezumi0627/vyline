@@ -53,17 +53,11 @@ for (let i = 0; i < rawArgs.length; i++) {
 
 if (terms.length === 0) {
   console.error("usage: bun run find -- <word|funcName> [more...] [--options]");
-  console.error(
-    "  --exe <path>            unpacked exe (default: data/unpacked_LINE.exe or VYLINE_SEARCH_EXE)",
-  );
-  console.error(
-    "  --max-strings <n>       1 term あたりの文字列一覧の上限表示数 (既定: 全件, JSON には常に全件)",
-  );
+  console.error("  --exe <path>            unpacked exe (default: data/unpacked_LINE.exe or VYLINE_SEARCH_EXE)");
+  console.error("  --max-strings <n>       1 term あたりの文字列一覧の上限表示数 (既定: 全件, JSON には常に全件)");
   console.error("  --max-functions <n>     decompile する関数数の上限 (既定: 20)");
   console.error("  --timeout <sec>         関数1つあたりの decompile timeout (既定: 20)");
-  console.error(
-    "  --max-addresses <n>     この命令数を超える関数は decompile をスキップ (既定: 8000)",
-  );
+  console.error("  --max-addresses <n>     この命令数を超える関数は decompile をスキップ (既定: 8000)");
   console.error("  --back-scan <n>         関数開始点推定のための逆走査バイト数 (既定: 8192)");
   console.error("  --list-only             文字列一覧 + xref 特定のみ (decompile しない)");
   console.error("  --include-all           候補を絞らず全 xref を decompile 対象にする");
@@ -72,12 +66,8 @@ if (terms.length === 0) {
   process.exit(1);
 }
 
-const maxStringsShown = flags["max-strings"]
-  ? Number(flags["max-strings"])
-  : Number.POSITIVE_INFINITY;
-const maxFunctions = flags["include-all"]
-  ? Number.POSITIVE_INFINITY
-  : Number(flags["max-functions"] ?? 20);
+const maxStringsShown = flags["max-strings"] ? Number(flags["max-strings"]) : Number.POSITIVE_INFINITY;
+const maxFunctions = flags["include-all"] ? Number.POSITIVE_INFINITY : Number(flags["max-functions"] ?? 20);
 const decompileTimeout = Number(flags["timeout"] ?? 20);
 const maxAddresses = Number(flags["max-addresses"] ?? 8000);
 const backScanBytes = Number(flags["back-scan"] ?? 8192);
@@ -106,10 +96,7 @@ function log(msg: string): void {
 // 外部ツール自動セットアップ (best-effort)
 // ---------------------------------------------------------------------------
 
-function runCmd(
-  cmd: string[],
-  opts?: { env?: Record<string, string> },
-): { ok: boolean; stdout: string; stderr: string } {
+function runCmd(cmd: string[], opts?: { env?: Record<string, string> }): { ok: boolean; stdout: string; stderr: string } {
   const proc = Bun.spawnSync({
     cmd,
     cwd: REPO_ROOT,
@@ -176,19 +163,12 @@ async function ensureGhidra(): Promise<string> {
   // GitHub releases から自動ダウンロード (best-effort)
   log("Ghidra が見つからないため GitHub releases から自動ダウンロードを試みます...");
   try {
-    const releaseRes = await fetch(
-      "https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest",
-      {
-        headers: { "User-Agent": "vyline-search" },
-      },
-    );
+    const releaseRes = await fetch("https://api.github.com/repos/NationalSecurityAgency/ghidra/releases/latest", {
+      headers: { "User-Agent": "vyline-search" },
+    });
     if (!releaseRes.ok) throw new Error(`GitHub API ${releaseRes.status}`);
-    const release = (await releaseRes.json()) as {
-      assets: Array<{ name: string; browser_download_url: string }>;
-    };
-    const asset = release.assets.find(
-      (a) => a.name.toLowerCase().endsWith(".zip") && a.name.includes("PUBLIC"),
-    );
+    const release = (await releaseRes.json()) as { assets: Array<{ name: string; browser_download_url: string }> };
+    const asset = release.assets.find((a) => a.name.toLowerCase().endsWith(".zip") && a.name.includes("PUBLIC"));
     if (!asset) throw new Error("PUBLIC zip asset が見つからない");
     const dest = join(ghidraRoot, asset.name);
     log(`ダウンロード中: ${asset.name} (数百MBあるため時間がかかります)`);
@@ -222,12 +202,7 @@ function findJdk21Home(): string | null {
       return process.env["JAVA_HOME"];
     }
   }
-  const roots = [
-    "C:/Program Files/Microsoft",
-    "C:/Program Files/Eclipse Adoptium",
-    "C:/Program Files/Java",
-    "C:/Program Files/OpenJDK",
-  ];
+  const roots = ["C:/Program Files/Microsoft", "C:/Program Files/Eclipse Adoptium", "C:/Program Files/Java", "C:/Program Files/OpenJDK"];
   for (const root of roots) {
     if (!existsSync(root)) continue;
     for (const entry of readdirSync(root, { withFileTypes: true })) {
@@ -298,9 +273,7 @@ function ensureGhidraProjectImported(
     javaHome ? { env: { JAVA_HOME: javaHome } } : undefined,
   );
   if (!res.ok || !existsSync(gpr)) {
-    throw new Error(
-      `Ghidra import に失敗しました:\n${res.stdout.slice(-2000)}\n${res.stderr.slice(-2000)}`,
-    );
+    throw new Error(`Ghidra import に失敗しました:\n${res.stdout.slice(-2000)}\n${res.stderr.slice(-2000)}`);
   }
 }
 
@@ -321,8 +294,7 @@ const IMAGE_SCN_MEM_EXECUTE = 0x20000000;
 
 function parsePeSections(buf: Buffer): { imageBase: bigint; sections: Section[] } {
   const e_lfanew = buf.readUInt32LE(0x3c);
-  if (buf.readUInt32LE(e_lfanew) !== 0x00004550)
-    throw new Error("PE シグネチャ不一致 (対象は PE でない可能性)");
+  if (buf.readUInt32LE(e_lfanew) !== 0x00004550) throw new Error("PE シグネチャ不一致 (対象は PE でない可能性)");
   const coffOff = e_lfanew + 4;
   const numSections = buf.readUInt16LE(coffOff + 2);
   const sizeOfOptHeader = buf.readUInt16LE(coffOff + 16);
@@ -330,18 +302,13 @@ function parsePeSections(buf: Buffer): { imageBase: bigint; sections: Section[] 
   const magic = buf.readUInt16LE(optHeaderOff);
   const isPE32Plus = magic === 0x20b;
   const imageBaseOff = isPE32Plus ? optHeaderOff + 24 : optHeaderOff + 28;
-  const imageBase = isPE32Plus
-    ? buf.readBigUInt64LE(imageBaseOff)
-    : BigInt(buf.readUInt32LE(imageBaseOff));
+  const imageBase = isPE32Plus ? buf.readBigUInt64LE(imageBaseOff) : BigInt(buf.readUInt32LE(imageBaseOff));
   const sectionTableOff = optHeaderOff + sizeOfOptHeader;
 
   const sections: Section[] = [];
   for (let i = 0; i < numSections; i++) {
     const off = sectionTableOff + i * 40;
-    const name = buf
-      .subarray(off, off + 8)
-      .toString("ascii")
-      .replace(/\0+$/, "");
+    const name = buf.subarray(off, off + 8).toString("ascii").replace(/\0+$/, "");
     sections.push({
       name,
       virtualSize: buf.readUInt32LE(off + 8),
@@ -355,9 +322,7 @@ function parsePeSections(buf: Buffer): { imageBase: bigint; sections: Section[] 
 }
 
 function fileOffsetToRva(sections: Section[], off: number): number | null {
-  const s = sections.find(
-    (s) => off >= s.pointerToRawData && off < s.pointerToRawData + s.sizeOfRawData,
-  );
+  const s = sections.find((s) => off >= s.pointerToRawData && off < s.pointerToRawData + s.sizeOfRawData);
   if (!s) return null;
   return s.virtualAddress + (off - s.pointerToRawData);
 }
@@ -409,10 +374,7 @@ function stringStartUtf16(buf: Buffer, off: number): number {
 }
 
 function previewAscii(buf: Buffer, off: number, len = 100): string {
-  return buf
-    .subarray(off, off + len)
-    .toString("latin1")
-    .replace(/[^\x20-\x7e]/g, ".");
+  return buf.subarray(off, off + len).toString("latin1").replace(/[^\x20-\x7e]/g, ".");
 }
 
 function previewUtf16(buf: Buffer, off: number, len = 100): string {
@@ -461,11 +423,7 @@ const MODRM_VARIANTS = [0x05, 0x0d, 0x15, 0x1d, 0x25, 0x2d, 0x35, 0x3d];
 
 type LeaXref = { instrRva: number; targetRva: number; labels: string[]; section: string };
 
-function scanLeaXrefs(
-  buf: Buffer,
-  sections: Section[],
-  targetRvas: Map<number, string[]>,
-): LeaXref[] {
+function scanLeaXrefs(buf: Buffer, sections: Section[], targetRvas: Map<number, string[]>): LeaXref[] {
   const hits: LeaXref[] = [];
   for (const sec of sections) {
     if ((sec.characteristics & IMAGE_SCN_MEM_EXECUTE) === 0) continue;
@@ -476,8 +434,7 @@ function scanLeaXrefs(
       if (buf[off + 1] !== 0x8d) continue;
       if (!MODRM_VARIANTS.includes(buf[off + 2]!)) continue;
       const disp32 = buf.readInt32LE(off + 3);
-      const instrRva = fileOffsetToRva(sections, off);
-      if (instrRva == null) continue;
+      const instrRva = sec.virtualAddress + (off - sec.pointerToRawData);
       const targetRva = instrRva + 7 + disp32;
       const labels = targetRvas.get(targetRva);
       if (labels) hits.push({ instrRva, targetRva, labels, section: sec.name || "(unnamed)" });
@@ -502,9 +459,7 @@ async function main(): Promise<void> {
     headless = await ensureGhidra();
     javaHome = findJdk21Home();
     if (!javaHome) {
-      log(
-        "警告: JDK 21+ が見つかりません。システム既定の java で Ghidra 起動を試みます (失敗する可能性あり)。",
-      );
+      log("警告: JDK 21+ が見つかりません。システム既定の java で Ghidra 起動を試みます (失敗する可能性あり)。");
     } else {
       log(`JDK 検出: ${javaHome}`);
     }
@@ -527,14 +482,7 @@ async function main(): Promise<void> {
       if (seenStarts.has(key)) continue;
       seenStarts.add(key);
       const preview = previewAscii(buf, start);
-      hits.push({
-        term,
-        encoding: "ascii",
-        fileOffset: start,
-        rva: fileOffsetToRva(sections, start),
-        category: classify(preview),
-        preview,
-      });
+      hits.push({ term, encoding: "ascii", fileOffset: start, rva: fileOffsetToRva(sections, start), category: classify(preview), preview });
     }
 
     if (includeUtf16) {
@@ -544,14 +492,7 @@ async function main(): Promise<void> {
         if (seenStarts.has(key)) continue;
         seenStarts.add(key);
         const preview = previewUtf16(buf, start);
-        hits.push({
-          term,
-          encoding: "utf16",
-          fileOffset: start,
-          rva: fileOffsetToRva(sections, start),
-          category: classify(preview),
-          preview,
-        });
+        hits.push({ term, encoding: "utf16", fileOffset: start, rva: fileOffsetToRva(sections, start), category: classify(preview), preview });
       }
     }
 
@@ -563,15 +504,7 @@ async function main(): Promise<void> {
   writeFileSync(
     join(outDir, "strings.json"),
     `${JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        exePath,
-        terms: [...stringsByTerm.entries()].map(([term, hits]) => ({
-          term,
-          total: hits.length,
-          hits,
-        })),
-      },
+      { generatedAt: new Date().toISOString(), exePath, terms: [...stringsByTerm.entries()].map(([term, hits]) => ({ term, total: hits.length, hits })) },
       null,
       2,
     )}\n`,
@@ -580,9 +513,7 @@ async function main(): Promise<void> {
 
   // --- Step 2: LEA xref 静的スキャンで参照命令を特定 ---
   const targetRvas = new Map<number, string[]>();
-  const candidateLimit = flags["include-all"]
-    ? Number.POSITIVE_INFINITY
-    : Number(flags["max-strings"] ?? 20);
+  const candidateLimit = flags["include-all"] ? Number.POSITIVE_INFINITY : Number(flags["max-strings"] ?? 20);
   for (const [term, hits] of stringsByTerm) {
     for (const h of hits.slice(0, candidateLimit)) {
       if (h.rva == null) continue;
@@ -599,11 +530,7 @@ async function main(): Promise<void> {
   writeFileSync(
     join(outDir, "xrefs.json"),
     `${JSON.stringify(
-      {
-        generatedAt: new Date().toISOString(),
-        targets: [...targetRvas.entries()].map(([rva, labels]) => ({ rva, labels })),
-        hits: leaHits,
-      },
+      { generatedAt: new Date().toISOString(), targets: [...targetRvas.entries()].map(([rva, labels]) => ({ rva, labels })), hits: leaHits },
       null,
       2,
     )}\n`,
@@ -628,9 +555,7 @@ async function main(): Promise<void> {
     }
     return best;
   }
-  const sortedLeaHits = [...leaHits].sort(
-    (a, b) => bestPriorityOf(a.labels) - bestPriorityOf(b.labels),
-  );
+  const sortedLeaHits = [...leaHits].sort((a, b) => bestPriorityOf(a.labels) - bestPriorityOf(b.labels));
 
   const seenInstr = new Set<number>();
   const rvaTargetLines: string[] = [];
@@ -643,10 +568,10 @@ async function main(): Promise<void> {
 
   let decompileResults: unknown = null;
   if (rvaTargetLines.length === 0) {
-    log(
-      "参照命令が見つからなかったため decompile はスキップします (strings.json / xrefs.json を確認してください)",
-    );
-  } else if (headless) {
+    log("参照命令が見つからなかったため decompile はスキップします (strings.json / xrefs.json を確認してください)");
+  } else if (!headless) {
+    log(`参照命令を ${rvaTargetLines.length} 件検出しましたが、--skip-setup 指定のため decompile をスキップします (--skip-setup を外すと Ghidra で解析します)`);
+  } else {
     const project = resolveGhidraProject(exePath);
     ensureGhidraProjectImported(headless, javaHome, project, exePath);
 
@@ -675,9 +600,7 @@ async function main(): Promise<void> {
       javaHome ? { env: { JAVA_HOME: javaHome } } : undefined,
     );
     if (!res.ok) {
-      log(
-        `警告: Ghidra headless が非0終了しました。出力末尾:\n${res.stdout.slice(-1500)}\n${res.stderr.slice(-1500)}`,
-      );
+      log(`警告: Ghidra headless が非0終了しました。出力末尾:\n${res.stdout.slice(-1500)}\n${res.stderr.slice(-1500)}`);
     }
     const indexPath = join(functionsDir, "_index.json");
     if (existsSync(indexPath)) {
@@ -708,13 +631,8 @@ function writeReadme(args: {
   for (const [term, hits] of stringsByTerm) {
     lines.push(`### "${term}" (${hits.length} 件)`);
     lines.push("");
-    for (const h of hits.slice(
-      0,
-      Number.isFinite(maxStringsShown) ? maxStringsShown : hits.length,
-    )) {
-      lines.push(
-        `- \`[${h.category}]\` (${h.encoding}) rva=0x${(h.rva ?? 0).toString(16)}: \`${h.preview.slice(0, 80)}\``,
-      );
+    for (const h of hits.slice(0, Number.isFinite(maxStringsShown) ? maxStringsShown : hits.length)) {
+      lines.push(`- \`[${h.category}]\` (${h.encoding}) rva=0x${(h.rva ?? 0).toString(16)}: \`${h.preview.slice(0, 80)}\``);
     }
     if (Number.isFinite(maxStringsShown) && hits.length > maxStringsShown) {
       lines.push(`- ... and ${hits.length - maxStringsShown} more (see strings.json)`);
@@ -727,9 +645,7 @@ function writeReadme(args: {
   lines.push(`total: ${leaHits.length}`);
   lines.push("");
   for (const h of leaHits.slice(0, 50)) {
-    lines.push(
-      `- 0x${h.instrRva.toString(16)} (${h.section}) -> 0x${h.targetRva.toString(16)} [${h.labels.join(", ")}]`,
-    );
+    lines.push(`- 0x${h.instrRva.toString(16)} (${h.section}) -> 0x${h.targetRva.toString(16)} [${h.labels.join(", ")}]`);
   }
   lines.push("");
 
@@ -738,8 +654,7 @@ function writeReadme(args: {
   if (!decompileResults) {
     lines.push("(list-only、または対象0件のため未実施)");
   } else {
-    const allResults =
-      (decompileResults as { results?: Array<Record<string, unknown>> }).results ?? [];
+    const allResults = (decompileResults as { results?: Array<Record<string, unknown>> }).results ?? [];
     const seenEntry = new Set<string>();
     const results = allResults.filter((r) => {
       const entry = String(r["functionEntry"] ?? r["file"]);

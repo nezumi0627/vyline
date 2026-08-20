@@ -1,0 +1,23 @@
+# dependencies
+node_modules/
+
+# local workspace (binaries, outputs, tool downloads)
+data/**
+!data/README.md
+!data/.gitkeep
+
+# OS / editor
+.DS_Store
+Thumbs.db
+*.swp
+.idea/
+.vscode/
+*.log
+
+# secrets / dumps (never commit)
+*.exe
+*.dll
+*.pdb
+unpacked_LINE.exe
+desktop-e2ee-keys.json
+*.edb

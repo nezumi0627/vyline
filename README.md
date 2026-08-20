@@ -176,6 +176,17 @@ Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 /
 
 **[github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search)**
 
+```powershell
+bun run vyline:check                  # インストール版 / 最新版の比較
+bun run vyline:versions               # インストール済みバージョン一覧
+bun run vyline:unpack -- --version <ver>   # インストール済みバージョンを選択して unpack
+bun run vyline:update                 # LINE Desktop を最新版へ更新
+bun run vyline:find-native -- sendMessage  # ネイティブシンボル検索
+```
+
+> **注意**: `vyline:unpack` / `vyline:update` は **LINE を終了してから実行**してください。
+> 稼働中は Frida 注入が拒否され `ProcessNotRespondingError` になります。
+
 ---
 
 ## ドキュメント

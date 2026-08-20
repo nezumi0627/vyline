@@ -191,7 +191,8 @@ function renderIndexReadme(
 
 async function main(): Promise<void> {
   const sourceDir =
-    argValue("--source-dir") ?? join(DATA_DIR, "recovered", "src", "native", "LINE.exe");
+    argValue("--source-dir") ??
+    join(DATA_DIR, "recovered", "src", "native", "LINE.exe");
   const outDir = argValue("--out-dir") ?? join(OUT_DIR, "focused");
   const manifestOnly = args.includes("--manifest-only");
 
