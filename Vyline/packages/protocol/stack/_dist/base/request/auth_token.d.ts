@@ -1,7 +1,7 @@
 export interface AuthTokenCredential {
-  accessToken: string;
-  refreshToken?: string;
-  expire?: number;
+    accessToken: string;
+    refreshToken?: string;
+    expire?: number;
 }
 export type AuthTokenInput = string | AuthTokenCredential;
 export declare function parseAuthTokenInput(input: AuthTokenInput): AuthTokenCredential;

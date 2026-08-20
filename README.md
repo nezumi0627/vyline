@@ -174,6 +174,9 @@ API 仕様（OpenAPI 3.1）: `GET /openapi.json` または [zensical.org](https:
 
 Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 / 逆コンパイルを行う独立ツールキットです。教育・研究目的で `findNativeSymbol` による文字列 xref 解析と Ghidra decompile をワンコマンドで実行できます。
 
+> [!WARNING]
+> **注意**: LINE デスクトップクライアントが起動中の状態では、解析ツール（unpack 等）が正常に動作しません（単一インスタンス制御により frida の注入が拒否されプロセスが強制終了するため）。必ず LINE アプリを完全に終了させてから実行してください。
+
 **[github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search)**
 
 ---

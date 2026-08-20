@@ -20,7 +20,8 @@
     "vyline:unpack": "bun tools/unpackLine.ts",
     "vyline:extract-e2ee": "bun Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts",
     "vyline:decrypt-edb": "bun Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts",
-    "vyline:call-test": "bun Vyline/backend/src/tools/callTest.ts"
+    "vyline:call-test": "bun Vyline/backend/src/tools/callTest.ts",
+    "vyline:get-edited-json": "bun scripts/getEditedMessageJson.ts"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

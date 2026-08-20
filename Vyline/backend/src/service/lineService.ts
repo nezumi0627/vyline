@@ -3560,6 +3560,8 @@ export interface SendMessageOptions {
   relatedMessageId?: string;
   /** REPLACE（絵文字）等の本文置換メタデータ */
   contentMetadata?: Record<string, string>;
+  /** ミュート（サイレント）送信: contentMetadata に NOTIFICATION_DISABLED="true" を付与 */
+  mute?: boolean;
 }
 
 /**
@@ -3728,6 +3730,12 @@ export async function sendMessage(
     const relatedMessageId = opts.relatedMessageId;
     const relatedOpt = relatedMessageId ? { relatedMessageId } : {};
 
+    // ミュート送信: NOTIFICATION_DISABLED="true" を contentMetadata に付与 (HAR 実値確認: 21 bytes)
+    const baseContentMetadata: Record<string, string> = { ...opts.contentMetadata };
+    if (opts.mute) {
+      baseContentMetadata.NOTIFICATION_DISABLED = "true";
+    }
+
     const tryE2eeSend = async () => {
       const envelope = await encryptLetterSealingMessage(client, {
         to: chatMid,
@@ -3739,7 +3747,7 @@ export async function sendMessage(
         to: chatMid,
         contentType: "NONE",
         // REPLACE（絵文字）等のメタデータを E2EE エンベロープと併せて渡す（本文は暗号化済み、置換情報は平文）
-        contentMetadata: { ...envelope.contentMetadata, ...opts.contentMetadata },
+        contentMetadata: { ...envelope.contentMetadata, ...baseContentMetadata },
         chunks: envelope.chunks,
         e2ee: true,
         ...relatedOpt,
@@ -3768,7 +3776,9 @@ export async function sendMessage(
       const sent = await client.base.talk.sendMessage({
         to: chatMid,
         text,
-        ...(opts.contentMetadata ? { contentMetadata: opts.contentMetadata } : {}),
+        ...(Object.keys(baseContentMetadata).length > 0
+          ? { contentMetadata: baseContentMetadata }
+          : {}),
         e2ee: false,
         ...relatedOpt,
       });
@@ -3858,7 +3868,9 @@ export async function sendMessage(
         const sent = await client.base.talk.sendMessage({
           to: chatMid,
           text,
-          ...(opts.contentMetadata ? { contentMetadata: opts.contentMetadata } : {}),
+          ...(Object.keys(baseContentMetadata).length > 0
+            ? { contentMetadata: baseContentMetadata }
+            : {}),
           e2ee: false,
           ...relatedOpt,
         });
@@ -4197,6 +4209,57 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
     });
     log.info({ accountId, messageId }, "message unsent");
   });
+}
+
+/** メッセージ編集（Desktop: editMessage） */
+export async function editMessage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  text: string,
+): Promise<{ message: Message }> {
+  return runSendRpc(accountId, async () => {
+    const client = requireClient(accountId);
+    const myMid = await resolveMyMid(client, accountId);
+    const res = await client.base.talk.editMessage({
+      from: myMid,
+      to: chatMid,
+      messageId,
+      text,
+    });
+    const mapped = mapDecodedRawToMessage(res.message as unknown as Record<string, unknown>, myMid);
+    await upsertMessages(accountId, chatMid, [
+      { ...mapped, chatMid, savedAt: new Date().toISOString() },
+    ]);
+    try {
+      logMessageAsync(accountId, chatMid, mapped);
+    } catch (err) {
+      log.debug({ err }, "logMessageAsync failed during editMessage");
+    }
+    log.info({ accountId, chatMid, messageId, text }, "message edited");
+    return { message: mapped };
+  });
+}
+
+/** 編集通知（Desktop: getMessageEditNotice） */
+export async function getMessageEditNotice(
+  accountId: string,
+  chatMid: string,
+): Promise<{ count: number; updatedTime: string }> {
+  const client = requireClient(accountId);
+  const res = await client.base.talk.getMessageEditNotice(chatMid);
+  log.info({ accountId, chatMid, res }, "message edit notice");
+
+  // Unix timestamp (ミリ秒想定) を ISO 文字列に変換
+  const updatedTime =
+    typeof res.updatedTime === "number"
+      ? new Date(res.updatedTime).toISOString()
+      : String(res.updatedTime);
+
+  return {
+    count: res.count,
+    updatedTime,
+  };
 }
 
 // ─── Profile / Chat admin / Contacts (domain facade) ───────────────────────
