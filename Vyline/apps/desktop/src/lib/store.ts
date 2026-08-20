@@ -26,6 +26,7 @@ import { getDismissedChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
+import { type MessageReaction, invalidateMessage } from "./reactionCache.js";
 
 export type { Chat, ChatSort, Message, Member, VyTheme, Settings, Screen } from "./store-types.js";
 
@@ -47,6 +48,8 @@ const noticeTimer: { current: ReturnType<typeof setTimeout> | null } = { current
 const refreshDebounce = new Map<string, ReturnType<typeof setTimeout>>();
 /** accountId → delta 実行間隔制御 */
 const lastDeltaPollAt = new Map<string, number>();
+/** messageId → リアクションのキャッシュ（高速読み込み用） */
+const messageReactionCache = new Map<string, MessageReaction[]>();
 /** chatId → 進行中のギャップ backfill（重複抑止） */
 const backfillInflight = new Map<string, Promise<void>>();
 /** mid → プロフィール取得済み（重複 API 抑止） */
@@ -719,7 +722,14 @@ export const useStore = create<State>()(
             const pending = st.messages.filter(
               (m) => m.id.startsWith("pending_") || m.status === "sending" || m.status === "failed",
             );
-            if (pending.length === 0) return mappedMessages;
+            if (pending.length === 0) {
+              mappedMessages.forEach((m) => {
+                if (m.id && m.reactions?.length) {
+                  messageReactionCache.set(m.id, m.reactions);
+                }
+              });
+              return mappedMessages;
+            }
             const ids = new Set(mappedMessages.map((m) => m.id));
             const keep = pending.filter((p) => !ids.has(p.id));
             return [...mappedMessages, ...keep];
@@ -1829,6 +1839,8 @@ export const useStore = create<State>()(
                 const upd = incomingById.get(m.id);
                 if (!upd || !upd.reactions?.length) return m;
                 if (JSON.stringify(upd.reactions) === JSON.stringify(m.reactions)) return m;
+                // キャッシュも更新
+                messageReactionCache.set(m.id, upd.reactions);
                 return { ...m, reactions: upd.reactions };
               })
             : st.messages;
@@ -1894,6 +1906,8 @@ export const useStore = create<State>()(
           const msgs = st.messages.map((m) =>
             m.chatId === chatId && m.id === messageId ? { ...m, revoked: true } : m,
           );
+          // キャッシュからも削除
+          invalidateMessage(messageReactionCache, messageId);
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
@@ -1918,6 +1932,16 @@ export const useStore = create<State>()(
             }
             return { ...m, reactions: next.length ? next : undefined };
           });
+          // キャッシュも更新
+          for (const m of msgs) {
+            if (m.id && m.reactions) {
+              if (reaction !== "UNDO") {
+                messageReactionCache.set(m.id, m.reactions);
+              } else {
+                messageReactionCache.delete(m.id);
+              }
+            }
+          }
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
