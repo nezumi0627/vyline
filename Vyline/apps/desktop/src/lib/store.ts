@@ -180,14 +180,13 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "0.5.0-beta",
-  title: "Vyline 0.5.0-beta — fetchOps 刷新 + メッセージ編集・ミュート送信",
+  version: "0.5.1-beta",
+  title: "Vyline 0.5.1-beta — メッセージ編集UI・ミュート送信統合",
   items: [
+    "メッセージ編集UIの完全統合（編集メニュー、編集ダイアログ、編集済みバッジ表示、編集前の表示切替）",
+    "ミュート送信（NOTIFICATION_DISABLED）トグルボタンの追加",
     "受信システムをfetchOps方式に刷新（メッセージ・通話・メンバー変更等の全イベントを統合処理）",
-    "メッセージ編集機能 (editMessage / getMessageEditNotice) の正式追加",
-    "ミュート送信（NOTIFICATION_DISABLED）オプションの追加",
     "公開REST API (/v1/) を追加（Bearer token認証）",
-    "Vyline-Desktop カミングスーン",
     "メンション（@ALL / @名前）の送受信・ハイライト表示",
     "画像送信: クライアント側圧縮 + 本家クライアントでも表示される E2EE メディア対応",
     "チャットイベントの実テキスト化（参加/退出/名前変更等を正確に表示）",
@@ -199,7 +198,6 @@ export const UPDATE_NOTES = {
     "プロフィール背景画像・ステータスメッセージの表示",
     "チャット一覧のスクロールバウンス修正",
     "受信ポーリング高速化（4s/12s/60s → 2s/8s/60s）",
-    "deltaAfterId 最適化（getMessageBoxes RPC 省略）",
     "既読ウォーターマークキャッシュ（30s TTL）",
     "ブロック機能（送信防止・GUI統合）",
     "VylineBackup（トーク履歴・メディアスナップショット）",
@@ -306,6 +304,7 @@ type State = {
   sendAudio: (chatId: string, seconds: number, blob: Blob) => Promise<void>;
   revokeMessage: (id: string) => Promise<void>;
   editMessage: (id: string, newText: string) => Promise<void>;
+  toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markChatRead: (id: string) => Promise<void>;
@@ -1177,13 +1176,56 @@ export const useStore = create<State>()(
           window.alert("送信が完了してから編集できます");
           return;
         }
-        const res = await api.line.editMessage(accountId, msg.chatId, id, newText);
-        if (res.ok) {
-          if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
-        } else {
-          window.alert(res.error ?? "メッセージの編集に失敗しました");
+        const prevText = msg.text ?? "";
+        if (prevText === newText.trim()) return;
+
+        // 楽観的にローカルメッセージを更新
+        set((st) => ({
+          messages: st.messages.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  text: newText,
+                  edited: true,
+                  editedAt: Date.now(),
+                  originalText: m.originalText ?? prevText,
+                  showOriginal: false,
+                }
+              : m,
+          ),
+        }));
+
+        try {
+          const res = await api.line.editMessage(accountId, msg.chatId, id, newText);
+          if (res.ok) {
+            get().showNotice("メッセージを編集しました");
+            if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
+          } else {
+            // 失敗時はロールバック
+            set((st) => ({
+              messages: st.messages.map((m) =>
+                m.id === id ? { ...m, text: prevText, edited: msg.edited } : m,
+              ),
+            }));
+            window.alert(res.error ?? "メッセージの編集に失敗しました");
+          }
+        } catch (err) {
+          // 失敗時はロールバック
+          set((st) => ({
+            messages: st.messages.map((m) =>
+              m.id === id ? { ...m, text: prevText, edited: msg.edited } : m,
+            ),
+          }));
+          window.alert(`メッセージの編集に失敗しました: ${String(err)}`);
         }
       },
+
+      toggleShowOriginal: (id) =>
+        set((st) => ({
+          messages: st.messages.map((m) =>
+            m.id === id ? { ...m, showOriginal: !m.showOriginal } : m,
+          ),
+        })),
 
       retryMessage: async (id) => {
         const accountId = get().accountId;
