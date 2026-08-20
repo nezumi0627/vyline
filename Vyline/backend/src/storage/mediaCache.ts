@@ -10,6 +10,7 @@
  */
 
 import { createHash } from "node:crypto";
+import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -18,7 +19,18 @@ import { childLogger } from "../logger.js";
 const log = childLogger("media-cache");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const CACHE_ROOT = process.env.VYLINE_MEDIA_CACHE_DIR ?? join(_dir, "../../data/media-cache");
+const LEGACY_ROOT = join(_dir, "../../data/media-cache");
+const CACHE_ROOT = process.env.VYLINE_MEDIA_CACHE_DIR ?? join(_dir, "../../storage/saved-media");
+
+try {
+  if (!existsSync(CACHE_ROOT) && existsSync(LEGACY_ROOT)) {
+    const { rename } = await import("node:fs/promises");
+    await mkdir(dirname(CACHE_ROOT), { recursive: true });
+    await rename(LEGACY_ROOT, CACHE_ROOT);
+  }
+} catch {
+  /* ignore */
+}
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 40;
@@ -139,4 +151,37 @@ export async function clearMediaCache(): Promise<number> {
     log.debug({ err }, "media cache clear failed");
   }
   return removed;
+}
+
+export async function getMediaCacheSize(): Promise<number> {
+  let total = 0;
+  try {
+    const { readdir, stat } = await import("node:fs/promises");
+    await mkdir(CACHE_ROOT, { recursive: true });
+    const entries = await readdir(CACHE_ROOT, { withFileTypes: true });
+    for (const e of entries) {
+      const p = join(CACHE_ROOT, e.name);
+      if (e.isDirectory()) {
+        const files = await readdir(p);
+        for (const f of files) {
+          try {
+            const s = await stat(join(p, f));
+            total += s.size;
+          } catch {
+            /* ignore */
+          }
+        }
+      } else {
+        try {
+          const s = await stat(p);
+          total += s.size;
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+  } catch (err) {
+    log.debug({ err }, "media cache size check failed");
+  }
+  return total;
 }

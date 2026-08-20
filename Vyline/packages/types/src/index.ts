@@ -147,6 +147,15 @@ export interface Message {
   updatedTime?: number;
   /** 編集前のオリジナルテキスト（ローカルキャッシュ用） */
   originalText?: string;
+  /** メッセージ状態 */
+  messageState?: "normal" | "edited" | "revoked-by-other" | "revoked-by-self";
+  /** 状態変更履歴 */
+  history?: Array<{
+    state: "normal" | "edited" | "revoked-by-other" | "revoked-by-self";
+    text: string | null;
+    contentType: string;
+    updatedTime: number;
+  }>;
 }
 
 export interface MessageReaction {

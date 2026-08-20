@@ -313,7 +313,7 @@ function Highlighted({
 }
 
 function replySnippet(m: Message): string {
-  if (m.revoked) return "取り消されたメッセージ";
+  if (m.messageState.startsWith("revoked")) return "取り消されたメッセージ";
   if (m.kind === "image") return "写真";
   if (m.kind === "video") return "動画";
   if (m.kind === "audio") return "音声";
@@ -458,6 +458,7 @@ export const MessageBubble = memo(
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
     const revokeMessage = useStore((s) => s.revokeMessage);
+    const restoreRevokedMessage = useStore((s) => s.restoreRevokedMessage);
     const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
@@ -474,6 +475,9 @@ export const MessageBubble = memo(
     const [editing, setEditing] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [showReaders, setShowReaders] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [history, setHistory] = useState<NonNullable<Message["history"]>>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
     const [lightbox, setLightbox] = useState(false);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
@@ -494,7 +498,7 @@ export const MessageBubble = memo(
     }
 
     function onTouchStart(e: React.TouchEvent) {
-      if (message.revoked) return;
+      if (message.messageState.startsWith("revoked")) return;
       const t = e.touches[0];
       longPressFired.current = false;
       longPressTimer.current = setTimeout(() => {
@@ -691,7 +695,7 @@ export const MessageBubble = memo(
           ]
         : []),
       ...(isMe &&
-      !message.revoked &&
+      !message.messageState.startsWith("revoked") &&
       message.kind === "text" &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_")
@@ -712,8 +716,35 @@ export const MessageBubble = memo(
             },
           ]
         : []),
+      ...(message.history && message.history.length > 0
+        ? [
+            {
+              label: "履歴を表示",
+              icon: <IconChevron size={16} />,
+              onClick: async () => {
+                setHistoryLoading(true);
+                setShowHistory(true);
+                const h = await useStore.getState().fetchMessageHistory(message.chatId, message.id);
+                setHistory(h ?? []);
+                setHistoryLoading(false);
+              },
+            },
+          ]
+        : []),
       ...(isMe &&
-      !message.revoked &&
+      message.messageState === "revoked-by-self" &&
+      message.history &&
+      message.history.length > 0
+        ? [
+            {
+              label: "復元",
+              icon: <IconCheck size={16} />,
+              onClick: () => restoreRevokedMessage(message.chatId, message.id),
+            },
+          ]
+        : []),
+      ...(isMe &&
+      !message.messageState.startsWith("revoked") &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_")
         ? [
@@ -739,7 +770,7 @@ export const MessageBubble = memo(
     const isMessageEdited = message.edited || Boolean(message.originalText);
 
     const readReceipt = (() => {
-      if (!isMe || message.revoked) return null;
+      if (!isMe || message.messageState.startsWith("revoked")) return null;
       if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
       if (message.status === "failed")
         return (
@@ -786,11 +817,11 @@ export const MessageBubble = memo(
       readers.length > 0 &&
       message.read;
 
-    if (message.kind === "call" && !message.revoked) {
+    if (message.kind === "call" && !message.messageState.startsWith("revoked")) {
       return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
     }
 
-    if (message.kind === "system" && !message.revoked) {
+    if (message.kind === "system" && !message.messageState.startsWith("revoked")) {
       return (
         <div className="my-1 flex w-full justify-center px-1">
           <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-3 py-1 text-center text-[0.7rem] text-[var(--vy-text-dim)]">
@@ -800,7 +831,7 @@ export const MessageBubble = memo(
       );
     }
 
-    const metaLine = !message.revoked && (
+    const metaLine = !message.messageState.startsWith("revoked") && (
       <div
         className={cn(
           "mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
@@ -926,14 +957,26 @@ export const MessageBubble = memo(
             </button>
           )}
 
-          {message.revoked ? (
+          {message.messageState.startsWith("revoked") ? (
             <div
               className="rounded-2xl border border-dashed px-4 py-2 text-sm italic opacity-70"
               style={{ borderColor: "var(--vy-border)" }}
             >
-              {isMe
+              {message.messageState === "revoked-by-self"
                 ? "あなたがメッセージの送信を取り消しました"
                 : "メッセージの送信が取り消されました"}
+              {message.messageState === "revoked-by-self" &&
+              message.history &&
+              message.history.length > 0 ? (
+                <div className="mt-1 text-xs not-italic opacity-80">
+                  {(() => {
+                    const last = [...message.history]
+                      .reverse()
+                      .find((h) => h.state === "normal" || h.state === "edited");
+                    return last ? (last.text ?? "（なし）") : "";
+                  })()}
+                </div>
+              ) : null}
             </div>
           ) : message.kind === "sticker" ? (
             <button
@@ -1176,14 +1219,16 @@ export const MessageBubble = memo(
 
           {metaLine}
           {readerList}
-          {message.reactions && message.reactions.length > 0 && !message.revoked && (
-            <ReactionBadges
-              reactions={message.reactions}
-              myMid={self?.mid ?? ""}
-              onReact={react}
-              side={isMe ? "right" : "left"}
-            />
-          )}
+          {message.reactions &&
+            message.reactions.length > 0 &&
+            !message.messageState.startsWith("revoked") && (
+              <ReactionBadges
+                reactions={message.reactions}
+                myMid={self?.mid ?? ""}
+                onReact={react}
+                side={isMe ? "right" : "left"}
+              />
+            )}
         </div>
 
         {menu && (
@@ -1209,6 +1254,54 @@ export const MessageBubble = memo(
             kind={message.kind === "video" ? "video" : "image"}
             onClose={() => setLightbox(false)}
           />
+        )}
+        {showHistory && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowHistory(false);
+            }}
+          >
+            <div className="max-h-[80vh] w-[360px] overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-xl">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">メッセージ履歴</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(false)}
+                  className="rounded p-1 hover:bg-[var(--vy-surface-2)]"
+                >
+                  ✕
+                </button>
+              </div>
+              {historyLoading && <p className="text-xs text-[var(--vy-text-dim)]">読み込み中...</p>}
+              {!historyLoading && history.length === 0 && (
+                <p className="text-xs text-[var(--vy-text-dim)]">履歴がありません</p>
+              )}
+              {!historyLoading &&
+                history.map((entry, i) => (
+                  <div
+                    key={i}
+                    className="mb-2 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2.5"
+                  >
+                    <div className="mb-1 flex items-center gap-2 text-[0.65rem] text-[var(--vy-text-dim)]">
+                      <span className="rounded bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-1.5 py-0.5">
+                        {entry.state === "normal"
+                          ? "通常"
+                          : entry.state === "edited"
+                            ? "編集済み"
+                            : entry.state === "revoked-by-other"
+                              ? "相手が削除"
+                              : "自分が削除"}
+                      </span>
+                      <span>{new Date(entry.updatedTime).toLocaleString()}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-sm">
+                      {entry.text ?? <span className="italic opacity-60">（なし）</span>}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </div>
         )}
       </div>
     );

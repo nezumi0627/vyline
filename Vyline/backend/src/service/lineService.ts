@@ -73,11 +73,15 @@ import {
   upsertChats,
   upsertMessages,
   markMessageRevoked,
+  restoreRevokedMessage,
+  getMessageHistory,
   warmAccountCache,
   saveBoxOrder,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
+
+export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 

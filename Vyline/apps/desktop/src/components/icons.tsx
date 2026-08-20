@@ -350,3 +350,11 @@ export const IconHeart = (p: IconProps) => (
     />
   </svg>
 );
+
+export const IconHardDrive = (p: IconProps) => (
+  <svg {...base(p)}>
+    <rect x="2" y="6" width="20" height="12" rx="2" />
+    <path d="M6 10h.01M6 14h.01" />
+    <path d="M2 10h20" />
+  </svg>
+);

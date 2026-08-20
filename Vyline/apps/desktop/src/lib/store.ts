@@ -27,8 +27,18 @@ import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
+import type { MessageState } from "./store-types.js";
 
-export type { Chat, ChatSort, Message, Member, VyTheme, Settings, Screen } from "./store-types.js";
+export type {
+  Chat,
+  ChatSort,
+  Message,
+  Member,
+  VyTheme,
+  Settings,
+  Screen,
+  MessageState,
+} from "./store-types.js";
 
 /** chatId → 送信済み lastMessageId（既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
@@ -151,7 +161,15 @@ function applyReadWatermarkLocal(
 }
 
 function messagePreview(m: Message): string {
-  if (m.revoked) return "メッセージの送信を取り消しました";
+  if (m.messageState.startsWith("revoked")) {
+    if (m.messageState === "revoked-by-self" && m.history?.length) {
+      const last = [...m.history]
+        .reverse()
+        .find((h) => h.state === "normal" || h.state === "edited");
+      if (last?.text) return last.text;
+    }
+    return "メッセージの送信を取り消しました";
+  }
   switch (m.kind) {
     case "sticker":
       return m.altText || "スタンプ";
@@ -332,8 +350,11 @@ type State = {
     opts?: { silent?: boolean },
   ) => void;
   applyRevoked: (chatId: string, messageId: string) => void;
+  /** 取消し済みメッセージを履歴から復元 */
+  restoreRevokedMessage: (chatId: string, messageId: string) => Promise<void>;
   /** 楽観リアクション更新（UNDO は自分の全リアクション除去） */
   setMessageReaction: (messageId: string, reaction: "UNDO" | string, myMid: string) => void;
+  fetchMessageHistory: (chatId: string, messageId: string) => Promise<Message["history"]>;
   backfillChat: (chatId: string) => Promise<void>;
   pollMessagesDelta: (chatId: string) => Promise<void>;
   pollIncoming: () => Promise<void>;
@@ -752,6 +773,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
           replyToId: relatedMessageId,
           retry: {
             kind: "text",
@@ -834,6 +856,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
           retry: { kind: "sticker", packageId, stickerId, isPremium },
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
@@ -922,6 +945,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
           retry: { kind: "emoji", packageId, sticonId },
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
@@ -976,6 +1000,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
         void (async () => {
@@ -1078,11 +1103,22 @@ export const useStore = create<State>()(
           window.alert("送信が完了してから取り消しできます");
           return;
         }
+        const prevState = msg.messageState ?? "normal";
+        const historyEntry = {
+          state: prevState,
+          text: msg.text ?? null,
+          contentType: msg.kind,
+          updatedTime: Date.now(),
+        };
+        set((st) => ({
+          messages: st.messages.map((m) =>
+            m.id === id ? { ...m, history: [...(m.history ?? []), historyEntry] } : m,
+          ),
+        }));
         const res = await api.line.unsend(accountId, id);
         if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
         else if (!res.ok) {
           const errText = res.error ?? "";
-          // 送信取り消し可能な時間を過ぎた（MESSAGE_NOT_DESTRUCTIBLE / message too old）
           if (
             errText.includes("MESSAGE_NOT_DESTRUCTIBLE") ||
             errText.includes("message too old") ||
@@ -1158,7 +1194,14 @@ export const useStore = create<State>()(
       retryMessage: async (id) => {
         const accountId = get().accountId;
         const msg = get().messages.find((m) => m.id === id);
-        if (!accountId || !msg || msg.status !== "failed" || msg.revoked || !msg.retry) return;
+        if (
+          !accountId ||
+          !msg ||
+          msg.status !== "failed" ||
+          msg.messageState.startsWith("revoked") ||
+          !msg.retry
+        )
+          return;
         const chatId = msg.chatId;
         const intent = msg.retry;
         set((st) => ({
@@ -1240,6 +1283,10 @@ export const useStore = create<State>()(
         const { accountId, messages, settings, readDisabledMids } = get();
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
+          messages: st.messages.map((m) => {
+            if (m.chatId !== id) return m;
+            return { ...m, read: true, status: "read" };
+          }),
         }));
         // 全体無効（設定）または個別無効（右クリック）なら送信しない
         if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
@@ -1475,9 +1522,21 @@ export const useStore = create<State>()(
                     readBy: m.readBy?.length ? m.readBy : prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
-                } else if (prev?.readBy?.length && !m.readBy?.length) {
+                } else if (prev?.readBy?.length && (!m.readBy?.length || !m.read)) {
                   mapped[i] = {
                     ...m,
+                    read: true,
+                    readBy: prev.readBy,
+                    readCount: m.readCount ?? prev.readCount,
+                  };
+                } else if (
+                  prev?.readBy?.length &&
+                  m.readBy?.length &&
+                  prev.readBy.length > m.readBy.length
+                ) {
+                  mapped[i] = {
+                    ...m,
+                    read: true,
                     readBy: prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
@@ -1596,7 +1655,7 @@ export const useStore = create<State>()(
                 m.authorId === "me" &&
                 m.id &&
                 !m.id.startsWith("pending_") &&
-                !m.revoked,
+                !m.messageState.startsWith("revoked"),
             )
             .map((m) => m.id)
             .slice(-50);
@@ -1700,17 +1759,20 @@ export const useStore = create<State>()(
               const patch = res.receipts![m.id];
               if (!patch) return m;
               const readBy = patch.readBy ?? [];
+              const alreadyRead = m.read;
               const read =
                 patch.seen === true ||
                 Boolean((patch as { read?: boolean }).read) ||
                 (patch.readCount != null && patch.readCount > 0) ||
                 readBy.length > 0;
+              // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
+              const finalRead = alreadyRead ? true : read;
               return {
                 ...m,
-                read,
-                readBy: readBy.length ? readBy : m.readBy,
-                readCount: patch.readCount ?? m.readCount,
-                status: read ? ("read" as const) : m.status === "read" ? "sent" : m.status,
+                read: finalRead,
+                readBy: finalRead ? (readBy.length ? readBy : m.readBy) : m.readBy,
+                readCount: finalRead ? (patch.readCount ?? m.readCount) : m.readCount,
+                status: finalRead ? ("read" as const) : m.status === "read" ? "sent" : m.status,
               };
             }),
           }));
@@ -1833,14 +1895,76 @@ export const useStore = create<State>()(
 
       applyRevoked: (chatId, messageId) => {
         set((st) => {
-          const msgs = st.messages.map((m) =>
-            m.chatId === chatId && m.id === messageId ? { ...m, revoked: true } : m,
-          );
-          // キャッシュからも削除
+          const msgs = st.messages.map((m) => {
+            if (m.chatId !== chatId || m.id !== messageId) return m;
+            const prevState = m.messageState ?? "normal";
+            const history = [
+              ...(m.history ?? []),
+              {
+                state: prevState,
+                text: m.text ?? null,
+                contentType: m.kind,
+                updatedTime: Date.now(),
+              },
+            ];
+            return {
+              ...m,
+              messageState: (m.authorId === "me"
+                ? "revoked-by-self"
+                : "revoked-by-other") as MessageState,
+              history,
+              text: undefined,
+            };
+          });
           invalidateMessage(messageReactionCache, messageId);
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
+      },
+
+      fetchMessageHistory: async (chatId, messageId) => {
+        const accountId = get().accountId;
+        if (!accountId) return [];
+        const res = await api.line.messageHistory(accountId, chatId, messageId);
+        if (res.ok) return res.history ?? [];
+        return [];
+      },
+
+      restoreRevokedMessage: async (_chatId, messageId) => {
+        const accountId = get().accountId;
+        if (!accountId) return;
+        const msg = get().messages.find((m) => m.id === messageId);
+        if (!msg || msg.messageState !== "revoked-by-self") return;
+        const lastNormal = [...(msg.history ?? [])]
+          .reverse()
+          .find((h) => h.state === "normal" || h.state === "edited");
+        if (!lastNormal) {
+          window.alert("復元できる元のメッセージがありません");
+          return;
+        }
+        const historyEntry = {
+          state: "normal" as const,
+          text: msg.text ?? null,
+          contentType: msg.kind,
+          updatedTime: Date.now(),
+        };
+        set((st) => ({
+          messages: st.messages.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  messageState: "normal" as MessageState,
+                  history: [...(m.history ?? []), historyEntry],
+                  text: lastNormal.text ?? undefined,
+                }
+              : m,
+          ),
+        }));
+        try {
+          await api.line.restoreRevokedMessage(accountId, _chatId, messageId);
+        } catch {
+          /* local update already applied */
+        }
       },
 
       setMessageReaction: (messageId, reaction, myMid) => {
