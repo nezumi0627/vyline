@@ -44,6 +44,7 @@ import {
   vylinePutProfiles,
   vylineResolvedNameMap,
 } from "../storage/vylineCache.js";
+import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import {
   ensureValidE2EEIdentity,
@@ -627,7 +628,10 @@ type ReadRangeCacheEntry = {
   failStreak: number;
 };
 
-const readRangeCache = new Map<string, ReadRangeCacheEntry>();
+const readRangeStorage = new VylineStorage<Record<string, ReadRangeCacheEntry>>(
+  "readRanges",
+  () => ({}),
+);
 /** fetchMessagesInner のバックグラウンド既読 RPC をチャットごとに間引く（毎 fetch で force 実行しない） */
 const READ_RANGE_BG_MS = Number(process.env.VYLINE_READ_RANGE_BG_MS ?? 60_000);
 const readRangeBgAt = new Map<string, number>();
@@ -1913,9 +1917,9 @@ export async function fetchReadRanges(
   chatMid: string,
   opts?: { force?: boolean },
 ): Promise<Array<{ chatId?: string; ranges?: unknown }>> {
-  const cacheKey = `${accountId}:${chatMid}`;
   const now = Date.now();
-  const cached = readRangeCache.get(cacheKey);
+  const cacheDict = await readRangeStorage.load(accountId);
+  const cached = cacheDict[chatMid];
 
   if (!opts?.force && cached) {
     if (cached.failStreak >= 3 && now - cached.at < READ_RANGE_CIRCUIT_MS) {
@@ -1955,12 +1959,14 @@ export async function fetchReadRanges(
       }
     }
 
-    readRangeCache.set(cacheKey, { at: now, ranges, failStreak: 0 });
+    cacheDict[chatMid] = { at: now, ranges, failStreak: 0 };
+    void readRangeStorage.replace(accountId, cacheDict);
     return ranges;
   } catch (err) {
     const failStreak = (cached?.failStreak ?? 0) + 1;
     const fallback = cached?.ranges ?? [];
-    readRangeCache.set(cacheKey, { at: now, ranges: fallback, failStreak });
+    cacheDict[chatMid] = { at: now, ranges: fallback, failStreak };
+    void readRangeStorage.replace(accountId, cacheDict);
     if (failStreak === 1 || failStreak % 10 === 0) {
       log.debug(
         { accountId, chatMid, failStreak, err },
@@ -3275,6 +3281,8 @@ export async function fetchMessages(
           }),
         );
       }
+      const cacheDict = await readRangeStorage.load(accountId);
+      const cached = cacheDict[chatMid]?.ranges ?? [];
       return local;
     }
   }
@@ -3496,7 +3504,8 @@ async function fetchMessagesInner(
   // getMessageReadRange は遅いのでメッセージ表示をブロックしない（キャッシュ即時適用 → 裏で更新）
   if (!opts?.lite && !opts?.delta) {
     try {
-      const cached = readRangeCache.get(`${accountId}:${chatMid}`)?.ranges ?? [];
+      const cacheDict = await readRangeStorage.load(accountId);
+      const cached = cacheDict[chatMid]?.ranges ?? [];
       applyReadReceiptsToMessages(messages, cached, chatMid, myMid);
     } catch (err) {
       log.debug({ accountId, chatMid, err }, "attach cached read receipts failed");
