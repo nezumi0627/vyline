@@ -7,8 +7,8 @@
  * ローテーション: 10MB を超えたら .1 / .2 へ shift。
  */
 
-import { createWriteStream, existsSync, type WriteStream } from "node:fs";
-import { mkdir, readFile, rename, stat } from "node:fs/promises";
+import { createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
+import { readFile, rename, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -16,7 +16,8 @@ import { childLogger } from "../logger.js";
 const log = childLogger("message-log");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const LOG_DIR = process.env.VYLINE_LOG_DIR ?? join(_dir, "../../data/logs");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
+const LOG_DIR = process.env.VYLINE_LOG_DIR ?? join(DATA_DIR, "logs");
 const ROTATE_BYTES = Number(process.env.VYLINE_MESSAGE_LOG_MAX_BYTES ?? 10 * 1024 * 1024);
 
 export interface MessageLogEntry {
@@ -53,17 +54,19 @@ function logPath(accountId: string): string {
 }
 
 function streamFor(accountId: string): WriteStream {
-  let s = streams.get(accountId);
-  if (s) return s;
-  if (!existsSync(LOG_DIR)) {
-    // mkdir は非同期なので write 側で再試行させるため先に作成
-    import("node:fs/promises").then(({ mkdir }) =>
-      mkdir(LOG_DIR, { recursive: true }).catch(() => undefined),
-    );
-  }
-  s = createWriteStream(logPath(accountId), { flags: "a", encoding: "utf8" });
-  streams.set(accountId, s);
-  return s;
+  const existing = streams.get(accountId);
+  if (existing) return existing;
+
+  // createWriteStream は親ディレクトリを作成しない。
+  // 非同期 mkdir と open の競合を避け、ストリームを開く前に必ず作成する。
+  mkdirSync(LOG_DIR, { recursive: true });
+  const stream = createWriteStream(logPath(accountId), { flags: "a", encoding: "utf8" });
+  streams.set(accountId, stream);
+  stream.on("error", (err) => {
+    if (streams.get(accountId) === stream) streams.delete(accountId);
+    log.debug({ accountId, err }, "message log stream error");
+  });
+  return stream;
 }
 
 async function maybeRotate(accountId: string): Promise<void> {
