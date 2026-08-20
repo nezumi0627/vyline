@@ -2383,12 +2383,10 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
 export async function warmLineCache(accountId: string): Promise<void> {
   await warmAccountCache(accountId);
   // 初回インデックス（裏）— 履歴・プロフィールを chatdb / VylineCache へ
-  void enqueueTalkRpcBackground(accountId, async () => {
-    try {
-      await runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 });
-    } catch (err) {
-      log.debug({ accountId, err }, "background account index failed");
-    }
+  // runAccountIndex 内の fetchChats が必要な RPC を同じキューに入れるため、
+  // ここで外側まで enqueue すると初回起動時に自己待機になる。
+  void runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 }).catch((err) => {
+    log.debug({ accountId, err }, "background account index failed");
   });
 }
 
