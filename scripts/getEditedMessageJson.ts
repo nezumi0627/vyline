@@ -14,8 +14,12 @@ const { values } = parseArgs({
 const { accountId, chatMid, messageId, text, port } = values;
 
 if (!accountId || !chatMid) {
-  console.error("❌ Usage: bun scripts/getEditedMessageJson.ts -a <accountId> -c <chatMid> [-m <messageId>] [-t <text>]");
-  console.error("Example: bun scripts/getEditedMessageJson.ts -a main -c c1efe9d6cf1848350bc91848a8a29963e -m 628117045912798141 -t 'Hello Edited!'");
+  console.error(
+    "❌ Usage: bun scripts/getEditedMessageJson.ts -a <accountId> -c <chatMid> [-m <messageId>] [-t <text>]",
+  );
+  console.error(
+    "Example: bun scripts/getEditedMessageJson.ts -a main -c c1efe9d6cf1848350bc91848a8a29963e -m 628117045912798141 -t 'Hello Edited!'",
+  );
   process.exit(1);
 }
 

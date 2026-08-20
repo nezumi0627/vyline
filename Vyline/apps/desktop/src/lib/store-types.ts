@@ -197,6 +197,8 @@ export type Settings = {
   /** HTTP/SOCKS プロキシ（例: http://127.0.0.1:7890） */
   proxyEnabled: boolean;
   proxyUrl: string;
+  /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
+  notificationsEnabled: boolean;
 };
 
 export type SelfProfile = {

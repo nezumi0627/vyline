@@ -473,6 +473,11 @@ export const api = {
         `/line/${accountId}/index`,
       ),
 
+    setNotification: (accountId: string, enable: boolean) =>
+      request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/notifications`, {
+        enable,
+      }),
+
     /** 既読にする */
     markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>
       request<{ ok: boolean }>("POST", `/line/${accountId}/read`, {
