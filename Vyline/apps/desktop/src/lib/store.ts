@@ -33,15 +33,6 @@ export type { Chat, ChatSort, Message, Member, VyTheme, Settings, Screen } from 
 const readReceiptSent = new Map<string, string>();
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
-/** chatId → 既読ウォーターマークキャッシュ（相手の最終既読地点） */
-const readWatermarkCache = new Map<
-  string,
-  {
-    peerReadUpTo?: string;
-    memberWatermarks?: Array<{ mid: string; upTo: string }>;
-    at: number;
-  }
->();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
 const READ_WATERMARK_TTL_MS = 30_000;
 /** 直近で取得済みの自分のメッセージID（ウォーターマークでまとめて既読化するため参照） */
@@ -248,6 +239,16 @@ type State = {
   pendingScreen: Screen | null;
   pendingChatId: string | null;
 
+  /** chatId → 既読ウォーターマーク（DB永続化） */
+  readWatermarks: Record<
+    string,
+    {
+      peerReadUpTo?: string;
+      memberWatermarks?: Array<{ mid: string; upTo: string }>;
+      at: number;
+    }
+  >;
+
   setScreen: (s: Screen) => void;
   setAccountId: (id: string | null) => void;
   toggleChatReadDisabled: (id: string) => void;
@@ -409,6 +410,7 @@ export const useStore = create<State>()(
       pendingChatId: null,
       notice: null,
       announcements: {},
+      readWatermarks: {},
 
       setScreen: (s) => {
         const { settings, unlocked } = get();
@@ -1612,8 +1614,8 @@ export const useStore = create<State>()(
 
           // キャッシュ済みウォーターマークがあれば先にローカル適用（読み込み高速化）
           // needsPoll に関係なく適用する（古いチャットを開き直したときも既読状態を即反映）
-          const cached = readWatermarkCache.get(chatId);
-          if (cached && Date.now() - cached.at < READ_WATERMARK_TTL_MS) {
+          const cached = get().readWatermarks[chatId];
+          if (cached) {
             const patched = applyReadWatermarkLocal(
               messages.filter((m) => m.chatId === chatId),
               cached,
@@ -1626,8 +1628,8 @@ export const useStore = create<State>()(
                 ),
               }));
             }
-            // 強制でなければ RPC を飛ばさない（毎回の既読取得を避ける）
-            if (!opts?.force) return;
+            // 強制でなければ、かつキャッシュが新しければ RPC を飛ばさない
+            if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !opts?.force) return;
           }
 
           if (!needsPoll) return;
@@ -1635,12 +1637,17 @@ export const useStore = create<State>()(
           const res = await api.line.readReceipts(accountId, chatId, myIds);
           if (!res.ok || !res.receipts) return;
 
-          // ウォーターマークをキャッシュ（相手の最終既読地点）
-          readWatermarkCache.set(chatId, {
-            peerReadUpTo: res.peerReadUpTo,
-            memberWatermarks: res.memberReadWatermarks,
-            at: Date.now(),
-          });
+          // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
+          set((st) => ({
+            readWatermarks: {
+              ...st.readWatermarks,
+              [chatId]: {
+                peerReadUpTo: res.peerReadUpTo,
+                memberWatermarks: res.memberReadWatermarks,
+                at: Date.now(),
+              },
+            },
+          }));
 
           // 既読者 MID のプロフィールを事前取得（メンバー一覧を開かなくても名前表示）
           const allReaderMids = new Set<string>();
@@ -1736,7 +1743,7 @@ export const useStore = create<State>()(
         if (fresh.length === 0 && !hasUpdates) return;
 
         // キャッシュ済み既読ウォーターマークを新着にも即適用（RPC なしで既読化）
-        const cachedWm = readWatermarkCache.get(chatId);
+        const cachedWm = get().readWatermarks[chatId];
         if (cachedWm) {
           const patched = applyReadWatermarkLocal(mapped, cachedWm, false);
           if (patched) {
@@ -2001,6 +2008,7 @@ export const useStore = create<State>()(
         readDisabledMids: s.readDisabledMids,
         blockedMids: s.blockedMids,
         activeChatId: s.activeChatId,
+        readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({
           id: c.id,
           pinned: c.pinned,
