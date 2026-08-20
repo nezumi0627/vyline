@@ -108,6 +108,14 @@ export type Message = {
   stickerAnimated?: boolean;
   /** くっつきスタンプ（位置固定マーカーあり） */
   stickerSticky?: boolean;
+  /** 編集済みフラグ */
+  edited?: boolean;
+  /** 編集日時 (ms) */
+  editedAt?: number;
+  /** 編集前の元テキスト */
+  originalText?: string;
+  /** 編集前の元テキストを表示中かどうか */
+  showOriginal?: boolean;
   linkPreview?: LinkPreview;
   /** 失敗時の再送に使う送信意図（楽観メッセージに保持） */
   retry?: RetryIntent;

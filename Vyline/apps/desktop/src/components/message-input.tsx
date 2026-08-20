@@ -9,6 +9,7 @@ import {
   IconMic,
   IconClose,
   IconAtSign,
+  IconBellOff,
 } from "@/components/icons";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { FloatNotice } from "@/components/float-notice";
@@ -112,6 +113,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [picker, setPicker] = useState(false);
+  const [muteNext, setMuteNext] = useState(false);
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   // 下書きの本文（￼ プレースホルダ）と絵文字メタデータを同一ストアに永続化して、チャット切替・再起動後もズレないようにする
@@ -338,11 +340,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
     const sticonMeta = buildSticonMetadata(ranged) ?? {};
     const mentionMeta = buildMentionMetadata(state.draftMentions[chatId] ?? []);
     const meta = mentionMeta ? { ...sticonMeta, MENTION: mentionMeta } : sticonMeta;
-    void sendMessage(
-      chatId,
-      text,
-      Object.keys(meta).length ? { contentMetadata: meta } : undefined,
-    );
+    void sendMessage(chatId, text, {
+      contentMetadata: Object.keys(meta).length ? meta : undefined,
+      mute: muteNext || undefined,
+    });
     setDraftSticons(chatId, []);
     setDraftMentions(chatId, []);
     setMentionPicker(null);
@@ -604,6 +605,17 @@ export function MessageInput({ chatId }: { chatId: string }) {
             >
               <IconSmile size={20} />
             </IconButton>
+            <IconButton
+              label={
+                muteNext
+                  ? "ミュートメッセージ: 有効（通知なしで送信）"
+                  : "ミュートメッセージ: 無効（クリックで有効化）"
+              }
+              active={muteNext}
+              onClick={() => setMuteNext((m) => !m)}
+            >
+              <IconBellOff size={19} />
+            </IconButton>
 
             <div className="relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
               {overlaySegments && (
@@ -638,7 +650,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
                 onKeyDown={onKeyDown}
                 onPaste={onPaste}
                 onScroll={(e) => setOverlayScrollTop(e.currentTarget.scrollTop)}
-                placeholder={draft ? undefined : "メッセージを入力（絵文字は文中に挿入）"}
+                placeholder={
+                  draft
+                    ? undefined
+                    : muteNext
+                      ? "メッセージを入力（ミュート送信: 通知なし）"
+                      : "メッセージを入力（絵文字は文中に挿入）"
+                }
                 aria-label="メッセージを入力"
                 className={cn(
                   "vy-scroll vy-input-text max-h-40 w-full resize-none bg-transparent py-1.5 leading-relaxed outline-none placeholder:text-[var(--vy-text-dim)]",
@@ -653,11 +671,23 @@ export function MessageInput({ chatId }: { chatId: string }) {
               <button
                 type="button"
                 onClick={send}
-                aria-label="送信"
-                className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-                style={{ background: "var(--vy-accent)" }}
+                aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
+                title={
+                  muteNext ? "ミュートメッセージとして送信（相手に通知されません）" : undefined
+                }
+                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+                style={{
+                  background: muteNext
+                    ? "color-mix(in oklab, var(--vy-accent) 80%, #6366f1)"
+                    : "var(--vy-accent)",
+                }}
               >
                 <IconSend size={18} />
+                {muteNext && (
+                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white shadow">
+                    ✕
+                  </span>
+                )}
               </button>
             ) : (
               <IconButton label="音声メッセージを録音" onClick={() => setRecording(true)}>
@@ -667,11 +697,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
           </div>
         </>
       )}
-      {draftSticons.length > 0 && (
-        <p className="mt-1 px-1 text-[0.65rem] text-[var(--vy-text-dim)]">
-          LINE絵文字 {draftSticons.length} 個を文中に挿入中
-        </p>
-      )}
+      <div className="mt-1 flex flex-wrap items-center gap-2 px-1 text-[0.65rem] text-[var(--vy-text-dim)]">
+        {muteNext && (
+          <span className="flex items-center gap-1 rounded-md bg-[color-mix(in_oklab,var(--vy-accent)_15%,transparent)] px-1.5 py-0.5 font-medium text-[var(--vy-accent)]">
+            <IconBellOff size={12} />
+            ミュート送信中（相手にプッシュ通知されません）
+          </span>
+        )}
+        {draftSticons.length > 0 && <span>LINE絵文字 {draftSticons.length} 個を文中に挿入中</span>}
+      </div>
     </div>
   );
 }

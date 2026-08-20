@@ -141,6 +141,12 @@ export interface Message {
   stickerAnimated?: boolean;
   /** くっつきスタンプ（位置固定マーカーあり） */
   stickerSticky?: boolean;
+  /** メッセージ編集済みフラグ */
+  isEdited?: boolean;
+  /** 編集日時 (ms) */
+  updatedTime?: number;
+  /** 編集前のオリジナルテキスト（ローカルキャッシュ用） */
+  originalText?: string;
 }
 
 export interface MessageReaction {
