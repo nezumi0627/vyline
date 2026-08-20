@@ -28,6 +28,8 @@ export type SettingsState = {
   pinEnabled: boolean;
   /** PINコード（有効時のみ使用） */
   pin: string;
+  /** PIN/パスワードモード */
+  pinMode: "pin" | "password";
   /** チャット開くたびにPIN入力が必要か */
   requirePinForOpen: boolean;
   /** モバイルプッシュ通知の有効/無効 */
@@ -43,6 +45,7 @@ export type SettingsState = {
   setFontScale: (v: number) => void;
   setPinEnabled: (v: boolean) => void;
   setPin: (v: string) => void;
+  setPinMode: (v: "pin" | "password") => void;
   setRequirePinForOpen: (v: boolean) => void;
   setNotificationsEnabled: (v: boolean) => void;
 };
@@ -61,6 +64,7 @@ export const useSettingsStore = create<SettingsState>()(
       fontScale: 1,
       pinEnabled: false,
       pin: "",
+      pinMode: "pin",
       requirePinForOpen: false,
       notificationsEnabled: true,
       setAutoMarkAsRead: (v) => set({ autoMarkAsRead: v }),
@@ -74,6 +78,7 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScale: (v) => set({ fontScale: Math.min(1.25, Math.max(0.85, v)) }),
       setPinEnabled: (v) => set({ pinEnabled: v }),
       setPin: (v: string) => set({ pin: v }),
+      setPinMode: (v) => set({ pinMode: v }),
       setRequirePinForOpen: (v) => set({ requirePinForOpen: v }),
       setNotificationsEnabled: (v) => set({ notificationsEnabled: v }),
     }),

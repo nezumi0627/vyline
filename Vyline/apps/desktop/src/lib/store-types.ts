@@ -192,6 +192,7 @@ export type Settings = {
   enterToSend: boolean;
   pinEnabled: boolean;
   pin: string;
+  pinMode: "pin" | "password";
   requirePinForOpen: boolean;
   chatSort: ChatSort;
   customCursor: boolean;

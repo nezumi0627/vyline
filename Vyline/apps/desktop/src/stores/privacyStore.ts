@@ -13,40 +13,55 @@ async function sha256Hex(input: string): Promise<string> {
 
 type PrivacyState = {
   pinEnabled: boolean;
+  pinMode: "pin" | "password";
   pinHash: string | null;
   unlocked: boolean;
-  setPin: (pin: string) => Promise<void>;
+  setPin: (pin: string, mode?: "pin" | "password") => Promise<void>;
   clearPin: () => void;
-  unlock: (pin: string) => Promise<boolean>;
+  unlock: (pin: string, mode?: "pin" | "password") => Promise<boolean>;
   lock: () => void;
 };
 
 export const usePrivacyStore = create<PrivacyState>()(
   persist(
-    (set, get) => ({
-      pinEnabled: false,
-      pinHash: null,
-      unlocked: true,
-      setPin: async (pin) => {
+  (set, get) => ({
+    pinEnabled: false,
+    pinMode: "pin",
+    pinHash: null,
+    unlocked: true,
+    setPin: async (pin, mode = "pin") => {
+      if (mode === "pin") {
         const digits = pin.replace(/\D/g, "");
         if (digits.length < 4 || digits.length > 8) {
           throw new Error("PIN は 4〜8 桁の数字にしてください");
         }
         const pinHash = await sha256Hex(`vyline-pin:${digits}`);
-        set({ pinEnabled: true, pinHash, unlocked: true });
-      },
-      clearPin: () => set({ pinEnabled: false, pinHash: null, unlocked: true }),
-      unlock: async (pin) => {
-        const { pinHash } = get();
-        if (!pinHash) {
-          set({ unlocked: true });
-          return true;
+        set({ pinEnabled: true, pinMode: "pin", pinHash, unlocked: true });
+      } else {
+        if (pin.length < 1) {
+          throw new Error("パスワードを入力してください");
         }
-        const guess = await sha256Hex(`vyline-pin:${pin.replace(/\D/g, "")}`);
-        const ok = guess === pinHash;
-        if (ok) set({ unlocked: true });
-        return ok;
-      },
+        const pinHash = await sha256Hex(`vyline-password:${pin}`);
+        set({ pinEnabled: true, pinMode: "password", pinHash, unlocked: true });
+      }
+    },
+    clearPin: () => set({ pinEnabled: false, pinMode: "pin", pinHash: null, unlocked: true }),
+    unlock: async (pin, mode = "pin") => {
+      const { pinHash } = get();
+      if (!pinHash) {
+        set({ unlocked: true });
+        return true;
+      }
+      let guess: string;
+      if (mode === "pin") {
+        guess = await sha256Hex(`vyline-pin:${pin.replace(/\D/g, "")}`);
+      } else {
+        guess = await sha256Hex(`vyline-password:${pin}`);
+      }
+      const ok = guess === pinHash;
+      if (ok) set({ unlocked: true });
+      return ok;
+    },
       lock: () => {
         if (get().pinEnabled) set({ unlocked: false });
       },
@@ -55,8 +70,8 @@ export const usePrivacyStore = create<PrivacyState>()(
       name: "vyline:privacy",
       partialize: (s) => ({
         pinEnabled: s.pinEnabled,
+        pinMode: s.pinMode,
         pinHash: s.pinHash,
-        // 起動時は必ずロック
         unlocked: false,
       }),
       onRehydrateStorage: () => (state) => {
