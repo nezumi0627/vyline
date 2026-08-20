@@ -322,6 +322,14 @@ export function mapMessage(
       })),
     stickerAnimated: m.stickerAnimated,
     stickerSticky: m.stickerSticky,
+    edited:
+      m.isEdited ||
+      (m.updatedTime != null && m.updatedTime > 0) ||
+      meta?.EDITED === "1" ||
+      meta?.is_edited === "true" ||
+      Boolean(m.originalText),
+    editedAt: m.updatedTime != null && m.updatedTime > 0 ? m.updatedTime : undefined,
+    originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
     contact,
     location,
   };
