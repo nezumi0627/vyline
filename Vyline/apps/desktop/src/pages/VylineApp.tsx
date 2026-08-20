@@ -5,11 +5,9 @@ import { useStore } from "../lib/store.js";
 import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { CustomCursor } from "../components/vyline-cursor.js";
-import { PinLockScreen } from "../components/pin-lock-screen.js";
 import { HubHome } from "../components/hub-home.js";
 import { ChatShell } from "../components/chat-shell.js";
 import { SettingsSections } from "../components/settings-sections.js";
-import { LoginPage } from "./LoginPage.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 
@@ -71,8 +69,6 @@ export function VylineApp() {
       <CustomCursor />
       {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
       {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
-      {screen === "lock" && <PinLockScreen />}
-      {screen === "login" && <LoginPage />}
       {screen === "home" && showUpdateNote && <HubHome />}
       {(screen === "chat" || (screen === "home" && !showUpdateNote)) && <ChatShell />}
       {screen === "settings" && <SettingsSections />}

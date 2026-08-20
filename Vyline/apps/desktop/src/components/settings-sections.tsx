@@ -1074,9 +1074,6 @@ function PrivacySection() {
   const settings = useStore((s) => s.settings);
   const updateSetting = useStore((s) => s.updateSetting);
   const accountId = useStore((s) => s.accountId);
-  const [pinDraft, setPinDraft] = useState("");
-  const [pinMsg, setPinMsg] = useState<string | null>(null);
-  const [savingPin, setSavingPin] = useState(false);
   const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
   const [proxyMsg, setProxyMsg] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<Array<{ mid: string; name?: string; avatarUrl?: string }>>(
@@ -1084,25 +1081,6 @@ function PrivacySection() {
   );
   const [blockedLoading, setBlockedLoading] = useState(false);
   const [unblocking, setUnblocking] = useState<Set<string>>(new Set());
-
-  const savePin = async () => {
-    setSavingPin(true);
-    setPinMsg(null);
-    try {
-      if (!pinDraft) {
-        updateSetting("pin", "");
-        setPinMsg("パスコードを削除しました");
-        return;
-      }
-      updateSetting("pin", pinDraft);
-      setPinMsg("パスコードを更新しました");
-      setPinDraft("");
-    } catch (err) {
-      setPinMsg(err instanceof Error ? err.message : String(err));
-    } finally {
-      setSavingPin(false);
-    }
-  };
 
   const applyProxy = async () => {
     if (!accountId) return;
@@ -1175,7 +1153,7 @@ function PrivacySection() {
   };
 
   return (
-    <Section title="プライバシー" desc="パスコード・プロキシ・ブロック">
+    <Section title="プライバシー" desc="プロキシ・ブロック">
       <Card>
         <Row title="配信者モード" desc="一覧・ヘッダーの名前を「友だち／グループ」に伏せます">
           <Toggle
@@ -1184,66 +1162,6 @@ function PrivacySection() {
             label="配信者モード"
           />
         </Row>
-        <Row title="パスコードロック" desc="起動時にパスコードの入力を求めます">
-          <Toggle
-            checked={settings.pinEnabled}
-            onChange={(v) => updateSetting("pinEnabled", v)}
-            label="パスコードロック"
-          />
-        </Row>
-        {settings.pinEnabled && (
-          <div className="px-4 py-3">
-            <div className="flex items-center gap-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2">
-              {(["pin", "password"] as const).map((mode) => (
-                <button
-                  key={mode}
-                  type="button"
-                  onClick={() => updateSetting("pinMode", mode)}
-                  className={cn(
-                    "flex-1 rounded-lg px-3 py-2 text-xs font-medium transition-colors",
-                    settings.pinMode === mode
-                      ? "border-transparent text-[var(--vy-accent-contrast)]"
-                      : "border border-[var(--vy-border)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
-                  )}
-                  style={
-                    settings.pinMode === mode
-                      ? { background: "var(--vy-accent)" }
-                      : { background: "var(--vy-surface)" }
-                  }
-                >
-                  {mode === "pin" ? "PIN（数字）" : "パスワード（文字）"}
-                </button>
-              ))}
-            </div>
-            <div className="mt-3 flex gap-2">
-              <input
-                type={settings.pinMode === "password" ? "password" : "text"}
-                inputMode={settings.pinMode === "pin" ? "numeric" : "text"}
-                value={pinDraft}
-                onChange={(e) => setPinDraft(e.target.value)}
-                placeholder={
-                  settings.pinMode === "pin" ? "4〜8桁の数字" : "任意のパスワード（1文字以上）"
-                }
-                className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-              />
-              <button
-                type="button"
-                onClick={() => void savePin()}
-                disabled={savingPin}
-                className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
-                style={{ background: "var(--vy-accent)" }}
-              >
-                {savingPin ? "保存中…" : "保存"}
-              </button>
-            </div>
-            {pinMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{pinMsg}</p>}
-            <p className="mt-2 text-[0.65rem] text-[var(--vy-text-dim)]">
-              {settings.pinMode === "pin"
-                ? "数字のみの短いコード。4〜8桁で入力してください。"
-                : "英数字・記号も使える自由なパスワード。"}
-            </p>
-          </div>
-        )}
         <Row title="プロキシを使う" desc="HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）">
           <Toggle
             checked={settings.proxyEnabled}
@@ -1330,47 +1248,6 @@ function PrivacySection() {
           </div>
         </Card>
       </div>
-
-      {settings.pinEnabled && (
-        <div className="mt-4">
-          <Card>
-            <div className="py-3.5">
-              <p className="text-sm font-medium">パスコードを変更</p>
-              <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
-                {settings.pinMode === "pin" ? "4〜8桁の数字" : "任意のパスワード（1文字以上）"}
-              </p>
-              <div className="mt-3 flex gap-2">
-                <input
-                  type={settings.pinMode === "password" ? "password" : "text"}
-                  inputMode={settings.pinMode === "pin" ? "numeric" : "text"}
-                  value={pinDraft}
-                  onChange={(e) => {
-                    const next =
-                      settings.pinMode === "pin"
-                        ? e.target.value.replace(/\D/g, "").slice(0, 8)
-                        : e.target.value;
-                    setPinDraft(next);
-                    setPinMsg(null);
-                  }}
-                  placeholder={settings.pinMode === "pin" ? "新しいPIN" : "新しいパスワード"}
-                  aria-label="新しいパスコード"
-                  className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-                />
-                <button
-                  type="button"
-                  disabled={!pinDraft || savingPin}
-                  onClick={() => void savePin()}
-                  className="rounded-lg px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-40"
-                  style={{ background: "var(--vy-accent)" }}
-                >
-                  保存
-                </button>
-              </div>
-              {pinMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{pinMsg}</p>}
-            </div>
-          </Card>
-        </div>
-      )}
     </Section>
   );
 }

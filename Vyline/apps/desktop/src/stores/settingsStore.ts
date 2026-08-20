@@ -24,14 +24,6 @@ export type SettingsState = {
   enterToSend: boolean;
   /** フォント倍率 */
   fontScale: number;
-  /** PIN機能の有効/無効 */
-  pinEnabled: boolean;
-  /** PINコード（有効時のみ使用） */
-  pin: string;
-  /** PIN/パスワードモード */
-  pinMode: "pin" | "password";
-  /** チャット開くたびにPIN入力が必要か */
-  requirePinForOpen: boolean;
   /** モバイルプッシュ通知の有効/無効 */
   notificationsEnabled: boolean;
   setAutoMarkAsRead: (v: boolean) => void;
@@ -43,9 +35,6 @@ export type SettingsState = {
   setBubbleTail: (v: boolean) => void;
   setEnterToSend: (v: boolean) => void;
   setFontScale: (v: number) => void;
-  setPinEnabled: (v: boolean) => void;
-  setPin: (v: string) => void;
-  setRequirePinForOpen: (v: boolean) => void;
   setNotificationsEnabled: (v: boolean) => void;
 };
 
@@ -61,10 +50,6 @@ export const useSettingsStore = create<SettingsState>()(
       bubbleTail: true,
       enterToSend: true,
       fontScale: 1,
-      pinEnabled: false,
-      pin: "",
-      pinMode: "pin",
-      requirePinForOpen: false,
       notificationsEnabled: true,
       setAutoMarkAsRead: (v) => set({ autoMarkAsRead: v }),
       setShowReadReceipts: (v) => set({ showReadReceipts: v }),
@@ -75,10 +60,6 @@ export const useSettingsStore = create<SettingsState>()(
       setBubbleTail: (v) => set({ bubbleTail: v }),
       setEnterToSend: (v) => set({ enterToSend: v }),
       setFontScale: (v) => set({ fontScale: Math.min(1.25, Math.max(0.85, v)) }),
-      setPinEnabled: (v) => set({ pinEnabled: v }),
-      setPin: (v: string) => set({ pin: v }),
-      setPinMode: (v: "pin" | "password") => set({ pinMode: v }),
-      setRequirePinForOpen: (v) => set({ requirePinForOpen: v }),
       setNotificationsEnabled: (v) => set({ notificationsEnabled: v }),
     }),
     { name: "vyline:settings" },

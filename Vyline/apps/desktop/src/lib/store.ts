@@ -1,6 +1,5 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
-import { usePrivacyStore } from "../stores/privacyStore";
 import { api, type Announcement } from "../api/client.js";
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
 import { THEME_PRESETS } from "./theme-presets.js";
@@ -8,10 +7,11 @@ import type {
   Chat,
   ChatSort,
   Message,
+  MessageReaction,
   VyTheme,
+  Settings,
   Screen,
   SelfProfile,
-  Settings,
 } from "./store-types.js";
 import {
   buildMembersFromMessages,
@@ -26,7 +26,7 @@ import { getDismissedChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
-import { type MessageReaction, invalidateMessage } from "./reactionCache.js";
+import { invalidateMessage } from "./reactionCache.js";
 
 export type { Chat, ChatSort, Message, Member, VyTheme, Settings, Screen } from "./store-types.js";
 
@@ -184,11 +184,10 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: "0.5.1-beta",
-  title: "Vyline 0.5.1-beta — PIN/パスワードデュアルモード + 設定同期修正",
+  title: "Vyline 0.5.1-beta — メッセージ編集UI + プッシュ通知切替",
   items: [
-    "パスコードロックに PIN（数字） / パスワード（文字）デュアルモードを追加",
-    "ロック画面をモード切替：PINはテンキー＋固定長ドット、パスワードはテキスト入力",
-    "設定の pin 変更時に privacyStore の pinHash を同期するよう修正",
+    "メッセージ編集UIを追加",
+    "プッシュ通知のON/OFF切替を設定に追加",
     "バージョン表記を 0.5.1-beta に統一",
   ],
 };
@@ -217,14 +216,11 @@ type State = {
   memberProfile: { chatId: string; memberId: string } | null;
   loadingChats: boolean;
   loadingMessages: boolean;
-  unlocked: boolean;
   indexing: { active: boolean; label: string } | null;
   /** 個別チャットの「既読を無効化」設定（mid → 無効化） */
   readDisabledMids: Record<string, boolean>;
   /** ブロック中のユーザー MID 一覧（送信抑止・UI 表示に使用） */
   blockedMids: string[];
-  pendingScreen: Screen | null;
-  pendingChatId: string | null;
 
   /** chatId → 既読ウォーターマーク（DB永続化） */
   readWatermarks: Record<
@@ -248,8 +244,6 @@ type State = {
   openChat: (id: string) => void;
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
-  unlock: (pin: string) => Promise<boolean>;
-  lock: () => void;
   dismissUpdateNote: () => void;
   setProfileDrawer: (open: boolean) => void;
   setIndexing: (v: { active: boolean; label: string } | null) => void;
@@ -362,10 +356,6 @@ export const useStore = create<State>()(
         compactDensity: false,
         fontScale: 1,
         enterToSend: true,
-        pinEnabled: false,
-        pin: "",
-        pinMode: "pin",
-        requirePinForOpen: false,
         chatSort: "recent",
         customCursor: false,
         bubbleTail: true,
@@ -393,24 +383,15 @@ export const useStore = create<State>()(
       memberProfile: null,
       loadingChats: false,
       loadingMessages: false,
-      unlocked: true,
       indexing: null,
       readDisabledMids: {},
       blockedMids: [],
-      pendingScreen: null,
-      pendingChatId: null,
       notice: null,
       announcements: {},
       readWatermarks: {},
 
       setScreen: (s) => {
-        const { settings, unlocked } = get();
-        if (settings.pinEnabled && !unlocked && s !== "lock" && s !== "login") return;
-        if (settings.requirePinForOpen && !unlocked && (s === "chat" || s === "settings")) {
-          set({ pendingScreen: s, screen: "lock" });
-          return;
-        }
-        set({ screen: s, pendingScreen: null });
+        set({ screen: s });
       },
 
       setAccountId: (id) => {
@@ -466,12 +447,6 @@ export const useStore = create<State>()(
       isBlockedMid: (mid) => get().blockedMids.includes(mid),
 
       openChat: (id) => {
-        const { settings, unlocked } = get();
-        if (settings.requirePinForOpen && !unlocked) {
-          set({ pendingScreen: "chat", pendingChatId: id });
-          set({ screen: "lock" });
-          return;
-        }
         sessionOpenedChats.add(id);
         get()._activateChat(id, { history: true });
       },
@@ -536,48 +511,6 @@ export const useStore = create<State>()(
           },
         })),
 
-      unlock: async (pin) => {
-        const { settings, seenUpdateVersion, pendingScreen, pendingChatId } = get();
-        const nextScreen = seenUpdateVersion !== UPDATE_NOTES.version ? "home" : "chat";
-        if (!settings.pinEnabled || !settings.pin) {
-          set({
-            unlocked: true,
-            screen: nextScreen,
-            showUpdateNote: nextScreen === "home",
-          });
-          return true;
-        }
-        if (settings.pinMode === "pin") {
-          if (!/^\d{4,8}$/.test(pin)) return false;
-        } else {
-          if (!pin || pin.length < 1) return false;
-        }
-        const privacyStore = usePrivacyStore.getState();
-        const ok = await privacyStore.unlock(pin);
-        if (ok) {
-          const targetScreen = pendingScreen || nextScreen;
-          const targetChatId = pendingChatId;
-          set({
-            unlocked: true,
-            screen: targetScreen,
-            pendingScreen: null,
-            pendingChatId: null,
-            showUpdateNote: targetScreen === "home",
-          });
-          if (targetScreen === "chat" && targetChatId) {
-            sessionOpenedChats.add(targetChatId);
-            get()._activateChat(targetChatId, { history: true });
-          }
-          return true;
-        }
-        return false;
-      },
-
-      lock: () => {
-        const { settings } = get();
-        if (settings.pinEnabled) set({ unlocked: false, screen: "lock" });
-      },
-
       dismissUpdateNote: () =>
         set({
           showUpdateNote: false,
@@ -603,10 +536,6 @@ export const useStore = create<State>()(
             compactDensity: false,
             fontScale: 1,
             enterToSend: true,
-            pinEnabled: false,
-            pin: "",
-            pinMode: "pin",
-            requirePinForOpen: false,
             chatSort: "recent",
             customCursor: false,
             bubbleTail: true,
@@ -619,7 +548,6 @@ export const useStore = create<State>()(
           },
           sidebarWidth: 360,
           customOrder: [],
-          unlocked: true,
         }),
 
       hydrateLineData: ({ profile, chats, messages, hiddenMids, contactCache }) => {
@@ -722,12 +650,16 @@ export const useStore = create<State>()(
             const pending = st.messages.filter(
               (m) => m.id.startsWith("pending_") || m.status === "sending" || m.status === "failed",
             );
-            if (pending.length === 0) {
-              mappedMessages.forEach((m) => {
-                if (m.id && m.reactions?.length) {
+            mappedMessages.forEach((m) => {
+              if (m.id) {
+                if (m.reactions?.length) {
                   messageReactionCache.set(m.id, m.reactions);
+                } else {
+                  messageReactionCache.delete(m.id);
                 }
-              });
+              }
+            });
+            if (pending.length === 0) {
               return mappedMessages;
             }
             const ids = new Set(mappedMessages.map((m) => m.id));
@@ -1416,11 +1348,6 @@ export const useStore = create<State>()(
         })),
       updateSetting: (k, v) => {
         set((st) => ({ settings: { ...st.settings, [k]: v } }));
-        if (k === "pin" && typeof v === "string" && v.length > 0) {
-          usePrivacyStore.getState().setPin(v);
-        }
-        if (k === "pinEnabled" && !v) set({ unlocked: true });
-        if (k === "pinEnabled" && v) set({ unlocked: false, screen: "lock" });
       },
       setLocalName: (chatId, name) =>
         set((st) => ({
@@ -1837,10 +1764,13 @@ export const useStore = create<State>()(
             ? st.messages.map((m) => {
                 if (m.chatId !== chatId) return m;
                 const upd = incomingById.get(m.id);
-                if (!upd || !upd.reactions?.length) return m;
+                if (!upd) return m;
                 if (JSON.stringify(upd.reactions) === JSON.stringify(m.reactions)) return m;
-                // キャッシュも更新
-                messageReactionCache.set(m.id, upd.reactions);
+                if (upd.reactions?.length) {
+                  messageReactionCache.set(m.id, upd.reactions);
+                } else {
+                  messageReactionCache.delete(m.id);
+                }
                 return { ...m, reactions: upd.reactions };
               })
             : st.messages;
@@ -1934,12 +1864,11 @@ export const useStore = create<State>()(
           });
           // キャッシュも更新
           for (const m of msgs) {
-            if (m.id && m.reactions) {
-              if (reaction !== "UNDO") {
-                messageReactionCache.set(m.id, m.reactions);
-              } else {
-                messageReactionCache.delete(m.id);
-              }
+            if (!m.id) continue;
+            if (m.reactions?.length) {
+              messageReactionCache.set(m.id, m.reactions);
+            } else {
+              messageReactionCache.delete(m.id);
             }
           }
           if (msgs.every((m, i) => m === st.messages[i])) return st;
@@ -2110,7 +2039,6 @@ export const useStore = create<State>()(
         if (!state) return;
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
-        // 適用済みプリセットに id を揃える（チェック表示用）
         if (state.theme) {
           const match =
             THEME_PRESETS.find((p) => p.id === state.theme.id) ??
@@ -2122,10 +2050,7 @@ export const useStore = create<State>()(
             );
           if (match) state.theme = { ...match, ...state.theme, id: match.id, name: match.name };
         }
-        if (state.settings.pinEnabled) {
-          state.unlocked = false;
-          state.screen = "lock";
-        } else if (unseen) {
+        if (unseen) {
           state.screen = "home";
         } else {
           state.screen = "chat";
