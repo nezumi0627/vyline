@@ -181,28 +181,12 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: "0.5.1-beta",
-  title: "Vyline 0.5.1-beta — メッセージ編集UI・ミュート送信統合",
+  title: "Vyline 0.5.1-beta — PIN/パスワードデュアルモード + 設定同期修正",
   items: [
-    "メッセージ編集UIの完全統合（編集メニュー、編集ダイアログ、編集済みバッジ表示、編集前の表示切替）",
-    "ミュート送信（NOTIFICATION_DISABLED）トグルボタンの追加",
-    "受信システムをfetchOps方式に刷新（メッセージ・通話・メンバー変更等の全イベントを統合処理）",
-    "公開REST API (/v1/) を追加（Bearer token認証）",
-    "メンション（@ALL / @名前）の送受信・ハイライト表示",
-    "画像送信: クライアント側圧縮 + 本家クライアントでも表示される E2EE メディア対応",
-    "チャットイベントの実テキスト化（参加/退出/名前変更等を正確に表示）",
-    "公式バッジを緑のチェックマークに刷新",
-    "LINE 絵文字（sticon）の描画バグ修正 — 本文中の絵文字が正しく表示されるように",
-    "Flex カルーセルのマウスドラッグ対応",
-    "連続送信・取り消しの安定化",
-    "リアクションの削除（トグル方式）",
-    "プロフィール背景画像・ステータスメッセージの表示",
-    "チャット一覧のスクロールバウンス修正",
-    "受信ポーリング高速化（4s/12s/60s → 2s/8s/60s）",
-    "既読ウォーターマークキャッシュ（30s TTL）",
-    "ブロック機能（送信防止・GUI統合）",
-    "VylineBackup（トーク履歴・メディアスナップショット）",
-    "チャット詳細ログ（JSONL記録）",
-    "高画質画像送信トグル",
+    "パスコードロックに PIN（数字） / パスワード（文字）デュアルモードを追加",
+    "ロック画面をモード切替：PINはテンキー＋固定長ドット、パスワードはテキスト入力",
+    "設定の pin 変更時に privacyStore の pinHash を同期するよう修正",
+    "バージョン表記を 0.5.1-beta に統一",
   ],
 };
 
@@ -377,6 +361,7 @@ export const useStore = create<State>()(
         enterToSend: true,
         pinEnabled: false,
         pin: "",
+        pinMode: "pin",
         requirePinForOpen: false,
         chatSort: "recent",
         customCursor: false,
@@ -559,14 +544,14 @@ export const useStore = create<State>()(
           });
           return true;
         }
-        // Validate PIN length (4-8 digits)
-        if (!/^\d{4,8}$/.test(pin)) {
-          return false;
+        if (settings.pinMode === "pin") {
+          if (!/^\d{4,8}$/.test(pin)) return false;
+        } else {
+          if (!pin || pin.length < 1) return false;
         }
         const privacyStore = usePrivacyStore.getState();
         const ok = await privacyStore.unlock(pin);
         if (ok) {
-          // If there's a pending screen (chat or settings), navigate there
           const targetScreen = pendingScreen || nextScreen;
           const targetChatId = pendingChatId;
           set({
@@ -617,6 +602,7 @@ export const useStore = create<State>()(
             enterToSend: true,
             pinEnabled: false,
             pin: "",
+            pinMode: "pin",
             requirePinForOpen: false,
             chatSort: "recent",
             customCursor: false,
@@ -1420,6 +1406,9 @@ export const useStore = create<State>()(
         })),
       updateSetting: (k, v) => {
         set((st) => ({ settings: { ...st.settings, [k]: v } }));
+        if (k === "pin" && typeof v === "string" && v.length > 0) {
+          usePrivacyStore.getState().setPin(v);
+        }
         if (k === "pinEnabled" && !v) set({ unlocked: true });
         if (k === "pinEnabled" && v) set({ unlocked: false, screen: "lock" });
       },

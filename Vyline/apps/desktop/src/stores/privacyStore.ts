@@ -28,11 +28,10 @@ export const usePrivacyStore = create<PrivacyState>()(
       pinHash: null,
       unlocked: true,
       setPin: async (pin) => {
-        const digits = pin.replace(/\D/g, "");
-        if (digits.length < 4 || digits.length > 8) {
-          throw new Error("PIN は 4〜8 桁の数字にしてください");
+        if (!pin || pin.length < 1) {
+          throw new Error("パスコードを入力してください");
         }
-        const pinHash = await sha256Hex(`vyline-pin:${digits}`);
+        const pinHash = await sha256Hex(`vyline-pin:${pin}`);
         set({ pinEnabled: true, pinHash, unlocked: true });
       },
       clearPin: () => set({ pinEnabled: false, pinHash: null, unlocked: true }),
@@ -42,7 +41,7 @@ export const usePrivacyStore = create<PrivacyState>()(
           set({ unlocked: true });
           return true;
         }
-        const guess = await sha256Hex(`vyline-pin:${pin.replace(/\D/g, "")}`);
+        const guess = await sha256Hex(`vyline-pin:${pin}`);
         const ok = guess === pinHash;
         if (ok) set({ unlocked: true });
         return ok;
