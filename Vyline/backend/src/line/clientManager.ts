@@ -93,12 +93,21 @@ const sendQueue = new Map<string, Promise<unknown>>();
 const SEND_TIMEOUT_MS = 15_000;
 
 function withSendTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
-  return Promise.race([
-    p,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`send timed out after ${timeoutMs}ms`)), timeoutMs);
-    }),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`send timed out after ${timeoutMs}ms`));
+    }, timeoutMs);
+    p.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 export function runSendRpc<T>(

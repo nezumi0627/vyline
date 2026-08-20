@@ -810,12 +810,21 @@ function invalidateBoxCursorCache(accountId: string, chatMid?: string): void {
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    }),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function resolveMyMid(
@@ -1739,9 +1748,10 @@ export async function fetchContactProfile(
   })();
 
   contactProfileInflight.set(cacheKey, task);
-  void task.finally(() => {
+  const cleanup = () => {
     contactProfileInflight.delete(cacheKey);
-  });
+  };
+  task.then(cleanup, cleanup);
   return task;
 }
 
