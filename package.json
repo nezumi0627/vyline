@@ -29,6 +29,7 @@
     "vyline:decrypt-edb": "bun Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts",
     "vyline:call-test": "bun Vyline/backend/src/tools/callTest.ts",
     "vyline:get-edited-json": "bun scripts/getEditedMessageJson.ts",
+    "test:media": "bun scripts/sendTestMediaBatch.ts",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
