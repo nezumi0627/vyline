@@ -151,7 +151,7 @@ export function backgroundObjToUrl(objId: string | undefined | null): string | n
   if (!objId || !String(objId).trim()) return null;
   const s = String(objId).trim();
   if (s.startsWith("https://") || s.startsWith("http://")) return s;
-  return `https://obs.line-scdn.net/myhome/h/${s}`;
+  return `https://obs.line-apps.com/r/myhome/h/${s}`;
 }
 
 // ─── プロフィール背景（他ユーザー）────────────────
@@ -221,7 +221,17 @@ const HOME_BACKGROUND_CACHE_MS = 30 * 60 * 1000; // 30 分
 const HOME_BACKGROUND_RPC_TIMEOUT_MS = 6_000;
 
 /**
- * VOOM ホームプロフィール API からユーザーのプロフィール背景 URL を取得する。
+ * 相手のプロフィール背景（カバー画像）URL を取得する。
+ *
+ * 実データは HOME チャネルの home/cover API が正解（live-verified 2026-08-21）:
+ *   GET gw.line.naver.jp/hm/api/v1/home/cover.json?homeId=<mid>
+ *   ヘッダ X-Line-ChannelToken = issueChannelToken(HOME).channelAccessToken
+ * レスポンス:
+ *   { code:0, result:{ coverObsInfo:{ objectId, obsNamespace:"c", serviceName:"myhome" }, isDefaultCover:false } }
+ * 画像 URL: https://obs.line-apps.com/r/myhome/<obsNamespace>/<objectId>
+ *
+ * 注: ルーティングは MYHOME_RENEWAL(/hm)。HOMEAPI(/ma) や MYHOME(/mh) は 401/404 になる。
+ * チャネルトークンは voom.call("HOME", ...) が自動で発行する(channelAccessToken を使用)。
  * 失敗時は null（タイムアウト・権限なし・未設定などは静かに握りつぶす）。
  */
 async function fetchHomeProfileBackgroundUrl(
@@ -232,32 +242,37 @@ async function fetchHomeProfileBackgroundUrl(
   const key = `${accountId}:${targetMid}`;
   const cached = homeBackgroundCache.get(key);
   if (cached && Date.now() - cached.at < HOME_BACKGROUND_CACHE_MS) {
-    return cached.url;
+    return cached.url || null;
   }
   try {
     const client = requireClient(accountId);
-    const fetchHomeBackground = async (path: string, label: string): Promise<string | null> => {
-      const res = await withTimeout(
-        (async () => {
-          const r = await client.voomRest<unknown>({
-            routing: "HOMEAPI",
-            path: `${path}?homeId=${encodeURIComponent(targetMid)}`,
-          });
-          return r;
-        })(),
-        HOME_BACKGROUND_RPC_TIMEOUT_MS,
-        label,
-      );
-      const result = (res as { result?: unknown })?.result;
-      return result ? extractBackgroundUrl(result) : null;
-    };
-    const url =
-      (await fetchHomeBackground("/api/v1/home/profile.json", "homeProfile")) ??
-      (await fetchHomeBackground("/api/v1/home/cover.json", "homeCover"));
-    homeBackgroundCache.set(key, { at: Date.now(), url: url ?? "" });
-    return url;
+    const res = await withTimeout(
+      client.voom.call("HOME", {
+        routing: "MYHOME_RENEWAL",
+        path: `/api/v1/home/cover.json?homeId=${encodeURIComponent(targetMid)}`,
+      }),
+      HOME_BACKGROUND_RPC_TIMEOUT_MS,
+      "homeCover",
+    );
+    const result = (res as { result?: unknown }).result as
+      | {
+          coverObsInfo?: { objectId?: string; obsNamespace?: string };
+          isDefaultCover?: boolean;
+        }
+      | null
+      | undefined;
+    const info = result?.coverObsInfo;
+    // isDefaultCover=true は LINE の既定カバー（未設定）とみなし表示しない
+    if (info?.objectId && result?.isDefaultCover !== true) {
+      const ns = info.obsNamespace || "c";
+      const url = `https://obs.line-apps.com/r/myhome/${ns}/${info.objectId}`;
+      homeBackgroundCache.set(key, { at: Date.now(), url });
+      return url;
+    }
+    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    return null;
   } catch (err) {
-    log.debug({ accountId, targetMid, err }, "homeProfile background fetch failed");
+    log.debug({ accountId, targetMid, err }, "home cover background fetch failed");
     homeBackgroundCache.set(key, { at: Date.now(), url: "" });
     return null;
   }
@@ -1043,7 +1058,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       musicProfile: String(raw.musicProfile ?? ""),
       videoProfile: String(raw.videoProfile ?? ""),
       profileId: String(raw.profileId ?? ""),
-      backgroundUrl: raw.backgroundUrl || undefined,
+      backgroundUrl: raw.backgroundUrl || extractBackgroundUrl(raw) || undefined,
       birthday,
       ...(premium ? { premium } : {}),
     };
@@ -1908,7 +1923,11 @@ async function fetchContactProfileInner(
       const raw = await resolveUserContactV3Like(client, targetMid);
       if (!raw) return null;
       const profile = mapContactV3Like(raw, targetMid);
-      // プロフィール背景は homeProfile API から（別途・短タイムアウト・失敗許容）
+      // getProfile / contact raw に背景が入ることがあるのでまずそこを優先する。
+      const rawBackground = extractBackgroundUrl(raw);
+      if (rawBackground) profile.backgroundUrl = rawBackground;
+
+      // プロフィール背景は homeProfile API も別途試す（失敗許容の保険）
       try {
         const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
         if (bg) profile.backgroundUrl = bg;
@@ -4049,10 +4068,64 @@ export async function sendMessage(
 }
 
 export type MediaSendType = "image" | "video" | "audio" | "file" | "gif";
+export type MediaBatchItem = {
+  dataBase64: string;
+  mimeType?: string;
+  filename?: string;
+  mediaType?: MediaSendType;
+};
 
 /** スクショ／画像など E2EE メディア送信 */
 /** メディア送信は E2EE 鍵整備 + OBS アップロード + プレビューで時間がかかるため通常より長め */
 const MEDIA_SEND_TIMEOUT_MS = 90_000;
+const MEDIA_FLOW_REQSEQ = 1;
+const mediaFlowCache = new Map<string, { flowMap: Record<string, number>; expiresAt: number }>();
+
+function mediaContentTypeNumber(mediaType: MediaSendType): number {
+  if (mediaType === "video") return 2;
+  if (mediaType === "audio") return 3;
+  if (mediaType === "file") return 14;
+  return 1;
+}
+
+async function determinePlainMediaFlow(
+  client: ReturnType<typeof requireClient>,
+  accountId: string,
+  chatMid: string,
+  mediaTypes: MediaSendType[],
+): Promise<boolean> {
+  const now = Date.now();
+  const cached = mediaFlowCache.get(chatMid);
+  let flowMap = cached && cached.expiresAt > now ? cached.flowMap : undefined;
+  if (!flowMap) {
+    try {
+      const res = await client.base.talk.determineMediaMessageFlow({
+        request: { chatMid },
+      });
+      flowMap = Object.fromEntries(
+        Object.entries(res.flowMap ?? {}).map(([key, value]) => [String(key), Number(value)]),
+      );
+      const ttl =
+        typeof res.cacheTtlMillis === "bigint"
+          ? Number(res.cacheTtlMillis)
+          : Number(res.cacheTtlMillis ?? 0);
+      mediaFlowCache.set(chatMid, {
+        flowMap,
+        expiresAt: now + Math.max(60_000, Math.min(ttl || 0, 6 * 60 * 60 * 1000)),
+      });
+      log.info({ accountId, chatMid, flowMap }, "media message flow determined");
+    } catch (err) {
+      log.warn(
+        { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+        "determineMediaMessageFlow failed",
+      );
+      return false;
+    }
+  }
+  return mediaTypes.every(
+    (type) => flowMap[String(mediaContentTypeNumber(type))] === MEDIA_FLOW_REQSEQ,
+  );
+}
 
 export async function sendMedia(
   accountId: string,
@@ -4083,27 +4156,6 @@ export async function sendMedia(
         log.warn({ accountId, err }, "E2EE ensure before media send failed");
       }
 
-      // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
-      // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
-      // 新規 register はしない（テキストは plain フォールバックで問題ない）
-      let plainMode = noE2eePeers.has(chatMid);
-      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
-        try {
-          await ensureGroupE2EEKey(client, chatMid);
-          if (groupKeyWarmFailed.has(chatMid)) {
-            groupKeyWarmFailed.delete(chatMid);
-            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
-          }
-        } catch (err) {
-          log.warn(
-            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-            "group E2EE key setup failed — sending media as plain",
-          );
-          plainMode = true;
-        }
-        plainMode = plainMode || noE2eePeers.has(chatMid);
-      }
-
       const mime = opts?.mimeType ?? "image/png";
       const mediaType: MediaSendType =
         opts?.mediaType ??
@@ -4124,6 +4176,32 @@ export async function sendMedia(
         (mediaType === "image" || mediaType === "gif"
           ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
           : "file.bin");
+
+      // Desktop 準拠: REFRESH_MEDIA_FLOW を待たず、送信前にメディア flow を確認する。
+      // flow=1 は OBS /r/talk/m/reqseq でサーバー側に message を作らせる。
+      let plainMode =
+        noE2eePeers.has(chatMid) ||
+        (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
+
+      // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
+      // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
+      // 新規 register はしない（テキストは plain フォールバックで問題ない）
+      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        try {
+          await ensureGroupE2EEKey(client, chatMid);
+          if (groupKeyWarmFailed.has(chatMid)) {
+            groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+          }
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "group E2EE key setup failed — sending media as plain",
+          );
+          plainMode = true;
+        }
+        plainMode = plainMode || noE2eePeers.has(chatMid);
+      }
 
       const tryUpload = async () => {
         await client.base.obs.uploadMediaByE2EE({
@@ -4228,6 +4306,231 @@ export async function sendMedia(
   );
 }
 
+export async function sendMediaBatch(
+  accountId: string,
+  chatMid: string,
+  items: MediaBatchItem[],
+): Promise<number> {
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "sendMediaBatch blocked: user is blocked");
+      return 0;
+    }
+  }
+
+  return runSendRpc(
+    accountId,
+    async () => {
+      const client = requireClient(accountId);
+      await resolveMyMid(client, accountId);
+      try {
+        await ensureE2EEIdentityCached(client, accountId);
+      } catch (err) {
+        log.warn({ accountId, err }, "E2EE ensure before media batch send failed");
+      }
+
+      const batchMediaTypes = items.map((item) => {
+        const mime = item.mimeType ?? "image/png";
+        return (
+          item.mediaType ??
+          (mime.startsWith("video/")
+            ? "video"
+            : mime.startsWith("audio/")
+              ? "audio"
+              : mime === "image/gif"
+                ? "gif"
+                : mime.startsWith("image/")
+                  ? "image"
+                  : "file")
+        );
+      });
+      let plainMode =
+        noE2eePeers.has(chatMid) ||
+        (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
+      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        try {
+          await ensureGroupE2EEKey(client, chatMid);
+          if (groupKeyWarmFailed.has(chatMid)) {
+            groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+          }
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "group E2EE key setup failed — sending media batch as plain",
+          );
+          plainMode = true;
+        }
+        plainMode = plainMode || noE2eePeers.has(chatMid);
+      }
+
+      if (plainMode) {
+        let previousMessageId: string | undefined;
+        let count = 0;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]!;
+          const mime = item.mimeType ?? "image/png";
+          const mediaType = batchMediaTypes[i] ?? "image";
+          const binary = Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0));
+          const blob = new Blob([binary], { type: mime });
+          const filename =
+            item.filename ??
+            (mediaType === "image" || mediaType === "gif"
+              ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+              : "file.bin");
+          const message = await client.base.obs.uploadObjTalkMessage({
+            to: chatMid,
+            type: mediaType,
+            data: blob,
+            filename,
+            ...(previousMessageId
+              ? {
+                  relatedMessageId: previousMessageId,
+                  messageRelationType: "SUBORDINATE",
+                }
+              : {}),
+          });
+          previousMessageId = message.id;
+          count++;
+          log.info(
+            {
+              accountId,
+              chatMid,
+              mediaType,
+              size: binary.byteLength,
+              plain: true,
+              batch: true,
+              messageId: message.id,
+              relatedMessageId: message.relatedMessageId,
+              messageRelationType: message.messageRelationType,
+            },
+            "media batch item sent",
+          );
+        }
+        return count;
+      }
+
+      let count = 0;
+      let previousMessageId: string | undefined;
+      for (const item of items) {
+        const mime = item.mimeType ?? "image/png";
+        const mediaType: MediaSendType =
+          item.mediaType ??
+          (mime.startsWith("video/")
+            ? "video"
+            : mime.startsWith("audio/")
+              ? "audio"
+              : mime === "image/gif"
+                ? "gif"
+                : mime.startsWith("image/")
+                  ? "image"
+                  : "file");
+        const binary = Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0));
+        const blob = new Blob([binary], { type: mime });
+        const filename =
+          item.filename ??
+          (mediaType === "image" || mediaType === "gif"
+            ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+            : "file.bin");
+
+        const tryUpload = async () => {
+          const message = await client.base.obs.uploadMediaByE2EE({
+            data: blob,
+            oType: mediaType,
+            to: chatMid,
+            filename,
+            ...(previousMessageId
+              ? {
+                  relatedMessageId: previousMessageId,
+                  messageRelationType: "SUBORDINATE",
+                }
+              : {}),
+          });
+          previousMessageId = message.id;
+          return message;
+        };
+
+        try {
+          const message = await tryUpload();
+          log.info(
+            {
+              accountId,
+              chatMid,
+              mediaType,
+              size: binary.byteLength,
+              batch: true,
+              messageId: message.id,
+              relatedMessageId: message.relatedMessageId,
+              messageRelationType: message.messageRelationType,
+            },
+            "media batch item sent",
+          );
+          count++;
+        } catch (err) {
+          let errMsg = err instanceof Error ? err.message : String(err);
+
+          if (isSenderKeyError(errMsg)) {
+            log.warn(
+              { accountId, chatMid, errMsg },
+              "media batch send: invalid sender key — rotating and retrying",
+            );
+            try {
+              await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+              const message = await tryUpload();
+              previousMessageId = message.id;
+              count++;
+              continue;
+            } catch (retryErr) {
+              err = retryErr;
+              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            }
+          }
+
+          if (
+            (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+            (chatMid.startsWith("c") || chatMid.startsWith("r"))
+          ) {
+            log.warn(
+              { accountId, chatMid, errMsg },
+              "media batch send: old/missing group key — recreating and retrying",
+            );
+            try {
+              await recreateE2EEGroupKey(client, chatMid);
+              groupKeyWarm.delete(chatMid);
+              groupKeyWarmFailed.delete(chatMid);
+              const message = await tryUpload();
+              previousMessageId = message.id;
+              count++;
+              continue;
+            } catch (retryErr) {
+              log.warn(
+                {
+                  accountId,
+                  chatMid,
+                  retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
+                },
+                "media batch send after group-key recreate failed",
+              );
+              throw retryErr;
+            }
+          }
+
+          throw err;
+        }
+      }
+
+      return count;
+    },
+    {
+      timeoutMs: Math.min(
+        300_000,
+        Math.max(MEDIA_SEND_TIMEOUT_MS, MEDIA_SEND_TIMEOUT_MS * items.length),
+      ),
+    },
+  );
+}
+
 /** スタンプ送信（所持パック / Premium）。E2EE 非対応相手は最初から plain */
 export async function sendSticker(
   accountId: string,
@@ -4272,6 +4575,9 @@ type CombinationStickerInput = {
   size?: number;
 };
 
+/** frontend sticker-emoji-panel の正規座標空間 (COMBO_EDITOR_SIZE) と同期 */
+const COMBO_EDITOR_SPACE = 240;
+
 function buildCombinationStickerLayouts(items: CombinationStickerInput[]): {
   metadata: CombinationStickerMetadata;
   stickers: CombinationStickerStickerData[];
@@ -4283,14 +4589,14 @@ function buildCombinationStickerLayouts(items: CombinationStickerInput[]): {
   const toLayoutInfo = (index: number): CombinationStickerLayoutInfo => {
     const item = items[index];
     if (item?.x != null && item?.y != null && item?.size != null) {
-      const scale = canvasWidth / 240;
+      const scale = canvasWidth / COMBO_EDITOR_SPACE;
       const size = Math.max(40, Math.min(canvasWidth, Math.round(item.size * scale)));
       return {
         width: size,
         height: size,
         rotation: 0,
-        x: Math.max(0, Math.round(item.x * scale)),
-        y: Math.max(0, Math.round(item.y * scale)),
+        x: Math.max(0, Math.min(canvasWidth - size, Math.round(item.x * scale))),
+        y: Math.max(0, Math.min(canvasHeight - size, Math.round(item.y * scale))),
       };
     }
     switch (count) {
@@ -4542,8 +4848,16 @@ export async function sendCombinationSticker(
     const remembered = await sendStickerMessage(accountId, chatMid, async () => ({
       contentMetadata: { CSSTKID: created.id },
     }));
+    const sentMeta = (remembered?.contentMetadata ?? null) as Record<string, unknown> | null;
     log.info(
-      { accountId, chatMid, combinationStickerId: created.id, count: items.length },
+      {
+        accountId,
+        chatMid,
+        combinationStickerId: created.id,
+        count: items.length,
+        sentMetaKeys: sentMeta ? Object.keys(sentMeta) : null,
+        sentMetaHasCsstk: typeof sentMeta?.CSSTKID === "string" && sentMeta.CSSTKID.length > 0,
+      },
       "combination sticker sent",
     );
     return remembered;

@@ -92,7 +92,11 @@ export async function voomRest<T = unknown>(
 
 export async function getChannelToken(client: Client, channelId: string): Promise<string> {
   const r = await client.base.channel.issueChannelToken({ channelId });
-  const t = (r as unknown as { token?: string }).token;
+  // 重要: ゲートウェイ(gw.line.naver.jp)は channelAccessToken を X-Line-ChannelToken として
+  // 要求する。r.token(長い方)を渡すと 401「ユーザー認証を更新しています」になる。
+  const t =
+    (r as unknown as { channelAccessToken?: string }).channelAccessToken ??
+    (r as unknown as { token?: string }).token;
   if (!t) throw new Error("issueChannelToken returned no token");
   return t;
 }

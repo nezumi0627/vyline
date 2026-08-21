@@ -72,11 +72,21 @@ export declare class LineObs {
     /**
      * @description Upload obs message to talk.
      */
-    uploadObjTalk(to: string, type: ObjType, data: Blob, oid?: string, filename?: string, durationMs?: number): Promise<{
+    uploadObjTalk(to: string, type: ObjType, data: Blob, oid?: string, filename?: string, durationMs?: number, reqseqOverride?: number): Promise<{
         objId: string;
         objHash: string;
         headers: Headers;
     }>;
+    uploadObjTalkBatch(to: string, items: Array<{
+        type: ObjType;
+        data: Blob;
+        filename?: string;
+        durationMs?: number;
+    }>): Promise<Array<{
+        objId: string;
+        objHash: string;
+        headers: Headers;
+    }>>;
     uploadObjectForService(options: {
         data: Blob;
         oType?: ObjType;
@@ -101,6 +111,17 @@ export declare class LineObs {
         filename?: string;
         /** Optional thumbnail; encrypted with the same keyMaterial. #103. */
         preview?: Blob;
+        relatedMessageId?: string;
+        messageRelationType?: "FORWARD" | "AUTO_REPLY" | "SUBORDINATE" | "REPLY";
+    }): Promise<Message>;
+    uploadObjTalkMessage(options: {
+        to: string;
+        type: ObjType;
+        data: Blob;
+        filename?: string;
+        durationMs?: number;
+        relatedMessageId?: string;
+        messageRelationType?: "FORWARD" | "AUTO_REPLY" | "SUBORDINATE" | "REPLY";
     }): Promise<Message>;
     downloadMediaByE2EE(message: Message): Promise<File | null>;
 }

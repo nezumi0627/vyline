@@ -453,12 +453,14 @@ export const MessageBubble = memo(
     showAvatar,
     showName,
     highlight,
+    mediaGroup,
   }: {
     message: Message;
     chat: Chat;
     showAvatar: boolean;
     showName: boolean;
     highlight?: string;
+    mediaGroup?: Message[];
   }) {
     const isMe = message.authorId === "me";
     const settings = useStore((s) => s.settings);
@@ -485,10 +487,12 @@ export const MessageBubble = memo(
     const [history, setHistory] = useState<NonNullable<Message["history"]>>([]);
     const [historyLoading, setHistoryLoading] = useState(false);
     const [lightbox, setLightbox] = useState(false);
+    const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
 
     const author = chat.members?.find((m) => m.id === message.authorId);
+    const mediaItems = mediaGroup?.filter((item) => item.kind === "image" && item.imageSrc) ?? [];
     const repliedAuthor =
       replied?.authorId === "me"
         ? self.name
@@ -1160,7 +1164,49 @@ export const MessageBubble = memo(
               }}
             >
               {replyQuote}
-              {(message.kind === "image" || message.kind === "video") &&
+              {mediaItems.length > 1 && !streamerMode && (
+                <div
+                  className={cn(
+                    "grid overflow-hidden rounded-xl",
+                    mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
+                  )}
+                >
+                  {mediaItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="group relative aspect-square overflow-hidden bg-black/5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLightboxMedia(item);
+                        setLightbox(true);
+                      }}
+                      aria-label="画像を拡大"
+                    >
+                      <img
+                        src={item.imageSrc}
+                        alt="送信された画像"
+                        onError={hideBrokenMedia}
+                        className="h-full w-full object-cover transition-opacity group-hover:opacity-95"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {mediaItems.length > 1 && streamerMode && (
+                <div
+                  className={cn(
+                    "grid gap-1",
+                    mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
+                  )}
+                >
+                  {mediaItems.map((item) => (
+                    <SpoilerMedia key={item.id} src={item.imageSrc!} alt="送信された画像" />
+                  ))}
+                </div>
+              )}
+              {mediaItems.length <= 1 &&
+                (message.kind === "image" || message.kind === "video") &&
                 message.imageSrc &&
                 (streamerMode ? (
                   <SpoilerMedia
@@ -1174,6 +1220,7 @@ export const MessageBubble = memo(
                     className="group relative block overflow-hidden rounded-xl text-left"
                     onClick={(e) => {
                       e.stopPropagation();
+                      setLightboxMedia(message);
                       setLightbox(true);
                     }}
                     aria-label={message.kind === "video" ? "動画を拡大" : "画像を拡大"}
@@ -1202,10 +1249,10 @@ export const MessageBubble = memo(
                     )}
                   </button>
                 ))}
-              {message.kind === "audio" && message.audioSrc && (
+              {mediaItems.length <= 1 && message.kind === "audio" && message.audioSrc && (
                 <AudioBubble src={message.audioSrc} seconds={message.audioSeconds} />
               )}
-              {message.kind === "text" && (
+              {mediaItems.length <= 1 && message.kind === "text" && (
                 <div>
                   {showOriginal && message.originalText && (
                     <div className="mb-1 flex items-center justify-between border-b border-current/15 pb-1 text-[0.65rem] opacity-70">
@@ -1273,10 +1320,10 @@ export const MessageBubble = memo(
             onClose={() => setEditing(false)}
           />
         )}
-        {lightbox && message.imageSrc && (
+        {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
           <MediaLightbox
-            src={message.imageSrc}
-            kind={message.kind === "video" ? "video" : "image"}
+            src={(lightboxMedia?.imageSrc ?? message.imageSrc)!}
+            kind={(lightboxMedia?.kind ?? message.kind) === "video" ? "video" : "image"}
             onClose={() => setLightbox(false)}
           />
         )}

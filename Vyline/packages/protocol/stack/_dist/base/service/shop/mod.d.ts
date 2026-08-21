@@ -32,7 +32,9 @@ export declare class ShopService implements BaseService {
     getCoinUseAndRefundHistory(...param: Parameters<typeof LINEStruct.getCoinUseAndRefundHistory_args>): Promise<LINETypes.getCoinUseAndRefundHistory_result["success"]>;
     getCoinProducts(...param: Parameters<typeof LINEStruct.getCoinProducts_args>): Promise<LINETypes.getCoinProducts_result["success"]>;
     getCoinPurchaseHistory(...param: Parameters<typeof LINEStruct.getCoinPurchaseHistory_args>): Promise<LINETypes.getCoinPurchaseHistory_result["success"]>;
+    canCreateCombinationSticker(...param: Parameters<typeof LINEStruct.canCreateCombinationSticker_args>): Promise<LINETypes.canCreateCombinationSticker_result["success"]>;
     createCombinationSticker(...param: Parameters<typeof LINEStruct.createCombinationSticker_args>): Promise<LINETypes.createCombinationSticker_result["success"]>;
+    isStickerAvailableForCombinationSticker(...param: Parameters<typeof LINEStruct.isStickerAvailableForCombinationSticker_args>): Promise<LINETypes.isStickerAvailableForCombinationSticker_result["success"]>;
     shouldShowWelcomeStickerBanner(...param: Parameters<typeof LINEStruct.shouldShowWelcomeStickerBanner_args>): Promise<LINETypes.shouldShowWelcomeStickerBanner_result["success"]>;
     stopBundleSubscription(...param: Parameters<typeof LINEStruct.stopBundleSubscription_args>): Promise<LINETypes.stopBundleSubscription_result["success"]>;
     getProductLatestVersionForUser(...param: Parameters<typeof LINEStruct.getProductLatestVersionForUser_args>): Promise<LINETypes.getProductLatestVersionForUser_result["success"]>;

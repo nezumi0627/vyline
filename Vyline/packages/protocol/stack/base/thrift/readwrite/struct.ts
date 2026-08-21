@@ -3127,6 +3127,81 @@ export function CanCreateCombinationStickerRequest(
 ): NestedArray {
   return typeof param === "undefined" ? [] : [[14, 1, [11, param.packageIds]]];
 }
+export function StickerLayoutInfo(
+  param?: PartialDeep<LINETypes.StickerLayoutInfo> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [4, 1, param.width],
+        [4, 2, param.height],
+        [4, 3, param.rotation],
+        [4, 4, param.x],
+        [4, 5, param.y],
+      ];
+}
+export function StickerLayoutStickerInfo(
+  param?: PartialDeep<LINETypes.StickerLayoutStickerInfo> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [10, 1, param.stickerId],
+        [10, 2, param.productId],
+        [11, 3, param.stickerHash],
+        [11, 4, param.stickerOptions],
+        [10, 5, param.stickerVersion],
+      ];
+}
+export function StickerLayout(
+  param?: PartialDeep<LINETypes.StickerLayout> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [12, 1, StickerLayoutInfo(param.layoutInfo)],
+        [12, 2, StickerLayoutStickerInfo(param.stickerInfo)],
+      ];
+}
+export function CombinationStickerMetadata(
+  param?: PartialDeep<LINETypes.CombinationStickerMetadata> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [10, 1, param.version],
+        [4, 2, param.canvasWidth],
+        [4, 3, param.canvasHeight],
+        [15, 4, [12, param.stickerLayouts && param.stickerLayouts.map((e) => StickerLayout(e))]],
+      ];
+}
+export function CombinationStickerStickerData(
+  param?: PartialDeep<LINETypes.CombinationStickerStickerData> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [11, 1, param.packageId],
+        [11, 2, param.stickerId],
+        [10, 3, param.version],
+      ];
+}
+export function CreateCombinationStickerResponse(
+  param?: PartialDeep<LINETypes.CreateCombinationStickerResponse> | undefined,
+): NestedArray {
+  return typeof param === "undefined" ? [] : [[11, 1, param.id]];
+}
+export function CreateCombinationStickerRequest(
+  param?: PartialDeep<LINETypes.CreateCombinationStickerRequest> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [12, 1, CombinationStickerMetadata(param.metadata)],
+        [15, 2, [12, param.stickers && param.stickers.map((e) => CombinationStickerStickerData(e))]],
+        [11, 3, param.idOfPreviousVersionOfCombinationSticker],
+      ];
+}
 export function CancelChatInvitationRequest(
   param?: PartialDeep<LINETypes.CancelChatInvitationRequest> | undefined,
 ): NestedArray {
@@ -3777,6 +3852,22 @@ export function ChannelException(
     ? []
     : [
         [8, 1, ChannelErrorCode(param.code)],
+        [11, 2, param.reason],
+        [13, 3, [11, 11, param.parameterMap]],
+      ];
+}
+export function Ob1_EnumC12652p1(
+  param: LINETypes.Ob1_EnumC12652p1 | undefined,
+): (LINETypes.Ob1_EnumC12652p1 & number) | undefined {
+  return typeof param === "string" ? LINETypes.enums.Ob1_EnumC12652p1[param] : param;
+}
+export function ShopException(
+  param?: PartialDeep<LINETypes.ShopException> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [8, 1, Ob1_EnumC12652p1(param.code)],
         [11, 2, param.reason],
         [13, 3, [11, 11, param.parameterMap]],
       ];
@@ -6849,7 +6940,19 @@ export function createCollectionForUser_args(
 export function createCombinationSticker_args(
   param?: PartialDeep<LINETypes.createCombinationSticker_args> | undefined,
 ): NestedArray {
-  return typeof param === "undefined" ? [] : [];
+  return typeof param === "undefined"
+    ? []
+    : [[12, 2, CreateCombinationStickerRequest(param.request)]];
+}
+export function createCombinationSticker_result(
+  param?: PartialDeep<LINETypes.createCombinationSticker_result> | undefined,
+): NestedArray {
+  return typeof param === "undefined"
+    ? []
+    : [
+        [12, 0, CreateCombinationStickerResponse(param.success)],
+        [12, 1, ShopException(param.e)],
+      ];
 }
 export function createE2EEKeyBackupEnforced_args(
   param?: PartialDeep<LINETypes.createE2EEKeyBackupEnforced_args> | undefined,

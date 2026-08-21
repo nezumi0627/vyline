@@ -1,9 +1,10 @@
 export interface StickerMetadata {
-  STKPKGID: string;
-  STKID: string;
-  STKTXT: string;
-  STKVER: string;
+  STKPKGID?: string;
+  STKID?: string;
+  STKTXT?: string;
+  STKVER?: string;
   STKOPT?: string;
+  CSSTKID?: string;
 }
 export interface EmojiMeta {
   REPLACE: {

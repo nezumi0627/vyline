@@ -9,7 +9,13 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Chat, Message, MessageContentMeta, MessageReaction } from "@vyline/types";
+import type {
+  Chat,
+  Message,
+  MessageContentMeta,
+  MessageReaction,
+  MessageSnapshot,
+} from "@vyline/types";
 import { childLogger } from "../logger.js";
 
 const log = childLogger("chatStore");
@@ -54,6 +60,7 @@ export interface StoredMessage {
   savedAt: string;
   messageState?: Message["messageState"];
   history?: Message["history"];
+  revokedSnapshot?: MessageSnapshot;
 }
 
 interface ChatDbMeta {
@@ -116,6 +123,20 @@ async function getDb(accountId: string): Promise<ChatDb> {
   return db;
 }
 
+function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
+  const {
+    savedAt: _savedAt,
+    history: _history,
+    revokedSnapshot: _revokedSnapshot,
+    messageState,
+    ...snapshot
+  } = stored;
+  return {
+    ...snapshot,
+    ...(messageState != null ? { messageState } : {}),
+  };
+}
+
 function scheduleSave(accountId: string): void {
   dirty.add(accountId);
   const prev = saveTimers.get(accountId);
@@ -171,8 +192,10 @@ export async function upsertMessages(
   const byChat = db.messages[chatMid] ?? {};
   for (const message of messages) {
     const prev = byChat[message.id];
+    const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
     byChat[message.id] = {
       ...message,
+      ...(revokedSnapshot ? { revokedSnapshot } : {}),
       history: prev?.history?.length ? prev.history : message.history,
     };
   }
@@ -191,6 +214,7 @@ export async function markMessageRevoked(
   const db = await getDb(accountId);
   const stored = db.messages[chatMid]?.[messageId];
   if (!stored) return;
+  stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
   const prevState = stored.messageState ?? "normal";
   const entry = {
     state: prevState,
@@ -213,23 +237,42 @@ export async function restoreRevokedMessage(
 ): Promise<{ text: string | null; contentType: string } | null> {
   const db = await getDb(accountId);
   const stored = db.messages[chatMid]?.[messageId];
-  if (!stored || !stored.history?.length) return null;
-  const lastNormal = [...stored.history]
-    .reverse()
-    .find((h) => h.state === "normal" || h.state === "edited");
-  if (!lastNormal) return null;
+  if (!stored) return null;
+  const snapshot = stored.revokedSnapshot;
+  const lastNormal = stored.history?.length
+    ? [...stored.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
+    : undefined;
+  if (!snapshot && !lastNormal) return null;
+  const restoredText = snapshot?.text ?? lastNormal?.text ?? null;
+  const restoredContentType =
+    snapshot?.contentType ?? lastNormal?.contentType ?? stored.contentType;
   const entry = {
     state: "normal" as const,
     text: stored.text,
     contentType: stored.contentType,
     updatedTime: Date.now(),
   };
-  stored.messageState = "normal";
-  stored.history = [...stored.history, entry];
-  stored.text = lastNormal.text;
-  stored.contentType = lastNormal.contentType;
+  stored.messageState = (snapshot?.messageState ??
+    lastNormal?.state ??
+    "normal") as Message["messageState"];
+  stored.history = [...(stored.history ?? []), entry];
+  if (snapshot) stored.revokedSnapshot = snapshot;
+  stored.text = restoredText;
+  stored.contentType = restoredContentType;
+  if (snapshot) {
+    if (snapshot.contentMetadata !== undefined) stored.contentMetadata = snapshot.contentMetadata;
+    if (snapshot.readCount !== undefined) stored.readCount = snapshot.readCount;
+    if (snapshot.readBy !== undefined) stored.readBy = snapshot.readBy;
+    if (snapshot.seen !== undefined) stored.seen = snapshot.seen;
+    if (snapshot.relatedMessageId !== undefined) {
+      stored.relatedMessageId = snapshot.relatedMessageId;
+    }
+    if (snapshot.stickerAnimated !== undefined) stored.stickerAnimated = snapshot.stickerAnimated;
+    if (snapshot.stickerSticky !== undefined) stored.stickerSticky = snapshot.stickerSticky;
+    if (snapshot.reactions !== undefined) stored.reactions = snapshot.reactions;
+  }
   scheduleSave(accountId);
-  return { text: lastNormal.text, contentType: lastNormal.contentType };
+  return { text: restoredText, contentType: restoredContentType };
 }
 
 export async function getMessageHistory(
@@ -253,6 +296,18 @@ export async function getMessages(
   return Object.values(byChat)
     .sort((a, b) => b.createdTime - a.createdTime)
     .slice(0, limit);
+}
+
+export async function findStoredMessageById(
+  accountId: string,
+  messageId: string,
+): Promise<{ chatMid: string; message: StoredMessage } | null> {
+  const db = await getDb(accountId);
+  for (const [chatMid, messages] of Object.entries(db.messages)) {
+    const message = messages[messageId];
+    if (message) return { chatMid, message };
+  }
+  return null;
 }
 
 function storedChatToChat(stored: StoredChat): Chat {
@@ -284,6 +339,7 @@ function storedMessageToMessage(stored: StoredMessage): Message {
     messageState: stored.messageState ?? "normal",
   };
   if (stored.history) msg.history = stored.history;
+  if (stored.revokedSnapshot) msg.revokedSnapshot = stored.revokedSnapshot;
   if (stored.readCount != null) msg.readCount = stored.readCount;
   if (stored.readBy) msg.readBy = stored.readBy;
   if (stored.seen != null) msg.seen = stored.seen;

@@ -39,6 +39,7 @@ import {
   fetchMessageMedia,
   sendMessage,
   sendMedia,
+  sendMediaBatch,
   sendSticker,
   canCreateCombinationSticker,
   createCombinationSticker,
@@ -689,23 +690,34 @@ lineRouter.post("/:accountId/send-media-batch", async (c) => {
   }
 
   try {
-    let count = 0;
-    for (const item of body.items) {
-      if (!item?.dataBase64) continue;
+    const items = body.items
+      .filter((item): item is NonNullable<typeof item> & { dataBase64: string } =>
+        Boolean(item?.dataBase64),
+      )
+      .map((item) => {
+        const opts: {
+          dataBase64: string;
+          mimeType?: string;
+          filename?: string;
+          mediaType?: "image" | "video" | "audio" | "file" | "gif";
+        } = { dataBase64: item.dataBase64 };
+        if (item.mimeType) opts.mimeType = item.mimeType;
+        if (item.filename) opts.filename = item.filename;
+        if (item.mediaType) opts.mediaType = item.mediaType;
+        return opts;
+      });
+
+    if (items.length === 0) {
+      return c.json({ ok: false, error: "items required" }, 400);
+    }
+
+    for (const item of items) {
       if (item.dataBase64.length > 12_000_000) {
         return c.json({ ok: false, error: "file too large" }, 413);
       }
-      const opts: {
-        mimeType?: string;
-        filename?: string;
-        mediaType?: "image" | "video" | "audio" | "file" | "gif";
-      } = {};
-      if (item.mimeType) opts.mimeType = item.mimeType;
-      if (item.filename) opts.filename = item.filename;
-      if (item.mediaType) opts.mediaType = item.mediaType;
-      await sendMedia(accountId, body.chatMid, item.dataBase64, opts);
-      count++;
     }
+
+    const count = await sendMediaBatch(accountId, body.chatMid, items);
     return c.json({ ok: true, count });
   } catch (err) {
     return handleError(err, c);
