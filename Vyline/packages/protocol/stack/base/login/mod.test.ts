@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { registrationAuthEndpoint } from "./mod.ts";
 
 Deno.test("registration auth endpoint uses v4 for Android devices", () => {

@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertMatch } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals, assertMatch } from "@vyline/protocol/stack/assert";
 import {
   createPrimaryAccessToken,
   isJwt,

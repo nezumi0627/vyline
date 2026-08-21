@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { buildRtcpBye, buildRtcpCompound, nowNtp, parseRtcp } from "./rtcp.ts";
 
 Deno.test("nowNtp returns a value above the 1900-epoch threshold", () => {

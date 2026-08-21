@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { getH2EnabledFetchForNode } from "./h2_fetch.ts";
 
 // On Deno (which is what this test runs under), getH2EnabledFetchForNode

@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { VoomChannelId } from "./voom.ts";
 
 Deno.test("VoomChannelId — TIMELINE id matches LINE Android smali", () => {

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { formatCandidate, gatherIceCandidates, icePriority, parseCandidate } from "./ice.ts";
 
 Deno.test("icePriority: host candidate ranks higher than srflx", () => {
