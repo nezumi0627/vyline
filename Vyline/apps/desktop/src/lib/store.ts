@@ -162,12 +162,10 @@ function applyReadWatermarkLocal(
 
 function messagePreview(m: Message): string {
   if (m.messageState.startsWith("revoked")) {
-    if (m.messageState === "revoked-by-self" && m.history?.length) {
-      const last = [...m.history]
-        .reverse()
-        .find((h) => h.state === "normal" || h.state === "edited");
-      if (last?.text) return last.text;
-    }
+    const last = m.history
+      ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
+      : undefined;
+    if (last?.text) return last.text;
     return "メッセージの送信を取り消しました";
   }
   switch (m.kind) {
@@ -729,15 +727,6 @@ export const useStore = create<State>()(
             ),
           }));
         }
-
-        // 自動選択チャットも「開いた」扱いにし、既読を送信する
-        if (chatId && !sessionOpenedChats.has(chatId)) {
-          sessionOpenedChats.add(chatId);
-          const { accountId, settings, readDisabledMids } = get();
-          if (accountId && settings.readReceipts && !readDisabledMids[chatId]) {
-            void get().markChatRead(chatId);
-          }
-        }
       },
 
       sendMessage: async (chatId, text, opts) => {
@@ -1112,7 +1101,13 @@ export const useStore = create<State>()(
         };
         set((st) => ({
           messages: st.messages.map((m) =>
-            m.id === id ? { ...m, history: [...(m.history ?? []), historyEntry] } : m,
+            m.id === id
+              ? {
+                  ...m,
+                  history: [...(m.history ?? []), historyEntry],
+                  messageState: "revoked-by-self" as MessageState,
+                }
+              : m,
           ),
         }));
         const res = await api.line.unsend(accountId, id);
@@ -1514,7 +1509,7 @@ export const useStore = create<State>()(
               for (let i = 0; i < mapped.length; i++) {
                 const m = mapped[i]!;
                 const prev = prevById.get(m.id);
-                if (prev?.read && !m.read) {
+                if (m.authorId === "me" && prev?.read && !m.read) {
                   mapped[i] = {
                     ...m,
                     read: true,
@@ -1522,7 +1517,11 @@ export const useStore = create<State>()(
                     readBy: m.readBy?.length ? m.readBy : prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
-                } else if (prev?.readBy?.length && (!m.readBy?.length || !m.read)) {
+                } else if (
+                  m.authorId === "me" &&
+                  prev?.readBy?.length &&
+                  (!m.readBy?.length || !m.read)
+                ) {
                   mapped[i] = {
                     ...m,
                     read: true,
@@ -1530,6 +1529,7 @@ export const useStore = create<State>()(
                     readCount: m.readCount ?? prev.readCount,
                   };
                 } else if (
+                  m.authorId === "me" &&
                   prev?.readBy?.length &&
                   m.readBy?.length &&
                   prev.readBy.length > m.readBy.length
@@ -1540,6 +1540,23 @@ export const useStore = create<State>()(
                     readBy: prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
+                }
+                if (prev?.history?.length && !m.history?.length) {
+                  mapped[i] = { ...m, history: prev.history };
+                }
+                if (
+                  prev?.messageState?.startsWith("revoked") &&
+                  !m.messageState?.startsWith("revoked")
+                ) {
+                  mapped[i] = { ...m, messageState: prev.messageState };
+                }
+                // メッセージステートが undefined の場合もローカルの取り消し状態を優先
+                if (
+                  prev?.messageState === "revoked-by-self" &&
+                  !m.messageState?.startsWith("revoked") &&
+                  m.messageState !== "revoked-by-self"
+                ) {
+                  mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
                 }
               }
               // pending / 送信直後の確定メッセージをサーバ欠落時も残す
@@ -1798,10 +1815,23 @@ export const useStore = create<State>()(
         const existingIds = new Set(messages.filter((m) => m.chatId === chatId).map((m) => m.id));
         const fresh = mapped.filter((m) => !existingIds.has(m.id));
 
-        // 既存メッセージにもリアクション等の更新を反映（同期で re-fetch された場合）
-        const hasUpdates = [...incomingById.values()].some(
-          (m) => existingIds.has(m.id) && m.reactions && m.reactions.length > 0,
-        );
+        // 既存メッセージにもリアクションや状態の更新を反映（同期で re-fetch された場合）
+        const hasUpdates = [...incomingById.values()].some((m) => {
+          if (!existingIds.has(m.id)) return false;
+          const existing = messages.find((x) => x.id === m.id);
+          if (!existing) return false;
+          if (
+            m.reactions?.length &&
+            JSON.stringify(m.reactions) !== JSON.stringify(existing.reactions)
+          )
+            return true;
+          if (
+            m.messageState?.startsWith("revoked") &&
+            !existing.messageState?.startsWith("revoked")
+          )
+            return true;
+          return false;
+        });
         if (fresh.length === 0 && !hasUpdates) return;
 
         // キャッシュ済み既読ウォーターマークを新着にも即適用（RPC なしで既読化）
@@ -1827,13 +1857,35 @@ export const useStore = create<State>()(
                 if (m.chatId !== chatId) return m;
                 const upd = incomingById.get(m.id);
                 if (!upd) return m;
-                if (JSON.stringify(upd.reactions) === JSON.stringify(m.reactions)) return m;
-                if (upd.reactions?.length) {
-                  messageReactionCache.set(m.id, upd.reactions);
-                } else {
-                  messageReactionCache.delete(m.id);
+                const reactionChanged =
+                  JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
+                const revokedChanged =
+                  upd.messageState?.startsWith("revoked") && !m.messageState?.startsWith("revoked");
+                if (!reactionChanged && !revokedChanged) return m;
+                const updated = { ...m };
+                if (reactionChanged) {
+                  if (upd.reactions?.length) {
+                    messageReactionCache.set(m.id, upd.reactions);
+                  } else {
+                    messageReactionCache.delete(m.id);
+                  }
+                  updated.reactions = upd.reactions;
                 }
-                return { ...m, reactions: upd.reactions };
+                if (revokedChanged) {
+                  updated.messageState = upd.messageState;
+                  const prevState = m.messageState ?? "normal";
+                  updated.history = [
+                    ...(m.history ?? []),
+                    {
+                      state: prevState,
+                      text: m.text ?? null,
+                      contentType: m.kind,
+                      updatedTime: Date.now(),
+                    },
+                  ];
+                  updated.text = undefined;
+                }
+                return updated;
               })
             : st.messages;
           const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);

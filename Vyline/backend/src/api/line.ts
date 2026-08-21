@@ -1692,12 +1692,50 @@ lineRouter.delete("/:accountId/vyline/cache", async (c) => {
   }
 });
 
+lineRouter.delete("/:accountId/vyline/cache/cdn", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { clearCdnCache } = await import("../storage/cdnAssetCache.js");
+    const removed = await clearCdnCache();
+    return c.json({ ok: true, removed });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/vyline/cache/icons", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { clearIconCache } = await import("../storage/cdnAssetCache.js");
+    const removed = await clearIconCache();
+    return c.json({ ok: true, removed });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
   const accountId = c.req.param("accountId");
   try {
     const { clearMediaCache } = await import("../storage/mediaCache.js");
     const removed = await clearMediaCache();
     return c.json({ ok: true, removed });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/vyline/saved-media/:type", async (c) => {
+  const accountId = c.req.param("accountId");
+  const type = c.req.param("type");
+  const validTypes = new Set(["image", "video", "audio", "file"]);
+  if (!validTypes.has(type)) {
+    return c.json({ ok: false, error: "invalid media type" }, 400);
+  }
+  try {
+    const { clearMediaCacheType } = await import("../storage/mediaCache.js");
+    const removed = await clearMediaCacheType(type as "image" | "video" | "audio" | "file");
+    return c.json({ ok: true, removed, type });
   } catch (err) {
     return handleError(err, c);
   }

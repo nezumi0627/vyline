@@ -118,7 +118,9 @@ function messageStatus(m: LineMessage): MessageStatus {
     if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
     return "sent";
   }
-  return "read";
+  // For received messages, status depends on whether we've read it
+  if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
+  return "sent";
 }
 
 function messageKind(m: LineMessage): MessageKind {
@@ -249,7 +251,9 @@ export function mapMessage(
     ? m.seen ||
       (m.readCount != null && m.readCount > 0) ||
       (m.seen === undefined && m.readCount === undefined)
-    : true;
+    : // For received messages, only mark as read if server confirms (seen/readCount > 0)
+      // Otherwise default to false to avoid false read receipts in personal chats
+      Boolean(m.seen) || (m.readCount != null && m.readCount > 0);
 
   let text = sanitizeText(m.text);
   if (kind === "system") {

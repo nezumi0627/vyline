@@ -959,16 +959,32 @@ export const MessageBubble = memo(
 
           {message.messageState.startsWith("revoked") ? (
             <div
-              className="rounded-2xl border border-dashed px-4 py-2 text-sm italic opacity-70"
-              style={{ borderColor: "var(--vy-border)" }}
+              className={cn(
+                "relative rounded-2xl border px-4 py-2.5 text-sm",
+                message.messageState === "revoked-by-self"
+                  ? "border-dashed bg-[color-mix(in_oklab,var(--vy-accent)_8%,transparent)] italic"
+                  : "border-dashed bg-[color-mix(in_oklab,var(--vy-text)_6%,transparent)] line-through opacity-80",
+                message.messageState === "revoked-by-self" &&
+                  message.history &&
+                  message.history.length > 0
+                  ? ""
+                  : "opacity-70",
+              )}
+              style={{
+                borderColor:
+                  message.messageState === "revoked-by-self"
+                    ? "var(--vy-accent)"
+                    : "var(--vy-border)",
+              }}
             >
-              {message.messageState === "revoked-by-self"
-                ? "あなたがメッセージの送信を取り消しました"
-                : "メッセージの送信が取り消されました"}
-              {message.messageState === "revoked-by-self" &&
-              message.history &&
-              message.history.length > 0 ? (
-                <div className="mt-1 text-xs not-italic opacity-80">
+              <span className="flex items-center gap-1.5">
+                <IconTrash className="h-3.5 w-3.5 shrink-0" />
+                {message.messageState === "revoked-by-self"
+                  ? "あなたがメッセージの送信を取り消しました"
+                  : "メッセージの送信が取り消されました"}
+              </span>
+              {message.history && message.history.length > 0 ? (
+                <div className="mt-1.5 text-xs not-italic opacity-90">
                   {(() => {
                     const last = [...message.history]
                       .reverse()
