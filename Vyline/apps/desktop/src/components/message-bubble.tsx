@@ -334,6 +334,12 @@ function stickerAnimationUrl(url: string): string {
   return u;
 }
 
+function isStickerImageSrc(src?: string): boolean {
+  return Boolean(
+    src && (src.startsWith("http") || src.startsWith("/api/") || src.startsWith("data:")),
+  );
+}
+
 // MessageReactionType → 表示絵文字（LINE 公式: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7）
 export const REACTION_EMOJI: Record<number, string> = {
   2: "👍",
@@ -1010,11 +1016,14 @@ export const MessageBubble = memo(
                   くっつき
                 </span>
               )}
-              {message.sticker &&
-              (message.sticker.startsWith("http") || message.sticker.startsWith("/api/")) ? (
+              {isStickerImageSrc(message.sticker) ? (
                 <img
                   src={
-                    message.stickerAnimated ? stickerAnimationUrl(message.sticker) : message.sticker
+                    message.sticker
+                      ? message.stickerAnimated
+                        ? stickerAnimationUrl(message.sticker)
+                        : message.sticker
+                      : ""
                   }
                   alt="スタンプ"
                   onError={hideBrokenMedia}
@@ -1025,7 +1034,7 @@ export const MessageBubble = memo(
                   draggable={false}
                 />
               ) : (
-                <span className="text-7xl leading-none">{message.sticker || "🎴"}</span>
+                <span className="text-7xl leading-none">{message.sticker || "🧩"}</span>
               )}
             </button>
           ) : message.kind === "emoji" ? (

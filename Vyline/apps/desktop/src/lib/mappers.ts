@@ -307,11 +307,11 @@ export function mapMessage(
     text,
     sticker:
       kind === "sticker" && comboStickerId
-        ? (getCombinationStickerPreview(accountId, comboStickerId) ?? undefined)
+        ? (getCombinationStickerPreview(accountId, comboStickerId) ?? "🧩")
         : kind === "sticker" && stickerId
           ? lineStickerUrl(stickerId)
           : kind === "sticker"
-            ? "🎴"
+            ? "🧩"
             : undefined,
     imageSrc,
     audioSrc,

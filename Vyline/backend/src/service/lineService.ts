@@ -76,7 +76,6 @@ import {
   markMessageRevoked,
   restoreRevokedMessage,
   getMessageHistory,
-  findStoredMessageById,
   warmAccountCache,
   saveBoxOrder,
   type BootstrapPayload,
@@ -4386,7 +4385,16 @@ export async function canCreateCombinationSticker(
   packageIds: string[],
 ): Promise<{ canCreate: boolean; usablePackageIds: string[] }> {
   const client = requireClient(accountId);
-  return await client.base.shop.canCreateCombinationSticker({
+  const shop = (
+    client.base as unknown as {
+      shop: {
+        canCreateCombinationSticker: (input: {
+          request: { packageIds: string[] };
+        }) => Promise<{ canCreate: boolean; usablePackageIds: string[] }>;
+      };
+    }
+  ).shop;
+  return await shop.canCreateCombinationSticker({
     request: {
       packageIds,
     },
@@ -4398,7 +4406,16 @@ export async function isStickerAvailableForCombinationSticker(
   packageId: string,
 ): Promise<{ availableForCombinationSticker: boolean }> {
   const client = requireClient(accountId);
-  return await client.base.shop.isStickerAvailableForCombinationSticker({
+  const shop = (
+    client.base as unknown as {
+      shop: {
+        isStickerAvailableForCombinationSticker: (input: {
+          request: { packageId: string };
+        }) => Promise<{ availableForCombinationSticker: boolean }>;
+      };
+    }
+  ).shop;
+  return await shop.isStickerAvailableForCombinationSticker({
     request: {
       packageId,
     },
@@ -4425,7 +4442,16 @@ async function createCombinationStickerCore(
 ): Promise<{ id: string }> {
   const client = requireClient(accountId);
   const payload = buildCombinationStickerLayouts(items);
-  const result = await client.base.shop.createCombinationSticker({
+  const shop = (
+    client.base as unknown as {
+      shop: {
+        createCombinationSticker: (input: {
+          request: typeof payload & { idOfPreviousVersionOfCombinationSticker: string };
+        }) => Promise<{ id: string | number | null | undefined }>;
+      };
+    }
+  ).shop;
+  const result = await shop.createCombinationSticker({
     request: {
       ...payload,
       idOfPreviousVersionOfCombinationSticker: opts?.idOfPreviousVersionOfCombinationSticker ?? "",
@@ -4597,7 +4623,7 @@ export async function sendLineEmoji(
 export async function unsendMessage(accountId: string, messageId: string): Promise<void> {
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
-    const found = await findStoredMessageById(accountId, messageId);
+    const found = await findStoredMessageByIdLocal(accountId, messageId);
     if (found) {
       const stored = found.message;
       if (
@@ -4616,6 +4642,22 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
     });
     log.info({ accountId, messageId }, "message unsent");
   });
+}
+
+async function findStoredMessageByIdLocal(
+  accountId: string,
+  messageId: string,
+): Promise<{
+  chatMid: string;
+  message: Awaited<ReturnType<typeof getStoredMessages>>[number];
+} | null> {
+  const chats = await getStoredChats(accountId);
+  for (const chat of chats) {
+    const messages = await getStoredMessages(accountId, chat.mid, Number.MAX_SAFE_INTEGER);
+    const message = messages.find((m) => m.id === messageId);
+    if (message) return { chatMid: chat.mid, message };
+  }
+  return null;
 }
 
 /** メッセージ編集（Desktop: editMessage） */

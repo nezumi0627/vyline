@@ -1,4 +1,5 @@
-import { memo, useEffect, useMemo, useState } from "react";
+import { memo, useEffect, useMemo, useRef, useState } from "react";
+import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/api/client";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/utils/clipboard";
@@ -15,6 +16,7 @@ import {
   setCachedStickersCatalog,
   type StickersCatalogCache,
 } from "@/lib/stickerCatalogCache";
+import type { CombinationStickerPlacement } from "@/utils/combinationStickers";
 
 export type CatalogItem = { id: string; url: string; alt?: string };
 export type CatalogPack = {
@@ -26,140 +28,62 @@ export type CatalogPack = {
 };
 
 type Catalog = StickersCatalogCache;
-type CombinationPick = { packageId: string; stickerId: string; url: string; name?: string };
+type Tab = "sticker" | "emoji" | "favorite";
+type DragPayload = {
+  type: "sticker" | "emoji";
+  packageId: string;
+  stickerId: string;
+  url: string;
+  name?: string;
+};
+type ComboItem = CombinationStickerPlacement & { uid: string };
+type MenuState = { x: number; y: number; fav: StickerFavorite } | null;
 
-/** 絵文字/スタンプ画像を先読みしてブラウザ＋CDNキャッシュを温める */
+const COMBO_LIMIT = 6;
+const COMBO_SIZE = 360;
+const COMBO_ITEM_SIZE = 92;
+const LONG_PRESS_MS = 300;
+
+function assetUrl(url: string): string {
+  return url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(url)}` : url;
+}
+
 function prefetchImgs(urls: string[]): void {
   for (const u of urls) {
-    const src = u.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(u)}` : u;
     const img = new Image();
     img.decoding = "async";
-    img.src = src;
+    img.src = assetUrl(u);
   }
 }
 
-function CombinationPreview({ items }: { items: CombinationPick[] }) {
-  const count = items.length;
-  const tiles = (() => {
-    switch (count) {
-      case 1:
-        return [{ x: 18, y: 18, w: 64, h: 64 }];
-      case 2:
-        return [
-          { x: 4, y: 18, w: 38, h: 64 },
-          { x: 58, y: 18, w: 38, h: 64 },
-        ];
-      case 3:
-        return [
-          { x: 22, y: 4, w: 52, h: 44 },
-          { x: 6, y: 50, w: 30, h: 36 },
-          { x: 58, y: 50, w: 30, h: 36 },
-        ];
-      case 4:
-        return [
-          { x: 6, y: 6, w: 36, h: 36 },
-          { x: 50, y: 6, w: 36, h: 36 },
-          { x: 6, y: 50, w: 36, h: 36 },
-          { x: 50, y: 50, w: 36, h: 36 },
-        ];
-      case 5:
-        return [
-          { x: 10, y: 6, w: 28, h: 28 },
-          { x: 50, y: 6, w: 28, h: 28 },
-          { x: 4, y: 42, w: 24, h: 24 },
-          { x: 30, y: 42, w: 24, h: 24 },
-          { x: 56, y: 42, w: 24, h: 24 },
-        ];
-      default:
-        return [
-          { x: 6, y: 8, w: 24, h: 24 },
-          { x: 32, y: 8, w: 24, h: 24 },
-          { x: 58, y: 8, w: 24, h: 24 },
-          { x: 6, y: 42, w: 24, h: 24 },
-          { x: 32, y: 42, w: 24, h: 24 },
-          { x: 58, y: 42, w: 24, h: 24 },
-        ];
-    }
-  })();
-
-  return (
-    <div className="relative h-24 w-24 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-inner">
-      {count === 0 ? (
-        <div className="flex h-full items-center justify-center text-[0.65rem] text-[var(--vy-text-dim)]">
-          追加したスタンプがここに並びます
-        </div>
-      ) : (
-        tiles.map((tile, i) => {
-          const item = items[i]!;
-          return (
-            <img
-              key={`${item.packageId}-${item.stickerId}-${i}`}
-              src={item.url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(item.url)}` : item.url}
-              alt={item.name || item.stickerId}
-              className="absolute object-contain"
-              style={{ left: `${tile.x}%`, top: `${tile.y}%`, width: `${tile.w}%`, height: `${tile.h}%` }}
-              loading="lazy"
-              referrerPolicy="no-referrer"
-            />
-          );
-        })
-      )}
-      {count > 6 && (
-        <div className="absolute inset-0 flex items-center justify-center rounded-2xl bg-[color-mix(in_oklab,var(--vy-surface)_32%,transparent)] text-xs font-semibold">
-          +{count - 6}
-        </div>
-      )}
-    </div>
-  );
+function readDragPayload(ev: DragEvent): DragPayload | null {
+  const raw = ev.dataTransfer.getData("application/x-vyline-sticker");
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as DragPayload;
+    if (!parsed.packageId || !parsed.stickerId || !parsed.url) return null;
+    return parsed;
+  } catch {
+    return null;
+  }
 }
 
-const UNICODE_EMOJI = [
-  "😀",
-  "😂",
-  "🥹",
-  "😊",
-  "😍",
-  "🤔",
-  "😎",
-  "😴",
-  "🥳",
-  "😇",
-  "🙌",
-  "👍",
-  "🙏",
-  "👏",
-  "🔥",
-  "💯",
-  "✨",
-  "🎉",
-  "❤️",
-  "💙",
-  "💚",
-  "💛",
-  "🧡",
-  "💜",
-  "😭",
-  "😤",
-  "🥺",
-  "😘",
-  "🤝",
-  "👀",
-];
-
-type Tab = "sticker" | "emoji" | "unicode" | "favorite";
-
-type MenuState = { x: number; y: number; fav: StickerFavorite } | null;
+function uid(): string {
+  return `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+}
 
 export function StickerEmojiPanel({
   accountId,
   onPickSticker,
   onPickEmoji,
-  onPickUnicode,
+  onSendCombinationSticker,
 }: {
   accountId: string | null;
   onPickSticker: (packageId: string, stickerId: string, isPremium?: boolean) => void;
   onPickEmoji: (packageId: string, sticonId: string) => void;
-  onPickUnicode: (glyph: string) => void;
+  onSendCombinationSticker: (
+    items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
+  ) => Promise<void> | void;
 }) {
   const [tab, setTab] = useState<Tab>("sticker");
   const [favorites, setFavorites] = useState<StickerFavorite[]>(() =>
@@ -173,20 +97,24 @@ export function StickerEmojiPanel({
     accountId ? !getCachedStickersCatalog(accountId) : false,
   );
   const [error, setError] = useState<string | null>(null);
+  const [availability, setAvailability] = useState<Record<string, boolean> | null>(null);
   const [packId, setPackId] = useState<string | null>(() => {
     const cached = accountId ? getCachedStickersCatalog(accountId) : null;
     return cached?.stickerPacks[0]?.packageId ?? cached?.emojiPacks[0]?.packageId ?? null;
   });
   const [comboMode, setComboMode] = useState(false);
-  const [comboItems, setComboItems] = useState<CombinationPick[]>([]);
+  const [comboItems, setComboItems] = useState<ComboItem[]>([]);
   const [comboBusy, setComboBusy] = useState(false);
   const [comboError, setComboError] = useState<string | null>(null);
-  const [comboCreatedId, setComboCreatedId] = useState<string | null>(null);
+  const [draggingComboId, setDraggingComboId] = useState<string | null>(null);
+  const comboCanvasRef = useRef<HTMLDivElement>(null);
+  const dragOffsetRef = useRef({ x: 0, y: 0 });
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const longPressTriggeredRef = useRef(false);
 
   useEffect(() => {
     if (!accountId) return;
     let cancelled = false;
-
     const cached = getCachedStickersCatalog(accountId);
     if (cached) {
       setCatalog(cached);
@@ -239,26 +167,8 @@ export function StickerEmojiPanel({
     };
   }, [accountId]);
 
-  const packs = useMemo(() => {
-    if (!catalog) return [];
-    if (tab === "sticker") return catalog.stickerPacks;
-    if (tab === "emoji") return catalog.emojiPacks;
-    return [];
-  }, [catalog, tab]);
-
-  const activePack = packs.find((p) => p.packageId === packId) ?? packs[0];
-  const selectedCountText = `${comboItems.length} 枚選択中`;
-
   useEffect(() => {
-    if (tab === "unicode") return;
-    if (!packs.some((p) => p.packageId === packId)) {
-      setPackId(packs[0]?.packageId ?? null);
-    }
-  }, [tab, packs, packId]);
-
-  // カタログ／選択パックが変わったら画像を先読み（開く前にキャッシュを温める）
-  useEffect(() => {
-    if (!catalog) return;
+    if (!catalog || !accountId) return;
     const tabIcons = [
       ...catalog.stickerPacks.map((p) => p.tabUrl),
       ...catalog.emojiPacks.map((p) => p.tabUrl),
@@ -268,78 +178,274 @@ export function StickerEmojiPanel({
       catalog.emojiPacks.find((p) => p.packageId === packId);
     const items = active ? active.items.map((i) => i.url) : [];
     prefetchImgs([...tabIcons, ...items]);
-  }, [catalog, packId]);
+  }, [catalog, packId, accountId]);
 
-  function toggleComboMode(): void {
-    setComboMode((next) => {
-      const enabled = !next;
-      if (!enabled) {
-        setComboError(null);
-      }
-      return enabled;
+  useEffect(() => {
+    if (!accountId || !catalog) return;
+    let cancelled = false;
+    const packageIds = catalog.stickerPacks.map((p) => p.packageId);
+    if (packageIds.length === 0) {
+      setAvailability({});
+      return;
+    }
+    setAvailability(null);
+    void Promise.all(
+      packageIds.map(async (packageId) => {
+        try {
+          const res = await api.line.isStickerAvailableForCombinationSticker(accountId, packageId);
+          return [packageId, Boolean(res.ok && res.availableForCombinationSticker)] as const;
+        } catch {
+          return [packageId, false] as const;
+        }
+      }),
+    ).then((entries) => {
+      if (cancelled) return;
+      setAvailability(Object.fromEntries(entries));
     });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, catalog]);
+
+  const packs = useMemo(() => {
+    if (!catalog) return [];
+    if (tab === "sticker") return catalog.stickerPacks;
+    if (tab === "emoji") return catalog.emojiPacks;
+    return [];
+  }, [catalog, tab]);
+
+  const activePack = packs.find((p) => p.packageId === packId) ?? packs[0];
+
+  useEffect(() => {
+    if (!packs.some((p) => p.packageId === packId)) {
+      setPackId(packs[0]?.packageId ?? null);
+    }
+  }, [packs, packId]);
+
+  function canDragSticker(type: "sticker" | "emoji", packageId: string): boolean {
+    if (type !== "sticker") return false;
+    if (availability == null) return false;
+    return Boolean(availability[packageId]);
   }
 
-  function addComboItem(item: CombinationPick): void {
+  function normalizePoint(x: number, y: number, size: number): { x: number; y: number } {
+    return {
+      x: Math.max(0, Math.min(COMBO_SIZE - size, x)),
+      y: Math.max(0, Math.min(COMBO_SIZE - size, y)),
+    };
+  }
+
+  function addComboItem(payload: DragPayload, at?: { x: number; y: number }): void {
+    if (payload.type !== "sticker") return;
+    setComboMode(true);
     setComboError(null);
-    setComboCreatedId(null);
     setComboItems((prev) => {
-      const exists = prev.some(
-        (x) => x.packageId === item.packageId && x.stickerId === item.stickerId,
-      );
-      if (exists) {
-        return prev.filter((x) => !(x.packageId === item.packageId && x.stickerId === item.stickerId));
-      }
-      if (prev.length >= 6) {
-        setComboError("組み合わせは最大6枚までです");
+      if (prev.length >= COMBO_LIMIT) {
+        setComboError(`組み合わせは最大${COMBO_LIMIT}枚までです`);
         return prev;
       }
-      return [...prev, item];
+      const size = COMBO_ITEM_SIZE;
+      const base = at ?? { x: COMBO_SIZE / 2 - size / 2, y: COMBO_SIZE / 2 - size / 2 };
+      const pos = normalizePoint(base.x - size / 2, base.y - size / 2, size);
+      return [
+        ...prev,
+        {
+          ...payload,
+          uid: uid(),
+          x: pos.x,
+          y: pos.y,
+          size,
+        },
+      ];
     });
   }
 
-  async function createComboSticker(): Promise<void> {
-    if (!accountId) return;
+  function clearCombo(): void {
+    setComboItems([]);
+    setComboMode(false);
+    setComboError(null);
+  }
+
+  async function sendCombo(): Promise<void> {
+    if (comboBusy) return;
     if (comboItems.length === 0) {
-      setComboError("スタンプを1つ以上選んでください");
+      setComboError("スタンプを1つ以上置いてください");
       return;
     }
     setComboBusy(true);
     setComboError(null);
     try {
-      const packageIds = [...new Set(comboItems.map((item) => item.packageId))];
-      const canCreate = await api.line.canCreateCombinationSticker(accountId, packageIds);
-      if (!canCreate.ok || !canCreate.canCreate) {
-        setComboError("この組み合わせは作成できません");
-        return;
-      }
-      const created = await api.line.createCombinationSticker(
-        accountId,
-        comboItems.map((item) => ({ packageId: item.packageId, stickerId: item.stickerId })),
+      await onSendCombinationSticker(
+        comboItems.map(({ packageId, stickerId, x, y, size }) => ({
+          packageId,
+          stickerId,
+          x,
+          y,
+          size,
+        })),
       );
-      if (!created.ok) {
-        setComboError(created.error || "作成に失敗しました");
-        return;
-      }
-      setComboCreatedId(created.id);
-      setComboItems([]);
-      void copyText(`組み合わせスタンプを作成しました: ${created.id}`);
+      clearCombo();
     } catch (err) {
-      setComboError(String(err));
+      setComboError(err instanceof Error ? err.message : String(err));
     } finally {
       setComboBusy(false);
     }
   }
 
+  function handleComboDrop(ev: DragEvent<HTMLDivElement>): void {
+    ev.preventDefault();
+    ev.stopPropagation();
+    const payload = readDragPayload(ev);
+    if (!payload) return;
+    const rect = comboCanvasRef.current?.getBoundingClientRect();
+    addComboItem(
+      payload,
+      rect ? { x: ev.clientX - rect.left, y: ev.clientY - rect.top } : undefined,
+    );
+  }
+
+  function handleComboDragOver(ev: DragEvent<HTMLDivElement>): void {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+  }
+
+  function handleComboPointerDown(
+    uidValue: string,
+    ev: ReactPointerEvent<HTMLButtonElement>,
+  ): void {
+    const rect = comboCanvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const item = comboItems.find((x) => x.uid === uidValue);
+    if (!item) return;
+    ev.preventDefault();
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+    setDraggingComboId(uidValue);
+    dragOffsetRef.current = {
+      x: ev.clientX - rect.left - item.x,
+      y: ev.clientY - rect.top - item.y,
+    };
+  }
+
+  function handleComboPointerMove(ev: ReactPointerEvent<HTMLDivElement>): void {
+    if (!draggingComboId) return;
+    const rect = comboCanvasRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const item = comboItems.find((x) => x.uid === draggingComboId);
+    if (!item) return;
+    const next = normalizePoint(
+      ev.clientX - rect.left - dragOffsetRef.current.x,
+      ev.clientY - rect.top - dragOffsetRef.current.y,
+      item.size,
+    );
+    setComboItems((prev) => prev.map((x) => (x.uid === draggingComboId ? { ...x, ...next } : x)));
+  }
+
+  function handleComboPointerUp(): void {
+    setDraggingComboId(null);
+  }
+
+  function startLongPress(payload: DragPayload): void {
+    if (!canDragSticker(payload.type, payload.packageId)) return;
+    stopLongPress();
+    longPressTriggeredRef.current = false;
+    longPressTimerRef.current = setTimeout(() => {
+      longPressTriggeredRef.current = true;
+      addComboItem(payload);
+    }, LONG_PRESS_MS);
+  }
+
+  function stopLongPress(): void {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    longPressTimerRef.current = null;
+  }
+
+  function handleStickerClick(payload: DragPayload, action: () => void): void {
+    if (longPressTriggeredRef.current) {
+      longPressTriggeredRef.current = false;
+      return;
+    }
+    if (comboMode && payload.type === "sticker") {
+      addComboItem(payload);
+      return;
+    }
+    action();
+  }
+
+  function renderGridItem(item: CatalogItem, pack: CatalogPack) {
+    const payload: DragPayload = {
+      type: pack.type,
+      packageId: pack.packageId,
+      stickerId: item.id,
+      url: item.url,
+      name: item.alt || pack.name,
+    };
+    const draggable = canDragSticker(pack.type, pack.packageId);
+    return (
+      <button
+        key={item.id}
+        type="button"
+        title={item.alt || item.id}
+        draggable={draggable}
+        onPointerDown={() => startLongPress(payload)}
+        onPointerMove={stopLongPress}
+        onPointerUp={stopLongPress}
+        onPointerCancel={stopLongPress}
+        onPointerLeave={stopLongPress}
+        onDragStart={(ev) => {
+          if (!draggable) {
+            ev.preventDefault();
+            return;
+          }
+          ev.dataTransfer.effectAllowed = "copy";
+          ev.dataTransfer.setData("application/x-vyline-sticker", JSON.stringify(payload));
+        }}
+        onClick={() =>
+          handleStickerClick(payload, () => {
+            if (pack.type === "sticker") {
+              onPickSticker(pack.packageId, item.id, catalog?.premium?.active);
+            } else {
+              onPickEmoji(pack.packageId, item.id);
+            }
+          })
+        }
+        onContextMenu={(e) => {
+          e.preventDefault();
+          setMenu({
+            x: e.clientX,
+            y: e.clientY,
+            fav: {
+              type: pack.type,
+              packageId: pack.packageId,
+              id: item.id,
+              url: item.url,
+              name: item.alt || pack.name,
+            },
+          });
+        }}
+        className={cn(
+          "flex aspect-square items-center justify-center rounded-xl p-1 transition-colors active:scale-95",
+          draggable ? "hover:bg-[var(--vy-surface-2)]" : "cursor-not-allowed opacity-55",
+        )}
+      >
+        <img
+          src={assetUrl(item.url)}
+          alt={item.alt || ""}
+          className="max-h-full max-w-full object-contain"
+          loading="lazy"
+          referrerPolicy="no-referrer"
+        />
+      </button>
+    );
+  }
+
   return (
-    <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[320px] w-[min(380px,92vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
+    <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[min(720px,86vh)] w-[min(680px,96vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
       <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-2 pt-2">
         {(
           [
             ["sticker", "スタンプ"],
             ["emoji", "絵文字"],
             ["favorite", "★"],
-            ["unicode", "Unicode"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -366,23 +472,9 @@ export function StickerEmojiPanel({
               : "Premium —"}
           </span>
         </span>
-        {tab === "sticker" && (
-          <button
-            type="button"
-            onClick={toggleComboMode}
-            className={cn(
-              "mb-1 rounded-full px-2.5 py-1 text-[0.65rem] font-semibold transition-colors",
-              comboMode
-                ? "bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)]"
-                : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
-            )}
-          >
-            {comboMode ? "組み合わせ中" : "組み合わせ作成"}
-          </button>
-        )}
       </div>
 
-      {tab !== "unicode" && (
+      {tab !== "favorite" && (
         <div className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-2 py-1.5 [scrollbar-width:thin]">
           {packs.map((p) => (
             <button
@@ -398,7 +490,7 @@ export function StickerEmojiPanel({
               )}
             >
               <img
-                src={p.tabUrl}
+                src={assetUrl(p.tabUrl)}
                 alt=""
                 className="h-7 w-7 object-contain"
                 loading="lazy"
@@ -410,207 +502,201 @@ export function StickerEmojiPanel({
       )}
 
       <div className="min-h-0 flex-1 overflow-y-auto p-2">
-        {comboMode && tab === "sticker" && (
+        {comboMode && activePack?.type === "sticker" && (
           <div className="mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2">
-            <div className="flex items-start gap-3">
-              <CombinationPreview items={comboItems} />
+            <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="text-xs font-semibold text-[var(--vy-text)]">組み合わせ作成</p>
-                  <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-2 py-0.5 text-[0.65rem] text-[var(--vy-text-dim)]">
-                    {selectedCountText}
-                  </span>
-                </div>
-                <p className="mt-1 text-[0.7rem] text-[var(--vy-text-dim)]">
-                  スタンプを最大6枚まで選んで、作成ボタンを押してください。
+                <p className="text-xs font-semibold text-[var(--vy-text)]">ドラッグで組み合わせ</p>
+                <p className="mt-0.5 text-[0.7rem] text-[var(--vy-text-dim)]">
+                  長押しで開き、ここにスタンプを落として自由に配置できます。
                 </p>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  {comboItems.map((item) => (
+              </div>
+              <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-2 py-0.5 text-[0.65rem] text-[var(--vy-text-dim)]">
+                {comboItems.length} 枚
+              </span>
+              <button
+                type="button"
+                onClick={clearCombo}
+                className="rounded-full border border-[var(--vy-border)] px-3 py-1.5 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface)]"
+              >
+                クリア
+              </button>
+              <button
+                type="button"
+                onClick={() => void sendCombo()}
+                disabled={comboBusy || comboItems.length === 0}
+                className="rounded-full bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {comboBusy ? "送信中…" : "送信"}
+              </button>
+            </div>
+
+            <div
+              ref={comboCanvasRef}
+              className="relative mt-2 h-[360px] overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--vy-surface-2)_82%,transparent),color-mix(in_oklab,var(--vy-surface)_94%,transparent))]"
+              onPointerMove={handleComboPointerMove}
+              onPointerUp={handleComboPointerUp}
+              onPointerLeave={handleComboPointerUp}
+              onDragOver={handleComboDragOver}
+              onDrop={handleComboDrop}
+            >
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--vy-accent)_12%,transparent),transparent_38%),radial-gradient(circle_at_bottom_right,color-mix(in_oklab,var(--vy-text)_8%,transparent),transparent_42%)]" />
+              {comboItems.length === 0 ? (
+                <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
+                  <div className="rounded-full border border-dashed border-[var(--vy-border)] px-4 py-2 text-xs text-[var(--vy-text-dim)]">
+                    スタンプをここへドラッグ
+                  </div>
+                  <p className="max-w-[18rem] text-[0.7rem] text-[var(--vy-text-dim)]">
+                    対応しているスタンプだけが入ります。置いたあとも掴んで動かせます。
+                  </p>
+                </div>
+              ) : null}
+
+              {comboItems.map((item) => {
+                const dragging = draggingComboId === item.uid;
+                return (
+                  <div
+                    key={item.uid}
+                    className={cn(
+                      "absolute rounded-2xl border border-transparent bg-transparent transition-transform",
+                      dragging &&
+                        "scale-105 border-[color-mix(in_oklab,var(--vy-accent)_65%,transparent)]",
+                    )}
+                    style={{ left: item.x, top: item.y, width: item.size, height: item.size }}
+                  >
                     <button
-                      key={`${item.packageId}-${item.stickerId}`}
                       type="button"
-                      onClick={() => addComboItem(item)}
-                      className="inline-flex items-center gap-1 rounded-full border border-[var(--vy-border)] px-2 py-1 text-[0.65rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface)]"
+                      className="absolute inset-0 rounded-2xl"
+                      onPointerDown={(ev) => handleComboPointerDown(item.uid, ev)}
                     >
-                      <span className="max-w-24 truncate">{item.name || item.stickerId}</span>
-                      <span aria-hidden>×</span>
+                      <img
+                        src={assetUrl(item.url)}
+                        alt={item.name || item.stickerId}
+                        className="pointer-events-none h-full w-full object-contain drop-shadow-[0_2px_8px_rgba(0,0,0,0.18)]"
+                        loading="lazy"
+                        draggable={false}
+                        referrerPolicy="no-referrer"
+                      />
                     </button>
-                  ))}
-                </div>
-                <div className="mt-3 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    onClick={() => void createComboSticker()}
-                    disabled={comboBusy || comboItems.length === 0}
-                    className="rounded-full bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
-                  >
-                    {comboBusy ? "作成中…" : "作成"}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setComboItems([]);
-                      setComboError(null);
-                      setComboCreatedId(null);
-                    }}
-                    className="rounded-full border border-[var(--vy-border)] px-3 py-1.5 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface)]"
-                  >
-                    クリア
-                  </button>
-                </div>
-                {comboCreatedId && (
-                  <div className="mt-2 rounded-xl border border-[color-mix(in_oklab,var(--vy-accent)_35%,var(--vy-border))] bg-[color-mix(in_oklab,var(--vy-accent)_10%,transparent)] px-3 py-2 text-xs">
-                    <span className="font-semibold text-[var(--vy-text)]">作成済み</span>
-                    <span className="ml-2 break-all text-[var(--vy-text-dim)]">{comboCreatedId}</span>
                     <button
                       type="button"
-                      onClick={() => void copyText(comboCreatedId)}
-                      className="ml-2 rounded-full bg-[var(--vy-surface)] px-2 py-0.5 font-medium text-[var(--vy-text)]"
+                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[0.65rem] text-[var(--vy-text-dim)] shadow-lg"
+                      onClick={() => {
+                        setComboItems((prev) => prev.filter((x) => x.uid !== item.uid));
+                        if (comboItems.length <= 1) setComboMode(false);
+                      }}
+                      aria-label="組み合わせから削除"
                     >
-                      コピー
+                      ×
                     </button>
                   </div>
-                )}
-                {comboError && <p className="mt-2 text-xs text-[var(--vy-danger)]">{comboError}</p>}
-              </div>
+                );
+              })}
             </div>
+            {comboError && <p className="mt-2 text-xs text-[var(--vy-danger)]">{comboError}</p>}
           </div>
         )}
+
         {loading && !catalog && (
           <p className="px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">読み込み中…</p>
         )}
         {error && !loading && !catalog && (
           <p className="px-2 py-6 text-center text-xs text-[var(--vy-danger)]">{error}</p>
         )}
-        {!error && tab === "unicode" && (
-          <div className="grid grid-cols-8 gap-1">
-            {UNICODE_EMOJI.map((g) => (
-              <button
-                key={g}
-                type="button"
-                onClick={() => onPickUnicode(g)}
-                className="flex h-9 items-center justify-center rounded-lg text-xl transition-transform hover:scale-110 hover:bg-[var(--vy-surface-2)]"
-              >
-                {g}
-              </button>
-            ))}
-          </div>
-        )}
-        {tab === "favorite" && (
+
+        {tab === "favorite" ? (
           <div className="grid grid-cols-4 gap-1">
             {favorites.length === 0 && (
               <p className="col-span-4 px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
                 右クリックでスタンプ / 絵文字をお気に入りに追加できます
               </p>
             )}
-            {favorites.map((f) => (
-              <button
-                key={`${f.type}-${f.id}`}
-                type="button"
-                title={f.name || f.id}
-                onClick={() => {
-                  if (comboMode && f.type === "sticker") {
-                    addComboItem({
-                      packageId: f.packageId,
-                      stickerId: f.id,
-                      url: f.url,
-                      name: f.name || f.id,
-                    });
-                  } else if (f.type === "sticker")
-                    onPickSticker(f.packageId, f.id, catalog?.premium?.active);
-                  else onPickEmoji(f.packageId, f.id);
-                }}
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setMenu({ x: e.clientX, y: e.clientY, fav: f });
-                }}
-                className="flex aspect-square items-center justify-center rounded-xl p-1 transition-colors hover:bg-[var(--vy-surface-2)] active:scale-95"
-              >
-                <img
-                  src={
-                    f.url.startsWith("http")
-                      ? `/api/cdn/line?u=${encodeURIComponent(f.url)}`
-                      : f.url
-                  }
-                  alt={f.name || ""}
-                  className="max-h-full max-w-full object-contain"
-                  loading="lazy"
-                  referrerPolicy="no-referrer"
-                />
-              </button>
-            ))}
-          </div>
-        )}
-        {catalog && tab !== "unicode" && tab !== "favorite" && activePack && (
-          <div className={cn("grid gap-1", tab === "sticker" ? "grid-cols-4" : "grid-cols-6")}>
-            {activePack.items.map((item) => {
-              const isFav = favorites.some((f) => f.type === activePack.type && f.id === item.id);
+            {favorites.map((f) => {
+              const payload: DragPayload = {
+                type: f.type,
+                packageId: f.packageId,
+                stickerId: f.id,
+                url: f.url,
+                name: f.name || f.id,
+              };
+              const draggable = canDragSticker(f.type, f.packageId);
               return (
-                <div key={item.id} className="relative">
-                  <button
-                    type="button"
-                    title={item.alt || item.id}
-                    onClick={() => {
-                      if (comboMode && activePack.type === "sticker") {
-                        addComboItem({
-                          packageId: activePack.packageId,
-                          stickerId: item.id,
-                          url: item.url,
-                          name: item.alt || activePack.name,
-                        });
-                      } else if (activePack.type === "sticker") {
-                        onPickSticker(activePack.packageId, item.id, catalog?.premium?.active);
+                <button
+                  key={`${f.type}-${f.id}`}
+                  type="button"
+                  title={f.name || f.id}
+                  draggable={draggable}
+                  onPointerDown={() => startLongPress(payload)}
+                  onPointerMove={stopLongPress}
+                  onPointerUp={stopLongPress}
+                  onPointerCancel={stopLongPress}
+                  onPointerLeave={stopLongPress}
+                  onDragStart={(ev) => {
+                    if (!draggable) {
+                      ev.preventDefault();
+                      return;
+                    }
+                    ev.dataTransfer.effectAllowed = "copy";
+                    ev.dataTransfer.setData(
+                      "application/x-vyline-sticker",
+                      JSON.stringify(payload),
+                    );
+                  }}
+                  onClick={() =>
+                    handleStickerClick(payload, () => {
+                      if (f.type === "sticker") {
+                        onPickSticker(f.packageId, f.id, catalog?.premium?.active);
                       } else {
-                        onPickEmoji(activePack.packageId, item.id);
+                        onPickEmoji(f.packageId, f.id);
                       }
-                    }}
-                    onContextMenu={(e) => {
-                      e.preventDefault();
-                      setMenu({
-                        x: e.clientX,
-                        y: e.clientY,
-                        fav: {
-                          type: activePack.type,
-                          packageId: activePack.packageId,
-                          id: item.id,
-                          url: item.url,
-                          name: item.alt || activePack.name,
-                        },
-                      });
-                    }}
-                    className="flex aspect-square items-center justify-center rounded-xl p-1 transition-colors hover:bg-[var(--vy-surface-2)] active:scale-95"
-                  >
-                    <img
-                      src={
-                        item.url.startsWith("http")
-                          ? `/api/cdn/line?u=${encodeURIComponent(item.url)}`
-                          : item.url
-                      }
-                      alt={item.alt || ""}
-                      className="max-h-full max-w-full object-contain"
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                    />
-                  </button>
-                  {isFav && (
-                    <span className="pointer-events-none absolute right-0.5 top-0.5 text-[0.6rem] text-[var(--vy-accent)]">
-                      ★
-                    </span>
+                    })
+                  }
+                  onContextMenu={(e) => {
+                    e.preventDefault();
+                    setMenu({ x: e.clientX, y: e.clientY, fav: f });
+                  }}
+                  className={cn(
+                    "flex aspect-square items-center justify-center rounded-xl p-1 transition-colors active:scale-95",
+                    draggable ? "hover:bg-[var(--vy-surface-2)]" : "cursor-not-allowed opacity-55",
                   )}
-                  {comboMode && activePack.type === "sticker" && (
-                    <span className="pointer-events-none absolute left-0.5 top-0.5 rounded-full bg-[var(--vy-accent)] px-1 py-0.5 text-[0.55rem] font-bold text-[var(--vy-accent-contrast)]">
-                      +
-                    </span>
-                  )}
-                </div>
+                >
+                  <img
+                    src={assetUrl(f.url)}
+                    alt={f.name || ""}
+                    className="max-h-full max-w-full object-contain"
+                    loading="lazy"
+                    referrerPolicy="no-referrer"
+                  />
+                </button>
               );
             })}
           </div>
-        )}
-        {catalog && tab !== "unicode" && tab !== "favorite" && !activePack && (
-          <p className="px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
-            パックがありません
-          </p>
+        ) : (
+          <>
+            {catalog && activePack ? (
+              <div className={cn("grid gap-1", tab === "sticker" ? "grid-cols-4" : "grid-cols-6")}>
+                {activePack.items.map((item) => {
+                  const isFav = favorites.some(
+                    (f) => f.type === activePack.type && f.id === item.id,
+                  );
+                  return (
+                    <div key={item.id} className="relative">
+                      {renderGridItem(item, activePack)}
+                      {isFav && (
+                        <span className="pointer-events-none absolute right-0.5 top-0.5 text-[0.6rem] text-[var(--vy-accent)]">
+                          ★
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
+                パックがありません
+              </p>
+            )}
+          </>
         )}
       </div>
 
