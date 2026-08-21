@@ -35,6 +35,14 @@ export interface LineProfile {
   birthday?: LineBirthday | null | undefined;
   /** アカウント種別: USER=1 / BOT=2（公式アカウントは BOT） */
   userType?: number;
+  /** LYP Premium の加入状態 */
+  premium?: {
+    active: boolean;
+    planType?: string | number;
+    validUntil?: number;
+    onFreeTrial?: boolean;
+    willExpire?: boolean;
+  };
 }
 
 /** VylineCache から返す軽量プロフィール */
@@ -156,7 +164,11 @@ export interface Message {
     contentType: string;
     updatedTime: number;
   }>;
+  /** 取り消し前のメッセージ本体スナップショット */
+  revokedSnapshot?: MessageSnapshot;
 }
+
+export type MessageSnapshot = Omit<Message, "history" | "revokedSnapshot">;
 
 export interface MessageReaction {
   /** リアクションしたユーザー mid */
@@ -230,6 +242,13 @@ export type SavedSession = {
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  premium?: {
+    active: boolean;
+    planType?: string | number;
+    validUntil?: number;
+    onFreeTrial?: boolean;
+    willExpire?: boolean;
+  };
 };
 
 export type AccountsResponse = ApiResult<{

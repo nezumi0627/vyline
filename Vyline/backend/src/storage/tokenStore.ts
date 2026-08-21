@@ -39,6 +39,13 @@ export interface TokenEntry {
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  premium?: {
+    active: boolean;
+    planType?: string | number;
+    validUntil?: number;
+    onFreeTrial?: boolean;
+    willExpire?: boolean;
+  };
 }
 
 export type TokenMap = Record<string, TokenEntry>;
@@ -48,6 +55,13 @@ export type SessionMeta = {
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  premium?: {
+    active: boolean;
+    planType?: string | number;
+    validUntil?: number;
+    onFreeTrial?: boolean;
+    willExpire?: boolean;
+  };
 };
 
 async function ensureDataDir(): Promise<void> {
@@ -113,10 +127,12 @@ export async function saveToken(
   const displayName = meta?.displayName ?? existing?.displayName;
   const picturePath = meta?.picturePath ?? existing?.picturePath;
   const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
+  const premium = meta?.premium ?? existing?.premium;
   if (mid) entry.mid = mid;
   if (displayName) entry.displayName = displayName;
   if (picturePath) entry.picturePath = picturePath;
   if (statusMessage) entry.statusMessage = statusMessage;
+  if (premium) entry.premium = premium;
   tokens[accountId] = entry;
 
   await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
@@ -131,6 +147,7 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.displayName != null) existing.displayName = meta.displayName;
   if (meta.picturePath != null) existing.picturePath = meta.picturePath;
   if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
+  if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
   tokens[accountId] = existing;
   await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
@@ -170,6 +187,7 @@ export async function listSavedSessions(): Promise<
         displayName?: string;
         picturePath?: string;
         statusMessage?: string;
+        premium?: TokenEntry["premium"];
         hasToken: boolean;
       } = {
         accountId,
@@ -180,6 +198,7 @@ export async function listSavedSessions(): Promise<
       if (entry.displayName) row.displayName = entry.displayName;
       if (entry.picturePath) row.picturePath = entry.picturePath;
       if (entry.statusMessage) row.statusMessage = entry.statusMessage;
+      if (entry.premium) row.premium = entry.premium;
       return row;
     })
     .sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));

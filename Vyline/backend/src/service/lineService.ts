@@ -44,6 +44,7 @@ import {
   vylinePutProfiles,
   vylineResolvedNameMap,
 } from "../storage/vylineCache.js";
+import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import {
@@ -75,6 +76,7 @@ import {
   markMessageRevoked,
   restoreRevokedMessage,
   getMessageHistory,
+  findStoredMessageById,
   warmAccountCache,
   saveBoxOrder,
   type BootstrapPayload,
@@ -89,6 +91,40 @@ export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
 
 const log = childLogger("service:line");
+
+type CombinationStickerLayoutInfo = {
+  width: number;
+  height: number;
+  rotation: number;
+  x: number;
+  y: number;
+};
+
+type CombinationStickerStickerInfo = {
+  stickerId: number;
+  productId: number;
+  stickerHash: string;
+  stickerOptions: string;
+  stickerVersion: number;
+};
+
+type CombinationStickerLayout = {
+  layoutInfo: CombinationStickerLayoutInfo;
+  stickerInfo: CombinationStickerStickerInfo;
+};
+
+type CombinationStickerMetadata = {
+  version: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  stickerLayouts: CombinationStickerLayout[];
+};
+
+type CombinationStickerStickerData = {
+  packageId: string;
+  stickerId: string;
+  version: number;
+};
 
 // ─── helpers ──────────────────────────────────
 
@@ -301,8 +337,9 @@ async function ensureGroupE2EEKey(
         msg.includes("NOT_FOUND") ||
         msg.includes("no valid group key") ||
         msg.includes("there is no valid group key");
-      if (expectedMissing) {
+      if (expectedMissing || isRetryPlainError(msg)) {
         log.debug({ chatMid, err: msg }, "ensureGroupE2EEKey: no group key (skip)");
+        if (isRetryPlainError(msg)) noE2eePeers.add(chatMid);
       } else {
         log.warn(
           { chatMid, err: msg },
@@ -580,6 +617,15 @@ const CONTACT_PROFILE_MISS_MS = Number(process.env.VYLINE_CONTACT_MISS_CACHE_MS 
 const contactProfileMiss = new Map<string, number>();
 const myProfileCache = new Map<string, { at: number; profile: LineProfile }>();
 const myMidCache = new Map<string, string>();
+type PremiumStatus = {
+  active: boolean;
+  planType?: string | number;
+  validUntil?: number;
+  onFreeTrial?: boolean;
+  willExpire?: boolean;
+};
+const premiumStatusCache = new Map<string, { at: number; premium: PremiumStatus }>();
+const PREMIUM_STATUS_CACHE_MS = Number(process.env.VYLINE_PREMIUM_STATUS_CACHE_MS ?? 10 * 60_000);
 
 /** Desktop: 起動時に鍵検証済み — 毎リクエスト getE2EEPublicKeys を避ける */
 const e2eeIdentityEnsuredAt = new Map<string, number>();
@@ -890,6 +936,48 @@ function requireClient(accountId: string) {
   return client;
 }
 
+async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
+  const now = Date.now();
+  const cached = premiumStatusCache.get(accountId);
+  if (cached && now - cached.at < PREMIUM_STATUS_CACHE_MS) {
+    return cached.premium;
+  }
+
+  const client = requireClient(accountId);
+  let premium: PremiumStatus = { active: false };
+  try {
+    const status = (await client.base.request.request(
+      LINEStruct.getPremiumStatus_args({ req: {} as never }),
+      "getPremiumStatus",
+      4,
+      true,
+      "/EXT/line-premium/common/thrift/status",
+    )) as {
+      active?: boolean;
+      planType?: string | number;
+      validUntil?: number | bigint;
+      onFreeTrial?: boolean;
+      willExpire?: boolean;
+    };
+    premium = {
+      active: Boolean(status?.active),
+      onFreeTrial: Boolean(status?.onFreeTrial),
+      willExpire: Boolean(status?.willExpire),
+    };
+    if (status?.planType != null) premium.planType = status.planType;
+    if (status?.validUntil != null) premium.validUntil = Number(status.validUntil);
+  } catch (err) {
+    log.debug(
+      { accountId, err: err instanceof Error ? err.message : String(err) },
+      "getPremiumStatus failed",
+    );
+  }
+
+  premiumStatusCache.set(accountId, { at: Date.now(), premium });
+  void updateSessionMeta(accountId, { premium });
+  return premium;
+}
+
 /** 自分のプロフィール取得（メモリ / base.profile / Vyline 優先、RPC は短タイムアウト） */
 export async function fetchProfile(accountId: string): Promise<LineProfile> {
   // Refresh token before making profile requests to ensure it's valid
@@ -899,7 +987,11 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   const now = Date.now();
   const mem = myProfileCache.get(accountId);
   if (mem && now - mem.at < MY_PROFILE_CACHE_MS) {
-    return mem.profile;
+    if (mem.profile.premium) return mem.profile;
+    const premium = premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
+    const next = { ...mem.profile, premium };
+    myProfileCache.set(accountId, { at: mem.at, profile: next });
+    return next;
   }
 
   const client = requireClient(accountId);
@@ -919,7 +1011,10 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       backgroundUrl?: string;
     },
     birthday: LineBirthday | null = null,
+    premium: PremiumStatus | null = null,
   ): LineProfile => {
+    // ふりがな / profileId / pictureStatus / birthday は backend で保持しておく。
+    // 現在の UI では出さないが、将来の再表示やデバッグ用にレスポンス形は残す。
     const pictureStatus = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const thumbnailUrl = pictureStatusToUrl(pictureStatus) ?? "";
     const out: LineProfile = {
@@ -936,6 +1031,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       profileId: String(raw.profileId ?? ""),
       backgroundUrl: raw.backgroundUrl || undefined,
       birthday,
+      ...(premium ? { premium } : {}),
     };
     return out;
   };
@@ -952,8 +1048,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
         statusMessage?: string;
         musicProfile?: string;
         videoProfile?: string;
-        profileId?: string;
-      }
+      profileId?: string;
+    }
     | undefined;
 
   const persistAndReturn = (out: LineProfile): LineProfile => {
@@ -980,6 +1076,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       if (out.birthday?.display) put.birthday = out.birthday.display;
       if (out.backgroundUrl) put.backgroundUrl = out.backgroundUrl;
       void vylinePutProfile(accountId, put);
+      if (out.premium) void updateSessionMeta(accountId, { premium: out.premium });
     }
     return out;
   };
@@ -993,6 +1090,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
           MY_PROFILE_RPC_TIMEOUT_MS,
           "getProfile.bg",
         );
+        const premium = await fetchPremiumStatus(accountId);
         let birthday: LineBirthday | null = mem?.profile.birthday ?? null;
         try {
           const ext = await withTimeout(
@@ -1012,7 +1110,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
         } catch {
           /* optional */
         }
-        persistAndReturn(mapRaw(profile as never, birthday));
+        persistAndReturn(mapRaw(profile as never, birthday, premium));
       } catch (err) {
         log.debug({ accountId, err }, "fetchProfile background refresh failed");
       }
@@ -1025,7 +1123,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   }
 
   if (baseProf?.mid && baseProf.displayName) {
-    const quick = mapRaw(baseProf, mem?.profile.birthday ?? null);
+    const quick = mapRaw(baseProf, mem?.profile.birthday ?? null, mem?.profile.premium ?? null);
     persistAndReturn(quick);
     refreshInBg();
     return quick;
@@ -1037,6 +1135,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     const profile = await vylineGetProfile(accountId, String(knownMid));
     if (profile?.displayName) {
       const mapped = lineProfileFromVyline(profile);
+      mapped.premium = premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
       myProfileCache.set(accountId, { at: now, profile: mapped });
       refreshInBg();
       return mapped;
@@ -1049,6 +1148,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       MY_PROFILE_RPC_TIMEOUT_MS,
       "getProfile",
     );
+    const premium = await fetchPremiumStatus(accountId);
     let birthday: LineBirthday | null = null;
     try {
       const ext = await withTimeout(
@@ -1069,13 +1169,16 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       log.debug({ accountId, err }, "getExtendedProfile skipped");
     }
 
-    const out = persistAndReturn(mapRaw(profile as never, birthday));
+    const out = persistAndReturn(mapRaw(profile as never, birthday, premium));
     log.debug({ accountId, mid: out.mid, hasThumb: Boolean(out.thumbnailUrl) }, "profile fetched");
     return out;
   } catch (err) {
     log.debug({ accountId, err }, "fetchProfile timed out — fallback");
     if (mem) return mem.profile;
-    if (baseProf?.mid) return persistAndReturn(mapRaw(baseProf, null));
+    if (baseProf?.mid) {
+      const premium = await fetchPremiumStatus(accountId).catch(() => null);
+      return persistAndReturn(mapRaw(baseProf, null, premium));
+    }
     throw err;
   }
 }
@@ -3608,6 +3711,11 @@ function isMissingGroupKeyError(errMsg: string): boolean {
   );
 }
 
+function isRetryPlainError(errMsg: string): boolean {
+  const lower = errMsg.toLowerCase();
+  return errMsg.includes("E2EE_RETRY_PLAIN") || lower.includes("member settings off");
+}
+
 /**
  * グループ宛送信前: 最新共有鍵を用意。無ければ新規 register。
  * （uploadMediaByE2EE / Letter Sealing は鍵無しだと NOT_FOUND で落ちる）
@@ -3632,6 +3740,11 @@ async function ensureGroupKeyReadyForSend(
     return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (isRetryPlainError(msg)) {
+      noE2eePeers.add(chatMid);
+      log.debug({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: retry plain");
+      return;
+    }
     if (!isMissingGroupKeyError(msg)) {
       log.warn({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: getLast failed");
       throw err;
@@ -3952,6 +4065,7 @@ export async function sendMedia(
           );
           plainMode = true;
         }
+        plainMode = plainMode || noE2eePeers.has(chatMid);
       }
 
       const mime = opts?.mimeType ?? "image/png";
@@ -4145,6 +4259,153 @@ export async function sendSticker(
   });
 }
 
+type CombinationStickerInput = {
+  packageId: string;
+  stickerId: string;
+};
+
+function buildCombinationStickerLayouts(items: CombinationStickerInput[]): {
+  metadata: CombinationStickerMetadata;
+  stickers: CombinationStickerStickerData[];
+} {
+  const canvasWidth = 512;
+  const canvasHeight = 512;
+  const count = Math.max(1, items.length);
+
+  const toLayoutInfo = (index: number): CombinationStickerLayoutInfo => {
+    switch (count) {
+      case 1:
+        return { width: 352, height: 352, rotation: 0, x: 80, y: 80 };
+      case 2:
+        return {
+          width: 216,
+          height: 216,
+          rotation: 0,
+          x: index === 0 ? 40 : 256,
+          y: 148,
+        };
+      case 3:
+        return index === 0
+          ? { width: 240, height: 240, rotation: 0, x: 136, y: 20 }
+          : {
+              width: 200,
+              height: 200,
+              rotation: 0,
+              x: index === 1 ? 44 : 268,
+              y: 248,
+            };
+      case 4: {
+        const col = index % 2;
+        const row = Math.floor(index / 2);
+        return { width: 192, height: 192, rotation: 0, x: 48 + col * 224, y: 48 + row * 224 };
+      }
+      case 5:
+        if (index < 2) {
+          return { width: 176, height: 176, rotation: 0, x: 68 + index * 204, y: 56 };
+        }
+        return { width: 160, height: 160, rotation: 0, x: 48 + (index - 2) * 148, y: 292 };
+      case 6: {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        return {
+          width: 140,
+          height: 140,
+          rotation: 0,
+          x: 38 + col * 158,
+          y: 86 + row * 168,
+        };
+      }
+      default: {
+        const cols = count <= 8 ? 3 : 4;
+        const rows = Math.ceil(count / cols);
+        const cellW = Math.floor((canvasWidth - 72) / cols);
+        const cellH = Math.floor((canvasHeight - 72) / rows);
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const size = Math.min(cellW, cellH) - 10;
+        return {
+          width: size,
+          height: size,
+          rotation: 0,
+          x: 36 + col * cellW + Math.floor((cellW - size) / 2),
+          y: 36 + row * cellH + Math.floor((cellH - size) / 2),
+        };
+      }
+    }
+  };
+
+  const metadata: CombinationStickerMetadata = {
+    version: 1,
+    canvasWidth,
+    canvasHeight,
+    stickerLayouts: items.map((item, index) => ({
+      layoutInfo: toLayoutInfo(index),
+      stickerInfo: {
+        stickerId: Number(item.stickerId),
+        productId: Number(item.packageId),
+        stickerHash: "",
+        stickerOptions: "",
+        stickerVersion: 1,
+      },
+    })),
+  };
+
+  return {
+    metadata,
+    stickers: items.map((item) => ({
+      packageId: item.packageId,
+      stickerId: item.stickerId,
+      version: 1,
+    })),
+  };
+}
+
+export async function canCreateCombinationSticker(
+  accountId: string,
+  packageIds: string[],
+): Promise<{ canCreate: boolean; usablePackageIds: string[] }> {
+  const client = requireClient(accountId);
+  return await client.base.shop.canCreateCombinationSticker({
+    request: {
+      packageIds,
+    },
+  });
+}
+
+export async function isStickerAvailableForCombinationSticker(
+  accountId: string,
+  packageId: string,
+): Promise<{ availableForCombinationSticker: boolean }> {
+  const client = requireClient(accountId);
+  return await client.base.shop.isStickerAvailableForCombinationSticker({
+    request: {
+      packageId,
+    },
+  });
+}
+
+export async function createCombinationSticker(
+  accountId: string,
+  items: CombinationStickerInput[],
+  opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+): Promise<{ id: string }> {
+  if (items.length === 0) {
+    throw new Error("at least one sticker is required");
+  }
+  return await runSendRpc(accountId, async () => {
+    const client = requireClient(accountId);
+    const payload = buildCombinationStickerLayouts(items);
+    const result = await client.base.shop.createCombinationSticker({
+      request: {
+        ...payload,
+        idOfPreviousVersionOfCombinationSticker:
+          opts?.idOfPreviousVersionOfCombinationSticker ?? "",
+      },
+    });
+    return { id: String(result?.id ?? "") };
+  });
+}
+
 /** LINE 絵文字 (sticon) 送信 */
 export async function sendLineEmoji(
   accountId: string,
@@ -4218,6 +4479,18 @@ export async function sendLineEmoji(
 export async function unsendMessage(accountId: string, messageId: string): Promise<void> {
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
+    const found = await findStoredMessageById(accountId, messageId);
+    if (found) {
+      const stored = found.message;
+      if (
+        stored.revokedSnapshot ||
+        stored.messageState?.startsWith("revoked") ||
+        stored.contentType === "UNSENT" ||
+        stored.contentType === "UNSEND"
+      ) {
+        throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+      }
+    }
     const client = requireClient(accountId);
     await client.base.talk.unsendMessage({
       seq: await client.base.getReqseq(),
@@ -4295,7 +4568,7 @@ export async function getMessageEditNotice(
 // ─── Profile / Chat admin / Contacts (domain facade) ───────────────────────
 // Desktop: TalkService_updateProfileAttributes / updateChat / updateContactSetting
 
-/** 自分プロフィール属性更新（表示名・ステメ・誕生日等） */
+/** 自分プロフィール属性更新（表示名・ステメ等） */
 export async function updateMyProfile(
   accountId: string,
   input: ProfileUpdateInput,
@@ -4305,7 +4578,7 @@ export async function updateMyProfile(
 
   // musicProfile は ANDROIDSECONDARY 等で "music profile update not allowed"
   // → 書き込みは行わずログのみ（取得・表示は fetchProfile 側）
-  const { musicProfile, birthday, ...attrs } = input;
+  const { musicProfile, ...attrs } = input;
   if (musicProfile !== undefined) {
     log.info({ accountId }, "musicProfile write skipped (server rejects on this device type)");
   }
@@ -4313,41 +4586,6 @@ export async function updateMyProfile(
   const attrInput: ProfileUpdateInput = { ...attrs };
   if (Object.keys(attrInput).length > 0) {
     await session.profile.update(attrInput);
-  }
-
-  if (birthday) {
-    try {
-      await session.profile.update({ birthday });
-    } catch (err1) {
-      log.debug({ accountId, err: err1 }, "birthday update attr 0 failed — retry attr 1");
-      try {
-        const day = birthday.day.replace(/[^0-9]/g, "").slice(0, 4);
-        const year = (birthday.year ?? "").replace(/[^0-9]/g, "").slice(0, 4);
-        await client.base.talk.updateExtendedProfileAttribute({
-          reqSeq: await client.base.getReqseq(),
-          attr: 1,
-          extendedProfile: {
-            birthday: {
-              year,
-              day,
-              yearEnabled: birthday.yearEnabled ?? Boolean(year),
-              dayEnabled: birthday.dayEnabled ?? true,
-              yearPrivacyLevelType: birthday.yearPrivacy ?? "PRIVATE",
-              dayPrivacyLevelType: birthday.dayPrivacy ?? "PUBLIC",
-            },
-          },
-        });
-      } catch (err2) {
-        // ANDROIDSECONDARY 等では x-lc:500 / 空ボディで失敗することがある
-        log.info(
-          {
-            accountId,
-            err: err2 instanceof Error ? err2.message : String(err2),
-          },
-          "birthday update skipped (not supported on this device)",
-        );
-      }
-    }
   }
 
   myMidCache.delete(accountId);
@@ -4370,14 +4608,6 @@ export async function updateMyProfile(
       musicProfile: musicProfile ?? "",
       videoProfile: "",
       profileId: "",
-      birthday: birthday
-        ? formatBirthdayDisplay({
-            day: birthday.day,
-            ...(birthday.year !== undefined ? { year: birthday.year } : {}),
-            ...(birthday.yearEnabled !== undefined ? { yearEnabled: birthday.yearEnabled } : {}),
-            ...(birthday.dayEnabled !== undefined ? { dayEnabled: birthday.dayEnabled } : {}),
-          })
-        : null,
     };
   }
 }
@@ -5563,34 +5793,7 @@ export async function fetchStickersCatalog(
 
   const client = requireClient(accountId);
 
-  let premium: StickersCatalog["premium"] = { active: false };
-  try {
-    const status = (await client.base.request.request(
-      LINEStruct.getPremiumStatus_args({ req: {} as never }),
-      "getPremiumStatus",
-      4,
-      true,
-      "/EXT/line-premium/common/thrift/status",
-    )) as {
-      active?: boolean;
-      planType?: string | number;
-      validUntil?: number | bigint;
-      onFreeTrial?: boolean;
-      willExpire?: boolean;
-    };
-    premium = {
-      active: Boolean(status?.active),
-      onFreeTrial: Boolean(status?.onFreeTrial),
-      willExpire: Boolean(status?.willExpire),
-    };
-    if (status?.planType != null) premium.planType = status.planType;
-    if (status?.validUntil != null) premium.validUntil = Number(status.validUntil);
-  } catch (err) {
-    log.debug(
-      { accountId, err: err instanceof Error ? err.message : String(err) },
-      "getPremiumStatus failed",
-    );
-  }
+  const premium = await fetchPremiumStatus(accountId);
 
   const stickerIds = [
     ...DEFAULT_STICKER_PACKS,

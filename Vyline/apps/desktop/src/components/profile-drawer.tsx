@@ -20,10 +20,33 @@ import { dismissChatMid } from "@/utils/dismissedChats";
 
 type RichInfo = {
   statusMessage?: string;
+  phoneticName?: string;
   musicProfile?: string;
   birthday?: string;
   backgroundUrl?: string;
+  pictureStatus?: string;
+  profileId?: string;
+  userType?: number;
 };
+
+function InfoItem({
+  label,
+  value,
+  mono,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2">
+      <p className="text-[0.65rem] font-medium text-[var(--vy-text-dim)]">{label}</p>
+      <p className={mono ? "mt-1 font-mono text-xs break-all" : "mt-1 text-xs break-words"}>
+        {value}
+      </p>
+    </div>
+  );
+}
 
 export function ProfileDrawer({ chat }: { chat: Chat }) {
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
@@ -144,19 +167,27 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
           ok: boolean;
           profile?: {
             statusMessage?: string;
+            phoneticName?: string;
             musicProfile?: string;
             birthday?: { display?: string };
             backgroundUrl?: string;
             displayName?: string;
             thumbnailUrl?: string;
+            pictureStatus?: string;
+            profileId?: string;
+            userType?: number;
           };
         };
         if (!r.profile) return;
         setRich({
           statusMessage: r.profile.statusMessage,
+          phoneticName: r.profile.phoneticName,
           musicProfile: r.profile.musicProfile,
           birthday: r.profile.birthday?.display,
           backgroundUrl: r.profile.backgroundUrl,
+          pictureStatus: r.profile.pictureStatus,
+          profileId: r.profile.profileId,
+          userType: r.profile.userType,
         });
         const nextName =
           r.profile.displayName && !looksLikeMid(r.profile.displayName)
@@ -217,6 +248,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
 
   const name = displayName(chat, streamerMode);
   const music = parseMusicProfile(rich.musicProfile);
+  const backgroundUrl = chat.backgroundUrl ?? rich.backgroundUrl;
+  const showBackground = Boolean(!streamerMode && settings.showBackground && backgroundUrl);
 
   const handleTalk = () => {
     if (chat.type === "friend") {
@@ -402,11 +435,10 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             <div
               className="h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
               style={
-                !streamerMode &&
-                settings.showBackground &&
-                (chat.backgroundUrl ?? rich.backgroundUrl)
+                showBackground
                   ? {
-                      backgroundImage: `url(${rich.backgroundUrl})`,
+                      backgroundImage:
+                        `linear-gradient(180deg, color-mix(in oklab, black 8%, transparent), color-mix(in oklab, black 20%, transparent)), url(${backgroundUrl})`,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }
@@ -481,20 +513,18 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             </div>
           </div>
 
-          {!streamerMode && (music || rich.birthday) && (
-            <div className="mt-4 space-y-2 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm">
+          {!streamerMode && (
+            <div className="mt-4 space-y-3 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm">
               {music && (
-                <p>
-                  <span className="text-[var(--vy-text-dim)]">音楽 · </span>
-                  {music.title || music.raw}
-                  {music.artist ? ` — ${music.artist}` : ""}
-                </p>
+                <InfoItem
+                  label="音楽"
+                  value={`${music.title || music.raw}${music.artist ? ` — ${music.artist}` : ""}`}
+                />
               )}
-              {rich.birthday && (
-                <p>
-                  <span className="text-[var(--vy-text-dim)]">誕生日 · </span>
-                  {rich.birthday}
-                </p>
+              {(chat.isOfficial || rich.userType === 2) && (
+                <span className="inline-flex w-fit items-center rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
+                  公式アカウント
+                </span>
               )}
             </div>
           )}

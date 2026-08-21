@@ -8,6 +8,7 @@ import type {
   ChatSort,
   Message,
   MessageReaction,
+  MessageSnapshot,
   VyTheme,
   Settings,
   Screen,
@@ -80,6 +81,11 @@ function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
     }
   }
   return contactCache;
+}
+
+function snapshotFromMessage(m: Message): MessageSnapshot {
+  const { history: _history, revokedSnapshot: _revokedSnapshot, ...snapshot } = m;
+  return snapshot;
 }
 
 /**
@@ -162,11 +168,12 @@ function applyReadWatermarkLocal(
 
 function messagePreview(m: Message): string {
   if (m.messageState.startsWith("revoked")) {
+    if (m.revokedSnapshot) return `取り消し済み: ${messagePreview(m.revokedSnapshot)}`;
     const last = m.history
       ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
       : undefined;
-    if (last?.text) return last.text;
-    return "メッセージの送信を取り消しました";
+    if (last?.text) return `取り消し済み: ${last.text}`;
+    return "取り消し済みのメッセージ";
   }
   switch (m.kind) {
     case "sticker":
@@ -273,9 +280,19 @@ type State = {
       displayName: string;
       statusMessage: string;
       thumbnailUrl?: string;
+      phoneticName?: string;
+      pictureStatus?: string;
       musicProfile?: string;
       birthday?: { display?: string } | null;
       backgroundUrl?: string;
+      profileId?: string;
+      premium?: {
+        active: boolean;
+        planType?: string | number;
+        validUntil?: number;
+        onFreeTrial?: boolean;
+        willExpire?: boolean;
+      } | null;
     } | null;
     chats: LineChat[];
     messages: LineMessage[];
@@ -579,10 +596,14 @@ export const useStore = create<State>()(
                 avatar: initial(profile.displayName),
                 avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
                 status: profile.statusMessage || "",
+                phoneticName: profile.phoneticName || st.self.phoneticName,
+                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
                 musicProfile: profile.musicProfile || st.self.musicProfile,
                 birthday: profile.birthday?.display || st.self.birthday,
                 backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
                 mid: profile.mid || st.self.mid,
+                profileId: profile.profileId || st.self.profileId,
+                premium: profile.premium ?? st.self.premium,
               },
             }));
           }
@@ -693,10 +714,14 @@ export const useStore = create<State>()(
                 avatar: initial(profile.displayName),
                 avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
                 status: profile.statusMessage || "",
+                phoneticName: profile.phoneticName || st.self.phoneticName,
+                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
                 musicProfile: profile.musicProfile || st.self.musicProfile,
                 birthday: profile.birthday?.display || st.self.birthday,
                 backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
                 mid: profile.mid || st.self.mid,
+                profileId: profile.profileId || st.self.profileId,
+                premium: profile.premium ?? st.self.premium,
               }
             : st.self,
         }));
@@ -992,55 +1017,53 @@ export const useStore = create<State>()(
           messageState: "normal",
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
-        void (async () => {
-          try {
-            const highQuality = get().settings.highQualityImages;
-            const { blob, mime } = highQuality
-              ? { blob: file, mime: file.type || "application/octet-stream" }
-              : await compressImageFile(file);
-            if (blob.size > 11_000_000) {
-              window.alert(
-                blob === file
-                  ? "ファイルが大きすぎます（11MB まで）"
-                  : "画像が大きすぎます（圧縮後も 11MB 超）",
-              );
-              set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-              return;
-            }
-            const buf = await blob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = "";
-            const chunk = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-            }
-            const dataBase64 = btoa(binary);
-            const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
-              mimeType: mime,
-              filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
-              mediaType: isVideo ? "video" : "image",
-            });
-            if (res.ok) {
-              const existing = refreshDebounce.get(chatId);
-              if (existing) clearTimeout(existing);
-              refreshDebounce.set(
-                chatId,
-                setTimeout(() => {
-                  refreshDebounce.delete(chatId);
-                  void get().refreshMessages(chatId, { force: true });
-                }, 800),
-              );
-            } else {
-              // 画像は再送 UI を持たないので失敗時は楽観表示を除去
-              set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-            }
-          } catch {
+        try {
+          const highQuality = get().settings.highQualityImages;
+          const { blob, mime } = highQuality
+            ? { blob: file, mime: file.type || "application/octet-stream" }
+            : await compressImageFile(file);
+          if (blob.size > 11_000_000) {
+            window.alert(
+              blob === file
+                ? "ファイルが大きすぎます（11MB まで）"
+                : "画像が大きすぎます（圧縮後も 11MB 超）",
+            );
             set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-          } finally {
-            // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
-            setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+            return;
           }
-        })();
+          const buf = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = "";
+          const chunk = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+          }
+          const dataBase64 = btoa(binary);
+          const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+            mimeType: mime,
+            filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
+            mediaType: isVideo ? "video" : "image",
+          });
+          if (res.ok) {
+            const existing = refreshDebounce.get(chatId);
+            if (existing) clearTimeout(existing);
+            refreshDebounce.set(
+              chatId,
+              setTimeout(() => {
+                refreshDebounce.delete(chatId);
+                void get().refreshMessages(chatId, { force: true });
+              }, 800),
+            );
+          } else {
+            // 画像は再送 UI を持たないので失敗時は楽観表示を除去
+            set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+          }
+        } catch {
+          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+        } finally {
+          // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
+          setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+        }
       },
 
       sendAudio: async (chatId, seconds, blob) => {
@@ -1092,6 +1115,10 @@ export const useStore = create<State>()(
           window.alert("送信が完了してから取り消しできます");
           return;
         }
+        if (msg.messageState.startsWith("revoked") || msg.revokedSnapshot) {
+          get().showNotice("一度取り消したメッセージは再度取り消せません");
+          return;
+        }
         const prevState = msg.messageState ?? "normal";
         const historyEntry = {
           state: prevState,
@@ -1105,7 +1132,9 @@ export const useStore = create<State>()(
               ? {
                   ...m,
                   history: [...(m.history ?? []), historyEntry],
+                  revokedSnapshot: m.revokedSnapshot ?? snapshotFromMessage(m),
                   messageState: "revoked-by-self" as MessageState,
+                  text: undefined,
                 }
               : m,
           ),
@@ -1560,6 +1589,9 @@ export const useStore = create<State>()(
                 ) {
                   mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
                 }
+                if (prev?.revokedSnapshot && !m.revokedSnapshot) {
+                  mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
+                }
               }
               // pending / 送信直後の確定メッセージをサーバ欠落時も残す
               const keep = existingChat.filter((m) => {
@@ -1875,6 +1907,8 @@ export const useStore = create<State>()(
                 }
                 if (revokedChanged) {
                   updated.messageState = upd.messageState;
+                  updated.revokedSnapshot =
+                    m.revokedSnapshot ?? upd.revokedSnapshot ?? snapshotFromMessage(m);
                   const prevState = m.messageState ?? "normal";
                   updated.history = [
                     ...(m.history ?? []),
@@ -1967,6 +2001,7 @@ export const useStore = create<State>()(
                 ? "revoked-by-self"
                 : "revoked-by-other") as MessageState,
               history,
+              revokedSnapshot: m.revokedSnapshot ?? snapshotFromMessage(m),
               text: undefined,
             };
           });
@@ -1989,10 +2024,11 @@ export const useStore = create<State>()(
         if (!accountId) return;
         const msg = get().messages.find((m) => m.id === messageId);
         if (!msg || msg.messageState !== "revoked-by-self") return;
+        const snapshot = msg.revokedSnapshot;
         const lastNormal = [...(msg.history ?? [])]
           .reverse()
           .find((h) => h.state === "normal" || h.state === "edited");
-        if (!lastNormal) {
+        if (!snapshot && !lastNormal) {
           window.alert("復元できる元のメッセージがありません");
           return;
         }
@@ -2007,9 +2043,16 @@ export const useStore = create<State>()(
             m.id === messageId
               ? {
                   ...m,
-                  messageState: "normal" as MessageState,
+                  ...snapshot,
+                  messageState: (snapshot?.messageState ??
+                    (lastNormal?.state === "edited" ? "edited" : "normal")) as MessageState,
                   history: [...(m.history ?? []), historyEntry],
-                  text: lastNormal.text ?? undefined,
+                  ...(snapshot
+                    ? { revokedSnapshot: snapshot }
+                    : m.revokedSnapshot
+                      ? { revokedSnapshot: m.revokedSnapshot }
+                      : {}),
+                  text: snapshot?.text ?? lastNormal?.text ?? undefined,
                 }
               : m,
           ),

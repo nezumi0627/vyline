@@ -125,6 +125,8 @@ export type Message = {
     contentType: string;
     updatedTime: number;
   }>;
+  /** 取り消し前のメッセージ本体スナップショット */
+  revokedSnapshot?: MessageSnapshot;
   linkPreview?: LinkPreview;
   /** 失敗時の再送に使う送信意図（楽観メッセージに保持） */
   retry?: RetryIntent;
@@ -138,6 +140,8 @@ export type Message = {
     longitude?: number;
   };
 };
+
+export type MessageSnapshot = Omit<Message, "history" | "revokedSnapshot">;
 
 export type RetryIntent =
   | {
@@ -220,8 +224,18 @@ export type SelfProfile = {
   avatar: string;
   avatarUrl?: string;
   status: string;
+  phoneticName?: string;
+  pictureStatus?: string;
   musicProfile?: string;
   birthday?: string;
   backgroundUrl?: string;
   mid?: string;
+  profileId?: string;
+  premium?: {
+    active: boolean;
+    planType?: string | number;
+    validUntil?: number;
+    onFreeTrial?: boolean;
+    willExpire?: boolean;
+  };
 };
