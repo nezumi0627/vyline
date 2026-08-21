@@ -1551,10 +1551,12 @@ export const useStore = create<State>()(
                   mapped[i] = { ...m, messageState: prev.messageState };
                 }
                 // メッセージステートが undefined の場合もローカルの取り消し状態を優先
+                // （サーバが取り消し未処理の場合の fallback）
                 if (
                   prev?.messageState === "revoked-by-self" &&
-                  !m.messageState?.startsWith("revoked") &&
-                  m.messageState !== "revoked-by-self"
+                  m.messageState !== "revoked-by-self" &&
+                  // undefined や normal になっている場合はローカル状態を優先
+                  (m.messageState === undefined || m.messageState === "normal")
                 ) {
                   mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
                 }
