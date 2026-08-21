@@ -599,8 +599,7 @@ lineRouter.post("/:accountId/send-combination-sticker", async (c) => {
       body.items,
       body.idOfPreviousVersionOfCombinationSticker != null
         ? {
-            idOfPreviousVersionOfCombinationSticker:
-              body.idOfPreviousVersionOfCombinationSticker,
+            idOfPreviousVersionOfCombinationSticker: body.idOfPreviousVersionOfCombinationSticker,
           }
         : undefined,
     );

@@ -197,15 +197,15 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
             {streamerMode ? "配信者モードで非表示" : `${chat.name} のメンバー`}
           </p>
           {!streamerMode && rich.statusMessage && (
-              <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
-                {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
-                {(chat.isOfficial || rich.userType === 2) && (
-                  <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
-                    公式アカウント
-                  </span>
-                )}
-              </div>
-            )}
+            <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
+              {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
+              {(chat.isOfficial || rich.userType === 2) && (
+                <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
+                  公式アカウント
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-2 p-4">

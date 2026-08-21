@@ -1,5 +1,6 @@
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
 import { extractStickerId, lineStickerUrl } from "../utils/lineMedia.js";
+import { getCombinationStickerPreview } from "../utils/combinationStickers.js";
 import {
   contentTypeLabel,
   isAudioContent,
@@ -235,7 +236,10 @@ export function mapMessage(
         ? "revoked-by-self"
         : "revoked-by-other"
       : "normal");
+  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
   const stickerId = extractStickerId(m.contentMetadata ?? null);
+  const comboStickerId =
+    typeof meta?.CSSTKID === "string" && meta.CSSTKID.trim() ? meta.CSSTKID.trim() : null;
   const authorId = m.isMyMessage ? "me" : m.from;
 
   let imageSrc: string | undefined;
@@ -273,7 +277,6 @@ export function mapMessage(
     }
   }
 
-  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
   const altText = altTextFromMeta(meta);
   if ((kind === "flex" || kind === "rich") && !text && altText) {
     text = altText;
@@ -303,11 +306,13 @@ export function mapMessage(
     kind,
     text,
     sticker:
-      kind === "sticker" && stickerId
-        ? lineStickerUrl(stickerId)
-        : kind === "sticker"
-          ? "🎴"
-          : undefined,
+      kind === "sticker" && comboStickerId
+        ? (getCombinationStickerPreview(accountId, comboStickerId) ?? undefined)
+        : kind === "sticker" && stickerId
+          ? lineStickerUrl(stickerId)
+          : kind === "sticker"
+            ? "🎴"
+            : undefined,
     imageSrc,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
@@ -348,6 +353,9 @@ export function mapMessage(
     editedAt: m.updatedTime != null && m.updatedTime > 0 ? m.updatedTime : undefined,
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
     history: m.history?.length ? m.history : undefined,
+    ...(m.revokedSnapshot
+      ? { revokedSnapshot: mapMessage(m.revokedSnapshot, chatId, accountId, _contactCache) }
+      : {}),
     contact,
     location,
   };
