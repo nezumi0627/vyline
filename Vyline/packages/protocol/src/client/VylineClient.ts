@@ -84,10 +84,7 @@ async function finalizeLogin(
   if (isDesktopEmulation(mode)) {
     patchDesktopTransport(base, profile);
   }
-  const e2ee = await ensureValidE2EEIdentity(
-    base,
-    desktopKeysPath ? { desktopKeysPath } : {},
-  );
+  const e2ee = await ensureValidE2EEIdentity(base, desktopKeysPath ? { desktopKeysPath } : {});
   base.log("vyline:e2ee", { phase: "ensure-after-login", mode, ...e2ee });
   return new Client(base);
 }
