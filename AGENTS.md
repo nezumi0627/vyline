@@ -267,21 +267,21 @@ bun run vyline:update  # Desktop を最新版へ更新（root 直下でも可）
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
 
-- `master` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
+- `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
 
 ```
-1. master から作業ブランチを切る
-   git checkout master && git pull && git checkout -b feature/<名前>
+1. main から作業ブランチを切る
+   git checkout main && git pull && git checkout -b feature/<名前>
 2. 変更をコミットしてブランチに push
    git push -u origin feature/<名前>
-3. GitHub で PR を作成（base: master ← head: feature/<名前>）
+3. GitHub で PR を作成（base: main ← head: feature/<名前>）
 4. レビュー・承認後にマージする（repo 所有者以外のマージはブロックされる）
 ```
 
-- 小さな修正（1 コミットのドキュメント更新など）でも、master への直接 push はせずブランチ経由にする
+- 小さな修正（1 コミットのドキュメント更新など）でも、main への直接 push はせずブランチ経由にする
 - PR の説明には変更内容とテスト確認結果を書く
-- マージ後に作業ブランチは削除し、master を pull して最新に保つ
+- マージ後に作業ブランチは削除し、main を pull して最新に保つ
 
 ## 報告プロトコル
 
