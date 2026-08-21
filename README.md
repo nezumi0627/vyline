@@ -1,11 +1,14 @@
-<h1 align="center">Vyline <sup>Beta</sup></h1>
+<div align="center">
 
-<p align="center">
-  <strong>Vision Beyond Limits.</strong><br/>
-  自前プロトコルで動く、LINE サードパーティクライアント（Web / React）
-</p>
+# Vyline <sup>Beta</sup>
 
-<p align="center">
+### Vision Beyond Limits.
+
+**独自プロトコルスタックで動作する、モダンでセルフホスト可能な LINE サードパーティクライアント。**
+
+Web / React · Bun · Hono · `@vyline/protocol`
+
+<p>
   <img alt="version" src="https://img.shields.io/badge/version-0.5.1--beta-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
@@ -14,120 +17,115 @@
   <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square" />
 </p>
 
-<p align="center">
-  このさんさんとした太陽の下、Vyline を選んでくださるユーザーに出会えたことに感謝します。
-</p>
+[クイックスタート](#クイックスタート) · [機能](#機能) · [アーキテクチャ](#アーキテクチャ) · [ドキュメント](#ドキュメント) · [コントリビューション](#コントリビューション)
 
-> **2026/08/20 beta 版 release 開始** — 本リポジトリは Vyline Beta 0.5.0 として公開されました。機能の安定性は保証されておらず、予期しない動作やアカウントリスクが含まれる可能性があります。
+</div>
 
----
-
-## ⚠️ ご利用前に必ずお読みください
-
-Vyline は LINE 非公式のサードパーティクライアントであり、LINE 株式会社・LY Corporation とは**無関係・未承認**です。
-
-- **アカウントリスク**: LINE 利用規約に違反する可能性があり、アカウント停止等のリスクを伴います。**利用はすべて自己責任**です。
-- **同意ゲート**: ログイン直後に利用規約・免責事項を表示し、**同意しない限りアプリは一切動作しません**（同期・通信・表示を含む）。同意せず、または画面をスキップする等の手段で利用した場合も、**その時点で本規約に同意したものとみなされ**、開発者・Vyline のメンバーは一切の責任を負いません。
-- **目的の範囲**: 教育・学習・個人利用の範囲でご利用ください。第三者への攻撃・不正アクセス・迷惑行為・権利侵害は禁止です。
-- **データの扱い**: ログイン情報・セッション・暗号鍵・トーク履歴は端末内にのみ保存され、外部へ送信されません。
-- **解析ツール**: `tools/` 以下の解析ツールは [vyline-search](https://github.com/nezumi0627/vyline-search) リポジトリを Git Submodule としてリンクしたものです。Desktop LINE の unpack・逆コンパイルを行います。**教育・実験目的のみ**で使用し、解析結果を再配布しないでください。詳細: [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md)
-- **開発者の免責**: 本ソフトウェアの利用により生じた一切の問題（アカウント停止、データ破損、法的問題等）について、開発者・Vyline のメンバーは責任を負いません。
-
-### 著作権表示
-
-本ソフトウェアは [nezumi0627](https://github.com/nezumi0627) によって開発されています。改変・再配布・解説記事等では、必ず著作権表示（`nezumi0627`）を保持してください。ライセンス詳細は [LICENSE](LICENSE)（MIT）を参照してください。
+> [!WARNING]
+> **現在 Beta 版です。** Vyline は LINE 非公式のサードパーティクライアントであり、LY Corporation とは無関係・未承認です。アカウント、互換性、データ損失などのリスクが含まれる可能性があります。利用は自己責任で行ってください。
 
 ---
 
-## Vyline とは
+## Why Vyline?
 
-**Vyline** は LINE にログインしてメッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行うサードパーティクライアントです。外部サービスに依存せず、**自前のプロトコルスタック `@vyline/protocol`** で動作します。
+Vyline は、LINE をより自由に、自分の環境に合わせて使いたい人のために開発されています。
 
-| 項目       | 内容                                     |
-| ---------- | ---------------------------------------- |
-| 誰向け     | UI を自分好みにしたい人・開発者          |
-| なにが違う | テーマ管理 / メンション / ローカル最適化 |
-| ライセンス | MIT                                      |
-| 状態       | Beta 0.5.0                               |
+外部の中継サービスやゲートウェイに依存するのではなく、独自のプロトコルスタック `@vyline/protocol` を使用して LINE と通信します。
 
-### 主な機能
+メッセージング、メディア、テーマ、E2EE、バックアップ、セルフホスト、外部連携 API までをひとつのプロジェクトに統合しています。
 
-| カテゴリ         | 内容                                                                                                                  |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **ログイン**     | QR / Email ログイン、マルチアカウント、セッション復元                                                                 |
-| **メッセージ**   | 送受信 / 返信 / 取り消し / 既読制御 / 再送                                                                            |
-| **メンション**   | `@ALL` / `@名前`（LINE Desktop 準拠の `MENTION` metadata）                                                            |
-| **メディア**     | 画像・動画・音声（画像は自動圧縮、設定で高画質送信も可） / LINE 絵文字(sticon) / スタンプ全種                         |
-| **Flex / Rich**  | 公式準拠の描画、カルーセルのマウスドラッグ                                                                            |
-| **リアクション** | 1クリック、公式バッジ、既読者一覧                                                                                     |
-| **通話**         | 音声 / ビデオ通話（実験的）                                                                                           |
-| **チャット管理** | ピン / 非表示 / ミュート / ブロック / MID コピー / グループ作成・招待                                                 |
-| **VyTheme**      | フルカスタマイズテーマ、文字サイズ、密度、プロフィール背景                                                            |
-| **E2EE**         | Letter Sealing の復号・送信、Desktop 鍵 import                                                                        |
-| **プライバシー** | ストリーマーモード、PIN ロック                                                                                        |
-| **VylineBackup** | トーク履歴・メディアのスナップショット作成 / 復元 / 削除                                                              |
-| **その他**       | チャット詳細ログ(JSONL) / Keepメモ / 相手プロフィール背景表示 / 通話中バッジ / 共通グループ高速表示 / トーク保存(TXT) |
+* **独自プロトコルスタック** — 外部のサードパーティゲートウェイに依存しません
+* **高度なUIカスタマイズ** — VyTheme、文字サイズ、表示密度、プロフィール背景
+* **強力なメッセージ機能** — メンション、リアクション、既読制御、再送、チャット管理
+* **豊富なメディア対応** — 画像、動画、音声、絵文字、スタンプ、Flex / Rich 表示
+* **ローカル中心のデータ管理** — セッション、鍵、履歴、バックアップを自分の環境で管理
+* **セルフホスト対応** — 複数ブラウザから同じ Vyline セッションを利用可能
+* **拡張可能** — `/v1/` API、OpenAPI 3.1、Protocol Package、解析ツール
 
 ---
 
-## ⚠️ 破壊的変更 (v0.5.0)
+## 機能
 
-v0.5.0 は v0.4.x と**互換性がありません**。以下の変更により、既存の設定・キャッシュの一部リセットが必要な場合があります。
-
-| 変更                                                   | 影響                                                                        |
-| ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| 受信エンジンを Push 長ポール → fetchOps 方式に刷新     | イベントポーリングの挙動が変わります                                        |
-| 公開 API (`/v1/`) を新設                               | 環境変数 `VYLINE_API_ADMIN_SECRET` を設定するとトークン管理が可能になります |
-| イベント種別の拡張（通話・メンバー変更・アナウンス等） | フロントエンドの旧バージョンとは互換しません                                |
-
-**アップグレード手順**: `git pull && bun install && bun run dev` のみで動作します。既存のログイン状態は維持されます。
+| カテゴリ             | 主な機能                                               |
+| ---------------- | -------------------------------------------------- |
+| **ログイン**         | QR / Email ログイン、マルチアカウント、セッション復元                   |
+| **メッセージ**        | 送受信 / 返信 / 送信取消 / 既読制御 / 再送                        |
+| **メンション**        | `@ALL` / `@名前`、LINE Desktop 互換の `MENTION` metadata |
+| **メディア**         | 画像 / 動画 / 音声 / LINE 絵文字 / スタンプ / 高画質画像送信           |
+| **Flex / Rich**  | Rich Message 表示、ドラッグ操作対応カルーセル                      |
+| **リアクション**       | ワンクリックリアクション、公式風バッジ、既読者一覧                          |
+| **通話**           | 音声 / ビデオ通話（実験的）                                    |
+| **チャット管理**       | ピン / 非表示 / ミュート / ブロック / MID コピー / グループ作成・招待       |
+| **VyTheme**      | テーマ、文字サイズ、表示密度、プロフィール背景のカスタマイズ                     |
+| **E2EE**         | Letter Sealing の復号 / 送信、Desktop 鍵 import           |
+| **プライバシー**       | ストリーマーモード、PIN ロック                                  |
+| **VylineBackup** | トーク履歴・メディアのスナップショット作成 / 復元 / 削除                    |
+| **Power Tools**  | JSONL ログ / Keepメモ / TXT エクスポート / 共通グループ高速表示        |
 
 ---
 
-## Quick Start
+## クイックスタート
+
+### 必要環境
+
+* [Bun](https://bun.sh/)
+* モダンブラウザ
+
+### ローカルで起動
 
 ```bash
 bun install
-bun run dev          # backend :3001 + frontend :5173
+bun run dev
 ```
 
-ブラウザで `http://localhost:5173` を開きます。
+起動後、以下をブラウザで開きます。
 
-| コマンド               | 内容                           |
-| ---------------------- | ------------------------------ |
-| `bun run dev:backend`  | backend のみ（:3001）          |
-| `bun run dev:frontend` | frontend のみ（:5173）         |
-| `bun run typecheck`    | 型チェック（全ワークスペース） |
-| `bun run lint`         | Biome lint                     |
-| `bun run build`        | frontend 本番ビルド            |
+```text
+http://localhost:5173
+```
 
-詳細: [docs/onboarding.md](docs/onboarding.md) · [docs/development.md](docs/development.md) · [AGENTS.md](AGENTS.md)
+Backend は `:3001`、Frontend は `:5173` で起動します。
 
-### セルフホスト（Docker）
-
-自宅サーバーに立てて、複数端末の Web ブラウザから同じ LINE セッションを利用できます（履歴・画像はサーバー側に永続化）。
+<details>
+<summary><strong>その他のコマンド</strong></summary>
 
 ```bash
-docker compose up -d --build   # http://localhost:3001
+bun run dev:backend
+bun run dev:frontend
+bun run typecheck
+bun run lint
+bun run build
 ```
 
-設定・Cloudflare Access での外部公開手順: [docs/selfhosting.md](docs/selfhosting.md)
+</details>
 
-### 推奨環境
-
-| 項目               | 推奨値         | 備考                                               |
-| ------------------ | -------------- | -------------------------------------------------- |
-| **LINE アプリ**    | IOSIPAD 26.7.2 | `x-line-application` ヘッダー値。最新版を推奨      |
-| **OS**             | iOS 18.0       | Android / Windows 互換は未検証                     |
-| **デバイスモード** | IOSIPAD        | `VYLINE_DEVICE` 環境変数で指定（省略時は IOSIPAD） |
-
-> 定義元: `packages/protocol/src/desktop/types.ts` の DesktopProfile。実際のヘッダー値は `"x-line-application": "IOSIPAD\t26.7.2\tiOS\t18.0"` のように伝搬されます。
+詳しいセットアップ方法は [docs/onboarding.md](docs/onboarding.md) と [docs/development.md](docs/development.md) を参照してください。
 
 ---
 
-## Architecture
+## セルフホスト
 
+Vyline は自分のサーバー上にデプロイできます。
+
+複数端末のブラウザから同じ LINE セッションを利用しながら、トーク履歴やメディアを自分の管理するサーバーへ永続化できます。
+
+```bash
+docker compose up -d --build
 ```
+
+起動後:
+
+```text
+http://localhost:3001
+```
+
+Docker、Cloudflare Access、外部公開については [docs/selfhosting.md](docs/selfhosting.md) を参照してください。
+
+---
+
+## アーキテクチャ
+
+```text
 ┌─ Frontend (React + Vite) ── apps/desktop ──┐
 │  store / mappers / sync / VyTheme UI       │
 ├─ Backend (Hono on Bun) ───── backend ──────┤
@@ -137,97 +135,142 @@ docker compose up -d --build   # http://localhost:3001
 └─ LINE Servers ──────────────────────────────┘
 ```
 
-| パス                  | 役割                     |
-| --------------------- | ------------------------ |
-| `apps/desktop`        | React UI                 |
-| `backend`             | Hono BFF                 |
-| `packages/protocol`   | プロトコル本体（Vyline） |
-| `packages/line-types` | Thrift 型（vendored）    |
+| パス                    | 役割                  |
+| --------------------- | ------------------- |
+| `apps/desktop`        | React UI            |
+| `backend`             | Hono BFF            |
+| `packages/protocol`   | Vyline 独自プロトコル実装    |
+| `packages/line-types` | Vendored Thrift 型定義 |
 
-### E2EE / Desktop 鍵
+Frontend / Backend / Protocol を分離した構成になっており、それぞれを独立して開発・拡張できる設計です。
 
-過去メッセージの復号には、公式 LINE Desktop から抽出した自己鍵一式が必要です。
+---
 
-1. LINE.exe 起動状態で鍵を抽出（[docs/analysis/](docs/analysis/)）
-2. `backend/data/desktop-e2ee-keys.json` に配置（**gitignore・コミット禁止**）
-3. backend 起動時に自動 import
+## E2EE / Desktop 鍵
 
-### 公開 API (`/v1/`)
+過去のメッセージを復号する場合、公式 LINE Desktop から取得した自分自身の鍵情報が必要になる場合があります。
 
-セルフホスト時に Bearer トークンで Vyline を外部から操作できます。
+1. [docs/analysis/](docs/analysis/) のツールを使用して必要な鍵を取得
+2. `backend/data/desktop-e2ee-keys.json` に配置
+3. Backend 起動時に自動的に import
 
-```bash
-# トークン作成（VYLINE_API_ADMIN_SECRET を設定後）
-curl -X POST http://localhost:3001/v1/tokens \
-  -H "Authorization: Bearer $VYLINE_API_ADMIN_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-bot"}'
+> [!IMPORTANT]
+> 鍵、セッション、トークン、ログイン情報、個人情報などを Git にコミットしないでください。
 
-# チャット一覧取得
-curl http://localhost:3001/v1/accounts/{accountId}/chats \
-  -H "Authorization: Bearer vyl_xxxx..."
+---
+
+## API
+
+Vyline はセルフホスト環境や外部アプリケーションとの連携に利用できる `/v1/` API を提供しています。
+
+OpenAPI 3.1 仕様は以下から取得できます。
+
+```text
+GET /openapi.json
 ```
 
-API 仕様（OpenAPI 3.1）: `GET /openapi.json` または [zensical.org](https://zensical.org)
+公開ドキュメント:
 
-### 解析ツールキット（vyline-search）
+[zensical.org](https://zensical.org)
 
-Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 / 逆コンパイルを行う独立ツールキットです。教育・研究目的で `findNativeSymbol` による文字列 xref 解析と Ghidra decompile をワンコマンドで実行できます。
+---
 
-> [!WARNING]
-> **注意**: LINE デスクトップクライアントが起動中の状態では、解析ツール（unpack 等）が正常に動作しません（単一インスタンス制御により frida の注入が拒否されプロセスが強制終了するため）。必ず LINE アプリを完全に終了させてから実行してください。
+## 解析ツールキット
 
-**[github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search)**
+オプションの [`vyline-search`](https://github.com/nezumi0627/vyline-search) Submodule には、Desktop LINE の研究・解析を補助するツールが含まれています。
+
+主な用途:
+
+* unpack
+* native symbol 検索
+* string xref
+* Ghidra decompile 補助
+* インストール済み LINE バージョン確認
 
 ```powershell
-bun run vyline:check                  # インストール版 / 最新版の比較
-bun run vyline:versions               # インストール済みバージョン一覧
-bun run vyline:unpack -- --version <ver>   # インストール済みバージョンを選択して unpack
-bun run vyline:update                 # LINE Desktop を最新版へ更新
-bun run vyline:find-native -- sendMessage  # ネイティブシンボル検索
+bun run vyline:check
+bun run vyline:versions
+bun run vyline:unpack -- --version <ver>
+bun run vyline:update
+bun run vyline:find-native -- sendMessage
 ```
 
-> **注意**: `vyline:unpack` / `vyline:update` は **LINE を終了してから実行**してください。
-> 稼働中は Frida 注入が拒否され `ProcessNotRespondingError` になります。
+> [!CAUTION]
+> 解析ツールは、法的に許可された範囲・教育・研究目的で使用してください。
+>
+> プロプライエタリなバイナリ、抽出した認証情報、秘密鍵、トークン、個人データなどを再配布しないでください。
+
+`vyline:unpack` / `vyline:update` を実行する場合は、LINE Desktop を完全に終了してください。
+
+詳細は [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md) を参照してください。
 
 ---
 
 ## ドキュメント
 
-| リンク                                                     | 内容                                   |
-| ---------------------------------------------------------- | -------------------------------------- |
-| [docs/README.md](docs/README.md)                           | ドキュメント索引                       |
-| [docs/onboarding.md](docs/onboarding.md)                   | 初日チェックリスト                     |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)               | 貢献フロー                             |
-| [docs/architecture.md](docs/architecture.md)               | 層構造                                 |
-| [docs/development.md](docs/development.md)                 | 開発コマンド                           |
-| [docs/selfhosting.md](docs/selfhosting.md)                 | Docker セルフホスト・Cloudflare Access |
-| [docs/protocol/dictionary.md](docs/protocol/dictionary.md) | RPC 辞書                               |
-| [AGENTS.md](AGENTS.md)                                     | エージェント向けガイド                 |
-| [CHANGELOG.md](CHANGELOG.md)                               | 変更履歴                               |
-| [zensical.org](https://zensical.org)                       | 公開ドキュメント・API リファレンス     |
-| [/openapi.json](/openapi.json)                             | OpenAPI 3.1 仕様（ローカル）           |
+README は Vyline の**表紙・概要**として簡潔に保ち、詳細な技術情報は `docs/` に分離しています。
 
-公開ドキュメント・チュートリアル: **[zensical.org](https://zensical.org)**
+* [ドキュメント一覧](docs/README.md)
+* [オンボーディング](docs/onboarding.md)
+* [開発ガイド](docs/development.md)
+* [アーキテクチャ](docs/architecture.md)
+* [セルフホスト](docs/selfhosting.md)
+* [RPC Dictionary](docs/protocol/dictionary.md)
+* [コントリビューションガイド](docs/CONTRIBUTING.md)
+* [Agent Guide](AGENTS.md)
+* [Changelog](CHANGELOG.md)
 
 ---
 
-## 貢献 / 募集
+## メンテナー
 
-- 🐛 [Bug report](.github/ISSUE_TEMPLATE/bug_report.md)
-- ✨ [Feature request](.github/ISSUE_TEMPLATE/feature_request.md)
-- 📝 [Pull request](.github/pull_request_template.md)
+Vyline は現在、以下のメンバーによって開発・メンテナンスされています。
 
-貢献フローは [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) を参照してください。PR には解析対象ソフトウェアの実体・鍵・トークンなどを含めないでください。
+### [nezumi0627](https://github.com/nezumi0627)
 
-現在、以下を募集しています:
+**Creator / Lead Maintainer**
 
-- **PR**: バグ修正、機能改善、ドキュメントの更新
-- **アイコン**: アプリアイコン・テーマアイコンのデザイン
-- **バナー**: SNS・ブログでのプロモーション用バナー
-- **定期的なメンテナー**: 個人開発のため、継続的に助けていただける方を募集中
+Vyline の設計・開発およびプロジェクト全体のメンテナンスを担当。
 
-興味がある方は [AGENTS.md](AGENTS.md) の手順に従ってプルリクエストをお送りください。
+### [YoseiUshida](https://github.com/youseiushida)
+
+**Maintainer**
+
+バグ修正、定期メンテナンス、品質改善など、Vyline の継続的なメンテナンスを担当。
+
+コミュニティからのコントリビューションも歓迎しています。
+
+特に以下の協力を募集しています。
+
+* バグ修正
+* 機能改善
+* ドキュメント改善
+* UI / UX 改善
+* アプリアイコン
+* プロモーション用バナー
+* 継続的なメンテナンス
+
+---
+
+## コントリビューション
+
+Vyline への Issue / Pull Request を歓迎しています。
+
+* [Bug Report](.github/ISSUE_TEMPLATE/bug_report.md)
+* [Feature Request](.github/ISSUE_TEMPLATE/feature_request.md)
+* [Pull Request Template](.github/pull_request_template.md)
+
+Pull Request を送る前に [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) を確認してください。
+
+Issue / PR には以下を含めないでください。
+
+* セッション情報
+* アカウント情報
+* 秘密鍵
+* API Token
+* 認証情報
+* 個人情報
+* プロプライエタリなソフトウェア本体
 
 ---
 
@@ -235,20 +278,57 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボル検索
 
 > **Coming Soon** 🚀
 
-Vyline が安定版に到達した後、専用のデスクトップアプリ **Vyline Desktop** をリリース予定です。
+Vyline が安定版に到達した後、専用デスクトップアプリ **Vyline Desktop** のリリースを予定しています。
 
-- 🖥️ Windows / macOS / Linux ネイティブアプリ
-- 🔔 プッシュ通知
-- 🗂️ トレイアイコン常駐
-- 🔒 ローカルデータ完全管理
+予定しているプラットフォーム:
 
-Vyline の安定版リリースをお待ちください。
+**Windows · macOS · Linux**
+
+予定機能:
+
+* ネイティブ通知
+* トレイアイコン
+* バックグラウンド常駐
+* ローカルデータ管理
+* Vyline Web / Protocol との統合
+
+---
+
+## ⚠️ 重要事項
+
+Vyline は LINE 非公式のサードパーティクライアントです。
+
+LINE 株式会社および LY Corporation とは**無関係・未承認**です。
+
+Vyline の使用によって、LINE の仕様変更による互換性問題やアカウントに関するリスクが発生する可能性があります。
+
+利用者はこれらのリスクを理解したうえで、自身の責任で Vyline を利用してください。
+
+また、以下の機密情報は利用者自身の管理下に置き、GitHub 等へ公開しないでください。
+
+* ログイン情報
+* セッション
+* 暗号鍵
+* トーク履歴
+* Token
+* その他の個人情報
+
+解析ツールを含む詳細な免責事項については、各ドキュメントおよびライセンスを参照してください。
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT — [LICENSE](LICENSE)
 
-**著作権**: [`nezumi0627`](https://github.com/nezumi0627)
-改変・再配布・記事・投稿等では出典表示をお願いします（詳細は [LICENSE](LICENSE) の Attribution requirement を参照）。
+Copyright © [nezumi0627](https://github.com/nezumi0627)
+
+---
+
+<div align="center">
+
+**Vision Beyond Limits.**
+
+Made with care by the Vyline contributors.
+
+</div>
