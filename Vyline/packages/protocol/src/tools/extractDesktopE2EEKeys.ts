@@ -81,10 +81,49 @@ function parseKeys(raw: string): Map<number, DesktopE2EEKey> {
 async function main(): Promise<void> {
   const tokensPath = join(DATA, "tokens.json");
   if (!existsSync(tokensPath)) throw new Error(`missing ${tokensPath}`);
-  const tokens = JSON.parse(readFileSync(tokensPath, "utf8")) as {
-    main?: { authToken: string };
-  };
-  if (!tokens.main?.authToken) throw new Error("no main authToken");
+
+  const tokens = JSON.parse(readFileSync(tokensPath, "utf8")) as Record<
+    string,
+    {
+      authToken?: string;
+      storageFile?: string;
+    }
+  >;
+
+  const accountArgIndex = process.argv.indexOf("--account");
+  const requestedAccount = accountArgIndex >= 0 ? process.argv[accountArgIndex + 1] : undefined;
+
+  if (accountArgIndex >= 0 && !requestedAccount) {
+    throw new Error("--account requires an account ID");
+  }
+
+  const availableAccounts = Object.entries(tokens).filter(
+    ([, entry]) => typeof entry?.authToken === "string" && entry.authToken.length > 0,
+  );
+
+  let selected: [string, { authToken?: string; storageFile?: string }] | undefined;
+
+  if (requestedAccount) {
+    selected = availableAccounts.find(([accountId]) => accountId === requestedAccount);
+
+    if (!selected) {
+      throw new Error(
+        `account "${requestedAccount}" not found. available: ${availableAccounts
+          .map(([accountId]) => accountId)
+          .join(", ")}`,
+      );
+    }
+  } else {
+    selected =
+      availableAccounts.find(([accountId]) => accountId === "main") ?? availableAccounts[0];
+  }
+
+  if (!selected) throw new Error("no authToken");
+
+  const [accountId, tokenEntry] = selected;
+  const authToken = tokenEntry.authToken!;
+
+  console.log(`[extract] using account: ${accountId}`);
 
   console.log("[extract] scanning LINE.exe for privateKey windows...");
   const raw = dumpPrivateKeyWindows();
@@ -99,9 +138,9 @@ async function main(): Promise<void> {
   );
 
   const profile = loadCachedOrFallback(join(DATA, "vyline"));
-  const client = await loginWithToken(tokens.main.authToken, {
+  const client = await loginWithToken(authToken, {
     profile,
-    storagePath: join(DATA, "storage-main.json"),
+    storagePath: tokenEntry.storageFile ?? join(DATA, `storage-${accountId}.json`),
   });
   await client.base.talk.getProfile();
   const mid = client.base.profile?.mid;
