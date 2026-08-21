@@ -53,7 +53,7 @@ export interface E2EEIdentityStatus {
   matchedKeyIds: number[];
   serverLatestKeyId: number | null;
   reason: string;
-  desktopKeysPath?: string;
+  desktopKeysPath?: string | undefined;
 }
 
 function resolveDesktopKeysPath(desktopKeysPath?: string): string {
@@ -102,7 +102,7 @@ export async function ensureValidE2EEIdentity(
     forceNewSenderKey?: boolean;
     /** true のときだけ、サーバ最新の秘密鍵が無い場合に新規登録する。既定 false */
     allowRegisterNewKey?: boolean;
-    desktopKeysPath?: string;
+    desktopKeysPath?: string | undefined;
   } = {},
 ): Promise<E2EEIdentityStatus> {
   const base = asBase(client);

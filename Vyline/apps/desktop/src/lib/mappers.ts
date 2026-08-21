@@ -247,13 +247,16 @@ export function mapMessage(
     audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
   }
 
+  const isPersonalChat = chatId.startsWith("u");
   const read = m.isMyMessage
-    ? m.seen ||
-      (m.readCount != null && m.readCount > 0) ||
-      (m.seen === undefined && m.readCount === undefined)
-    : // For received messages, only mark as read if server confirms (seen/readCount > 0)
-      // Otherwise default to false to avoid false read receipts in personal chats
-      Boolean(m.seen) || (m.readCount != null && m.readCount > 0);
+    ? isPersonalChat
+      ? Boolean(m.seen)
+      : m.seen ||
+        (m.readCount != null && m.readCount > 0) ||
+        (m.seen === undefined && m.readCount === undefined)
+    : isPersonalChat
+      ? Boolean(m.seen)
+      : Boolean(m.seen) || (m.readCount != null && m.readCount > 0);
 
   let text = sanitizeText(m.text);
   if (kind === "system") {
