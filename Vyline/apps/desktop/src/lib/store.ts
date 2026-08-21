@@ -24,6 +24,9 @@ import {
 } from "./mappers.js";
 import { lineStickerUrl } from "../utils/lineMedia.js";
 import {
+  COMBO_EDITOR_SIZE,
+  COMBO_ITEM_MAX_SIZE,
+  COMBO_ITEM_MIN_SIZE,
   renderCombinationStickerPreview,
   setCombinationStickerPreview,
   type CombinationStickerPlacement,
@@ -91,6 +94,71 @@ function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
 function snapshotFromMessage(m: Message): MessageSnapshot {
   const { history: _history, revokedSnapshot: _revokedSnapshot, ...snapshot } = m;
   return snapshot;
+}
+
+function isDataUrl(value?: string): boolean {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+function mergePreservingComboStickerPreview(existing: Message, incoming: Message): Message {
+  if (existing.kind !== "sticker" || incoming.kind !== "sticker") return incoming;
+  if (!isDataUrl(existing.sticker)) return incoming;
+  if (isDataUrl(incoming.sticker)) return incoming;
+  // ローカル合成プレビューはサーバ再取得結果（🧩 や無効 URL）より常に優先
+  return {
+    ...incoming,
+    sticker: existing.sticker,
+  };
+}
+
+function combinationPlacementsFromItems(
+  items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
+): CombinationStickerPlacement[] {
+  return items.map((item, index) => {
+    const size = Math.round(
+      Math.max(
+        COMBO_ITEM_MIN_SIZE,
+        Math.min(COMBO_ITEM_MAX_SIZE, item.size ?? COMBO_ITEM_MAX_SIZE / 2),
+      ),
+    );
+    const fallback = Math.max(
+      0,
+      COMBO_EDITOR_SIZE / 2 - size / 2 + (index % 3) * 16 + Math.floor(index / 3) * 16,
+    );
+    return {
+      packageId: item.packageId,
+      stickerId: item.stickerId,
+      url: lineStickerUrl(item.stickerId),
+      name: item.stickerId,
+      x: item.x ?? fallback,
+      y: item.y ?? fallback,
+      size,
+    };
+  });
+}
+
+/** 送信済みコンビネーションのローカル合成プレビューを CSSTKID とメッセージIDの両方に保存 */
+async function persistCombinationStickerPreview(
+  accountId: string,
+  message: LineMessage | null,
+  placements: CombinationStickerPlacement[],
+): Promise<string | null> {
+  if (!message) return null;
+  try {
+    const dataUrl = await renderCombinationStickerPreview(placements);
+    if (!dataUrl) return null;
+    const meta = (message.contentMetadata ?? null) as Record<string, unknown> | null;
+    const comboId =
+      typeof meta?.CSSTKID === "string" && meta.CSSTKID.trim() ? meta.CSSTKID.trim() : null;
+    if (comboId) setCombinationStickerPreview(accountId, comboId, dataUrl);
+    const messageId = message.id != null ? String(message.id) : "";
+    if (messageId && messageId !== comboId) {
+      setCombinationStickerPreview(accountId, messageId, dataUrl);
+    }
+    return dataUrl;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -172,16 +240,7 @@ function applyReadWatermarkLocal(
 }
 
 function messagePreview(m: Message): string {
-  const isRevoked =
-    m.messageState.startsWith("revoked") ||
-    Boolean(m.revokedSnapshot) ||
-    Boolean(
-      m.history?.length &&
-        m.history.some(
-          (h) => h.state === "normal" || h.state === "edited" || h.contentType === "UNSENT",
-        ),
-    );
-  if (isRevoked) {
+  if (m.messageState.startsWith("revoked")) {
     if (m.revokedSnapshot) return `取り消し済み: ${messagePreview(m.revokedSnapshot)}`;
     const last = m.history
       ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
@@ -957,16 +1016,8 @@ export const useStore = create<State>()(
         const { accountId, blockedMids } = get();
         if (!accountId || !items.length) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
-        const placements: CombinationStickerPlacement[] = items.map((item, index) => ({
-          packageId: item.packageId,
-          stickerId: item.stickerId,
-          url: lineStickerUrl(item.stickerId),
-          name: item.stickerId,
-          x: item.x ?? Math.max(0, 40 + index * 18),
-          y: item.y ?? Math.max(0, 40 + index * 18),
-          size: item.size ?? 76,
-        }));
-        const tempId = `pending_cstk_${Date.now()}`;
+        const placements = combinationPlacementsFromItems(items);
+        const tempId = `pending_combo_${Date.now()}`;
         const optimistic: Message = {
           id: tempId,
           chatId,
@@ -993,22 +1044,32 @@ export const useStore = create<State>()(
               return;
             }
             if (res.message) {
+              // 送信レスポンスの実証用ログ（ID・キー名のみ。トークン等は出さない）
+              try {
+                const meta = (res.message.contentMetadata ?? null) as Record<
+                  string,
+                  unknown
+                > | null;
+                console.debug("[vyline] combination sticker sent", {
+                  messageId: res.message.id,
+                  metaKeys: meta ? Object.keys(meta) : null,
+                  csstkId: typeof meta?.CSSTKID === "string" ? meta.CSSTKID : null,
+                });
+              } catch {
+                /* ignore */
+              }
               const contactCache = buildContactCache(get().chats);
               const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
-              let preview = mapped.sticker ?? "";
-              try {
-                const dataUrl = await renderCombinationStickerPreview(placements);
-                if (dataUrl) {
-                  preview = dataUrl;
-                  setCombinationStickerPreview(accountId!, mapped.id, dataUrl);
-                }
-              } catch {
-                if (!preview) preview = lineStickerUrl(items[0]!.stickerId);
-              }
+              // 履歴表示は CSSTKID / メッセージID のどちらでもプレビューを引けるよう両方保存
+              const preview = await persistCombinationStickerPreview(
+                accountId!,
+                res.message,
+                placements,
+              );
               const finalMsg: Message = {
                 ...mapped,
                 kind: "sticker",
-                sticker: preview || mapped.sticker || "🎴",
+                sticker: preview || mapped.sticker || "🧩",
               };
               set((st) => ({
                 messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
@@ -1373,6 +1434,14 @@ export const useStore = create<State>()(
             ok = res.ok;
             confirmed = res.ok ? (res.message ?? null) : null;
           }
+          if (ok && confirmed && intent.kind === "combinationSticker") {
+            // 再送でも送信時と同じくローカルプレビューを保存（mapMessage が CSSTKID/メッセージIDで引ける）
+            await persistCombinationStickerPreview(
+              accountId,
+              confirmed,
+              combinationPlacementsFromItems(intent.items),
+            );
+          }
           if (!ok) {
             markFailed();
             return;
@@ -1651,18 +1720,6 @@ export const useStore = create<State>()(
               for (let i = 0; i < mapped.length; i++) {
                 const m = mapped[i]!;
                 const prev = prevById.get(m.id);
-                const prevRevoked = Boolean(
-                  prev &&
-                    (prev.messageState.startsWith("revoked") ||
-                      prev.revokedSnapshot ||
-                      (prev.history?.length &&
-                        prev.history.some(
-                          (h) =>
-                            h.state === "normal" ||
-                            h.state === "edited" ||
-                            h.contentType === "UNSENT",
-                        ))),
-                );
                 if (m.authorId === "me" && prev?.read && !m.read) {
                   mapped[i] = {
                     ...m,
@@ -1717,19 +1774,8 @@ export const useStore = create<State>()(
                 if (prev?.revokedSnapshot && !m.revokedSnapshot) {
                   mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
                 }
-                if (prevRevoked && !m.messageState?.startsWith("revoked")) {
-                  const last = prev?.history
-                    ? [...prev.history]
-                        .reverse()
-                        .find((h) => h.state === "normal" || h.state === "edited")
-                    : undefined;
-                  mapped[i] = {
-                    ...m,
-                    messageState: prev?.messageState ?? "revoked-by-self",
-                    history: prev?.history?.length ? prev.history : m.history,
-                    revokedSnapshot: prev?.revokedSnapshot ?? m.revokedSnapshot,
-                    text: prev?.revokedSnapshot?.text ?? last?.text ?? prev?.text ?? m.text,
-                  };
+                if (prev && mapped[i]) {
+                  mapped[i] = mergePreservingComboStickerPreview(prev, mapped[i]);
                 }
               }
               // pending / 送信直後の確定メッセージをサーバ欠落時も残す
@@ -2030,18 +2076,6 @@ export const useStore = create<State>()(
                 if (m.chatId !== chatId) return m;
                 const upd = incomingById.get(m.id);
                 if (!upd) return m;
-                const wasRevoked =
-                  m.messageState.startsWith("revoked") ||
-                  Boolean(m.revokedSnapshot) ||
-                  Boolean(
-                    m.history?.length &&
-                      m.history.some(
-                        (h) =>
-                          h.state === "normal" ||
-                          h.state === "edited" ||
-                          h.contentType === "UNSENT",
-                      ),
-                  );
                 const reactionChanged =
                   JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
                 const revokedChanged =
@@ -2055,12 +2089,6 @@ export const useStore = create<State>()(
                     messageReactionCache.delete(m.id);
                   }
                   updated.reactions = upd.reactions;
-                  if (wasRevoked) {
-                    updated.messageState = m.messageState;
-                    updated.history = m.history;
-                    if (m.revokedSnapshot) updated.revokedSnapshot = m.revokedSnapshot;
-                    if (m.text !== undefined) updated.text = m.text;
-                  }
                 }
                 if (revokedChanged) {
                   updated.messageState = upd.messageState;
@@ -2078,7 +2106,7 @@ export const useStore = create<State>()(
                   ];
                   updated.text = undefined;
                 }
-                return updated;
+                return mergePreservingComboStickerPreview(m, updated);
               })
             : st.messages;
           const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);

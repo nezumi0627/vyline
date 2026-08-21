@@ -299,20 +299,27 @@ export function mapMessage(
       ? parseContactFromMeta(m.contentMetadata as Record<string, unknown> | null, text)
       : undefined;
 
+  let stickerSrc: string | undefined;
+  if (kind === "sticker") {
+    // コンビネーション: CSSTKID → メッセージID の順でローカルプレビューを引く。
+    // 履歴レスポンスに CSSTKID が載らない場合でも、送信時に保存したプレビューで表示を維持する。
+    const comboPreview = comboStickerId
+      ? getCombinationStickerPreview(accountId, comboStickerId)
+      : null;
+    const preview = comboPreview ?? getCombinationStickerPreview(accountId, m.id);
+    if (preview) stickerSrc = preview;
+    else if (comboStickerId) stickerSrc = lineStickerUrl(comboStickerId);
+    else if (stickerId) stickerSrc = lineStickerUrl(stickerId);
+    else stickerSrc = "🧩";
+  }
+
   const result: Message = {
     id: m.id,
     chatId,
     authorId,
     kind,
     text,
-    sticker:
-      kind === "sticker" && comboStickerId
-        ? (getCombinationStickerPreview(accountId, comboStickerId) ?? "🧩")
-        : kind === "sticker" && stickerId
-          ? lineStickerUrl(stickerId)
-          : kind === "sticker"
-            ? "🧩"
-            : undefined,
+    sticker: stickerSrc,
     imageSrc,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,

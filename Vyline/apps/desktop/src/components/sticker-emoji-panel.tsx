@@ -16,7 +16,12 @@ import {
   setCachedStickersCatalog,
   type StickersCatalogCache,
 } from "@/lib/stickerCatalogCache";
-import type { CombinationStickerPlacement } from "@/utils/combinationStickers";
+import {
+  COMBO_EDITOR_SIZE,
+  COMBO_ITEM_MAX_SIZE,
+  COMBO_ITEM_MIN_SIZE,
+  type CombinationStickerPlacement,
+} from "@/utils/combinationStickers";
 
 export type CatalogItem = { id: string; url: string; alt?: string };
 export type CatalogPack = {
@@ -40,8 +45,9 @@ type ComboItem = CombinationStickerPlacement & { uid: string };
 type MenuState = { x: number; y: number; fav: StickerFavorite } | null;
 
 const COMBO_LIMIT = 6;
-const COMBO_SIZE = 360;
-const COMBO_ITEM_SIZE = 92;
+// 正規座標空間 240x240 (backend の scale=512/240 前提と同期。表示枠も同サイズで固定)
+const COMBO_SIZE = COMBO_EDITOR_SIZE;
+const COMBO_ITEM_SIZE = 80;
 const LONG_PRESS_MS = 300;
 
 function assetUrl(url: string): string {
@@ -107,6 +113,7 @@ export function StickerEmojiPanel({
   const [comboBusy, setComboBusy] = useState(false);
   const [comboError, setComboError] = useState<string | null>(null);
   const [draggingComboId, setDraggingComboId] = useState<string | null>(null);
+  const [resizingComboId, setResizingComboId] = useState<string | null>(null);
   const comboCanvasRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -327,9 +334,23 @@ export function StickerEmojiPanel({
   }
 
   function handleComboPointerMove(ev: ReactPointerEvent<HTMLDivElement>): void {
-    if (!draggingComboId) return;
     const rect = comboCanvasRef.current?.getBoundingClientRect();
     if (!rect) return;
+    if (resizingComboId) {
+      const item = comboItems.find((x) => x.uid === resizingComboId);
+      if (!item) return;
+      const dist = Math.hypot(ev.clientX - rect.left - item.x, ev.clientY - rect.top - item.y);
+      const size = Math.round(Math.max(COMBO_ITEM_MIN_SIZE, Math.min(COMBO_ITEM_MAX_SIZE, dist)));
+      setComboItems((prev) =>
+        prev.map((x) => {
+          if (x.uid !== resizingComboId) return x;
+          const pos = normalizePoint(x.x, x.y, size);
+          return { ...x, size, ...pos };
+        }),
+      );
+      return;
+    }
+    if (!draggingComboId) return;
     const item = comboItems.find((x) => x.uid === draggingComboId);
     if (!item) return;
     const next = normalizePoint(
@@ -342,6 +363,16 @@ export function StickerEmojiPanel({
 
   function handleComboPointerUp(): void {
     setDraggingComboId(null);
+    setResizingComboId(null);
+  }
+
+  function handleComboResizeDown(uidValue: string, ev: ReactPointerEvent<HTMLButtonElement>): void {
+    const item = comboItems.find((x) => x.uid === uidValue);
+    if (!item) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    ev.currentTarget.setPointerCapture(ev.pointerId);
+    setResizingComboId(uidValue);
   }
 
   function startLongPress(payload: DragPayload): void {
@@ -432,6 +463,7 @@ export function StickerEmojiPanel({
           alt={item.alt || ""}
           className="max-h-full max-w-full object-contain"
           loading="lazy"
+          draggable={false}
           referrerPolicy="no-referrer"
         />
       </button>
@@ -439,8 +471,8 @@ export function StickerEmojiPanel({
   }
 
   return (
-    <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[min(720px,86vh)] w-[min(680px,96vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
-      <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-2 pt-2">
+    <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[min(500px,72vh)] w-[min(460px,90vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
+      <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
         {(
           [
             ["sticker", "スタンプ"],
@@ -453,7 +485,7 @@ export function StickerEmojiPanel({
             type="button"
             onClick={() => setTab(id)}
             className={cn(
-              "rounded-t-lg px-3 py-1.5 text-xs font-semibold transition-colors",
+              "rounded-t-lg px-2.5 py-1 text-[0.72rem] font-semibold transition-colors",
               tab === id
                 ? "bg-[var(--vy-surface-2)] text-[var(--vy-text)]"
                 : "text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
@@ -462,7 +494,7 @@ export function StickerEmojiPanel({
             {label}
           </button>
         ))}
-        <span className="ml-auto flex items-center gap-1 px-2 text-[0.65rem] text-[var(--vy-text-dim)]">
+        <span className="ml-auto flex items-center gap-1 px-1.5 text-[0.6rem] text-[var(--vy-text-dim)]">
           {catalog?.premium.active && <PremiumBadge size={12} compact />}
           <span>
             {catalog?.premium.active
@@ -475,7 +507,7 @@ export function StickerEmojiPanel({
       </div>
 
       {tab !== "favorite" && (
-        <div className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-2 py-1.5 [scrollbar-width:thin]">
+        <div className="flex gap-1 overflow-x-auto border-b border-[var(--vy-border)] px-1.5 py-1 [scrollbar-width:thin]">
           {packs.map((p) => (
             <button
               key={p.packageId}
@@ -483,7 +515,7 @@ export function StickerEmojiPanel({
               title={p.name}
               onClick={() => setPackId(p.packageId)}
               className={cn(
-                "flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-colors",
+                "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border transition-colors",
                 activePack?.packageId === p.packageId
                   ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)]"
                   : "border-transparent hover:bg-[var(--vy-surface-2)]",
@@ -492,8 +524,9 @@ export function StickerEmojiPanel({
               <img
                 src={assetUrl(p.tabUrl)}
                 alt=""
-                className="h-7 w-7 object-contain"
+                className="h-6 w-6 object-contain"
                 loading="lazy"
+                draggable={false}
                 referrerPolicy="no-referrer"
               />
             </button>
@@ -501,23 +534,25 @@ export function StickerEmojiPanel({
         </div>
       )}
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+      <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
         {comboMode && activePack?.type === "sticker" && (
-          <div className="mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2">
+          <div className="mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-1.5">
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
-                <p className="text-xs font-semibold text-[var(--vy-text)]">ドラッグで組み合わせ</p>
-                <p className="mt-0.5 text-[0.7rem] text-[var(--vy-text-dim)]">
+                <p className="text-[0.72rem] font-semibold text-[var(--vy-text)]">
+                  ドラッグで組み合わせ
+                </p>
+                <p className="mt-0.5 text-[0.62rem] text-[var(--vy-text-dim)]">
                   長押しで開き、ここにスタンプを落として自由に配置できます。
                 </p>
               </div>
-              <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-2 py-0.5 text-[0.65rem] text-[var(--vy-text-dim)]">
+              <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-2 py-0.5 text-[0.6rem] text-[var(--vy-text-dim)]">
                 {comboItems.length} 枚
               </span>
               <button
                 type="button"
                 onClick={clearCombo}
-                className="rounded-full border border-[var(--vy-border)] px-3 py-1.5 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface)]"
+                className="rounded-full border border-[var(--vy-border)] px-2.5 py-1 text-[0.68rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface)]"
               >
                 クリア
               </button>
@@ -525,7 +560,7 @@ export function StickerEmojiPanel({
                 type="button"
                 onClick={() => void sendCombo()}
                 disabled={comboBusy || comboItems.length === 0}
-                className="rounded-full bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
+                className="rounded-full bg-[var(--vy-accent)] px-2.5 py-1 text-[0.68rem] font-semibold text-[var(--vy-accent-contrast)] transition-opacity disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {comboBusy ? "送信中…" : "送信"}
               </button>
@@ -533,7 +568,8 @@ export function StickerEmojiPanel({
 
             <div
               ref={comboCanvasRef}
-              className="relative mt-2 h-[360px] overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--vy-surface-2)_82%,transparent),color-mix(in_oklab,var(--vy-surface)_94%,transparent))]"
+              className="relative mx-auto mt-2 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[linear-gradient(135deg,color-mix(in_oklab,var(--vy-surface-2)_82%,transparent),color-mix(in_oklab,var(--vy-surface)_94%,transparent))]"
+              style={{ width: COMBO_SIZE, height: COMBO_SIZE }}
               onPointerMove={handleComboPointerMove}
               onPointerUp={handleComboPointerUp}
               onPointerLeave={handleComboPointerUp}
@@ -543,10 +579,10 @@ export function StickerEmojiPanel({
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--vy-accent)_12%,transparent),transparent_38%),radial-gradient(circle_at_bottom_right,color-mix(in_oklab,var(--vy-text)_8%,transparent),transparent_42%)]" />
               {comboItems.length === 0 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
-                  <div className="rounded-full border border-dashed border-[var(--vy-border)] px-4 py-2 text-xs text-[var(--vy-text-dim)]">
+                  <div className="rounded-full border border-dashed border-[var(--vy-border)] px-3 py-1.5 text-[0.68rem] text-[var(--vy-text-dim)]">
                     スタンプをここへドラッグ
                   </div>
-                  <p className="max-w-[18rem] text-[0.7rem] text-[var(--vy-text-dim)]">
+                  <p className="max-w-[16rem] text-[0.62rem] text-[var(--vy-text-dim)]">
                     対応しているスタンプだけが入ります。置いたあとも掴んで動かせます。
                   </p>
                 </div>
@@ -580,7 +616,16 @@ export function StickerEmojiPanel({
                     </button>
                     <button
                       type="button"
-                      className="absolute -right-2 -top-2 flex h-6 w-6 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[0.65rem] text-[var(--vy-text-dim)] shadow-lg"
+                      aria-label="サイズを変更"
+                      title="ドラッグでサイズ変更"
+                      className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface)] opacity-80 shadow-md transition-opacity hover:opacity-100"
+                      onPointerDown={(ev) => handleComboResizeDown(item.uid, ev)}
+                    >
+                      <span className="pointer-events-none absolute inset-[3px] rounded-full bg-[var(--vy-text-dim)]" />
+                    </button>
+                    <button
+                      type="button"
+                      className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[0.6rem] text-[var(--vy-text-dim)] shadow-lg"
                       onClick={() => {
                         setComboItems((prev) => prev.filter((x) => x.uid !== item.uid));
                         if (comboItems.length <= 1) setComboMode(false);
@@ -656,7 +701,7 @@ export function StickerEmojiPanel({
                     setMenu({ x: e.clientX, y: e.clientY, fav: f });
                   }}
                   className={cn(
-                    "flex aspect-square items-center justify-center rounded-xl p-1 transition-colors active:scale-95",
+                    "flex aspect-square items-center justify-center rounded-xl p-0.5 transition-colors active:scale-95",
                     draggable ? "hover:bg-[var(--vy-surface-2)]" : "cursor-not-allowed opacity-55",
                   )}
                 >
@@ -665,6 +710,7 @@ export function StickerEmojiPanel({
                     alt={f.name || ""}
                     className="max-h-full max-w-full object-contain"
                     loading="lazy"
+                    draggable={false}
                     referrerPolicy="no-referrer"
                   />
                 </button>
