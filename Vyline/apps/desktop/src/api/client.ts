@@ -299,8 +299,7 @@ export const api = {
         items,
         ...(opts?.idOfPreviousVersionOfCombinationSticker
           ? {
-              idOfPreviousVersionOfCombinationSticker:
-                opts.idOfPreviousVersionOfCombinationSticker,
+              idOfPreviousVersionOfCombinationSticker: opts.idOfPreviousVersionOfCombinationSticker,
             }
           : {}),
       }),

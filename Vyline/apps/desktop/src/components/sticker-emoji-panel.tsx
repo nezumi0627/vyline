@@ -94,10 +94,19 @@ function CombinationPreview({ items }: { items: CombinationPick[] }) {
           return (
             <img
               key={`${item.packageId}-${item.stickerId}-${i}`}
-              src={item.url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(item.url)}` : item.url}
+              src={
+                item.url.startsWith("http")
+                  ? `/api/cdn/line?u=${encodeURIComponent(item.url)}`
+                  : item.url
+              }
               alt={item.name || item.stickerId}
               className="absolute object-contain"
-              style={{ left: `${tile.x}%`, top: `${tile.y}%`, width: `${tile.w}%`, height: `${tile.h}%` }}
+              style={{
+                left: `${tile.x}%`,
+                top: `${tile.y}%`,
+                width: `${tile.w}%`,
+                height: `${tile.h}%`,
+              }}
               loading="lazy"
               referrerPolicy="no-referrer"
             />
@@ -288,7 +297,9 @@ export function StickerEmojiPanel({
         (x) => x.packageId === item.packageId && x.stickerId === item.stickerId,
       );
       if (exists) {
-        return prev.filter((x) => !(x.packageId === item.packageId && x.stickerId === item.stickerId));
+        return prev.filter(
+          (x) => !(x.packageId === item.packageId && x.stickerId === item.stickerId),
+        );
       }
       if (prev.length >= 6) {
         setComboError("組み合わせは最大6枚までです");
@@ -461,7 +472,9 @@ export function StickerEmojiPanel({
                 {comboCreatedId && (
                   <div className="mt-2 rounded-xl border border-[color-mix(in_oklab,var(--vy-accent)_35%,var(--vy-border))] bg-[color-mix(in_oklab,var(--vy-accent)_10%,transparent)] px-3 py-2 text-xs">
                     <span className="font-semibold text-[var(--vy-text)]">作成済み</span>
-                    <span className="ml-2 break-all text-[var(--vy-text-dim)]">{comboCreatedId}</span>
+                    <span className="ml-2 break-all text-[var(--vy-text-dim)]">
+                      {comboCreatedId}
+                    </span>
                     <button
                       type="button"
                       onClick={() => void copyText(comboCreatedId)}
