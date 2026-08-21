@@ -17,6 +17,7 @@ import {
   ChannelService,
   LiffService,
   RelationService,
+  ShopService,
   SquareLiveTalkService,
   SquareService,
   TalkService,
@@ -126,6 +127,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
   readonly channel: ChannelService;
   readonly liff: LiffService;
   readonly relation: RelationService;
+  readonly shop: ShopService;
   readonly livetalk: SquareLiveTalkService;
   readonly square: SquareService;
   readonly talk: TalkService;
@@ -200,6 +202,7 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
     this.liff = new LiffService(this);
     this.livetalk = new SquareLiveTalkService(this);
     this.relation = new RelationService(this);
+    this.shop = new ShopService(this);
     this.square = new SquareService(this);
     this.talk = new TalkService(this);
   }
@@ -222,6 +225,11 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
   }
   reqseqs?: Record<string, number>;
   async getReqseq(name: string = "talk"): Promise<number> {
+    const [seq] = await this.getReqseqs(name, 1);
+    return seq ?? 0;
+  }
+
+  async getReqseqs(name: string = "talk", count: number = 1): Promise<number[]> {
     if (!this.reqseqs) {
       this.reqseqs = JSON.parse(((await this.storage.get("reqseq")) ?? "{}").toString()) as Record<
         string,
@@ -231,10 +239,11 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
     if (!this.reqseqs[name]) {
       this.reqseqs[name] = 0;
     }
-    const seq = this.reqseqs[name];
-    this.reqseqs[name]++;
+    const start = this.reqseqs[name];
+    const safeCount = Math.max(0, Math.floor(count));
+    this.reqseqs[name] += safeCount;
     await this.storage.set("reqseq", JSON.stringify(this.reqseqs));
-    return seq;
+    return Array.from({ length: safeCount }, (_, index) => start + index);
   }
 
   // NOTE: use allow function.

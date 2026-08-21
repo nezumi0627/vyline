@@ -6,7 +6,7 @@ import { InternalError } from "./utils/error.js";
 import { type Continuable, continueRequest } from "./utils/continue.js";
 export type { Continuable, Device, DeviceDetails, Log };
 export { continueRequest, InternalError };
-import { AuthService, CallService, ChannelService, LiffService, RelationService, SquareLiveTalkService, SquareService, TalkService } from "../service/mod.js";
+import { AuthService, CallService, ChannelService, LiffService, RelationService, ShopService, SquareLiveTalkService, SquareService, TalkService } from "../service/mod.js";
 import { Login } from "../login/mod.js";
 import { Thrift } from "../thrift/mod.js";
 import { RequestClient } from "../request/mod.js";
@@ -98,6 +98,7 @@ export declare class BaseClient extends TypedEventEmitter<ClientEvents> {
     readonly channel: ChannelService;
     readonly liff: LiffService;
     readonly relation: RelationService;
+    readonly shop: ShopService;
     readonly livetalk: SquareLiveTalkService;
     readonly square: SquareService;
     readonly talk: TalkService;
@@ -138,6 +139,7 @@ export declare class BaseClient extends TypedEventEmitter<ClientEvents> {
     getToType(mid: string): number | null;
     reqseqs?: Record<string, number>;
     getReqseq(name?: string): Promise<number>;
+    getReqseqs(name?: string, count?: number): Promise<number[]>;
     readonly fetch: Fetch;
     /**
      * returns polling client.

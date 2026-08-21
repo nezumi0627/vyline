@@ -29748,14 +29748,14 @@ export const Thrift: LooseType = {
     {
       fid: 2,
       name: "request",
-      struct: "YN0_Ob1_C",
+      struct: "CreateCombinationStickerRequest",
     },
   ],
   createCombinationSticker_result: [
     {
       fid: 0,
       name: "success",
-      struct: "YN0_Ob1_D",
+      struct: "CreateCombinationStickerResponse",
     },
     {
       fid: 1,

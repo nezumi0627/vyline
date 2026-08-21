@@ -106,58 +106,6 @@ async function blobToBase64(blob: Blob): Promise<string> {
   return btoa(binary);
 }
 
-async function composeImageGrid(files: Blob[]): Promise<Blob> {
-  const bitmaps = await Promise.all(files.map((file) => createImageBitmap(file)));
-  try {
-    const count = bitmaps.length;
-    const cols = count <= 1 ? 1 : count === 2 ? 2 : count <= 4 ? 2 : count <= 9 ? 3 : 4;
-    const rows = Math.ceil(count / cols);
-    const candidates = [720, 640, 512, 384];
-
-    for (const cellSize of candidates) {
-      const canvas = document.createElement("canvas");
-      canvas.width = cols * cellSize;
-      canvas.height = rows * cellSize;
-      const ctx = canvas.getContext("2d");
-      if (!ctx) continue;
-
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-
-      for (let index = 0; index < bitmaps.length; index++) {
-        const bitmap = bitmaps[index]!;
-        const col = index % cols;
-        const row = Math.floor(index / cols);
-        const slotX = col * cellSize;
-        const slotY = row * cellSize;
-        const padding = Math.max(12, Math.round(cellSize * 0.04));
-        const slotWidth = cellSize - padding * 2;
-        const slotHeight = cellSize - padding * 2;
-        const scale = Math.min(slotWidth / bitmap.width, slotHeight / bitmap.height);
-        const drawWidth = Math.max(1, Math.round(bitmap.width * scale));
-        const drawHeight = Math.max(1, Math.round(bitmap.height * scale));
-        const drawX = slotX + Math.round((cellSize - drawWidth) / 2);
-        const drawY = slotY + Math.round((cellSize - drawHeight) / 2);
-        ctx.drawImage(bitmap, drawX, drawY, drawWidth, drawHeight);
-      }
-
-      const blob = await new Promise<Blob | null>((resolve) =>
-        canvas.toBlob(resolve, "image/jpeg", 0.9),
-      );
-      if (blob && blob.size > 0 && blob.size <= 11_000_000) {
-        return blob;
-      }
-      if (blob && blob.size > 0 && cellSize === candidates.at(-1)) {
-        return blob;
-      }
-    }
-
-    throw new Error("画像の結合に失敗しました");
-  } finally {
-    for (const bitmap of bitmaps) bitmap.close();
-  }
-}
-
 export function MessageInput({ chatId }: { chatId: string }) {
   const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
@@ -408,61 +356,34 @@ export function MessageInput({ chatId }: { chatId: string }) {
     setSendingMediaBatch(true);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
-      const allImages = pendingMedia.every((item) => item.kind === "image");
-
-      if (allImages && pendingMedia.length > 1) {
-        const preparedImages = await Promise.all(
-          pendingMedia.map(async (item) => {
-            const prepared = highQuality
-              ? { blob: item.file, mime: item.file.type || "image/jpeg" }
-              : await compressImageFile(item.file);
-            if (!prepared.mime.startsWith("image/")) {
-              throw new Error(`画像として扱えないファイルです: ${item.file.name}`);
-            }
-            return prepared.blob;
-          }),
-        );
-        const mergedBlob = await composeImageGrid(preparedImages);
-        const dataBase64 = await blobToBase64(mergedBlob);
-        const res = await api.line.sendMedia(accountId, chatId, dataBase64, {
-          mimeType: "image/jpeg",
-          filename: `vyline-images-${pendingMedia.length}.jpg`,
-          mediaType: "image",
-        });
-        if (!res.ok) {
-          window.alert(res.error ?? "画像のまとめ送信に失敗しました");
-          return;
-        }
-      } else {
-        const items = await Promise.all(
-          pendingMedia.map(async (item) => {
-            const prepared =
-              item.kind === "video"
+      const items = await Promise.all(
+        pendingMedia.map(async (item) => {
+          const prepared =
+            item.kind === "video"
+              ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
+              : highQuality
                 ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
-                : highQuality
-                  ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
-                  : await compressImageFile(item.file);
-            if (prepared.blob.size > 11_000_000) {
-              throw new Error(
-                prepared.blob === item.file
-                  ? `ファイルが大きすぎます: ${item.file.name}`
-                  : `画像が大きすぎます（圧縮後も 11MB 超）: ${item.file.name}`,
-              );
-            }
-            const dataBase64 = await blobToBase64(prepared.blob);
-            return {
-              dataBase64,
-              mimeType: prepared.mime,
-              filename: item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg"),
-              mediaType: item.kind,
-            };
-          }),
-        );
-        const res = await api.line.sendMediaBatch(accountId, chatId, items);
-        if (!res.ok) {
-          window.alert(res.error ?? "まとめて送信に失敗しました");
-          return;
-        }
+                : await compressImageFile(item.file);
+          if (prepared.blob.size > 11_000_000) {
+            throw new Error(
+              prepared.blob === item.file
+                ? `ファイルが大きすぎます: ${item.file.name}`
+                : `画像が大きすぎます（圧縮後も 11MB 超）: ${item.file.name}`,
+            );
+          }
+          const dataBase64 = await blobToBase64(prepared.blob);
+          return {
+            dataBase64,
+            mimeType: prepared.mime,
+            filename: item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg"),
+            mediaType: item.kind,
+          };
+        }),
+      );
+      const res = await api.line.sendMediaBatch(accountId, chatId, items);
+      if (!res.ok) {
+        window.alert(res.error ?? "まとめて送信に失敗しました");
+        return;
       }
       clearPendingMedia();
       await useStore.getState().refreshMessages(chatId, { force: true });
