@@ -85,6 +85,7 @@ import {
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
+import { writeMediaCache } from "../storage/mediaCache.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
@@ -4366,6 +4367,50 @@ export async function sendMediaBatch(
       }
 
       if (plainMode) {
+        // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
+        // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
+        // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らない。
+        try {
+          const uploaded = await client.base.obs.uploadObjTalkBatch(
+            chatMid,
+            items.map((item, idx) => ({
+              type: (batchMediaTypes[idx] ?? "image") as Parameters<
+                typeof client.base.obs.uploadObjTalk
+              >[1],
+              data: new Blob([Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0))], {
+                type: item.mimeType ?? "image/png",
+              }),
+              filename:
+                item.filename ??
+                ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
+            })),
+          );
+          // reqseq 生成メッセージは OBS から OID が取れないため、
+          // アップロード応答の objId（== 生成メッセージID の実測）をキーに
+          // 送信バイトをローカル media cache に置く（自クライアントの即表示用）
+          for (let i = 0; i < uploaded.length; i++) {
+            const objId = uploaded[i]?.objId;
+            if (!objId) continue;
+            const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
+            void writeMediaCache(
+              accountId,
+              chatMid,
+              objId,
+              binary,
+              items[i]!.mimeType ?? "image/png",
+            );
+          }
+          log.info(
+            { accountId, chatMid, count: uploaded.length, batch: true, plain: true, reqseq: true },
+            "media batch sent via OBS reqseq",
+          );
+          return items.length;
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "OBS reqseq batch failed — falling back to sendMessage path",
+          );
+        }
         let previousMessageId: string | undefined;
         let count = 0;
         for (let i = 0; i < items.length; i++) {

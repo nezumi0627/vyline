@@ -14,7 +14,7 @@ export function obsMessageDataUrl(
   messageId: string,
   isPreview = false,
   square = false,
-  prefix = "https://obs.line-apps.com/",
+  prefix = process.env.VYLINE_OBS_PREFIX ?? "https://obs-jp.line-apps.com/",
 ): string {
   return `${prefix}r/${square ? "g2" : "talk"}/m/${encodeURIComponent(messageId)}${
     isPreview ? "/preview" : ""

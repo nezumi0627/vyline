@@ -47,7 +47,8 @@ export interface ObsMetadata {
 
 export class LineObs {
   client: BaseClient;
-  prefix = "https://obs.line-apps.com/";
+  // リージョン別エンドポイント（JP アカウントは obs-jp。アルバム(GID)付与はリージョン側で行われる）
+  prefix = process.env.VYLINE_OBS_PREFIX ?? "https://obs-jp.line-apps.com/";
   constructor(client: BaseClient) {
     this.client = client;
   }
