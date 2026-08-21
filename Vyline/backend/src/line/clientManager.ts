@@ -215,6 +215,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
     opsRevision.get(accountId) ?? { revision: 0, globalRev: 0, individualRev: 0 };
 
   async function loop(): Promise<void> {
+    let errorStreak = 0;
     while (!abort.signal.aborted && client.base.authToken) {
       try {
         const cursor = getCursor();
@@ -266,6 +267,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
             { once: true },
           );
         });
+        errorStreak = 0;
       } catch (err) {
         if (abort.signal.aborted) break;
         const msg = err instanceof Error ? err.message : String(err);
@@ -275,11 +277,16 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
         if (isTimeout) {
           // /SYNC4 は長ポール。新着がないままクライアント側の
           // 期限を迎えるのは通常の待機終了なので、警告にしない。
+          errorStreak = 0;
           log.debug({ accountId, msg }, "ops long poll timed out, retrying in 5s");
+          await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
         } else {
-          log.warn({ accountId, msg }, "ops loop error, retrying in 5s");
+          // 連続エラー時は指数バックオフ（5s → 10s → 20s ... 最大60s）でサーバ負荷を避ける
+          errorStreak++;
+          const retryMs = Math.min(5_000 * 2 ** (errorStreak - 1), 60_000);
+          log.warn({ accountId, msg }, `ops loop error, retrying in ${retryMs / 1000}s`);
+          await new Promise<void>((resolve) => setTimeout(resolve, retryMs));
         }
-        await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
       }
     }
     opsAbortByAccount.delete(accountId);
@@ -385,9 +392,10 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
     },
     5 * 60 * 1000,
   );
-
-  process.on("exit", () => clearInterval(interval));
+  tokenWatchIntervals.set(accountId, interval);
 }
+
+const tokenWatchIntervals = new Map<string, ReturnType<typeof setInterval>>();
 
 export async function loginWithEmail(
   accountId: string,
@@ -642,6 +650,11 @@ export function getLoggedInAt(accountId: string): number | null {
 export function removeClient(accountId: string): void {
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);
+  const tokenWatch = tokenWatchIntervals.get(accountId);
+  if (tokenWatch) {
+    clearInterval(tokenWatch);
+    tokenWatchIntervals.delete(accountId);
+  }
   clients.delete(accountId);
   log.info({ accountId }, "client removed");
 }

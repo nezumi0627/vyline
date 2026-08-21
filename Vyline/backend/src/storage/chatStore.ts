@@ -25,6 +25,8 @@ const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
+/** チャットあたりの保持上限。無制限保存はメモリ・ディスク・全体書き込みを肥大させるため抑止 */
+const MAX_MESSAGES_PER_CHAT_DB = Number(process.env.VYLINE_CHATDB_MAX_MSGS_PER_CHAT ?? 500);
 
 export interface StoredChat {
   mid: string;
@@ -197,6 +199,14 @@ export async function upsertMessages(
     byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
+  // 上限を超えたら古いものから落とす（全ファイル書き換えコストの抑止）
+  const ids = Object.keys(byChat);
+  if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
+    const drop = ids
+      .sort((a, b) => (byChat[a]?.createdTime ?? 0) - (byChat[b]?.createdTime ?? 0))
+      .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
+    for (const id of drop) delete byChat[id];
+  }
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
   scheduleSave(accountId);
@@ -410,13 +420,22 @@ export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promi
   scheduleSave(accountId);
 }
 
-/** VylineBackup: 全チャット・メッセージのディープコピーを返す */
+/** VylineBackup: コンテナだけコピーした参照スナップショットを返す。
+ * 個々のメッセージオブジェクトは不変扱いのため clone しない
+ * （全件 deep copy は DB サイズ分のメモリを一時的に 2〜3 重で消費していた） */
 export async function exportChatDb(accountId: string): Promise<ChatDb> {
   const db = await getDb(accountId);
+  const messages: ChatDb["messages"] = {};
+  for (const [chatMid, byChat] of Object.entries(db.messages)) {
+    messages[chatMid] = { ...byChat };
+  }
   return {
-    meta: JSON.parse(JSON.stringify(db.meta)) as ChatDbMeta,
-    chats: JSON.parse(JSON.stringify(db.chats)) as ChatDb["chats"],
-    messages: JSON.parse(JSON.stringify(db.messages)) as ChatDb["messages"],
+    meta: {
+      ...db.meta,
+      ...(db.meta.messagesSyncedAt ? { messagesSyncedAt: { ...db.meta.messagesSyncedAt } } : {}),
+    },
+    chats: { ...db.chats },
+    messages,
   };
 }
 

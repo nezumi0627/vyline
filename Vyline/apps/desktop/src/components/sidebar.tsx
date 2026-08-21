@@ -53,6 +53,7 @@ const SORTS: ChatSort[] = ["recent", "unread", "custom"];
 function buildPreviewMap(
   messages: ReturnType<typeof useStore.getState>["messages"],
   chats: Chat[],
+  prev?: Map<string, { text: string; time: number } | null>,
 ): Map<string, { text: string; time: number } | null> {
   const previewForMessage = (m: (typeof messages)[number]): string => {
     if (m.messageState.startsWith("revoked")) {
@@ -83,17 +84,18 @@ function buildPreviewMap(
   const out = new Map<string, { text: string; time: number } | null>();
   for (const chat of chats) {
     const last = lastByChat.get(chat.id);
+    // 前回と同内容なら前回のオブジェクトを使い ChatRow の memo を有効に保つ
+    const prevEntry = prev?.get(chat.id);
+    const stable = (text: string, time: number) =>
+      prevEntry && prevEntry.text === text && prevEntry.time === time ? prevEntry : { text, time };
     const apiTime = chat.lastMessageTime ?? 0;
     if (!last) {
-      out.set(
-        chat.id,
-        chat.lastMessagePreview ? { text: chat.lastMessagePreview, time: apiTime } : null,
-      );
+      out.set(chat.id, chat.lastMessagePreview ? stable(chat.lastMessagePreview, apiTime) : null);
       continue;
     }
     let text = previewForMessage(last) || chat.lastMessagePreview || "";
     if (last.authorId === "me" && text) text = `あなた: ${text}`;
-    out.set(chat.id, { text, time: Math.max(last.createdAt, apiTime) });
+    out.set(chat.id, stable(text, Math.max(last.createdAt, apiTime)));
   }
   return out;
 }
@@ -143,7 +145,14 @@ export function Sidebar() {
   const dragIdRef = useRef<string | null>(null);
   const liveOrderRef = useRef<string[] | null>(null);
 
-  const previewMap = useMemo(() => buildPreviewMap(messages, chats), [messages, chats]);
+  const previewMapRef = useRef<Map<string, { text: string; time: number } | null>>(new Map());
+  const previewMap = useMemo(
+    () => buildPreviewMap(messages, chats, previewMapRef.current),
+    [messages, chats],
+  );
+  useEffect(() => {
+    previewMapRef.current = previewMap;
+  }, [previewMap]);
 
   const filtered = useMemo(() => {
     let list = chats;
