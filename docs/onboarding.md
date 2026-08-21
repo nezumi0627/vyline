@@ -80,8 +80,7 @@ A. まず `domain/`、次に `lineService`、最後に `api/line.ts`。辞書も
 **Q. 通話は？**  
 A. backend の `acquireRoute` はあるが UI はダミー。触らない。
 
-**Q. Nezu BOT inbox は？**  
-A. エージェントは毎ターン `bun tools/nezu-bot/pollInbox.ts --json` を確認する（[tools/nezu-bot-agent.md](./tools/nezu-bot-agent.md)）。
+
 
 ---
 

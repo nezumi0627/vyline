@@ -66,7 +66,6 @@
 | [tools/find-native-symbol.md](./tools/find-native-symbol.md)         | Desktop 内 RPC 名検索        |
 | [tools/desktop-delta.md](./tools/desktop-delta.md)                   | Desktop 更新時の差分調査     |
 | [tools/focus-recovered-source.md](./tools/focus-recovered-source.md) | 復元ソースのピンポイント表示 |
-| [tools/nezu-bot-agent.md](./tools/nezu-bot-agent.md)                 | Nezu BOT 指示チャネル        |
 
 ---
 
