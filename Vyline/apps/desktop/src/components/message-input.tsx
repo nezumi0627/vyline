@@ -656,7 +656,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                     ? undefined
                     : muteNext
                       ? "メッセージを入力（ミュート送信: 通知なし）"
-                      : "メッセージを入力（絵文字は文中に挿入）"
+                      : "メッセージを入力"
                 }
                 aria-label="メッセージを入力"
                 className={cn(
