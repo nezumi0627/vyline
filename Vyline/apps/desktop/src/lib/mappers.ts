@@ -348,6 +348,9 @@ export function mapMessage(
     editedAt: m.updatedTime != null && m.updatedTime > 0 ? m.updatedTime : undefined,
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
     history: m.history?.length ? m.history : undefined,
+    revokedSnapshot: m.revokedSnapshot
+      ? mapMessage(m.revokedSnapshot, chatId, accountId)
+      : undefined,
     contact,
     location,
   };
