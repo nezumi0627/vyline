@@ -276,6 +276,16 @@ export async function getMessages(
     .slice(0, limit);
 }
 
+export async function getStoredMessage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<Message | null> {
+  const db = await getDb(accountId);
+  const stored = db.messages[chatMid]?.[messageId];
+  return stored ? storedMessageToMessage(stored) : null;
+}
+
 function storedChatToChat(stored: StoredChat): Chat {
   const chat: Chat = {
     mid: stored.mid,
