@@ -9,7 +9,13 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Chat, Message, MessageContentMeta, MessageReaction } from "@vyline/types";
+import type {
+  Chat,
+  Message,
+  MessageContentMeta,
+  MessageReaction,
+  MessageSnapshot,
+} from "@vyline/types";
 import { childLogger } from "../logger.js";
 
 const log = childLogger("chatStore");
@@ -54,6 +60,7 @@ export interface StoredMessage {
   savedAt: string;
   messageState?: Message["messageState"];
   history?: Message["history"];
+  revokedSnapshot?: MessageSnapshot;
 }
 
 interface ChatDbMeta {
@@ -171,10 +178,23 @@ export async function upsertMessages(
   const byChat = db.messages[chatMid] ?? {};
   for (const message of messages) {
     const prev = byChat[message.id];
-    byChat[message.id] = {
+    const prevRevoked =
+      Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
+    const incomingRevoked =
+      Boolean(message.revokedSnapshot) || Boolean(message.messageState?.startsWith("revoked"));
+    const next: StoredMessage = {
       ...message,
       history: prev?.history?.length ? prev.history : message.history,
     };
+    const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
+    if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
+    if (prevRevoked && !incomingRevoked) {
+      next.messageState =
+        prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
+      next.contentType = prev ? prev.contentType : message.contentType;
+      next.text = prev ? prev.text : message.text;
+    }
+    byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
@@ -198,6 +218,7 @@ export async function markMessageRevoked(
     contentType: stored.contentType,
     updatedTime: Date.now(),
   };
+  stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
   stored.messageState = stored.isMyMessage ? "revoked-by-self" : "revoked-by-other";
   stored.history = [...(stored.history ?? []), entry];
   stored.contentType = "UNSENT";
@@ -284,6 +305,7 @@ function storedMessageToMessage(stored: StoredMessage): Message {
     messageState: stored.messageState ?? "normal",
   };
   if (stored.history) msg.history = stored.history;
+  if (stored.revokedSnapshot) msg.revokedSnapshot = stored.revokedSnapshot;
   if (stored.readCount != null) msg.readCount = stored.readCount;
   if (stored.readBy) msg.readBy = stored.readBy;
   if (stored.seen != null) msg.seen = stored.seen;
@@ -292,6 +314,15 @@ function storedMessageToMessage(stored: StoredMessage): Message {
   if (stored.stickerSticky) msg.stickerSticky = true;
   if (stored.reactions?.length) msg.reactions = stored.reactions;
   return msg;
+}
+
+function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
+  const {
+    history: _history,
+    revokedSnapshot: _revokedSnapshot,
+    ...snapshot
+  } = storedMessageToMessage(stored);
+  return snapshot;
 }
 
 /** Desktop 準拠: boxOrder 順、無ければ lastMessageTime 降順 */
