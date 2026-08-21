@@ -40,8 +40,12 @@ import {
   sendMessage,
   sendMedia,
   sendSticker,
+  canCreateCombinationSticker,
+  createCombinationSticker,
+  isStickerAvailableForCombinationSticker,
   fetchStickersCatalog,
   sendLineEmoji,
+  sendCombinationSticker,
   unsendMessage,
   editMessage,
   getMessageEditNotice,
@@ -167,6 +171,19 @@ function handleError(err: unknown, c: Context<any, any, any>) {
         ok: false,
         error: "MESSAGE_NOT_DESTRUCTIBLE: message too old",
         code: "MESSAGE_NOT_DESTRUCTIBLE",
+      },
+      400,
+    );
+  }
+  if (
+    code === "MESSAGE_ALREADY_REVOKED" ||
+    message.toUpperCase().includes("MESSAGE_ALREADY_REVOKED")
+  ) {
+    return c.json(
+      {
+        ok: false,
+        error: "このメッセージはすでに送信取り消し済みです。もう一度取り消すことはできません。",
+        code: "MESSAGE_ALREADY_REVOKED",
       },
       400,
     );
@@ -500,6 +517,98 @@ lineRouter.get("/:accountId/stickers", async (c) => {
   }
 });
 
+// ─── POST /line/:accountId/combination-stickers/can-create ───────
+// { packageIds: string[] }
+
+lineRouter.post("/:accountId/combination-stickers/can-create", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ packageIds?: string[] }>();
+  if (!body.packageIds?.length) {
+    return c.json({ ok: false, error: "packageIds required" }, 400);
+  }
+  try {
+    const result = await canCreateCombinationSticker(accountId, body.packageIds);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/combination-stickers/available ───────
+// { packageId: string }
+
+lineRouter.post("/:accountId/combination-stickers/available", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ packageId?: string }>();
+  if (!body.packageId) {
+    return c.json({ ok: false, error: "packageId required" }, 400);
+  }
+  try {
+    const result = await isStickerAvailableForCombinationSticker(accountId, body.packageId);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/combination-stickers ───────
+// { items: [{ packageId, stickerId }], idOfPreviousVersionOfCombinationSticker? }
+
+lineRouter.post("/:accountId/combination-stickers", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    items?: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
+    idOfPreviousVersionOfCombinationSticker?: string;
+  }>();
+  if (!body.items?.length) {
+    return c.json({ ok: false, error: "items required" }, 400);
+  }
+  try {
+    const result =
+      body.idOfPreviousVersionOfCombinationSticker != null
+        ? await createCombinationSticker(accountId, body.items, {
+            idOfPreviousVersionOfCombinationSticker: body.idOfPreviousVersionOfCombinationSticker,
+          })
+        : await createCombinationSticker(accountId, body.items);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/send-combination-sticker ───────
+// { chatMid, items: [{ packageId, stickerId }], idOfPreviousVersionOfCombinationSticker? }
+
+lineRouter.post("/:accountId/send-combination-sticker", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    chatMid?: string;
+    items?: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
+    idOfPreviousVersionOfCombinationSticker?: string;
+  }>();
+  if (!body.chatMid) {
+    return c.json({ ok: false, error: "chatMid required" }, 400);
+  }
+  if (!body.items?.length) {
+    return c.json({ ok: false, error: "items required" }, 400);
+  }
+  try {
+    const message = await sendCombinationSticker(
+      accountId,
+      body.chatMid,
+      body.items,
+      body.idOfPreviousVersionOfCombinationSticker != null
+        ? {
+            idOfPreviousVersionOfCombinationSticker: body.idOfPreviousVersionOfCombinationSticker,
+          }
+        : undefined,
+    );
+    return c.json({ ok: true, message: message ?? undefined });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 // ─── POST /line/:accountId/send-emoji ─────────
 // { chatMid, packageId, sticonId }
 
@@ -555,6 +664,49 @@ lineRouter.post("/:accountId/send-media", async (c) => {
     if (body.mediaType) opts.mediaType = body.mediaType;
     await sendMedia(accountId, body.chatMid, body.dataBase64, opts);
     return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/send-media-batch ───────
+// { chatMid, items: [{ dataBase64, mimeType?, filename?, mediaType? }] }
+
+lineRouter.post("/:accountId/send-media-batch", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    chatMid?: string;
+    items?: Array<{
+      dataBase64?: string;
+      mimeType?: string;
+      filename?: string;
+      mediaType?: "image" | "video" | "audio" | "file" | "gif";
+    }>;
+  }>();
+
+  if (!body.chatMid || !Array.isArray(body.items) || body.items.length === 0) {
+    return c.json({ ok: false, error: "chatMid and items required" }, 400);
+  }
+
+  try {
+    let count = 0;
+    for (const item of body.items) {
+      if (!item?.dataBase64) continue;
+      if (item.dataBase64.length > 12_000_000) {
+        return c.json({ ok: false, error: "file too large" }, 413);
+      }
+      const opts: {
+        mimeType?: string;
+        filename?: string;
+        mediaType?: "image" | "video" | "audio" | "file" | "gif";
+      } = {};
+      if (item.mimeType) opts.mimeType = item.mimeType;
+      if (item.filename) opts.filename = item.filename;
+      if (item.mediaType) opts.mediaType = item.mediaType;
+      await sendMedia(accountId, body.chatMid, item.dataBase64, opts);
+      count++;
+    }
+    return c.json({ ok: true, count });
   } catch (err) {
     return handleError(err, c);
   }
@@ -744,14 +896,6 @@ lineRouter.patch("/:accountId/profile", async (c) => {
     allowSearchByUserid?: boolean;
     allowSearchByEmail?: boolean;
     hiddenFromList?: boolean;
-    birthday?: {
-      year?: string;
-      day: string;
-      yearEnabled?: boolean;
-      dayEnabled?: boolean;
-      yearPrivacy?: "PUBLIC" | "PRIVATE";
-      dayPrivacy?: "PUBLIC" | "PRIVATE";
-    };
   }>();
   try {
     const profile = await updateMyProfile(accountId, body);

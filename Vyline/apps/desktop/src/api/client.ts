@@ -220,6 +220,25 @@ export const api = {
         ...opts,
       }),
 
+    sendMediaBatch: (
+      accountId: string,
+      chatMid: string,
+      items: Array<{
+        dataBase64: string;
+        mimeType?: string;
+        filename?: string;
+        mediaType?: string;
+      }>,
+    ) =>
+      request<{ ok: boolean; count?: number; error?: string }>(
+        "POST",
+        `/line/${accountId}/send-media-batch`,
+        {
+          chatMid,
+          items,
+        },
+      ),
+
     sendSticker: (
       accountId: string,
       chatMid: string,
@@ -228,6 +247,61 @@ export const api = {
       request<SendResponse>("POST", `/line/${accountId}/send-sticker`, {
         chatMid,
         ...opts,
+      }),
+
+    canCreateCombinationSticker: (accountId: string, packageIds: string[]) =>
+      request<{ ok: boolean; canCreate: boolean; usablePackageIds: string[]; error?: string }>(
+        "POST",
+        `/line/${accountId}/combination-stickers/can-create`,
+        { packageIds },
+      ),
+
+    isStickerAvailableForCombinationSticker: (accountId: string, packageId: string) =>
+      request<{ ok: boolean; availableForCombinationSticker: boolean; error?: string }>(
+        "POST",
+        `/line/${accountId}/combination-stickers/available`,
+        { packageId },
+      ),
+
+    createCombinationSticker: (
+      accountId: string,
+      items: Array<{
+        packageId: string;
+        stickerId: string;
+      }>,
+      opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+    ) =>
+      request<{ ok: boolean; id: string; error?: string }>(
+        "POST",
+        `/line/${accountId}/combination-stickers`,
+        opts?.idOfPreviousVersionOfCombinationSticker
+          ? {
+              items,
+              idOfPreviousVersionOfCombinationSticker: opts.idOfPreviousVersionOfCombinationSticker,
+            }
+          : { items },
+      ),
+
+    sendCombinationSticker: (
+      accountId: string,
+      chatMid: string,
+      items: Array<{
+        packageId: string;
+        stickerId: string;
+        x?: number;
+        y?: number;
+        size?: number;
+      }>,
+      opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+    ) =>
+      request<SendResponse>("POST", `/line/${accountId}/send-combination-sticker`, {
+        chatMid,
+        items,
+        ...(opts?.idOfPreviousVersionOfCombinationSticker
+          ? {
+              idOfPreviousVersionOfCombinationSticker: opts.idOfPreviousVersionOfCombinationSticker,
+            }
+          : {}),
       }),
 
     sendEmoji: (
@@ -412,7 +486,6 @@ export const api = {
         statusMessage?: string;
         phoneticName?: string;
         musicProfile?: string;
-        birthday?: { year?: string; day: string; yearEnabled?: boolean; dayEnabled?: boolean };
       },
     ) => request<ProfileResponse>("PATCH", `/line/${accountId}/profile`, body),
 

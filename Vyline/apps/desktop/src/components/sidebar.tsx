@@ -11,6 +11,7 @@ import {
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
+import { PremiumBadge } from "@/components/premium-badge";
 import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
@@ -53,6 +54,28 @@ function buildPreviewMap(
   messages: ReturnType<typeof useStore.getState>["messages"],
   chats: Chat[],
 ): Map<string, { text: string; time: number } | null> {
+  const previewForMessage = (m: (typeof messages)[number]): string => {
+    if (m.messageState.startsWith("revoked")) {
+      if (m.revokedSnapshot) return `取り消し済み: ${previewForMessage(m.revokedSnapshot)}`;
+      const last = m.history
+        ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
+        : undefined;
+      return last?.text ? `取り消し済み: ${last.text}` : "取り消し済みのメッセージ";
+    }
+    if (m.kind === "sticker") return m.altText || "[スタンプ]";
+    if (m.kind === "image") return "[画像]";
+    if (m.kind === "video") return "[動画]";
+    if (m.kind === "audio") return "[音声メッセージ]";
+    if (m.kind === "flex" || m.kind === "rich")
+      return m.altText || m.text || (m.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
+    if (m.kind === "call") return "[通話]";
+    if (m.kind === "emoji") return "[絵文字]";
+    if (m.kind === "location") return "[位置情報]";
+    if (m.kind === "contact") return "[連絡先]";
+    if (m.kind === "system") return m.text ?? "";
+    return m.text ?? "";
+  };
+
   const lastByChat = new Map<string, (typeof messages)[number]>();
   for (const m of messages) {
     lastByChat.set(m.chatId, m);
@@ -68,20 +91,7 @@ function buildPreviewMap(
       );
       continue;
     }
-    let text = "";
-    if (last.messageState.startsWith("revoked")) text = "メッセージの送信を取り消しました";
-    else if (last.kind === "sticker") text = last.altText || "[スタンプ]";
-    else if (last.kind === "image") text = "[画像]";
-    else if (last.kind === "video") text = "[動画]";
-    else if (last.kind === "audio") text = "[音声メッセージ]";
-    else if (last.kind === "flex" || last.kind === "rich")
-      text = last.altText || last.text || (last.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
-    else if (last.kind === "call") text = "[通話]";
-    else if (last.kind === "emoji") text = "[絵文字]";
-    else if (last.kind === "location") text = "[位置情報]";
-    else if (last.kind === "contact") text = "[連絡先]";
-    else if (last.kind === "system") text = last.text ?? "";
-    else text = last.text ?? chat.lastMessagePreview ?? "";
+    let text = previewForMessage(last) || chat.lastMessagePreview || "";
     if (last.authorId === "me" && text) text = `あなた: ${text}`;
     out.set(chat.id, { text, time: Math.max(last.createdAt, apiTime) });
   }
@@ -339,7 +349,10 @@ export function Sidebar() {
           onClick={() => setScreen("settings")}
           className="min-w-0 flex-1 text-left outline-none"
         >
-          <p className="truncate text-sm font-semibold">{self.name}</p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-sm font-semibold">{self.name}</p>
+            {self.premium?.active && <PremiumBadge size={14} compact />}
+          </div>
           <p className="truncate text-xs text-[var(--vy-text-dim)]">{self.status}</p>
         </button>
         <button
@@ -719,6 +732,8 @@ function AccountSwitcher() {
 
   const currentSession = sessions.find((s) => s.accountId === accountId);
   const currentName = currentSession?.displayName || accountId || "未ログイン";
+  const selfPremium = useStore((s) => s.self.premium?.active ?? false);
+  const currentPremium = currentSession?.premium?.active ?? selfPremium;
 
   const handleSwitch = (id: string) => {
     setOpen(false);
@@ -751,7 +766,10 @@ function AccountSwitcher() {
           imageUrl={currentSession?.picturePath}
         />
         <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold">{currentName}</p>
+          <div className="flex min-w-0 items-center gap-1.5">
+            <p className="truncate text-sm font-semibold">{currentName}</p>
+            {currentPremium && <PremiumBadge size={14} compact />}
+          </div>
           <p className="truncate text-[0.65rem] text-[var(--vy-text-dim)]">{accountId}</p>
         </div>
         <IconChevron
@@ -767,6 +785,7 @@ function AccountSwitcher() {
             .map((id) => {
               const s = sessions.find((s) => s.accountId === id);
               const name = s?.displayName || id;
+              const isPremium = s?.premium?.active ?? false;
               return (
                 <button
                   key={id}
@@ -782,7 +801,10 @@ function AccountSwitcher() {
                     imageUrl={s?.picturePath}
                   />
                   <div className="min-w-0 flex-1">
-                    <p className="truncate text-xs font-medium">{name}</p>
+                    <div className="flex min-w-0 items-center gap-1">
+                      <p className="truncate text-xs font-medium">{name}</p>
+                      {isPremium && <PremiumBadge size={12} compact />}
+                    </div>
                     <p className="truncate text-[0.6rem] text-[var(--vy-text-dim)]">{id}</p>
                   </div>
                 </button>

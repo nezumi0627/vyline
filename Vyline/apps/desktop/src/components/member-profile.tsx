@@ -12,6 +12,12 @@ import { looksLikeMid } from "@/lib/mappers";
 import { Avatar } from "@/components/vy-ui";
 import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
 
+type RichInfo = {
+  statusMessage?: string;
+  backgroundUrl?: string;
+  userType?: number;
+};
+
 export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const memberProfile = useStore((s) => s.memberProfile);
   const close = useStore((s) => s.closeMemberProfile);
@@ -23,6 +29,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
+  const [rich, setRich] = useState<RichInfo>({});
 
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -38,10 +45,46 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     [apiCommonGroups, chats, member, chat.id],
   );
 
+  const backgroundUrl = rich.backgroundUrl;
+  const showBackground = Boolean(!streamerMode && backgroundUrl);
+
   useEffect(() => {
     setApiCommonGroups(null);
+    setRich({});
     if (!accountId || !member || streamerMode) return;
     let cancelled = false;
+    void api.line
+      .contactProfile(accountId, member.id)
+      .then((res) => {
+        if (cancelled || !res.ok || !res.profile) return;
+        setRich({
+          statusMessage: res.profile.statusMessage,
+          backgroundUrl: res.profile.backgroundUrl,
+          userType: res.profile.userType,
+        });
+        useStore.setState((st) => ({
+          chats: st.chats.map((c) =>
+            c.id === chat.id
+              ? {
+                  ...c,
+                  members: c.members?.map((m) =>
+                    m.id === member.id
+                      ? {
+                          ...m,
+                          avatarUrl: res.profile?.thumbnailUrl || m.avatarUrl,
+                          name:
+                            res.profile?.displayName && !looksLikeMid(res.profile.displayName)
+                              ? res.profile.displayName
+                              : m.name,
+                        }
+                      : m,
+                  ),
+                }
+              : c,
+          ),
+        }));
+      })
+      .catch(() => undefined);
     void api.line
       .commonGroups(accountId, member.id, chat.id)
       .then((res) => {
@@ -120,7 +163,15 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       >
         <div
           className="relative flex flex-col items-center px-6 pb-5 pt-8"
-          style={{ background: `color-mix(in oklab, ${member.color} 18%, var(--vy-surface))` }}
+          style={
+            showBackground
+              ? {
+                  backgroundImage: `linear-gradient(180deg, color-mix(in oklab, black 10%, transparent), color-mix(in oklab, black 24%, transparent)), url(${backgroundUrl})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                }
+              : { background: `color-mix(in oklab, ${member.color} 18%, var(--vy-surface))` }
+          }
         >
           <button
             type="button"
@@ -145,6 +196,16 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
             {streamerMode ? "配信者モードで非表示" : `${chat.name} のメンバー`}
           </p>
+          {!streamerMode && rich.statusMessage && (
+            <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
+              {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
+              {(chat.isOfficial || rich.userType === 2) && (
+                <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
+                  公式アカウント
+                </span>
+              )}
+            </div>
+          )}
         </div>
 
         <div className="grid grid-cols-3 gap-2 p-4">
@@ -213,6 +274,15 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
         )}
       </div>
     </div>
+  );
+}
+
+function TinyInfo({ label, value }: { label: string; value: string }) {
+  return (
+    <p className="text-xs leading-relaxed">
+      <span className="text-white/70">{label} · </span>
+      <span>{value}</span>
+    </p>
   );
 }
 

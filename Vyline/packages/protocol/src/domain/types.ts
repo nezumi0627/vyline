@@ -12,14 +12,6 @@ export interface ProfileUpdateInput {
   allowSearchByUserid?: boolean;
   allowSearchByEmail?: boolean;
   hiddenFromList?: boolean;
-  birthday?: {
-    year?: string;
-    day: string;
-    yearEnabled?: boolean;
-    dayEnabled?: boolean;
-    yearPrivacy?: "PUBLIC" | "PRIVATE";
-    dayPrivacy?: "PUBLIC" | "PRIVATE";
-  };
 }
 
 export type ChatUpdateAttribute = "NAME" | "PICTURE_STATUS";

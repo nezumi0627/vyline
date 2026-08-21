@@ -8,6 +8,7 @@ import type {
   ChatSort,
   Message,
   MessageReaction,
+  MessageSnapshot,
   VyTheme,
   Settings,
   Screen,
@@ -22,6 +23,11 @@ import {
   type ContactInfo,
 } from "./mappers.js";
 import { lineStickerUrl } from "../utils/lineMedia.js";
+import {
+  renderCombinationStickerPreview,
+  setCombinationStickerPreview,
+  type CombinationStickerPlacement,
+} from "../utils/combinationStickers.js";
 import { getDismissedChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
@@ -80,6 +86,11 @@ function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
     }
   }
   return contactCache;
+}
+
+function snapshotFromMessage(m: Message): MessageSnapshot {
+  const { history: _history, revokedSnapshot: _revokedSnapshot, ...snapshot } = m;
+  return snapshot;
 }
 
 /**
@@ -161,12 +172,22 @@ function applyReadWatermarkLocal(
 }
 
 function messagePreview(m: Message): string {
-  if (m.messageState.startsWith("revoked")) {
+  const isRevoked =
+    m.messageState.startsWith("revoked") ||
+    Boolean(m.revokedSnapshot) ||
+    Boolean(
+      m.history?.length &&
+        m.history.some(
+          (h) => h.state === "normal" || h.state === "edited" || h.contentType === "UNSENT",
+        ),
+    );
+  if (isRevoked) {
+    if (m.revokedSnapshot) return `取り消し済み: ${messagePreview(m.revokedSnapshot)}`;
     const last = m.history
       ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
       : undefined;
-    if (last?.text) return last.text;
-    return "メッセージの送信を取り消しました";
+    if (last?.text) return `取り消し済み: ${last.text}`;
+    return "取り消し済みのメッセージ";
   }
   switch (m.kind) {
     case "sticker":
@@ -273,9 +294,19 @@ type State = {
       displayName: string;
       statusMessage: string;
       thumbnailUrl?: string;
+      phoneticName?: string;
+      pictureStatus?: string;
       musicProfile?: string;
       birthday?: { display?: string } | null;
       backgroundUrl?: string;
+      profileId?: string;
+      premium?: {
+        active: boolean;
+        planType?: string | number;
+        validUntil?: number;
+        onFreeTrial?: boolean;
+        willExpire?: boolean;
+      } | null;
     } | null;
     chats: LineChat[];
     messages: LineMessage[];
@@ -295,6 +326,10 @@ type State = {
     packageId: string,
     stickerId: string,
     isPremium?: boolean,
+  ) => Promise<void>;
+  sendCombinationSticker: (
+    chatId: string,
+    items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
   ) => Promise<void>;
   sendLineEmoji: (chatId: string, packageId: string, sticonId: string) => Promise<void>;
   sendImageFile: (chatId: string, file: File) => Promise<void>;
@@ -579,10 +614,14 @@ export const useStore = create<State>()(
                 avatar: initial(profile.displayName),
                 avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
                 status: profile.statusMessage || "",
+                phoneticName: profile.phoneticName || st.self.phoneticName,
+                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
                 musicProfile: profile.musicProfile || st.self.musicProfile,
                 birthday: profile.birthday?.display || st.self.birthday,
                 backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
                 mid: profile.mid || st.self.mid,
+                profileId: profile.profileId || st.self.profileId,
+                premium: profile.premium ?? st.self.premium,
               },
             }));
           }
@@ -693,10 +732,14 @@ export const useStore = create<State>()(
                 avatar: initial(profile.displayName),
                 avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
                 status: profile.statusMessage || "",
+                phoneticName: profile.phoneticName || st.self.phoneticName,
+                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
                 musicProfile: profile.musicProfile || st.self.musicProfile,
                 birthday: profile.birthday?.display || st.self.birthday,
                 backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
                 mid: profile.mid || st.self.mid,
+                profileId: profile.profileId || st.self.profileId,
+                premium: profile.premium ?? st.self.premium,
               }
             : st.self,
         }));
@@ -910,6 +953,97 @@ export const useStore = create<State>()(
         })();
       },
 
+      sendCombinationSticker: async (chatId, items) => {
+        const { accountId, blockedMids } = get();
+        if (!accountId || !items.length) return;
+        if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const placements: CombinationStickerPlacement[] = items.map((item, index) => ({
+          packageId: item.packageId,
+          stickerId: item.stickerId,
+          url: lineStickerUrl(item.stickerId),
+          name: item.stickerId,
+          x: item.x ?? Math.max(0, 40 + index * 18),
+          y: item.y ?? Math.max(0, 40 + index * 18),
+          size: item.size ?? 76,
+        }));
+        const tempId = `pending_cstk_${Date.now()}`;
+        const optimistic: Message = {
+          id: tempId,
+          chatId,
+          authorId: "me",
+          kind: "sticker",
+          sticker: lineStickerUrl(items[0]!.stickerId),
+          createdAt: Date.now(),
+          status: "sending",
+          read: false,
+          messageState: "normal",
+          retry: { kind: "combinationSticker", items: items.map((item) => ({ ...item })) },
+        };
+        set((st) => ({ messages: [...st.messages, optimistic] }));
+
+        void (async () => {
+          try {
+            const res = await api.line.sendCombinationSticker(accountId!, chatId, items);
+            if (!res.ok) {
+              set((st) => ({
+                messages: st.messages.map((m) =>
+                  m.id === tempId ? { ...m, status: "failed" } : m,
+                ),
+              }));
+              return;
+            }
+            if (res.message) {
+              const contactCache = buildContactCache(get().chats);
+              const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
+              let preview = mapped.sticker ?? "";
+              try {
+                const dataUrl = await renderCombinationStickerPreview(placements);
+                if (dataUrl) {
+                  preview = dataUrl;
+                  setCombinationStickerPreview(accountId!, mapped.id, dataUrl);
+                }
+              } catch {
+                if (!preview) preview = lineStickerUrl(items[0]!.stickerId);
+              }
+              const finalMsg: Message = {
+                ...mapped,
+                kind: "sticker",
+                sticker: preview || mapped.sticker || "🎴",
+              };
+              set((st) => ({
+                messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
+                chats: st.chats.map((c) =>
+                  c.id === chatId
+                    ? {
+                        ...c,
+                        lastMessagePreview: "スタンプ",
+                        lastMessageTime: Math.max(c.lastMessageTime ?? 0, finalMsg.createdAt),
+                      }
+                    : c,
+                ),
+              }));
+            } else {
+              set((st) => ({
+                messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
+              }));
+            }
+            const existing = refreshDebounce.get(chatId);
+            if (existing) clearTimeout(existing);
+            refreshDebounce.set(
+              chatId,
+              setTimeout(() => {
+                refreshDebounce.delete(chatId);
+                void get().refreshMessages(chatId, { force: true });
+              }, 800),
+            );
+          } catch {
+            set((st) => ({
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+            }));
+          }
+        })();
+      },
+
       sendLineEmoji: async (chatId, packageId, sticonId) => {
         const { accountId, blockedMids } = get();
         if (!accountId || !packageId || !sticonId) return;
@@ -992,55 +1126,53 @@ export const useStore = create<State>()(
           messageState: "normal",
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
-        void (async () => {
-          try {
-            const highQuality = get().settings.highQualityImages;
-            const { blob, mime } = highQuality
-              ? { blob: file, mime: file.type || "application/octet-stream" }
-              : await compressImageFile(file);
-            if (blob.size > 11_000_000) {
-              window.alert(
-                blob === file
-                  ? "ファイルが大きすぎます（11MB まで）"
-                  : "画像が大きすぎます（圧縮後も 11MB 超）",
-              );
-              set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-              return;
-            }
-            const buf = await blob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = "";
-            const chunk = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-            }
-            const dataBase64 = btoa(binary);
-            const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
-              mimeType: mime,
-              filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
-              mediaType: isVideo ? "video" : "image",
-            });
-            if (res.ok) {
-              const existing = refreshDebounce.get(chatId);
-              if (existing) clearTimeout(existing);
-              refreshDebounce.set(
-                chatId,
-                setTimeout(() => {
-                  refreshDebounce.delete(chatId);
-                  void get().refreshMessages(chatId, { force: true });
-                }, 800),
-              );
-            } else {
-              // 画像は再送 UI を持たないので失敗時は楽観表示を除去
-              set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-            }
-          } catch {
+        try {
+          const highQuality = get().settings.highQualityImages;
+          const { blob, mime } = highQuality
+            ? { blob: file, mime: file.type || "application/octet-stream" }
+            : await compressImageFile(file);
+          if (blob.size > 11_000_000) {
+            window.alert(
+              blob === file
+                ? "ファイルが大きすぎます（11MB まで）"
+                : "画像が大きすぎます（圧縮後も 11MB 超）",
+            );
             set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-          } finally {
-            // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
-            setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+            return;
           }
-        })();
+          const buf = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = "";
+          const chunk = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+          }
+          const dataBase64 = btoa(binary);
+          const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+            mimeType: mime,
+            filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
+            mediaType: isVideo ? "video" : "image",
+          });
+          if (res.ok) {
+            const existing = refreshDebounce.get(chatId);
+            if (existing) clearTimeout(existing);
+            refreshDebounce.set(
+              chatId,
+              setTimeout(() => {
+                refreshDebounce.delete(chatId);
+                void get().refreshMessages(chatId, { force: true });
+              }, 800),
+            );
+          } else {
+            // 画像は再送 UI を持たないので失敗時は楽観表示を除去
+            set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+          }
+        } catch {
+          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+        } finally {
+          // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
+          setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+        }
       },
 
       sendAudio: async (chatId, seconds, blob) => {
@@ -1092,6 +1224,10 @@ export const useStore = create<State>()(
           window.alert("送信が完了してから取り消しできます");
           return;
         }
+        if (msg.messageState.startsWith("revoked") || msg.revokedSnapshot) {
+          get().showNotice("一度取り消したメッセージは再度取り消せません");
+          return;
+        }
         const prevState = msg.messageState ?? "normal";
         const historyEntry = {
           state: prevState,
@@ -1105,7 +1241,9 @@ export const useStore = create<State>()(
               ? {
                   ...m,
                   history: [...(m.history ?? []), historyEntry],
+                  revokedSnapshot: m.revokedSnapshot ?? snapshotFromMessage(m),
                   messageState: "revoked-by-self" as MessageState,
+                  text: undefined,
                 }
               : m,
           ),
@@ -1230,6 +1368,10 @@ export const useStore = create<State>()(
               sticonId: intent.sticonId,
             });
             ok = res.ok;
+          } else if (intent.kind === "combinationSticker") {
+            const res = await api.line.sendCombinationSticker(accountId, chatId, intent.items);
+            ok = res.ok;
+            confirmed = res.ok ? (res.message ?? null) : null;
           }
           if (!ok) {
             markFailed();
@@ -1509,6 +1651,18 @@ export const useStore = create<State>()(
               for (let i = 0; i < mapped.length; i++) {
                 const m = mapped[i]!;
                 const prev = prevById.get(m.id);
+                const prevRevoked = Boolean(
+                  prev &&
+                    (prev.messageState.startsWith("revoked") ||
+                      prev.revokedSnapshot ||
+                      (prev.history?.length &&
+                        prev.history.some(
+                          (h) =>
+                            h.state === "normal" ||
+                            h.state === "edited" ||
+                            h.contentType === "UNSENT",
+                        ))),
+                );
                 if (m.authorId === "me" && prev?.read && !m.read) {
                   mapped[i] = {
                     ...m,
@@ -1559,6 +1713,23 @@ export const useStore = create<State>()(
                   (m.messageState === undefined || m.messageState === "normal")
                 ) {
                   mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
+                }
+                if (prev?.revokedSnapshot && !m.revokedSnapshot) {
+                  mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
+                }
+                if (prevRevoked && !m.messageState?.startsWith("revoked")) {
+                  const last = prev?.history
+                    ? [...prev.history]
+                        .reverse()
+                        .find((h) => h.state === "normal" || h.state === "edited")
+                    : undefined;
+                  mapped[i] = {
+                    ...m,
+                    messageState: prev?.messageState ?? "revoked-by-self",
+                    history: prev?.history?.length ? prev.history : m.history,
+                    revokedSnapshot: prev?.revokedSnapshot ?? m.revokedSnapshot,
+                    text: prev?.revokedSnapshot?.text ?? last?.text ?? prev?.text ?? m.text,
+                  };
                 }
               }
               // pending / 送信直後の確定メッセージをサーバ欠落時も残す
@@ -1859,6 +2030,18 @@ export const useStore = create<State>()(
                 if (m.chatId !== chatId) return m;
                 const upd = incomingById.get(m.id);
                 if (!upd) return m;
+                const wasRevoked =
+                  m.messageState.startsWith("revoked") ||
+                  Boolean(m.revokedSnapshot) ||
+                  Boolean(
+                    m.history?.length &&
+                      m.history.some(
+                        (h) =>
+                          h.state === "normal" ||
+                          h.state === "edited" ||
+                          h.contentType === "UNSENT",
+                      ),
+                  );
                 const reactionChanged =
                   JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
                 const revokedChanged =
@@ -1872,9 +2055,17 @@ export const useStore = create<State>()(
                     messageReactionCache.delete(m.id);
                   }
                   updated.reactions = upd.reactions;
+                  if (wasRevoked) {
+                    updated.messageState = m.messageState;
+                    updated.history = m.history;
+                    if (m.revokedSnapshot) updated.revokedSnapshot = m.revokedSnapshot;
+                    if (m.text !== undefined) updated.text = m.text;
+                  }
                 }
                 if (revokedChanged) {
                   updated.messageState = upd.messageState;
+                  updated.revokedSnapshot =
+                    m.revokedSnapshot ?? upd.revokedSnapshot ?? snapshotFromMessage(m);
                   const prevState = m.messageState ?? "normal";
                   updated.history = [
                     ...(m.history ?? []),
@@ -1967,6 +2158,7 @@ export const useStore = create<State>()(
                 ? "revoked-by-self"
                 : "revoked-by-other") as MessageState,
               history,
+              revokedSnapshot: m.revokedSnapshot ?? snapshotFromMessage(m),
               text: undefined,
             };
           });
@@ -1989,10 +2181,11 @@ export const useStore = create<State>()(
         if (!accountId) return;
         const msg = get().messages.find((m) => m.id === messageId);
         if (!msg || msg.messageState !== "revoked-by-self") return;
+        const snapshot = msg.revokedSnapshot;
         const lastNormal = [...(msg.history ?? [])]
           .reverse()
           .find((h) => h.state === "normal" || h.state === "edited");
-        if (!lastNormal) {
+        if (!snapshot && !lastNormal) {
           window.alert("復元できる元のメッセージがありません");
           return;
         }
@@ -2007,9 +2200,16 @@ export const useStore = create<State>()(
             m.id === messageId
               ? {
                   ...m,
-                  messageState: "normal" as MessageState,
+                  ...snapshot,
+                  messageState: (snapshot?.messageState ??
+                    (lastNormal?.state === "edited" ? "edited" : "normal")) as MessageState,
                   history: [...(m.history ?? []), historyEntry],
-                  text: lastNormal.text ?? undefined,
+                  ...(snapshot
+                    ? { revokedSnapshot: snapshot }
+                    : m.revokedSnapshot
+                      ? { revokedSnapshot: m.revokedSnapshot }
+                      : {}),
+                  text: snapshot?.text ?? lastNormal?.text ?? undefined,
                 }
               : m,
           ),
