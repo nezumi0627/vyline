@@ -95,25 +95,6 @@ function Card({ children }: { children: React.ReactNode }) {
   );
 }
 
-function SettingMeta({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2">
-      <p className="text-[0.65rem] font-medium text-[var(--vy-text-dim)]">{label}</p>
-      <p className={mono ? "mt-1 font-mono text-xs break-all" : "mt-1 text-xs break-words"}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
 export function SettingsSections() {
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);

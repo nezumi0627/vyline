@@ -125,6 +125,20 @@ export interface MessageContentMeta {
   [key: string]: string | undefined;
 }
 
+export type RetryIntent =
+  | {
+      kind: "text";
+      text: string;
+      relatedMessageId?: string;
+      contentMetadata?: Record<string, string>;
+    }
+  | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
+  | {
+      kind: "combinationSticker";
+      items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
+    }
+  | { kind: "emoji"; packageId: string; sticonId: string };
+
 export interface Message {
   id: string;
   from: string;
