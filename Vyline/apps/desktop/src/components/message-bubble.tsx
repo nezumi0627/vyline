@@ -1324,7 +1324,11 @@ export const MessageBubble = memo(
               {isStickerImageSrc(message.sticker) ? (
                 <img
                   src={
-                    message.stickerAnimated ? stickerAnimationUrl(message.sticker) : message.sticker
+                    message.sticker
+                      ? message.stickerAnimated
+                        ? stickerAnimationUrl(message.sticker)
+                        : message.sticker
+                      : ""
                   }
                   alt="スタンプ"
                   onError={hideBrokenMedia}
@@ -1335,7 +1339,7 @@ export const MessageBubble = memo(
                   draggable={false}
                 />
               ) : (
-                <span className="text-7xl leading-none">{message.sticker || "🎴"}</span>
+                <span className="text-7xl leading-none">{message.sticker || "🧩"}</span>
               )}
             </button>
           ) : message.kind === "emoji" ? (
