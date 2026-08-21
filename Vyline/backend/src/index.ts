@@ -37,6 +37,42 @@ const app = new Hono();
 app.use("*", cors({ origin: CORS_ORIGIN }));
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
+app.get("/api/v1/status", (c) =>
+  c.json({
+    ok: true,
+    status: "ready",
+    uptimeSec: Math.floor(performance.now() / 1000),
+    version: process.env.npm_package_version ?? "dev",
+  }),
+);
+
+// 軽量メトリクス: リクエストカウンタ + プロセス統計のみ（重い集計は行わない）
+const metricsState = { requests: 0, errors: 0 };
+app.use("*", async (c, next) => {
+  await next();
+  if (c.req.path === "/metrics") return;
+  metricsState.requests++;
+  if (c.res.status >= 500) metricsState.errors++;
+});
+app.get("/metrics", (c) => {
+  const mem = process.memoryUsage();
+  const body = [
+    "# TYPE vyline_requests_total counter",
+    `vyline_requests_total ${metricsState.requests}`,
+    "# TYPE vyline_errors_total counter",
+    `vyline_errors_total ${metricsState.errors}`,
+    "# TYPE vyline_process_uptime_seconds gauge",
+    `vyline_process_uptime_seconds ${Math.floor(performance.now() / 1000)}`,
+    "# TYPE vyline_memory_rss_bytes gauge",
+    `vyline_memory_rss_bytes ${mem.rss}`,
+    "# TYPE vyline_memory_heap_used_bytes gauge",
+    `vyline_memory_heap_used_bytes ${mem.heapUsed}`,
+  ].join("\n");
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
+  });
+});
 app.route("/auth", authRouter);
 app.route("/line", lineRouter);
 app.route("/debug", debugRouter);
