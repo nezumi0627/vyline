@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store";
 import { api } from "@/api/client";
 import { Avatar } from "@/components/vy-ui";
+import { PremiumBadge } from "@/components/premium-badge";
 import {
   IconClose,
   IconChat,
@@ -15,7 +16,6 @@ import {
   IconMemo,
 } from "@/components/icons";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
-import { parseMusicProfile } from "@/lib/vyline-cache";
 import { dismissChatMid } from "@/utils/dismissedChats";
 
 type RichInfo = {
@@ -29,25 +29,6 @@ type RichInfo = {
   userType?: number;
 };
 
-function InfoItem({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2">
-      <p className="text-[0.65rem] font-medium text-[var(--vy-text-dim)]">{label}</p>
-      <p className={mono ? "mt-1 font-mono text-xs break-all" : "mt-1 text-xs break-words"}>
-        {value}
-      </p>
-    </div>
-  );
-}
-
 export function ProfileDrawer({ chat }: { chat: Chat }) {
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const openChat = useStore((s) => s.openChat);
@@ -58,6 +39,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   const settings = useStore((s) => s.settings);
   const setLocalName = useStore((s) => s.setLocalName);
   const accountId = useStore((s) => s.accountId);
+  const selfPremium = useStore((s) => s.self.premium?.active ?? false);
 
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(chat.localName ?? chat.name);
@@ -247,7 +229,6 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
   const name = displayName(chat, streamerMode);
-  const music = parseMusicProfile(rich.musicProfile);
   const backgroundUrl = chat.backgroundUrl ?? rich.backgroundUrl;
   const showBackground = Boolean(!streamerMode && settings.showBackground && backgroundUrl);
 
@@ -437,8 +418,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               style={
                 showBackground
                   ? {
-                      backgroundImage:
-                        `linear-gradient(180deg, color-mix(in oklab, black 8%, transparent), color-mix(in oklab, black 20%, transparent)), url(${backgroundUrl})`,
+                      backgroundImage: `linear-gradient(180deg, color-mix(in oklab, black 8%, transparent), color-mix(in oklab, black 20%, transparent)), url(${backgroundUrl})`,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }
@@ -476,6 +456,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               ) : (
                 <div className="mt-3 flex items-center gap-2">
                   <h2 className="text-xl font-bold">{name}</h2>
+                  {chat.isSelf && selfPremium && <PremiumBadge size={14} compact />}
                   {!streamerMode && !chat.isSelf && (
                     <button
                       type="button"
@@ -513,19 +494,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             </div>
           </div>
 
-          {!streamerMode && (
-            <div className="mt-4 space-y-3 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm">
-              {music && (
-                <InfoItem
-                  label="音楽"
-                  value={`${music.title || music.raw}${music.artist ? ` — ${music.artist}` : ""}`}
-                />
-              )}
-              {(chat.isOfficial || rich.userType === 2) && (
-                <span className="inline-flex w-fit items-center rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
-                  公式アカウント
-                </span>
-              )}
+          {!streamerMode && (chat.isOfficial || rich.userType === 2) && (
+            <div className="mt-4">
+              <span className="inline-flex w-fit items-center rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
+                公式アカウント
+              </span>
             </div>
           )}
 

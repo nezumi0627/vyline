@@ -10,7 +10,6 @@ import type { ProfileUpdateInput } from "./types.js";
 import {
   getMyExtendedProfile,
   getMyProfile,
-  updateMyBirthday,
   updateMyProfile,
   uploadMyProfileBackground,
   uploadMyProfileImage,
@@ -42,11 +41,10 @@ export class ProfileDomain {
     }
     if (input.hiddenFromList !== undefined) update.hiddenFromList = input.hiddenFromList;
     const hasAttrs = Object.keys(update).length > 0;
-    if (!hasAttrs && !input.birthday) {
+    if (!hasAttrs) {
       throw new Error("ProfileDomain.update: empty update");
     }
     if (hasAttrs) await updateMyProfile(this.client, update);
-    if (input.birthday) await updateMyBirthday(this.client, input.birthday);
   }
 
   async uploadAvatar(data: Blob) {
