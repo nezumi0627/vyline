@@ -3545,7 +3545,11 @@ async function fetchMessagesInner(
   for (const m of merged) byId.set(m.id, m);
   for (const m of messages) {
     const prev = byId.get(m.id);
-    byId.set(m.id, prev ? { ...prev, ...m } : m);
+    const combined = prev ? { ...prev, ...m } : m;
+    if (prev?.history?.length && !combined.history?.length) {
+      combined.history = prev.history;
+    }
+    byId.set(m.id, combined);
   }
   const out = [...byId.values()].sort((a, b) => b.createdTime - a.createdTime).slice(0, limit);
 
