@@ -81,6 +81,7 @@ import {
   NotLoggedInError,
   restoreRevokedMessage,
   getMessageHistory,
+  getStoredMessage,
 } from "../service/lineService.js";
 import {
   LiffNotLoggedInError,
@@ -761,7 +762,8 @@ lineRouter.get("/:accountId/messages/:chatMid/:messageId/history", async (c) => 
 
   try {
     const history = await getMessageHistory(accountId, chatMid, messageId);
-    return c.json({ ok: true, history });
+    const message = await getStoredMessage(accountId, chatMid, messageId);
+    return c.json({ ok: true, history, message });
   } catch (err) {
     return handleError(err, c);
   }

@@ -2139,6 +2139,8 @@ export const useStore = create<State>()(
       },
 
       applyRevoked: (chatId, messageId) => {
+        const accountId = get().accountId;
+        const hadLocal = get().messages.some((m) => m.chatId === chatId && m.id === messageId);
         set((st) => {
           const msgs = st.messages.map((m) => {
             if (m.chatId !== chatId || m.id !== messageId) return m;
@@ -2166,6 +2168,42 @@ export const useStore = create<State>()(
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
+        if (!hadLocal && accountId) {
+          setTimeout(() => {
+            void api.line
+              .messageHistory(accountId, chatId, messageId)
+              .then((res) => {
+                if (!res.ok || !res.message) return;
+                const message = res.message;
+                const {
+                  history: _history,
+                  revokedSnapshot: _revokedSnapshot,
+                  ...messageSnapshot
+                } = message;
+                const revokedMessage: LineMessage = message.messageState?.startsWith("revoked")
+                  ? message
+                  : {
+                      ...message,
+                      messageState: message.isMyMessage ? "revoked-by-self" : "revoked-by-other",
+                      history: message.history?.length
+                        ? message.history
+                        : [
+                            {
+                              state: message.messageState ?? "normal",
+                              text: message.text,
+                              contentType: message.contentType,
+                              updatedTime: Date.now(),
+                            },
+                          ],
+                      revokedSnapshot: message.revokedSnapshot ?? messageSnapshot,
+                      contentType: "UNSENT",
+                      text: null,
+                    };
+                get().mergeIncomingMessages(chatId, [revokedMessage], { silent: true });
+              })
+              .catch(() => undefined);
+          }, 250);
+        }
       },
 
       fetchMessageHistory: async (chatId, messageId) => {

@@ -82,7 +82,11 @@ import {
   type StoredChat,
 } from "../storage/chatStore.js";
 
-export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
+export {
+  restoreRevokedMessage,
+  getMessageHistory,
+  getStoredMessage,
+} from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 
@@ -3174,8 +3178,8 @@ async function processSingleOperation(
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
+      await markMessageRevoked(accountId, chatMid, messageId).catch(() => undefined);
       pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
-      void markMessageRevoked(accountId, chatMid, messageId).catch(() => undefined);
     }
     return;
   }

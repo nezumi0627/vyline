@@ -358,7 +358,7 @@ export const api = {
       request<EditNoticeResponse>("GET", `/line/${accountId}/edit-notice/${chatMid}`),
 
     messageHistory: (accountId: string, chatMid: string, messageId: string) =>
-      request<{ ok: true; history: Message["history"] }>(
+      request<{ ok: true; history: Message["history"]; message?: Message | null }>(
         "GET",
         `/line/${accountId}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}/history`,
       ),
