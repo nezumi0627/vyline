@@ -151,6 +151,10 @@ export type RetryIntent =
       contentMetadata?: Record<string, string>;
     }
   | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
+  | {
+      kind: "combinationSticker";
+      items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
+    }
   | { kind: "emoji"; packageId: string; sticonId: string };
 
 export type Member = {

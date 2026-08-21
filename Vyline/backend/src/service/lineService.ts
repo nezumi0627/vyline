@@ -4624,6 +4624,7 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
     const found = await findStoredMessageByIdLocal(accountId, messageId);
+    const chatMid = found?.chatMid;
     if (found) {
       const stored = found.message;
       if (
@@ -4640,6 +4641,9 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
       seq: await client.base.getReqseq(),
       messageId,
     });
+    if (chatMid) {
+      await markMessageRevoked(accountId, chatMid, messageId);
+    }
     log.info({ accountId, messageId }, "message unsent");
   });
 }
