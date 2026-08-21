@@ -53,13 +53,15 @@ export interface E2EEIdentityStatus {
   matchedKeyIds: number[];
   serverLatestKeyId: number | null;
   reason: string;
+  desktopKeysPath?: string;
 }
 
-function resolveDesktopKeysPath(): string {
+function resolveDesktopKeysPath(desktopKeysPath?: string): string {
+  if (desktopKeysPath) return desktopKeysPath;
   const candidates = [
     join(process.cwd(), "Vyline", "backend", "data", "desktop-e2ee-keys.json"),
     join(process.cwd(), "data", "desktop-e2ee-keys.json"),
-    defaultDesktopE2EEKeysPath(join(process.cwd(), "data")),
+    defaultDesktopE2EEKeysPath(),
   ];
   for (const p of candidates) {
     if (loadDesktopE2EEKeyDump(p)) return p;
@@ -100,6 +102,7 @@ export async function ensureValidE2EEIdentity(
     forceNewSenderKey?: boolean;
     /** true のときだけ、サーバ最新の秘密鍵が無い場合に新規登録する。既定 false */
     allowRegisterNewKey?: boolean;
+    desktopKeysPath?: string;
   } = {},
 ): Promise<E2EEIdentityStatus> {
   const base = asBase(client);
@@ -120,7 +123,7 @@ export async function ensureValidE2EEIdentity(
   }
 
   let imported = 0;
-  const dumpPath = resolveDesktopKeysPath();
+  const dumpPath = resolveDesktopKeysPath(opts.desktopKeysPath);
   const dump = loadDesktopE2EEKeyDump(dumpPath);
   if (dump) {
     const result = await importDesktopE2EEKeys(base, dump);
@@ -211,6 +214,7 @@ export async function ensureValidE2EEIdentity(
         keyId: fresh.keyId,
         matchedKeyIds: [...matchedKeyIds, fresh.keyId],
         serverLatestKeyId: fresh.keyId,
+        desktopKeysPath: opts.desktopKeysPath,
         reason: opts.forceNewSenderKey
           ? `registered fresh sender key ${fresh.keyId} (forced)`
           : `registered fresh sender key ${fresh.keyId} (server latest ${serverLatestKeyId} had no local priv)`,
@@ -229,6 +233,7 @@ export async function ensureValidE2EEIdentity(
           keyId: latest.keyId,
           matchedKeyIds,
           serverLatestKeyId,
+          desktopKeysPath: opts.desktopKeysPath,
           reason: `failed to register fresh sender key; fell back to ${latest.keyId}`,
         };
       }
@@ -238,6 +243,7 @@ export async function ensureValidE2EEIdentity(
         keyId: null,
         matchedKeyIds,
         serverLatestKeyId,
+        desktopKeysPath: opts.desktopKeysPath,
         reason: "failed to repair E2EE identity",
       };
     }
@@ -262,6 +268,7 @@ export async function ensureValidE2EEIdentity(
         keyId: latest.keyId,
         matchedKeyIds,
         serverLatestKeyId,
+        desktopKeysPath: opts.desktopKeysPath,
         reason: `no local priv for server latest ${serverLatestKeyId}; using matched ${latest.keyId} (no new register — protects phone Letter Sealing)`,
       };
     }
@@ -271,6 +278,7 @@ export async function ensureValidE2EEIdentity(
       keyId: null,
       matchedKeyIds,
       serverLatestKeyId,
+      desktopKeysPath: opts.desktopKeysPath,
       reason:
         "no matched local keys; refusing to auto-register (set allowRegisterNewKey to override)",
     };
@@ -292,6 +300,7 @@ export async function ensureValidE2EEIdentity(
     keyId: sender.keyId,
     matchedKeyIds,
     serverLatestKeyId,
+    desktopKeysPath: opts.desktopKeysPath,
     reason:
       imported > 0
         ? `imported ${imported} desktop keys; sender=${sender.keyId}`

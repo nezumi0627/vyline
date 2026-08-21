@@ -37,6 +37,7 @@ function resolveDesktopKeysPath(): string | null {
     join(process.cwd(), "source", "desktop", "e2ee", "desktop-e2ee-keys.json"),
     join(process.cwd(), "Vyline", "backend", "data", "desktop-e2ee-keys.json"),
     join(process.cwd(), "data", "desktop-e2ee-keys.json"),
+    join(backendDataDir(), "desktop-e2ee-keys.json"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;

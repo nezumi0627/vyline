@@ -30,7 +30,7 @@ function asBase(client: AnyClient): BaseClient {
 
 /** 既定の抽出ファイルパス */
 export function defaultDesktopE2EEKeysPath(dataDir?: string): string {
-  const dir = dataDir ?? join(process.cwd(), "data");
+  const dir = dataDir ?? (process.env.VYLINE_DATA_DIR ?? join(process.cwd(), "data"));
   return join(dir, "desktop-e2ee-keys.json");
 }
 

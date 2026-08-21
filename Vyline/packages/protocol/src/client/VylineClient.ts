@@ -29,6 +29,7 @@ export interface VylineLoginInit {
   storagePath: string;
   /** 省略時は VYLINE_DEVICE / ANDROIDSECONDARY */
   deviceMode?: VylineDeviceMode | string;
+  desktopKeysPath?: string;
 }
 
 export function applyDesktopHeaders(client: Client, profile: DesktopProfile): void {
@@ -77,12 +78,13 @@ async function finalizeLogin(
   base: BaseClient,
   profile: DesktopProfile,
   mode: VylineDeviceMode,
+  desktopKeysPath?: string,
 ): Promise<VylineClient> {
   await base.loginProcess.ready();
   if (isDesktopEmulation(mode)) {
     patchDesktopTransport(base, profile);
   }
-  const e2ee = await ensureValidE2EEIdentity(base);
+  const e2ee = await ensureValidE2EEIdentity(base, { desktopKeysPath });
   base.log("vyline:e2ee", { phase: "ensure-after-login", mode, ...e2ee });
   return new Client(base);
 }
@@ -106,7 +108,7 @@ export async function loginWithEmail(
     password: opts.password,
     ...(opts.pincode !== undefined ? { pincode: opts.pincode } : {}),
   });
-  return finalizeLogin(base, init.profile, mode);
+  return finalizeLogin(base, init.profile, mode, init.desktopKeysPath);
 }
 
 export async function loginWithQR(
@@ -123,7 +125,7 @@ export async function loginWithQR(
     patchDesktopTransport(base, init.profile);
   }
   await base.loginProcess.withQrCode({});
-  return finalizeLogin(base, init.profile, mode);
+  return finalizeLogin(base, init.profile, mode, init.desktopKeysPath);
 }
 
 export async function loginWithToken(
@@ -135,7 +137,7 @@ export async function loginWithToken(
     patchDesktopTransport(base, init.profile);
   }
   await base.loginProcess.login({ authToken });
-  return finalizeLogin(base, init.profile, mode);
+  return finalizeLogin(base, init.profile, mode, init.desktopKeysPath);
 }
 
 export async function sendText(
