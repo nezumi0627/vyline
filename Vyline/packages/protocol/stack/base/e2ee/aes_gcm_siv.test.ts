@@ -1,6 +1,6 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { Buffer } from "node:buffer";
-import { gcmsiv } from "npm:/@noble/ciphers@^2.2/aes.js";
+import { gcmsiv } from "@noble/ciphers/aes.js";
 
 // RFC 8452 §C.2 test vector: AES-256-GCM-SIV with non-empty AAD.
 // key=01000000…, nonce=030000000000000000000000, aad=01, plaintext=0200000000000000

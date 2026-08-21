@@ -2,7 +2,7 @@
 // SDP + SRTP + Opus call against a mock UAS that echoes Opus-encoded
 // audio. Proves every layer in the call stack interoperates.
 
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { Buffer } from "node:buffer";
 import dgram from "node:dgram";
 import { AndromedaTransport } from "./andromeda.ts";

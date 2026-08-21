@@ -1,4 +1,4 @@
-import { assertEquals, assertNotEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals, assertNotEquals } from "@vyline/protocol/stack/assert";
 import {
   aesCtrDecrypt,
   aesCtrEncrypt,

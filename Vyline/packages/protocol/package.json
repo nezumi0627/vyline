@@ -9,6 +9,10 @@
       "types": "./stack/_dist/client/mod.d.ts",
       "default": "./stack/client/mod.ts"
     },
+    "./stack/assert": {
+      "types": "./stack/assert.ts",
+      "default": "./stack/assert.ts"
+    },
     "./stack/base": {
       "types": "./stack/_dist/base/mod.d.ts",
       "default": "./stack/base/mod.ts"

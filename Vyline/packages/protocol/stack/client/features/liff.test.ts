@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { flex, image, sticker, text } from "./liff.ts";
 
 Deno.test("liff.text — plain", () => {

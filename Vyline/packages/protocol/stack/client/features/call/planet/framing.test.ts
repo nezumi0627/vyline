@@ -1,5 +1,5 @@
 /** Unit tests for PLANET framing — match values observed in live wire capture. */
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import {
   buildFrameHeader,
   makeChunkHdr,

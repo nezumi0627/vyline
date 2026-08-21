@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert@^1.0.2";
+import { assertEquals, assertRejects } from "@vyline/protocol/stack/assert";
 import { Buffer } from "node:buffer";
 import { buildMikeyPke, mikeyFromBase64, mikeyToBase64, parseMikey } from "./mikey.ts";
 

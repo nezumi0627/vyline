@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals, assertRejects } from "@vyline/protocol/stack/assert";
 import {
   buildRtp,
   deriveSrtpContext,
