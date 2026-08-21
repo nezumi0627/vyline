@@ -1,6 +1,55 @@
 # multi-image-send — 引き継ぎメモ
 
-最終更新: 2026-08-21
+最終更新: 2026-08-22 04:00（夜間検証で大幅更新）
+
+## 2026-08-22 夜間の結論（重要）
+
+**原因確定: 旧経路はサーバに届いていなかった。**
+
+- `uploadObjTalkMessage`（UUID OBS パス + thrift sendMessage）で送っても
+  **getPreviousMessagesV2 に一切現れない**ことを実機で実証
+- 公式アプリ（HAR は iPhone から捕捉）は **OBS `/r/talk/m/reqseq` に連番 reqseq で
+  アップロードし、サーバ側がメッセージを生成する** 方式
+- 対応: `sendMediaBatch` plain 経路を `uploadObjTalkBatch`（reqseq 連番）へ変更
+  → 2〜3 枚送信で履歴に IMAGE が出ることを実機確認
+- 応答ヘッダ `x-obs-oid`（== 生成メッセージ ID の実測）をキーに送信バイトを
+  ローカル media cache に置き、自クライアントの即表示を実現
+  （reqseq 生成メッセージは contentMetadata に OID を持たないため）
+
+## 未解決
+
+1. **アルバムメタデータ (GID/GSEQ/GTOTAL) の再現未達**
+   - 公式クライアント送信分は `contentMetadata` に GID/GSEQ/GTOTAL が付く
+     （chatdb の ClockAngel 送信分で確認: GID=先頭メッセージID+1 の実測例あり）
+   - Vyline からの reqseq 送信には付かない。OBS 応答ヘッダ `x-line-message-gid`
+     は Desktop HAR で確認済みだが Vyline 分は未確認（ヘッダログの [object Headers] 化は要修正）
+   - UI は `shouldGroupAdjacentImages`（sender + 30s 窓）でフォールバックグルーピング
+   - 次の調査: OBS 応答ヘッダの gid 有無を確認（uploadObjTalk の戻り headers を
+     ちゃんとシリアライズしてログ）、リージョン host / x-line-application 差分
+2. **受信側の最終確認**（朝推奨）: スマホ公式アプリで うがうがうー の
+   2026-08-22 深夜の画像群が表示・開けるか
+3. `x-obs-oid == メッセージID` の一致は 2 回の実測のみ。大量送信での妥当性検証
+
+## テスト手順（実機）
+
+```powershell
+# backend 起動（ログキャプチャ推奨）
+bun Vyline/backend/src/index.ts *> backend.log
+
+# 3枚送信
+POST http://127.0.0.1:3001/line/main/send-media-batch
+{ "chatMid": "c1efe9d6cf1848350bc91848a8a29963e",
+  "items": [ { "dataBase64": "...", "mimeType": "image/png", "mediaType": "image" } x3 ] }
+
+# 履歴確認（force でサーバ取得）
+GET http://127.0.0.1:3001/line/main/messages/c1efe9d6cf1848350bc91848a8a29963e?limit=15&force=1
+# → contentType IMAGE が連続してればOK。media は
+# GET /line/main/media/<chatMid>/<messageId> で X-Vyline-Media-Cache: HIT を確認
+```
+
+---
+
+# 以下: 2026-08-21 時点の旧メモ（参考）
 
 ## 現在の作業状態
 
