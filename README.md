@@ -2,253 +2,991 @@
 
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
-  自前プロトコルで動く、LINE サードパーティクライアント（Web / React）
+  API-first, extensible third-party LINE client architecture for desktop, server, plugins, and custom clients.
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.5.1--beta-a78bfa?style=flat-square" />
+  <img alt="status" src="https://img.shields.io/badge/status-beta-a78bfa?style=flat-square" />
+  <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun%201.6-f472b6?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
-  <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
-  <img alt="stack" src="https://img.shields.io/badge/stack-Hono%20%2B%20React-0ea5e9?style=flat-square" />
-  <img alt="state" src="https://img.shields.io/badge/state-beta-a78bfa?style=flat-square" />
-  <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square" />
 </p>
 
-<p align="center">
-  このさんさんとした太陽の下、Vyline を選んでくださるユーザーに出会えたことに感謝します。
-</p>
+---
 
-> **2026/08/20 beta 版 release 開始** — 本リポジトリは Vyline Beta 0.5.0 として公開されました。機能の安定性は保証されておらず、予期しない動作やアカウントリスクが含まれる可能性があります。
+## About
+
+Vyline is an independent third-party LINE client project.
+
+Vyline aims to become a clean, fast, extensible LINE client architecture with:
+
+- desktop client support
+- server mode support
+- separated frontend / backend
+- OpenAPI / Swagger based API
+- JavaScript / TypeScript plugin system
+- custom client support
+- multi-account support
+- grouped multi-image sending
+- storage management
+- backup / restore
+- Docker-friendly deployment
+- lightweight CPU / memory / network usage
+
+Vyline is currently in **Beta**.
+
+The project is still changing quickly. Some features are implemented, some are experimental, and some are planned.
 
 ---
 
-## ⚠️ ご利用前に必ずお読みください
+## Project Goals
 
-Vyline は LINE 非公式のサードパーティクライアントであり、LINE 株式会社・LY Corporation とは**無関係・未承認**です。
+Vyline is built around these goals:
 
-- **アカウントリスク**: LINE 利用規約に違反する可能性があり、アカウント停止等のリスクを伴います。**利用はすべて自己責任**です。
-- **同意ゲート**: ログイン直後に利用規約・免責事項を表示し、**同意しない限りアプリは一切動作しません**（同期・通信・表示を含む）。同意せず、または画面をスキップする等の手段で利用した場合も、**その時点で本規約に同意したものとみなされ**、開発者・Vyline のメンバーは一切の責任を負いません。
-- **目的の範囲**: 教育・学習・個人利用の範囲でご利用ください。第三者への攻撃・不正アクセス・迷惑行為・権利侵害は禁止です。
-- **データの扱い**: ログイン情報・セッション・暗号鍵・トーク履歴は端末内にのみ保存され、外部へ送信されません。
-- **解析ツール**: `tools/` 以下の解析ツールは [vyline-search](https://github.com/nezumi0627/vyline-search) リポジトリを Git Submodule としてリンクしたものです。Desktop LINE の unpack・逆コンパイルを行います。**教育・実験目的のみ**で使用し、解析結果を再配布しないでください。詳細: [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md)
-- **開発者の免責**: 本ソフトウェアの利用により生じた一切の問題（アカウント停止、データ破損、法的問題等）について、開発者・Vyline のメンバーは責任を負いません。
+- provide a clean desktop client experience
+- separate frontend and backend completely
+- expose a stable backend API
+- provide Swagger / OpenAPI documentation
+- allow users to build custom clients
+- allow plugins written in JavaScript / TypeScript
+- isolate data per account
+- separate cache and saved media
+- make backup / restore reliable
+- run locally or on a server
+- support Docker / Docker Compose deployment
+- keep memory, CPU, and network usage low
+- keep documentation accurate and readable
 
-### 著作権表示
+Vyline should not become heavy or over-engineered.
 
-本ソフトウェアは [nezumi0627](https://github.com/nezumi0627) によって開発されています。改変・再配布・解説記事等では、必ず著作権表示（`nezumi0627`）を保持してください。ライセンス詳細は [LICENSE](LICENSE)（MIT）を参照してください。
-
----
-
-## Vyline とは
-
-**Vyline** は LINE にログインしてメッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行うサードパーティクライアントです。外部サービスに依存せず、**自前のプロトコルスタック `@vyline/protocol`** で動作します。
-
-| 項目       | 内容                                     |
-| ---------- | ---------------------------------------- |
-| 誰向け     | UI を自分好みにしたい人・開発者          |
-| なにが違う | テーマ管理 / メンション / ローカル最適化 |
-| ライセンス | MIT                                      |
-| 状態       | Beta 0.5.0                               |
-
-### 主な機能
-
-| カテゴリ         | 内容                                                                                                                  |
-| ---------------- | --------------------------------------------------------------------------------------------------------------------- |
-| **ログイン**     | QR / Email ログイン、マルチアカウント、セッション復元                                                                 |
-| **メッセージ**   | 送受信 / 返信 / 取り消し / 既読制御 / 再送                                                                            |
-| **メンション**   | `@ALL` / `@名前`（LINE Desktop 準拠の `MENTION` metadata）                                                            |
-| **メディア**     | 画像・動画・音声（画像は自動圧縮、設定で高画質送信も可） / LINE 絵文字(sticon) / スタンプ全種                         |
-| **Flex / Rich**  | 公式準拠の描画、カルーセルのマウスドラッグ                                                                            |
-| **リアクション** | 1クリック、公式バッジ、既読者一覧                                                                                     |
-| **通話**         | 音声 / ビデオ通話（実験的）                                                                                           |
-| **チャット管理** | ピン / 非表示 / ミュート / ブロック / MID コピー / グループ作成・招待                                                 |
-| **VyTheme**      | フルカスタマイズテーマ、文字サイズ、密度、プロフィール背景                                                            |
-| **E2EE**         | Letter Sealing の復号・送信、Desktop 鍵 import                                                                        |
-| **プライバシー** | ストリーマーモード、PIN ロック                                                                                        |
-| **VylineBackup** | トーク履歴・メディアのスナップショット作成 / 復元 / 削除                                                              |
-| **その他**       | チャット詳細ログ(JSONL) / Keepメモ / 相手プロフィール背景表示 / 通話中バッジ / 共通グループ高速表示 / トーク保存(TXT) |
+Unnecessary abstractions, wrappers, services, dependencies, and large rewrites should be avoided unless they clearly improve the project.
 
 ---
 
-## ⚠️ 破壊的変更 (v0.5.0)
+## Status
 
-v0.5.0 は v0.4.x と**互換性がありません**。以下の変更により、既存の設定・キャッシュの一部リセットが必要な場合があります。
+Vyline is currently a **Beta project**.
 
-| 変更                                                   | 影響                                                                        |
-| ------------------------------------------------------ | --------------------------------------------------------------------------- |
-| 受信エンジンを Push 長ポール → fetchOps 方式に刷新     | イベントポーリングの挙動が変わります                                        |
-| 公開 API (`/v1/`) を新設                               | 環境変数 `VYLINE_API_ADMIN_SECRET` を設定するとトークン管理が可能になります |
-| イベント種別の拡張（通話・メンバー変更・アナウンス等） | フロントエンドの旧バージョンとは互換しません                                |
+Current priority areas:
 
-**アップグレード手順**: `git pull && bun install && bun run dev` のみで動作します。既存のログイン状態は維持されます。
+- repository cleanup
+- documentation cleanup
+- frontend / backend separation
+- Swagger / OpenAPI API design
+- plugin system
+- custom client support
+- multi-account storage isolation
+- multi-image sending
+- server mode
+- Docker deployment
+- update / migration flow
+- performance optimization
 
 ---
 
-## Quick Start
+## Features
+
+### Desktop Client
+
+Vyline provides a desktop client experience for LINE-like messaging workflows.
+
+The UI should remain clean, fast, and easy to use.
+
+---
+
+### API-first Architecture
+
+Vyline must be designed as an API-first application.
+
+The backend should expose a stable API that can be used by:
+
+- the official Vyline frontend
+- custom frontends
+- server dashboards
+- plugins
+- automation tools
+- future CLI wrappers
+- external clients
+
+Frontend code must not depend directly on backend private modules.
+
+The frontend should communicate with the backend through the public API or a generated API client.
+
+---
+
+## API / Swagger / OpenAPI
+
+Vyline must provide a documented backend API.
+
+Swagger / OpenAPI support is required.
+
+The API should be available in development and server mode.
+
+Required API documentation routes:
+
+```txt
+GET /docs
+GET /swagger
+GET /openapi.json
+```
+
+The API must be versioned.
+
+Example:
+
+```txt
+/api/v1/...
+```
+
+Public API, internal API, plugin API, and desktop IPC must be separated.
+
+---
+
+### Required API Areas
+
+The backend API must cover at least:
+
+* accounts
+* sessions
+* chats
+* messages
+* media
+* multi-image sending
+* storage
+* cache
+* saved media
+* backup
+* restore
+* settings
+* themes
+* plugins
+* notifications
+* health checks
+* metrics
+
+---
+
+### Example API Endpoints
+
+```txt
+GET    /health
+GET    /metrics
+GET    /api/v1/status
+
+GET    /api/v1/accounts
+POST   /api/v1/accounts/switch
+GET    /api/v1/accounts/:accountId/profile
+
+GET    /api/v1/accounts/:accountId/chats
+GET    /api/v1/accounts/:accountId/chats/:chatId/messages
+POST   /api/v1/accounts/:accountId/chats/:chatId/messages
+
+POST   /api/v1/accounts/:accountId/chats/:chatId/media/batch
+
+GET    /api/v1/accounts/:accountId/storage
+GET    /api/v1/accounts/:accountId/storage/cache
+DELETE /api/v1/accounts/:accountId/storage/cache
+
+GET    /api/v1/accounts/:accountId/plugins
+POST   /api/v1/accounts/:accountId/plugins/:pluginId/enable
+POST   /api/v1/accounts/:accountId/plugins/:pluginId/disable
+
+POST   /api/v1/accounts/:accountId/backup
+POST   /api/v1/accounts/:accountId/restore
+```
+
+Actual endpoint names may change during Beta, but the final API must be documented through OpenAPI / Swagger.
+
+---
+
+## Frontend / Backend Separation
+
+Vyline must separate frontend and backend completely.
+
+The frontend should be replaceable.
+
+The backend should be reusable.
+
+The desktop shell should only bundle or connect frontend and backend. It should not create hidden dependencies between them.
+
+Required direction:
+
+```txt
+apps/
+  web/
+  desktop/
+  server/
+
+packages/
+  api/
+  api-client/
+  core/
+  line/
+  storage/
+  plugin-sdk/
+  plugin-runtime/
+  shared/
+  ui/
+```
+
+Rules:
+
+* frontend must not import backend private modules
+* backend must not import React components
+* shared types must live in shared packages
+* API types should be generated or shared safely
+* desktop IPC must not replace the public API
+* server mode and desktop mode should use the same core logic
+
+---
+
+## Custom Clients
+
+Vyline is not only a themeable client.
+
+Users and developers should be able to build their own clients using Vyline's backend API.
+
+Possible clients:
+
+* official Vyline desktop frontend
+* custom web client
+* minimal chat viewer
+* notification-only client
+* media manager
+* server dashboard
+* future CLI wrapper
+
+Custom clients should use:
+
+* public REST API
+* generated API client
+* shared types
+* documented auth flow
+* documented account scope
+
+The goal is to allow client replacement, not just theme replacement.
+
+---
+
+## Plugin System
+
+Vyline must support a JavaScript / TypeScript plugin system.
+
+TypeScript is recommended.
+
+The design can be inspired by plugin-based clients such as Vencord, but it must be safe for Vyline's architecture.
+
+Plugins should extend Vyline without modifying core code.
+
+---
+
+### Plugin Requirements
+
+Plugins must support:
+
+* install
+* enable
+* disable
+* update
+* remove
+* activate
+* deactivate
+* settings
+* permissions
+* logs
+* error isolation
+* developer mode
+* examples
+* plugin SDK
+
+Disabled plugins should have almost zero runtime cost.
+
+Plugin crashes must not crash Vyline itself.
+
+---
+
+### Example Plugin
+
+```ts
+import { definePlugin } from "@vyline/plugin-sdk";
+
+export default definePlugin({
+  id: "example-plugin",
+  name: "Example Plugin",
+  version: "0.1.0",
+  description: "Example Vyline plugin",
+  permissions: ["messages:read", "notifications:send"],
+
+  async activate(ctx) {
+    ctx.messages.on("message", (message) => {
+      ctx.logger.info("New message", message.id);
+    });
+  },
+
+  async deactivate(ctx) {
+    // cleanup listeners / resources
+  },
+});
+```
+
+---
+
+### Plugin Permissions
+
+Example permissions:
+
+```txt
+messages:read
+messages:send
+chats:read
+media:read
+media:write
+storage:read
+storage:write
+notifications:send
+ui:extend
+network:request
+settings:read
+settings:write
+```
+
+Plugins must not access:
+
+* raw tokens
+* sessions
+* cookies
+* private keys
+* unrestricted filesystem paths
+* backend private APIs
+* another account's data
+* raw MID values unless absolutely required and permissioned
+
+Plugin APIs must be account-scoped.
+
+---
+
+## Multi-account Support
+
+Vyline must support multiple LINE accounts.
+
+Account data must be separated by account scope using the user's LINE `mid` or a safe derived account identifier.
+
+Raw MID values should not be exposed unnecessarily.
+
+Recommended storage direction:
+
+```txt
+data/
+  accounts/
+    <safe-account-id>/
+      profile.json
+      session/
+      storage/
+      cache/
+      media/
+      db/
+      plugins/
+      logs/
+      backup/
+```
+
+The following data must not be mixed between accounts:
+
+* messages
+* chats
+* media
+* cache
+* saved media
+* sessions
+* settings
+* plugin data
+* logs
+* backups
+* pending uploads
+* pending multi-image batches
+
+Account switching must clean up old listeners, stale UI state, old sockets, old plugin contexts, and old media references.
+
+---
+
+## Multi-image Sending
+
+Vyline must support grouped multi-image sending.
+
+For LINE Desktop compatibility, multiple images should not be merged into one message.
+
+Instead, multiple images should be sent as separate `IMAGE` messages and connected using relation fields.
+
+Required relation fields:
+
+* `relatedMessageId`
+* `messageRelationType`
+* `relatedMessageServiceCode`, if required
+
+Expected behavior:
+
+```txt
+image 1 -> IMAGE message
+image 2 -> IMAGE message, relatedMessageId = image 1 message id
+image 3 -> IMAGE message, relatedMessageId = image 2 message id
+```
+
+The UI should group related image messages visually while keeping each image as an individual message internally.
+
+This must work across:
+
+* frontend file picker
+* frontend send action
+* backend media batch API
+* protocol layer
+* E2EE path
+* plain media path
+* storage
+* message list API
+* frontend message model
+* UI grouped rendering
+* app restart
+* multi-account environments
+
+This feature is not complete until:
+
+* relation fields are sent
+* relation fields are saved
+* relation fields are returned by the message API
+* the UI groups related images
+* restart keeps the grouping
+* account switching does not mix media
+* E2EE and plain paths both work
+* partial failures do not cause duplicate sending
+
+---
+
+## Storage Management
+
+Vyline must separate temporary cache from saved user media.
+
+Cache is temporary and can be deleted safely.
+
+Saved media is user-owned persistent data and must be preserved through backup and restore.
+
+Required storage categories:
+
+* cache
+* saved media
+* account data
+* plugin data
+* logs
+* backups
+* temporary uploads
+
+Cache and saved media must not be mixed.
+
+Storage size calculation should be incremental or cached. It must not block the UI with full scans on every startup.
+
+---
+
+## Backup / Restore
+
+Backup and restore must be account-aware.
+
+Backup should preserve:
+
+* saved media
+* message references
+* account settings
+* plugin settings, where safe
+* storage metadata
+
+Restore must not mix data between accounts.
+
+Restore should handle missing media, old schemas, and partial data safely.
+
+---
+
+## Server Mode
+
+Vyline must be able to run on a server, not only as a desktop app.
+
+Server mode should expose:
+
+* REST API
+* Swagger / OpenAPI docs
+* health check endpoint
+* metrics endpoint
+* static frontend serving option
+* configurable storage paths
+* configurable plugin directory
+* configurable logs directory
+* CORS settings
+* auth settings
+* reverse proxy support
+
+Example target command:
+
+```bash
+bun run server
+```
+
+Required server endpoints:
+
+```txt
+GET /health
+GET /metrics
+GET /docs
+GET /swagger
+GET /openapi.json
+```
+
+---
+
+## Docker Support
+
+Vyline should be easy to run in Docker or Docker Compose.
+
+Required files:
+
+```txt
+Dockerfile
+docker-compose.yml
+.dockerignore
+```
+
+Recommended persistent directories:
+
+* data
+* config
+* logs
+* plugins
+* media
+
+Example:
+
+```yaml
+services:
+  vyline:
+    build: .
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./data:/app/data
+      - ./config:/app/config
+      - ./logs:/app/logs
+      - ./plugins:/app/plugins
+    environment:
+      - VYLINE_HOST=0.0.0.0
+      - VYLINE_PORT=3000
+      - VYLINE_DATA_DIR=/app/data
+      - VYLINE_CONFIG_DIR=/app/config
+      - VYLINE_LOG_DIR=/app/logs
+      - VYLINE_PLUGIN_DIR=/app/plugins
+```
+
+---
+
+## Update / Migration
+
+Vyline should be easy to update.
+
+Required documentation:
+
+* source update guide
+* Docker update guide
+* backup before update
+* rollback guide
+* database migration guide
+* config migration guide
+* breaking changes guide
+
+Example source update flow:
+
+```bash
+git pull
+bun install --frozen-lockfile
+bun run build
+bun run migrate
+bun run server
+```
+
+Example Docker update flow:
+
+```bash
+docker compose pull
+docker compose up -d --build
+```
+
+---
+
+## Runtime
+
+Vyline targets **Bun 1.6**.
+
+Common commands:
 
 ```bash
 bun install
-bun run dev          # backend :3001 + frontend :5173
+bun run dev
+bun run build
+bun run test
+bun run typecheck
+bun run server
 ```
 
-ブラウザで `http://localhost:5173` を開きます。
+Actual commands may change while the project is in Beta.
 
-| コマンド               | 内容                           |
-| ---------------------- | ------------------------------ |
-| `bun run dev:backend`  | backend のみ（:3001）          |
-| `bun run dev:frontend` | frontend のみ（:5173）         |
-| `bun run typecheck`    | 型チェック（全ワークスペース） |
-| `bun run lint`         | Biome lint                     |
-| `bun run build`        | frontend 本番ビルド            |
-
-詳細: [docs/onboarding.md](docs/onboarding.md) · [docs/development.md](docs/development.md) · [AGENTS.md](AGENTS.md)
-
-### セルフホスト（Docker）
-
-自宅サーバーに立てて、複数端末の Web ブラウザから同じ LINE セッションを利用できます（履歴・画像はサーバー側に永続化）。
-
-```bash
-docker compose up -d --build   # http://localhost:3001
-```
-
-設定・Cloudflare Access での外部公開手順: [docs/selfhosting.md](docs/selfhosting.md)
-
-### 推奨環境
-
-| 項目               | 推奨値         | 備考                                               |
-| ------------------ | -------------- | -------------------------------------------------- |
-| **LINE アプリ**    | IOSIPAD 26.7.2 | `x-line-application` ヘッダー値。最新版を推奨      |
-| **OS**             | iOS 18.0       | Android / Windows 互換は未検証                     |
-| **デバイスモード** | IOSIPAD        | `VYLINE_DEVICE` 環境変数で指定（省略時は IOSIPAD） |
-
-> 定義元: `packages/protocol/src/desktop/types.ts` の DesktopProfile。実際のヘッダー値は `"x-line-application": "IOSIPAD\t26.7.2\tiOS\t18.0"` のように伝搬されます。
+Documentation should always reflect the actual commands in the repository.
 
 ---
 
-## Architecture
+## Performance Policy
 
-```
-┌─ Frontend (React + Vite) ── apps/desktop ──┐
-│  store / mappers / sync / VyTheme UI       │
-├─ Backend (Hono on Bun) ───── backend ──────┤
-│  BFF routes → lineService → clientManager  │
-├─ Vyline ──────────── packages/protocol ────┤
-│  domain / dictionary / E2EE / Thrift stack │
-└─ LINE Servers ──────────────────────────────┘
-```
+Vyline should be lightweight.
 
-| パス                  | 役割                     |
-| --------------------- | ------------------------ |
-| `apps/desktop`        | React UI                 |
-| `backend`             | Hono BFF                 |
-| `packages/protocol`   | プロトコル本体（Vyline） |
-| `packages/line-types` | Thrift 型（vendored）    |
+A third-party client is not useful if it is heavier than the official desktop client.
 
-### E2EE / Desktop 鍵
+Vyline should avoid:
 
-過去メッセージの復号には、公式 LINE Desktop から抽出した自己鍵一式が必要です。
+* loading all messages into memory
+* loading all media at startup
+* storing large image buffers in UI state
+* converting large media to base64 unnecessarily
+* unnecessary polling
+* duplicate network requests
+* full cache scans on every startup
+* keeping inactive accounts fully loaded
+* keeping disabled plugins active
+* excessive background CPU usage
+* unlimited in-memory logs
+* unnecessary deep clones
+* unnecessary JSON stringify / parse cycles
 
-1. LINE.exe 起動状態で鍵を抽出（[docs/analysis/](docs/analysis/)）
-2. `backend/data/desktop-e2ee-keys.json` に配置（**gitignore・コミット禁止**）
-3. backend 起動時に自動 import
+Vyline should use:
 
-### 公開 API (`/v1/`)
+* lazy loading
+* pagination
+* virtualized message lists
+* virtualized media grids
+* incremental storage scanning
+* bounded memory caches
+* request deduplication
+* retry backoff
+* upload concurrency limits
+* worker threads or web workers for heavy tasks
+* cleanup after account switching
+* cleanup after plugin disable
+* memory and CPU measurement
 
-セルフホスト時に Bearer トークンで Vyline を外部から操作できます。
+Performance improvements must be measured, not guessed.
 
-```bash
-# トークン作成（VYLINE_API_ADMIN_SECRET を設定後）
-curl -X POST http://localhost:3001/v1/tokens \
-  -H "Authorization: Bearer $VYLINE_API_ADMIN_SECRET" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-bot"}'
+Important metrics:
 
-# チャット一覧取得
-curl http://localhost:3001/v1/accounts/{accountId}/chats \
-  -H "Authorization: Bearer vyl_xxxx..."
-```
-
-API 仕様（OpenAPI 3.1）: `GET /openapi.json` または [zensical.org](https://zensical.org)
-
-### 解析ツールキット（vyline-search）
-
-Desktop LINE（Themida 保護）の unpack / ネイティブシンボル検索 / 逆コンパイルを行う独立ツールキットです。教育・研究目的で `findNativeSymbol` による文字列 xref 解析と Ghidra decompile をワンコマンドで実行できます。
-
-> [!WARNING]
-> **注意**: LINE デスクトップクライアントが起動中の状態では、解析ツール（unpack 等）が正常に動作しません（単一インスタンス制御により frida の注入が拒否されプロセスが強制終了するため）。必ず LINE アプリを完全に終了させてから実行してください。
-
-**[github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search)**
-
-```powershell
-bun run vyline:check                  # インストール版 / 最新版の比較
-bun run vyline:versions               # インストール済みバージョン一覧
-bun run vyline:unpack -- --version <ver>   # インストール済みバージョンを選択して unpack
-bun run vyline:update                 # LINE Desktop を最新版へ更新
-bun run vyline:find-native -- sendMessage  # ネイティブシンボル検索
-```
-
-> **注意**: `vyline:unpack` / `vyline:update` は **LINE を終了してから実行**してください。
-> 稼働中は Frida 注入が拒否され `ProcessNotRespondingError` になります。
+* startup time
+* idle memory usage
+* idle CPU usage
+* message list rendering time
+* media loading memory
+* account switch memory delta
+* server idle memory
+* network request count
+* duplicate request count
 
 ---
 
-## ドキュメント
+## Documentation
 
-| リンク                                                     | 内容                                   |
-| ---------------------------------------------------------- | -------------------------------------- |
-| [docs/README.md](docs/README.md)                           | ドキュメント索引                       |
-| [docs/onboarding.md](docs/onboarding.md)                   | 初日チェックリスト                     |
-| [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md)               | 貢献フロー                             |
-| [docs/architecture.md](docs/architecture.md)               | 層構造                                 |
-| [docs/development.md](docs/development.md)                 | 開発コマンド                           |
-| [docs/selfhosting.md](docs/selfhosting.md)                 | Docker セルフホスト・Cloudflare Access |
-| [docs/protocol/dictionary.md](docs/protocol/dictionary.md) | RPC 辞書                               |
-| [AGENTS.md](AGENTS.md)                                     | エージェント向けガイド                 |
-| [CHANGELOG.md](CHANGELOG.md)                               | 変更履歴                               |
-| [zensical.org](https://zensical.org)                       | 公開ドキュメント・API リファレンス     |
-| [/openapi.json](/openapi.json)                             | OpenAPI 3.1 仕様（ローカル）           |
+README should stay short enough to be an entry point.
 
-公開ドキュメント・チュートリアル: **[zensical.org](https://zensical.org)**
+Detailed documentation should live in `docs/`.
+
+Required documentation structure:
+
+```txt
+docs/
+  user-guide/
+    installation.md
+    update.md
+    account-switching.md
+    sending-media.md
+    storage.md
+    backup-restore.md
+    troubleshooting.md
+
+  developer-guide/
+    architecture.md
+    frontend.md
+    backend.md
+    api.md
+    plugin-system.md
+    plugin-sdk.md
+    custom-client.md
+    multi-account.md
+    account-storage.md
+    multi-image-sending.md
+    message-relations.md
+    performance-budget.md
+    memory-policy.md
+    network-optimization.md
+    testing.md
+
+  api/
+    openapi.md
+    swagger.md
+    media-batch.md
+
+  deployment/
+    local.md
+    docker.md
+    docker-compose.md
+    server.md
+    reverse-proxy.md
+    systemd.md
+
+  agents/
+    overview.md
+    coding-rules.md
+    review-rules.md
+```
+
+Docs must match the actual implementation.
+
+Do not claim features as complete unless they are verified.
 
 ---
 
-## 貢献 / 募集
+## Development Policy
 
-- 🐛 [Bug report](.github/ISSUE_TEMPLATE/bug_report.md)
-- ✨ [Feature request](.github/ISSUE_TEMPLATE/feature_request.md)
-- 📝 [Pull request](.github/pull_request_template.md)
+Vyline development follows these principles:
 
-貢献フローは [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) を参照してください。PR には解析対象ソフトウェアの実体・鍵・トークンなどを含めないでください。
+* keep code simple
+* avoid unnecessary abstractions
+* prefer existing APIs and standard library features
+* avoid unnecessary dependencies
+* keep frontend and backend separated
+* keep APIs stable and documented
+* protect user data
+* isolate account data
+* make plugins permission-based
+* measure performance changes
+* separate confirmed bugs from suspected issues
+* keep README readable
+* move detailed information into docs
 
-現在、以下を募集しています:
+Existing implementation should be questioned, but not blindly replaced.
 
-- **PR**: バグ修正、機能改善、ドキュメントの更新
-- **アイコン**: アプリアイコン・テーマアイコンのデザイン
-- **バナー**: SNS・ブログでのプロモーション用バナー
-- **定期的なメンテナー**: 個人開発のため、継続的に助けていただける方を募集中
+If existing code is correct and has a valid reason to exist, keep it.
 
-興味がある方は [AGENTS.md](AGENTS.md) の手順に従ってプルリクエストをお送りください。
+If the structure blocks future development, it may be rebuilt.
+
+Breaking changes are allowed when necessary, but existing features must not be broken without a migration path.
 
 ---
 
-## Vyline Desktop
+## Branch Rules
 
-> **Coming Soon** 🚀
+Recommended branch names:
 
-Vyline が安定版に到達した後、専用のデスクトップアプリ **Vyline Desktop** をリリース予定です。
+```txt
+feature/<short-name>
+fix/<short-name>
+docs/<short-name>
+refactor/<short-name>
+security/<short-name>
+perf/<short-name>
+chore/<short-name>
+```
 
-- 🖥️ Windows / macOS / Linux ネイティブアプリ
-- 🔔 プッシュ通知
-- 🗂️ トレイアイコン常駐
-- 🔒 ローカルデータ完全管理
+Recommended commit style:
 
-Vyline の安定版リリースをお待ちください。
+```txt
+feat(api): add media batch endpoint
+fix(storage): separate cache from saved media
+docs(readme): simplify project overview
+perf(messages): virtualize message list
+security(plugins): restrict filesystem access
+```
+
+---
+
+## Agent / Skill Policy
+
+Vyline development may use coding-agent skill sets to reduce unnecessary code, avoid over-engineering, and improve review quality.
+
+Before large refactors, audits, API redesigns, plugin work, or documentation cleanup, the agent should check and use the following skill / rule sets when available.
+
+### Required Skill Sets
+
+| Skill | Repository | Purpose |
+|---|---|---|
+| Ponytail | `DietrichGebert/ponytail` | YAGNI, standard library first, reuse existing code, avoid unnecessary abstraction |
+| Caveman | `JuliusBrussee/caveman` | Compress reports and explanations while keeping code blocks intact |
+| agent-skills-standard | `HoangNguyen0403/agent-skills-standard` | Load task-specific skills only when needed |
+| agent-skills | `addyosmani/agent-skills` | Production-grade frontend, performance, API, testing, and documentation guidance |
+| Minimize-Cursor-Cost | `inboxpraveen/Minimize-Cursor-Cost` | Reduce repeated reads, wasted tool calls, unnecessary verification, and token cost |
+
+### How These Skills Should Be Used
+
+Ponytail should be used as the default engineering mindset.
+
+Use it to avoid:
+
+- unnecessary wrappers
+- unnecessary services
+- unnecessary managers
+- unnecessary dependencies
+- unnecessary rewrites
+- future-proofing without actual need
+- code that only passes data through another layer
+
+Caveman should be used only for shortening reports, comments, and summaries.
+
+Do not apply Caveman to:
+
+- source code
+- OpenAPI schemas
+- JSON
+- YAML
+- TOML
+- SQL
+- Dockerfiles
+- migration files
+- security warnings
+- legal disclaimers
+- user-facing documentation
+
+`agent-skills-standard` and `addyosmani/agent-skills` should be loaded only when relevant.
+
+Do not load every skill at once.
+
+Examples:
+
+- API redesign → load API / OpenAPI related skills
+- plugin system → load plugin / sandbox / security related skills
+- Docker / server mode → load deployment / DevOps related skills
+- performance work → load frontend / React / server performance related skills
+- docs cleanup → load documentation related skills
+
+`Minimize-Cursor-Cost` should be used to keep the workflow efficient.
+
+The agent should:
+
+- avoid reading the same file repeatedly
+- avoid re-checking already confirmed facts
+- batch related searches
+- inspect only relevant files first
+- run targeted tests before full test suites
+- report unknowns instead of wasting time pretending everything is verified
+
+### Skill Priority
+
+These skills are helpers, not final authority.
+
+Priority order:
+
+1. User instructions
+2. Security
+3. Privacy
+4. Data safety
+5. Existing feature compatibility
+6. Actual repository behavior
+7. Test results
+8. Ponytail minimalism
+9. Other skill recommendations
+10. Token reduction
+
+Token reduction must never override correctness, security, privacy, or maintainability.
+
+### Required Agent Report
+
+When an AI coding agent starts a large task, it should include a short skill bootstrap report:
+
+```md
+## Skill Bootstrap
+
+| Skill | Status | Used for |
+|---|---|---|
+| Ponytail | Available / Not available | Minimal implementation and YAGNI |
+| Caveman | Available / Not available | Report compression only |
+| agent-skills-standard | Available / Not available | Task-specific skills |
+| addyosmani/agent-skills | Available / Not available | Production-grade review |
+| Minimize-Cursor-Cost | Available / Not available | Efficient repository exploration |
+
+Notes:
+- Missing skills must be listed.
+- If a skill is unavailable, continue with the same principles manually.
+- Do not stop work only because a skill is unavailable.
+```
+
+---
+
+## Support Vyline
+
+Vyline is developed as an independent project.
+
+Small support is appreciated and helps with development, testing, documentation, and maintenance.
+
+Suggested support tiers:
+
+|            Amount | Tier              | Notes                                                             |
+| ----------------: | ----------------- | ----------------------------------------------------------------- |
+|     Under 500 JPY | Thank you support | Helps development and maintenance                                 |
+|   500 JPY or more | Supporter         | May be listed as a supporter if requested                         |
+| 1,000 JPY or more | Special supporter | May receive acknowledgement in docs or release notes if requested |
+| 3,000 JPY or more | Major supporter   | May be listed as a major supporter if requested                   |
+
+Support does not guarantee:
+
+* feature implementation
+* bug fixes
+* private support
+* priority support
+* special permissions
+* account support
+
+Supporter names are only listed with permission.
+
+Payment details such as PayPay links or QR codes should be documented carefully and should not expose private information.
+
+---
+
+## Security and Privacy
+
+Vyline should never expose sensitive data unnecessarily.
+
+Do not log or expose:
+
+* raw MID values
+* tokens
+* sessions
+* cookies
+* private keys
+* local user paths
+* message contents in debug logs
+* account identifiers without need
+* plugin private data
+* backup private data
+
+Plugins must use permission-scoped APIs.
+
+Account data must remain separated.
+
+Multi-account data mixing is a serious bug.
+
+---
+
+## Disclaimer
+
+Vyline is an independent third-party client project.
+
+Vyline is not affiliated with, endorsed by, or sponsored by LY Corporation or LINE.
+
+Use this project at your own risk.
+
+The maintainers are not responsible for account issues, data loss, service restrictions, or damages caused by using this software.
+
+If there is a problem with content in this repository, please contact the maintainer.
 
 ---
 
 ## License
 
-MIT — see [LICENSE](LICENSE)
+MIT License.
 
-**著作権**: [`nezumi0627`](https://github.com/nezumi0627)
-改変・再配布・記事・投稿等では出典表示をお願いします（詳細は [LICENSE](LICENSE) の Attribution requirement を参照）。
+See `LICENSE` for details.

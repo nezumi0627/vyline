@@ -97,6 +97,21 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ---
 
+## Skill 方針（必須）
+
+大規模タスク（監査・リファクタ・API設計・plugin実装・docs整理）の前に、以下の skill を確認し使用する。
+
+| Skill | 用途 |
+|---|---|
+| `ponytail` / `ponytail-*` | YAGNI・最小実装・再利用優先（既定の思考モード） |
+| `caveman` / `caveman-compress` | 報告の圧縮のみ（コード/OpenAPI/YAML/docs本文には適用しない） |
+| `agent-skills-standard` 系 | 必要なときだけ必要な skill を階層ロード（一括読込禁止） |
+| `api-and-interface-design` など addyosmani/agent-skills 系 | 本番級レビュー・perf・API 設計（必要時のみ） |
+| `minimize-cursor-cost` (~/.agents/skills) | 再読込禁止・並列ツール呼び出し・無駄検証禁止 |
+
+優先順位: ユーザー指示 > セキュリティ > プライバシー > データ保護 > 既存機能互換 > 実リポジトリ挙動 > テスト結果 > Ponytail > 各skill推奨 > トークン削減。
+
+大型タスク開始時は最初の報告に Skill Bootstrap 表を含めること。
 ## 開発哲学 (最重要)
 
 **最大反復速度 (Maximum Iteration Speed)** を最優先とする。
