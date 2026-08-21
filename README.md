@@ -14,6 +14,9 @@
   <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square" />
 </p>
 
+
+<p align="center">このさんさんとした太陽の下、Vyline を選んでくださるユーザーに出会えたことに感謝します。</p>
+
 <p align="center">
   <a href="#vyline-とは">概要</a> ・
   <a href="#主な機能">機能</a> ・
