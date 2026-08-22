@@ -313,10 +313,14 @@ function Highlighted({
 }
 
 function replySnippet(m: Message): string {
-  if (m.revoked) return "取り消されたメッセージ";
+  if (m.messageState.startsWith("revoked")) {
+    if (m.revokedSnapshot) return `取り消し済み: ${replySnippet(m.revokedSnapshot)}`;
+    return "取り消し済みのメッセージ";
+  }
   if (m.kind === "image") return "写真";
   if (m.kind === "video") return "動画";
   if (m.kind === "audio") return "音声";
+  if (m.kind === "file") return m.file?.name || "ファイル";
   if (m.kind === "sticker") return "スタンプ";
   if (m.kind === "emoji") return "絵文字";
   if (m.kind === "flex" || m.kind === "rich") return m.altText || m.text || "カード";
@@ -327,11 +331,18 @@ function replySnippet(m: Message): string {
 }
 
 /** スタンプ URL（/api/cdn/line?u=...android/sticker.png）→ アニメ版 URL */
-function stickerAnimationUrl(url: string): string {
+function stickerAnimationUrl(url?: string): string {
+  if (!url) return "";
   let u = decodeURIComponent(url);
   u = u.replace(/\/sticker\.png$/, "/sticker_animation.png").replace(/\/android\//, "/ANDROID/");
   if (u.startsWith("http")) u = `/api/cdn/line?u=${encodeURIComponent(u)}`;
   return u;
+}
+
+function isStickerImageSrc(src?: string): boolean {
+  return Boolean(
+    src && (src.startsWith("http") || src.startsWith("/api/") || src.startsWith("data:")),
+  );
 }
 
 // MessageReactionType → 表示絵文字（LINE 公式: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7）
@@ -447,17 +458,21 @@ export const MessageBubble = memo(
     showAvatar,
     showName,
     highlight,
+    mediaGroup,
   }: {
     message: Message;
     chat: Chat;
     showAvatar: boolean;
     showName: boolean;
     highlight?: string;
+    mediaGroup?: Message[];
   }) {
     const isMe = message.authorId === "me";
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
     const revokeMessage = useStore((s) => s.revokeMessage);
+    const restoreRevokedMessage = useStore((s) => s.restoreRevokedMessage);
+    const fetchMessageHistory = useStore((s) => s.fetchMessageHistory);
     const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
@@ -474,11 +489,83 @@ export const MessageBubble = memo(
     const [editing, setEditing] = useState(false);
     const [showOriginal, setShowOriginal] = useState(false);
     const [showReaders, setShowReaders] = useState(false);
+    const [showHistory, setShowHistory] = useState(false);
+    const [history, setHistory] = useState<NonNullable<Message["history"]>>([]);
+    const [historyLoading, setHistoryLoading] = useState(false);
     const [lightbox, setLightbox] = useState(false);
+    const [revokedFallbackText, setRevokedFallbackText] = useState<string | null>(null);
+    const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
+    const isRevoked =
+      message.messageState.startsWith("revoked") ||
+      Boolean(message.revokedSnapshot) ||
+      Boolean(
+        message.history?.length &&
+          message.history.some(
+            (h) => h.state === "normal" || h.state === "edited" || h.contentType === "UNSENT",
+          ),
+      );
+    const displayMessage = isRevoked && message.revokedSnapshot ? message.revokedSnapshot : message;
+    const revokedHistoryText =
+      message.history && message.history.length > 0
+        ? ([...message.history]
+            .reverse()
+            .find((h) => h.state === "normal" || h.state === "edited")
+            ?.text?.trim() ?? null)
+        : null;
+    const revokedBodyText =
+      revokedFallbackText ?? revokedHistoryText ?? displayMessage.text?.trim() ?? null;
+    const revokedDisplayMessage =
+      displayMessage.kind === "text" ||
+      displayMessage.kind === "emoji" ||
+      displayMessage.kind === "system"
+        ? {
+            ...displayMessage,
+            text: revokedBodyText || "（内容なし）",
+          }
+        : displayMessage;
+
+    useEffect(() => {
+      let cancelled = false;
+      if (!isRevoked) {
+        setRevokedFallbackText(null);
+        return () => {
+          cancelled = true;
+        };
+      }
+      const snapshotText = message.revokedSnapshot?.text?.trim();
+      if (snapshotText) {
+        setRevokedFallbackText(null);
+        return () => {
+          cancelled = true;
+        };
+      }
+      void (async () => {
+        try {
+          const history = await fetchMessageHistory(message.chatId, message.id);
+          const last = [...(history ?? [])]
+            .reverse()
+            .find((h) => h.state === "normal" || h.state === "edited");
+          if (!cancelled) setRevokedFallbackText(last?.text ?? null);
+        } catch {
+          if (!cancelled) setRevokedFallbackText(null);
+        }
+      })();
+      return () => {
+        cancelled = true;
+      };
+    }, [
+      fetchMessageHistory,
+      message.chatId,
+      message.id,
+      message.messageState,
+      isRevoked,
+      message.revokedSnapshot?.text,
+    ]);
 
     const author = chat.members?.find((m) => m.id === message.authorId);
+    const mediaItems = mediaGroup?.filter((item) => item.kind === "image" && item.imageSrc) ?? [];
     const repliedAuthor =
       replied?.authorId === "me"
         ? self.name
@@ -494,7 +581,7 @@ export const MessageBubble = memo(
     }
 
     function onTouchStart(e: React.TouchEvent) {
-      if (message.revoked) return;
+      if (isRevoked) return;
       const t = e.touches[0];
       longPressFired.current = false;
       longPressTimer.current = setTimeout(() => {
@@ -638,7 +725,7 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(message.kind === "sticker" && message.sticker?.startsWith("/api/")
+      ...(message.kind === "sticker" && isStickerImageSrc(message.sticker)
         ? [
             {
               label: "ダウンロード",
@@ -691,7 +778,7 @@ export const MessageBubble = memo(
           ]
         : []),
       ...(isMe &&
-      !message.revoked &&
+      !isRevoked &&
       message.kind === "text" &&
       message.status !== "sending" &&
       !message.id.startsWith("pending_")
@@ -712,10 +799,34 @@ export const MessageBubble = memo(
             },
           ]
         : []),
+      ...(message.history && message.history.length > 0
+        ? [
+            {
+              label: "履歴を表示",
+              icon: <IconChevron size={16} />,
+              onClick: async () => {
+                setHistoryLoading(true);
+                setShowHistory(true);
+                const h = await useStore.getState().fetchMessageHistory(message.chatId, message.id);
+                setHistory(h ?? []);
+                setHistoryLoading(false);
+              },
+            },
+          ]
+        : []),
       ...(isMe &&
-      !message.revoked &&
-      message.status !== "sending" &&
-      !message.id.startsWith("pending_")
+      isRevoked &&
+      message.authorId === "me" &&
+      (message.revokedSnapshot || (message.history && message.history.length > 0))
+        ? [
+            {
+              label: "復元",
+              icon: <IconCheck size={16} />,
+              onClick: () => restoreRevokedMessage(message.chatId, message.id),
+            },
+          ]
+        : []),
+      ...(isMe && !isRevoked && message.status !== "sending" && !message.id.startsWith("pending_")
         ? [
             {
               label: "送信を取り消し",
@@ -725,7 +836,7 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(chat.type === "group" && (message.text || message.altText)
+      ...(chat.type === "group" && !isRevoked && (message.text || message.altText)
         ? [
             {
               label: "アナウンスを追加",
@@ -739,7 +850,7 @@ export const MessageBubble = memo(
     const isMessageEdited = message.edited || Boolean(message.originalText);
 
     const readReceipt = (() => {
-      if (!isMe || message.revoked) return null;
+      if (!isMe || isRevoked) return null;
       if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
       if (message.status === "failed")
         return (
@@ -786,11 +897,11 @@ export const MessageBubble = memo(
       readers.length > 0 &&
       message.read;
 
-    if (message.kind === "call" && !message.revoked) {
+    if (message.kind === "call" && !isRevoked) {
       return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
     }
 
-    if (message.kind === "system" && !message.revoked) {
+    if (message.kind === "system" && !isRevoked) {
       return (
         <div className="my-1 flex w-full justify-center px-1">
           <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-3 py-1 text-center text-[0.7rem] text-[var(--vy-text-dim)]">
@@ -800,7 +911,7 @@ export const MessageBubble = memo(
       );
     }
 
-    const metaLine = !message.revoked && (
+    const metaLine = !isRevoked && (
       <div
         className={cn(
           "mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
@@ -884,6 +995,243 @@ export const MessageBubble = memo(
       />
     );
 
+    const renderBubbleContent = (target: Message) => {
+      if (target.kind === "call") {
+        return <CallEventMessage meta={target.callMeta} isMe={target.authorId === "me"} />;
+      }
+
+      if (target.kind === "system") {
+        return (
+          <div className="my-1 flex w-full justify-center px-1">
+            <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-3 py-1 text-center text-[0.7rem] text-[var(--vy-text-dim)]">
+              {target.text || "システムメッセージ"}
+            </span>
+          </div>
+        );
+      }
+
+      if (target.kind === "sticker") {
+        return (
+          <div
+            className={cn(
+              "vy-pop-in cursor-default",
+              target.stickerSticky && "relative flex w-full justify-center py-2",
+            )}
+            aria-label="スタンプ"
+          >
+            {target.stickerSticky && (
+              <span className="absolute -top-1 left-1 rounded-full bg-[color-mix(in_oklab,var(--vy-text)_15%,transparent)] px-1.5 py-0.5 text-[0.6rem] text-[var(--vy-text-dim)]">
+                くっつき
+              </span>
+            )}
+            {isStickerImageSrc(target.sticker) ? (
+              <img
+                src={target.stickerAnimated ? stickerAnimationUrl(target.sticker) : target.sticker}
+                alt="スタンプ"
+                onError={hideBrokenMedia}
+                className={cn("h-32 w-32 object-contain", target.stickerSticky && "drop-shadow-md")}
+                draggable={false}
+              />
+            ) : (
+              <span className="text-7xl leading-none">{target.sticker || "🎴"}</span>
+            )}
+          </div>
+        );
+      }
+
+      if (target.kind === "emoji") {
+        return (
+          <div className="vy-pop-in cursor-default text-6xl leading-none" aria-label="絵文字">
+            {target.sticons?.length ? (
+              <Highlighted
+                text={target.text ?? ""}
+                sticons={target.sticons}
+                mentions={target.mentions}
+              />
+            ) : (
+              target.text
+            )}
+          </div>
+        );
+      }
+
+      if (target.kind === "flex") {
+        return target.flexJson ? (
+          <FlexMessageView container={target.flexJson} altText={target.altText || target.text} />
+        ) : (
+          <div className="rounded-xl bg-white px-3 py-2 text-sm text-neutral-700 shadow-sm">
+            {target.altText || "Flexメッセージ"}
+          </div>
+        );
+      }
+
+      if (target.kind === "rich") {
+        return (
+          <RichMessageView
+            imageUrl={target.richImageUrl}
+            markup={target.richMarkup}
+            altText={target.altText || target.text}
+          />
+        );
+      }
+
+      if (target.kind === "location") {
+        return (
+          <div className="vy-msg-enter max-w-[280px] overflow-hidden rounded-msg shadow-sm">
+            {target.location?.latitude != null && target.location?.longitude != null ? (
+              <a
+                href={`https://www.google.com/maps/search/?api=1&query=${target.location.latitude},${target.location.longitude}`}
+                target="_blank"
+                rel="noreferrer"
+                className="block h-32 w-full bg-cover bg-center"
+                style={{
+                  backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=${target.location.latitude},${target.location.longitude}&zoom=15&size=280x128&markers=color:red%7C${target.location.latitude},${target.location.longitude}&key=)`,
+                }}
+                aria-label="地図を開く"
+              />
+            ) : null}
+            <div className="bg-[var(--vy-msg-in)] px-3 py-2 text-[var(--vy-msg-in-text)]">
+              <p className="flex items-center gap-1.5 text-sm font-semibold">
+                <IconPin size={15} /> {target.location?.title || "位置情報"}
+              </p>
+              {target.location?.address && (
+                <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+                  {target.location.address}
+                </p>
+              )}
+              {target.location?.latitude != null && target.location?.longitude != null && (
+                <a
+                  href={`https://www.google.com/maps/search/?api=1&query=${target.location.latitude},${target.location.longitude}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="mt-1 inline-block text-xs font-medium"
+                  style={{ color: "var(--vy-accent)" }}
+                >
+                  地図を開く
+                </a>
+              )}
+            </div>
+          </div>
+        );
+      }
+
+      if (target.kind === "contact") {
+        return (
+          <div className="vy-msg-enter w-[240px] overflow-hidden rounded-msg shadow-sm">
+            <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
+              {target.contact?.thumbnailUrl ? (
+                <img
+                  src={target.contact.thumbnailUrl}
+                  alt=""
+                  onError={hideBrokenMedia}
+                  className="h-11 w-11 rounded-full object-cover"
+                />
+              ) : (
+                <span className="flex h-11 w-11 items-center justify-center rounded-full bg-[var(--vy-accent)] text-lg font-bold text-white">
+                  {(target.contact?.name || "?").charAt(0).toUpperCase()}
+                </span>
+              )}
+              <div className="min-w-0">
+                <p className="truncate text-sm font-semibold">{target.contact?.name || "連絡先"}</p>
+                <p className="text-[0.65rem] text-[var(--vy-text-dim)]">連絡先が共有されました</p>
+              </div>
+            </div>
+          </div>
+        );
+      }
+
+      return (
+        <div
+          className={cn(
+            "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+          )}
+          style={{
+            background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
+            color: isMe ? "var(--vy-msg-out-text)" : "var(--vy-msg-in-text)",
+            borderTopRightRadius: isMe && settings.bubbleTail ? 6 : undefined,
+            borderTopLeftRadius: !isMe && settings.bubbleTail ? 6 : undefined,
+          }}
+        >
+          {replyQuote}
+          {(target.kind === "image" || target.kind === "video") &&
+            target.imageSrc &&
+            (streamerMode ? (
+              <SpoilerMedia
+                src={target.imageSrc}
+                alt={target.kind === "video" ? "動画サムネイル" : "送信された画像"}
+                video={target.kind === "video"}
+              />
+            ) : (
+              <button
+                type="button"
+                className="group relative block overflow-hidden rounded-xl text-left"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setLightbox(true);
+                }}
+                aria-label={target.kind === "video" ? "動画を拡大" : "画像を拡大"}
+              >
+                {target.kind === "video" ? (
+                  <div className="relative">
+                    <img
+                      src={target.imageSrc}
+                      alt="動画サムネイル"
+                      onError={hideBrokenMedia}
+                      className="h-auto w-[260px] max-w-full object-cover"
+                    />
+                    <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
+                        <IconPlay size={22} />
+                      </span>
+                    </span>
+                  </div>
+                ) : (
+                  <img
+                    src={target.imageSrc}
+                    alt="送信された画像"
+                    onError={hideBrokenMedia}
+                    className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
+                  />
+                )}
+              </button>
+            ))}
+          {target.kind === "audio" && target.audioSrc && (
+            <AudioBubble src={target.audioSrc} seconds={target.audioSeconds} />
+          )}
+          {target.kind === "text" && (
+            <div>
+              {showOriginal && target.originalText && (
+                <div className="mb-1 flex items-center justify-between border-b border-current/15 pb-1 text-[0.65rem] opacity-70">
+                  <span>編集前のメッセージ</span>
+                  <button
+                    type="button"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowOriginal(false);
+                    }}
+                    className="underline hover:opacity-100"
+                  >
+                    戻す
+                  </button>
+                </div>
+              )}
+              <p className="vy-msg-text whitespace-pre-wrap break-words">
+                <Highlighted
+                  text={
+                    showOriginal && target.originalText ? target.originalText : (target.text ?? "")
+                  }
+                  query={highlight}
+                  sticons={target.sticons}
+                  mentions={target.mentions}
+                />
+              </p>
+            </div>
+          )}
+          {target.linkPreview && !streamerMode && <LinkPreviewCard preview={target.linkPreview} />}
+        </div>
+      );
+    };
+
     return (
       <div className={cn("flex w-full gap-2 px-1", isMe ? "flex-row-reverse" : "flex-row")}>
         {!isMe && chat.type === "group" && (
@@ -926,14 +1274,41 @@ export const MessageBubble = memo(
             </button>
           )}
 
-          {message.revoked ? (
+          {isRevoked ? (
             <div
-              className="rounded-2xl border border-dashed px-4 py-2 text-sm italic opacity-70"
-              style={{ borderColor: "var(--vy-border)" }}
+              className={cn(
+                "relative overflow-hidden rounded-msg border border-dashed px-3 py-2.5 shadow-sm",
+                isRevoked && message.authorId === "me"
+                  ? "bg-[color-mix(in_oklab,var(--vy-accent)_7%,transparent)]"
+                  : "bg-[color-mix(in_oklab,var(--vy-text)_5%,var(--vy-surface-2))]",
+              )}
+              style={{
+                borderColor:
+                  isRevoked && message.authorId === "me"
+                    ? "color-mix(in oklab, var(--vy-accent) 55%, transparent)"
+                    : "var(--vy-border)",
+              }}
             >
-              {isMe
-                ? "あなたがメッセージの送信を取り消しました"
-                : "メッセージの送信が取り消されました"}
+              <span
+                className={cn(
+                  "absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[0.62rem] font-semibold tracking-wide",
+                  isRevoked && message.authorId === "me"
+                    ? "border-[color-mix(in_oklab,var(--vy-accent)_50%,transparent)] bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
+                    : "border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] text-[var(--vy-text-dim)]",
+                )}
+              >
+                取り消し済み
+              </span>
+              <div className="pr-16">{renderBubbleContent(revokedDisplayMessage)}</div>
+              <div className="mt-2 flex items-center gap-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
+                <IconTrash className="h-3.5 w-3.5 shrink-0 opacity-80" />
+                <span>{formatTime(message.createdAt)}</span>
+                <span className="opacity-70">
+                  {isRevoked && message.authorId === "me"
+                    ? "あなたが送信を取り消しました"
+                    : "送信が取り消されました"}
+                </span>
+              </div>
             </div>
           ) : message.kind === "sticker" ? (
             <button
@@ -951,11 +1326,14 @@ export const MessageBubble = memo(
                   くっつき
                 </span>
               )}
-              {message.sticker &&
-              (message.sticker.startsWith("http") || message.sticker.startsWith("/api/")) ? (
+              {isStickerImageSrc(message.sticker) ? (
                 <img
                   src={
-                    message.stickerAnimated ? stickerAnimationUrl(message.sticker) : message.sticker
+                    message.sticker
+                      ? message.stickerAnimated
+                        ? stickerAnimationUrl(message.sticker)
+                        : message.sticker
+                      : ""
                   }
                   alt="スタンプ"
                   onError={hideBrokenMedia}
@@ -966,7 +1344,7 @@ export const MessageBubble = memo(
                   draggable={false}
                 />
               ) : (
-                <span className="text-7xl leading-none">{message.sticker || "🎴"}</span>
+                <span className="text-7xl leading-none">{message.sticker || "🧩"}</span>
               )}
             </button>
           ) : message.kind === "emoji" ? (
@@ -1022,12 +1400,11 @@ export const MessageBubble = memo(
                   href={`https://www.google.com/maps/search/?api=1&query=${message.location.latitude},${message.location.longitude}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="block h-32 w-full bg-cover bg-center"
-                  style={{
-                    backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=${message.location.latitude},${message.location.longitude}&zoom=15&size=280x128&markers=color:red%7C${message.location.latitude},${message.location.longitude}&key=)`,
-                  }}
+                  className="flex h-20 w-full items-center justify-center bg-[var(--vy-accent)]/10 text-2xl"
                   aria-label="地図を開く"
-                />
+                >
+                  🗺️
+                </a>
               ) : null}
               <div className="bg-[var(--vy-msg-in)] px-3 py-2 text-[var(--vy-msg-in-text)]">
                 <p className="flex items-center gap-1.5 text-sm font-semibold">
@@ -1047,6 +1424,42 @@ export const MessageBubble = memo(
                     style={{ color: "var(--vy-accent)" }}
                   >
                     地図を開く
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : message.kind === "file" ? (
+            <div
+              {...pressHandlers}
+              className="vy-msg-enter w-[260px] overflow-hidden rounded-msg shadow-sm"
+            >
+              {replyQuote}
+              <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--vy-accent)]/15 text-xl">
+                  📄
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">
+                    {message.file?.name || "ファイル"}
+                  </p>
+                  {message.file?.size != null && (
+                    <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                      {message.file.size > 1024 * 1024
+                        ? `${(message.file.size / 1024 / 1024).toFixed(1)} MB`
+                        : `${Math.max(1, Math.round(message.file.size / 1024))} KB`}
+                    </p>
+                  )}
+                </div>
+                {useStore.getState().accountId && (
+                  <a
+                    href={`/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
+                    download={message.file?.name || true}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="ダウンロード"
+                    className="shrink-0 rounded-md p-1.5 hover:bg-black/10"
+                    style={{ color: "var(--vy-accent)" }}
+                  >
+                    ⬇
                   </a>
                 )}
               </div>
@@ -1092,7 +1505,49 @@ export const MessageBubble = memo(
               }}
             >
               {replyQuote}
-              {(message.kind === "image" || message.kind === "video") &&
+              {mediaItems.length > 1 && !streamerMode && (
+                <div
+                  className={cn(
+                    "grid overflow-hidden rounded-xl",
+                    mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
+                  )}
+                >
+                  {mediaItems.map((item) => (
+                    <button
+                      key={item.id}
+                      type="button"
+                      className="group relative aspect-square overflow-hidden bg-black/5"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setLightboxMedia(item);
+                        setLightbox(true);
+                      }}
+                      aria-label="画像を拡大"
+                    >
+                      <img
+                        src={item.imageSrc}
+                        alt="送信された画像"
+                        onError={hideBrokenMedia}
+                        className="h-full w-full object-cover transition-opacity group-hover:opacity-95"
+                      />
+                    </button>
+                  ))}
+                </div>
+              )}
+              {mediaItems.length > 1 && streamerMode && (
+                <div
+                  className={cn(
+                    "grid gap-1",
+                    mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
+                  )}
+                >
+                  {mediaItems.map((item) => (
+                    <SpoilerMedia key={item.id} src={item.imageSrc!} alt="送信された画像" />
+                  ))}
+                </div>
+              )}
+              {mediaItems.length <= 1 &&
+                (message.kind === "image" || message.kind === "video") &&
                 message.imageSrc &&
                 (streamerMode ? (
                   <SpoilerMedia
@@ -1106,6 +1561,7 @@ export const MessageBubble = memo(
                     className="group relative block overflow-hidden rounded-xl text-left"
                     onClick={(e) => {
                       e.stopPropagation();
+                      setLightboxMedia(message);
                       setLightbox(true);
                     }}
                     aria-label={message.kind === "video" ? "動画を拡大" : "画像を拡大"}
@@ -1134,10 +1590,10 @@ export const MessageBubble = memo(
                     )}
                   </button>
                 ))}
-              {message.kind === "audio" && message.audioSrc && (
+              {mediaItems.length <= 1 && message.kind === "audio" && message.audioSrc && (
                 <AudioBubble src={message.audioSrc} seconds={message.audioSeconds} />
               )}
-              {message.kind === "text" && (
+              {mediaItems.length <= 1 && message.kind === "text" && (
                 <div>
                   {showOriginal && message.originalText && (
                     <div className="mb-1 flex items-center justify-between border-b border-current/15 pb-1 text-[0.65rem] opacity-70">
@@ -1176,7 +1632,7 @@ export const MessageBubble = memo(
 
           {metaLine}
           {readerList}
-          {message.reactions && message.reactions.length > 0 && !message.revoked && (
+          {message.reactions && message.reactions.length > 0 && !isRevoked && (
             <ReactionBadges
               reactions={message.reactions}
               myMid={self?.mid ?? ""}
@@ -1203,12 +1659,60 @@ export const MessageBubble = memo(
             onClose={() => setEditing(false)}
           />
         )}
-        {lightbox && message.imageSrc && (
+        {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
           <MediaLightbox
-            src={message.imageSrc}
-            kind={message.kind === "video" ? "video" : "image"}
+            src={(lightboxMedia?.imageSrc ?? message.imageSrc)!}
+            kind={(lightboxMedia?.kind ?? message.kind) === "video" ? "video" : "image"}
             onClose={() => setLightbox(false)}
           />
+        )}
+        {showHistory && (
+          <div
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setShowHistory(false);
+            }}
+          >
+            <div className="max-h-[80vh] w-[360px] overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-xl">
+              <div className="mb-3 flex items-center justify-between">
+                <h3 className="text-sm font-semibold">メッセージ履歴</h3>
+                <button
+                  type="button"
+                  onClick={() => setShowHistory(false)}
+                  className="rounded p-1 hover:bg-[var(--vy-surface-2)]"
+                >
+                  ✕
+                </button>
+              </div>
+              {historyLoading && <p className="text-xs text-[var(--vy-text-dim)]">読み込み中...</p>}
+              {!historyLoading && history.length === 0 && (
+                <p className="text-xs text-[var(--vy-text-dim)]">履歴がありません</p>
+              )}
+              {!historyLoading &&
+                history.map((entry, i) => (
+                  <div
+                    key={i}
+                    className="mb-2 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2.5"
+                  >
+                    <div className="mb-1 flex items-center gap-2 text-[0.65rem] text-[var(--vy-text-dim)]">
+                      <span className="rounded bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-1.5 py-0.5">
+                        {entry.state === "normal"
+                          ? "通常"
+                          : entry.state === "edited"
+                            ? "編集済み"
+                            : entry.state === "revoked-by-other"
+                              ? "相手が削除"
+                              : "自分が削除"}
+                      </span>
+                      <span>{new Date(entry.updatedTime).toLocaleString()}</span>
+                    </div>
+                    <p className="whitespace-pre-wrap break-words text-sm">
+                      {entry.text ?? <span className="italic opacity-60">（なし）</span>}
+                    </p>
+                  </div>
+                ))}
+            </div>
+          </div>
         )}
       </div>
     );

@@ -1,5 +1,0 @@
-Get-ChildItem: 
-Line |
-   4 |  ls "E:\projects\Vyline\Vyline\backend\src\auth\" 2>null || ls "E:\pro …
-     |  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-     | Cannot find path 'E:\projects\Vyline\Vyline\backend\src\auth\' because it does not exist.

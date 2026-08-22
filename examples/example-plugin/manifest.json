@@ -1,0 +1,7 @@
+{
+  "id": "example-plugin",
+  "name": "Example Plugin",
+  "version": "0.1.0",
+  "description": "受信メッセージをコンソールに記録する最小サンプル",
+  "permissions": ["messages:read"]
+}

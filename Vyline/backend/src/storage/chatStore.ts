@@ -9,8 +9,15 @@ import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import type { Chat, Message, MessageContentMeta, MessageReaction } from "@vyline/types";
+import type {
+  Chat,
+  Message,
+  MessageContentMeta,
+  MessageReaction,
+  MessageSnapshot,
+} from "@vyline/types";
 import { childLogger } from "../logger.js";
+import { accountFile, readAccountJson } from "./accountDirs.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -19,6 +26,8 @@ const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
+/** チャットあたりの保持上限。無制限保存はメモリ・ディスク・全体書き込みを肥大させるため抑止 */
+const MAX_MESSAGES_PER_CHAT_DB = Number(process.env.VYLINE_CHATDB_MAX_MSGS_PER_CHAT ?? 500);
 
 export interface StoredChat {
   mid: string;
@@ -52,6 +61,9 @@ export interface StoredMessage {
   stickerSticky?: boolean;
   reactions?: MessageReaction[];
   savedAt: string;
+  messageState?: Message["messageState"];
+  history?: Message["history"];
+  revokedSnapshot?: MessageSnapshot;
 }
 
 interface ChatDbMeta {
@@ -75,8 +87,9 @@ const dirty = new Set<string>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function dbPath(accountId: string): string {
-  return join(DATA_DIR, `chatdb-${accountId}.json`);
+  return accountFile(accountId, "chatdb.json");
 }
+const legacyDbPath = (accountId: string) => join(DATA_DIR, `chatdb-${accountId}.json`);
 
 function emptyDb(): ChatDb {
   return { meta: {}, chats: {}, messages: {} };
@@ -91,6 +104,18 @@ async function ensureDataDir(): Promise<void> {
 async function loadDbFromDisk(accountId: string): Promise<ChatDb> {
   await ensureDataDir();
   const path = dbPath(accountId);
+  const legacy = await readAccountJson<Partial<ChatDb>>(
+    accountId,
+    "chatdb.json",
+    legacyDbPath(accountId),
+  );
+  if (legacy) {
+    return {
+      meta: legacy.meta ?? {},
+      chats: legacy.chats ?? {},
+      messages: legacy.messages ?? {},
+    };
+  }
   if (!existsSync(path)) return emptyDb();
   try {
     const raw = await readFile(path, "utf-8");
@@ -112,6 +137,20 @@ async function getDb(accountId: string): Promise<ChatDb> {
   const db = await loadDbFromDisk(accountId);
   memory.set(accountId, db);
   return db;
+}
+
+function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
+  const {
+    savedAt: _savedAt,
+    history: _history,
+    revokedSnapshot: _revokedSnapshot,
+    messageState,
+    ...snapshot
+  } = stored;
+  return {
+    ...snapshot,
+    ...(messageState != null ? { messageState } : {}),
+  };
 }
 
 function scheduleSave(accountId: string): void {
@@ -168,9 +207,34 @@ export async function upsertMessages(
   const db = await getDb(accountId);
   const byChat = db.messages[chatMid] ?? {};
   for (const message of messages) {
-    byChat[message.id] = message;
+    const prev = byChat[message.id];
+    const prevRevoked =
+      Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
+    const incomingRevoked =
+      Boolean(message.revokedSnapshot) || Boolean(message.messageState?.startsWith("revoked"));
+    const next: StoredMessage = {
+      ...message,
+      history: prev?.history?.length ? prev.history : message.history,
+    };
+    const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
+    if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
+    if (prevRevoked && !incomingRevoked) {
+      next.messageState =
+        prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
+      next.contentType = prev ? prev.contentType : message.contentType;
+      next.text = prev ? prev.text : message.text;
+    }
+    byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
+  // 上限を超えたら古いものから落とす（全ファイル書き換えコストの抑止）
+  const ids = Object.keys(byChat);
+  if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
+    const drop = ids
+      .sort((a, b) => (byChat[a]?.createdTime ?? 0) - (byChat[b]?.createdTime ?? 0))
+      .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
+    for (const id of drop) delete byChat[id];
+  }
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
   scheduleSave(accountId);
@@ -185,9 +249,76 @@ export async function markMessageRevoked(
   const db = await getDb(accountId);
   const stored = db.messages[chatMid]?.[messageId];
   if (!stored) return;
+  stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
+  const prevState = stored.messageState ?? "normal";
+  const entry = {
+    state: prevState,
+    text: stored.text,
+    contentType: stored.contentType,
+    updatedTime: Date.now(),
+  };
+
+  stored.messageState = stored.isMyMessage ? "revoked-by-self" : "revoked-by-other";
+  stored.history = [...(stored.history ?? []), entry];
   stored.contentType = "UNSENT";
   stored.text = null;
   scheduleSave(accountId);
+}
+
+/** 取消し済みメッセージを元に戻す（ローカル永続化）。LINE サーバー側は元に戻せないため chatStore のみ更新 */
+export async function restoreRevokedMessage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<{ text: string | null; contentType: string } | null> {
+  const db = await getDb(accountId);
+  const stored = db.messages[chatMid]?.[messageId];
+  if (!stored) return null;
+  const snapshot = stored.revokedSnapshot;
+  const lastNormal = stored.history?.length
+    ? [...stored.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
+    : undefined;
+  if (!snapshot && !lastNormal) return null;
+  const restoredText = snapshot?.text ?? lastNormal?.text ?? null;
+  const restoredContentType =
+    snapshot?.contentType ?? lastNormal?.contentType ?? stored.contentType;
+  const entry = {
+    state: "normal" as const,
+    text: stored.text,
+    contentType: stored.contentType,
+    updatedTime: Date.now(),
+  };
+  stored.messageState = (snapshot?.messageState ??
+    lastNormal?.state ??
+    "normal") as Message["messageState"];
+  stored.history = [...(stored.history ?? []), entry];
+  if (snapshot) stored.revokedSnapshot = snapshot;
+  stored.text = restoredText;
+  stored.contentType = restoredContentType;
+  if (snapshot) {
+    if (snapshot.contentMetadata !== undefined) stored.contentMetadata = snapshot.contentMetadata;
+    if (snapshot.readCount !== undefined) stored.readCount = snapshot.readCount;
+    if (snapshot.readBy !== undefined) stored.readBy = snapshot.readBy;
+    if (snapshot.seen !== undefined) stored.seen = snapshot.seen;
+    if (snapshot.relatedMessageId !== undefined) {
+      stored.relatedMessageId = snapshot.relatedMessageId;
+    }
+    if (snapshot.stickerAnimated !== undefined) stored.stickerAnimated = snapshot.stickerAnimated;
+    if (snapshot.stickerSticky !== undefined) stored.stickerSticky = snapshot.stickerSticky;
+    if (snapshot.reactions !== undefined) stored.reactions = snapshot.reactions;
+  }
+  scheduleSave(accountId);
+  return { text: restoredText, contentType: restoredContentType };
+}
+
+export async function getMessageHistory(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<Message["history"]> {
+  const db = await getDb(accountId);
+  const stored = db.messages[chatMid]?.[messageId];
+  return stored?.history ?? [];
 }
 
 export async function getMessages(
@@ -201,6 +332,18 @@ export async function getMessages(
   return Object.values(byChat)
     .sort((a, b) => b.createdTime - a.createdTime)
     .slice(0, limit);
+}
+
+export async function findStoredMessageById(
+  accountId: string,
+  messageId: string,
+): Promise<{ chatMid: string; message: StoredMessage } | null> {
+  const db = await getDb(accountId);
+  for (const [chatMid, messages] of Object.entries(db.messages)) {
+    const message = messages[messageId];
+    if (message) return { chatMid, message };
+  }
+  return null;
 }
 
 function storedChatToChat(stored: StoredChat): Chat {
@@ -229,7 +372,10 @@ function storedMessageToMessage(stored: StoredMessage): Message {
     createdTime: stored.createdTime,
     isMyMessage: stored.isMyMessage,
     contentMetadata: stored.contentMetadata ?? null,
+    messageState: stored.messageState ?? "normal",
   };
+  if (stored.history) msg.history = stored.history;
+  if (stored.revokedSnapshot) msg.revokedSnapshot = stored.revokedSnapshot;
   if (stored.readCount != null) msg.readCount = stored.readCount;
   if (stored.readBy) msg.readBy = stored.readBy;
   if (stored.seen != null) msg.seen = stored.seen;
@@ -325,13 +471,22 @@ export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promi
   scheduleSave(accountId);
 }
 
-/** VylineBackup: 全チャット・メッセージのディープコピーを返す */
+/** VylineBackup: コンテナだけコピーした参照スナップショットを返す。
+ * 個々のメッセージオブジェクトは不変扱いのため clone しない
+ * （全件 deep copy は DB サイズ分のメモリを一時的に 2〜3 重で消費していた） */
 export async function exportChatDb(accountId: string): Promise<ChatDb> {
   const db = await getDb(accountId);
+  const messages: ChatDb["messages"] = {};
+  for (const [chatMid, byChat] of Object.entries(db.messages)) {
+    messages[chatMid] = { ...byChat };
+  }
   return {
-    meta: JSON.parse(JSON.stringify(db.meta)) as ChatDbMeta,
-    chats: JSON.parse(JSON.stringify(db.chats)) as ChatDb["chats"],
-    messages: JSON.parse(JSON.stringify(db.messages)) as ChatDb["messages"],
+    meta: {
+      ...db.meta,
+      ...(db.meta.messagesSyncedAt ? { messagesSyncedAt: { ...db.meta.messagesSyncedAt } } : {}),
+    },
+    chats: { ...db.chats },
+    messages,
   };
 }
 

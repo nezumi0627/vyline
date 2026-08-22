@@ -157,7 +157,7 @@ export function useVylineSync(enabled = true) {
           m.authorId === "me" &&
           m.id &&
           !m.id.startsWith("pending_") &&
-          !m.revoked &&
+          !m.messageState.startsWith("revoked") &&
           now - m.createdAt < 15 * 60_000,
       );
     };
@@ -202,10 +202,15 @@ export function useVylineSync(enabled = true) {
       profile: line.profile
         ? {
             displayName: line.profile.displayName,
-
+            phoneticName: line.profile.phoneticName,
+            pictureStatus: line.profile.pictureStatus,
             statusMessage: line.profile.statusMessage,
-
             thumbnailUrl: line.profile.thumbnailUrl,
+            musicProfile: line.profile.musicProfile,
+            birthday: line.profile.birthday,
+            backgroundUrl: line.profile.backgroundUrl,
+            profileId: line.profile.profileId,
+            premium: line.profile.premium ?? null,
           }
         : null,
 

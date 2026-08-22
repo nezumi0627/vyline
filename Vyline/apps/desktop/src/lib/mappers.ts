@@ -1,9 +1,11 @@
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
 import { extractStickerId, lineStickerUrl } from "../utils/lineMedia.js";
+import { getCombinationStickerPreview } from "../utils/combinationStickers.js";
 import {
   contentTypeLabel,
   isAudioContent,
   isCallContent,
+  isFileContent,
   isContactContent,
   isImageContent,
   isLocationContent,
@@ -118,7 +120,9 @@ function messageStatus(m: LineMessage): MessageStatus {
     if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
     return "sent";
   }
-  return "read";
+  // For received messages, status depends on whether we've read it
+  if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
+  return "sent";
 }
 
 function messageKind(m: LineMessage): MessageKind {
@@ -131,6 +135,7 @@ function messageKind(m: LineMessage): MessageKind {
   if (isVideoContent(ct)) return "video";
   if (isImageContent(ct)) return "image";
   if (isAudioContent(ct)) return "audio";
+  if (isFileContent(ct)) return "file";
   if (isLocationContent(ct)) return "location";
   if (isContactContent(ct)) return "contact";
   if (isFlexContentType(ct)) return "flex";
@@ -226,8 +231,17 @@ export function mapMessage(
   _contactCache?: Map<string, ContactInfo>,
 ): Message {
   const kind = messageKind(m);
-  const revoked = m.contentType === "UNSENT" || m.contentType === "UNSEND";
+  const messageState =
+    m.messageState ??
+    (m.contentType === "UNSENT" || m.contentType === "UNSEND"
+      ? m.isMyMessage
+        ? "revoked-by-self"
+        : "revoked-by-other"
+      : "normal");
+  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
   const stickerId = extractStickerId(m.contentMetadata ?? null);
+  const comboStickerId =
+    typeof meta?.CSSTKID === "string" && meta.CSSTKID.trim() ? meta.CSSTKID.trim() : null;
   const authorId = m.isMyMessage ? "me" : m.from;
 
   let imageSrc: string | undefined;
@@ -239,7 +253,16 @@ export function mapMessage(
     audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
   }
 
-  const read = m.isMyMessage ? Boolean(m.seen || (m.readCount != null && m.readCount > 0)) : true;
+  const isPersonalChat = chatId.startsWith("u");
+  const read = m.isMyMessage
+    ? isPersonalChat
+      ? Boolean(m.seen)
+      : m.seen ||
+        (m.readCount != null && m.readCount > 0) ||
+        (m.seen === undefined && m.readCount === undefined)
+    : isPersonalChat
+      ? Boolean(m.seen)
+      : Boolean(m.seen) || (m.readCount != null && m.readCount > 0);
 
   let text = sanitizeText(m.text);
   if (kind === "system") {
@@ -256,10 +279,14 @@ export function mapMessage(
     }
   }
 
-  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
   const altText = altTextFromMeta(meta);
   if ((kind === "flex" || kind === "rich") && !text && altText) {
     text = altText;
+  }
+  // 未対応 contentType が空バブルになるのを防ぐ（FILE 等は専用 UI、その他はラベル表示）
+  const ctUpper = String(m.contentType ?? "").toUpperCase();
+  if (kind === "text" && !text && ctUpper !== "NONE" && ctUpper !== "0") {
+    text = `[${contentTypeLabel(m.contentType)}]`;
   }
   // Flex JSON が text に入っているときはバブルに出さない
   if (kind === "flex" && text?.startsWith("{") && /"type"\s*:/.test(text)) {
@@ -279,18 +306,38 @@ export function mapMessage(
       ? parseContactFromMeta(m.contentMetadata as Record<string, unknown> | null, text)
       : undefined;
 
+  const file =
+    kind === "file"
+      ? {
+          name:
+            typeof meta?.FILE_NAME === "string" && meta.FILE_NAME
+              ? meta.FILE_NAME
+              : (sanitizeText(m.text) ?? "ファイル"),
+          size: Number(meta?.FILE_SIZE) || undefined,
+        }
+      : undefined;
+
+  let stickerSrc: string | undefined;
+  if (kind === "sticker") {
+    // コンビネーション: CSSTKID → メッセージID の順でローカルプレビューを引く。
+    // 履歴レスポンスに CSSTKID が載らない場合でも、送信時に保存したプレビューで表示を維持する。
+    const comboPreview = comboStickerId
+      ? getCombinationStickerPreview(accountId, comboStickerId)
+      : null;
+    const preview = comboPreview ?? getCombinationStickerPreview(accountId, m.id);
+    if (preview) stickerSrc = preview;
+    else if (comboStickerId) stickerSrc = lineStickerUrl(comboStickerId);
+    else if (stickerId) stickerSrc = lineStickerUrl(stickerId);
+    else stickerSrc = "🧩";
+  }
+
   const result: Message = {
     id: m.id,
     chatId,
     authorId,
     kind,
     text,
-    sticker:
-      kind === "sticker" && stickerId
-        ? lineStickerUrl(stickerId)
-        : kind === "sticker"
-          ? "🎴"
-          : undefined,
+    sticker: stickerSrc,
     imageSrc,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
@@ -311,7 +358,7 @@ export function mapMessage(
     status: messageStatus(m),
     read,
     readBy: m.readBy,
-    revoked,
+    messageState,
     replyToId: m.relatedMessageId ?? undefined,
     reactions: m.reactions
       ?.filter((r) => Number.isFinite(r.type))
@@ -330,8 +377,13 @@ export function mapMessage(
       Boolean(m.originalText),
     editedAt: m.updatedTime != null && m.updatedTime > 0 ? m.updatedTime : undefined,
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
+    history: m.history?.length ? m.history : undefined,
+    ...(m.revokedSnapshot
+      ? { revokedSnapshot: mapMessage(m.revokedSnapshot, chatId, accountId, _contactCache) }
+      : {}),
     contact,
     location,
+    file,
   };
 
   // sticon のみの本文は emoji 扱いにして本家同等の大きさで表示

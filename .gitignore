@@ -76,3 +76,7 @@ tools/data/
 .cursor/
 .claude/
 .agents/skills/handoff/
+
+# ── Backend runtime caches (never commit) ────────────────────────
+Vyline/backend/storage/cache/
+Vyline/backend/storage/saved-media/

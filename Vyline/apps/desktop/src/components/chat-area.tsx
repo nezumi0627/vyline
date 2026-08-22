@@ -46,6 +46,7 @@ type MsgRow =
       key: string;
       kind: "msg";
       message: Message;
+      mediaGroup?: Message[];
       index: number;
       sameAuthorAsPrev: boolean;
       sameAuthorAsNext: boolean;
@@ -56,6 +57,21 @@ type MsgRow =
       highlight?: string;
     };
 
+function canGroupImageMessage(message: Message): boolean {
+  return message.kind === "image" && Boolean(message.imageSrc) && !message.replyToId;
+}
+
+function shouldGroupAdjacentImages(left: Message, right: Message): boolean {
+  return (
+    canGroupImageMessage(left) &&
+    canGroupImageMessage(right) &&
+    left.authorId === right.authorId &&
+    left.chatId === right.chatId &&
+    dayLabel(left.createdAt) === dayLabel(right.createdAt) &&
+    Math.abs(right.createdAt - left.createdAt) <= 30_000
+  );
+}
+
 export function ChatArea() {
   const activeChatId = useStore((s) => s.activeChatId);
   const chats = useStore((s) => s.chats);
@@ -65,7 +81,6 @@ export function ChatArea() {
   const profileOpen = useStore((s) => s.profileDrawerOpen);
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
-  const showBackground = useStore((s) => s.settings.showBackground);
   const theme = useStore((s) => s.theme);
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
@@ -160,40 +175,57 @@ export function ChatArea() {
     let lastDay = "";
     const searching = search.open && search.q.trim().length > 0;
     const q = search.q.trim();
-    chatMessages.forEach((m, i) => {
+    for (let i = 0; i < chatMessages.length; i++) {
+      const m = chatMessages[i]!;
       const dl = dayLabel(m.createdAt);
       if (dl !== lastDay) {
         lastDay = dl;
         out.push({ key: `day-${m.id}`, item: { key: `day-${m.id}`, kind: "day", label: dl } });
       }
       const prev = chatMessages[i - 1];
+      const mediaGroup = canGroupImageMessage(m) ? [m] : undefined;
+      if (mediaGroup) {
+        while (
+          i + 1 < chatMessages.length &&
+          shouldGroupAdjacentImages(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
+        ) {
+          mediaGroup.push(chatMessages[i + 1]!);
+          i++;
+        }
+      }
+      const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? m;
       const next = chatMessages[i + 1];
       const sameAuthorAsNext =
-        next && next.authorId === m.authorId && dayLabel(next.createdAt) === dl;
+        next && next.authorId === lastInRow.authorId && dayLabel(next.createdAt) === dl;
       const sameAuthorAsPrev =
         prev && prev.authorId === m.authorId && dayLabel(prev.createdAt) === lastDay;
+      const groupIds = mediaGroup?.map((item) => item.id) ?? [m.id];
       out.push({
         key: `msg-${m.id}`,
         item: {
           key: `msg-${m.id}`,
           kind: "msg",
           message: m,
+          mediaGroup: mediaGroup && mediaGroup.length > 1 ? mediaGroup : undefined,
           index: i,
           sameAuthorAsPrev: Boolean(sameAuthorAsPrev),
           sameAuthorAsNext: Boolean(sameAuthorAsNext),
-          isMatch: matches.includes(m.id),
-          isActive: m.id === activeMatchId,
-          flash: m.id === highlightMessageId,
+          isMatch: groupIds.some((id) => matches.includes(id)),
+          isActive: groupIds.includes(activeMatchId ?? ""),
+          flash: groupIds.includes(highlightMessageId ?? ""),
           searching,
           highlight: searching ? q : undefined,
         },
       });
-    });
+    }
     return out;
   }, [chatMessages, matches, search.open, search.q, activeMatchId, highlightMessageId]);
 
   const estimateMsgHeight = useCallback((row: MsgRow): number => {
     if (row.kind === "day") return 40;
+    if (row.mediaGroup && row.mediaGroup.length > 1) {
+      return row.mediaGroup.length <= 2 ? 210 : 300;
+    }
     const m = row.message!;
     if (m.kind === "sticker") return 160;
     if (m.kind === "image" || m.kind === "video") return 320;
@@ -494,78 +526,60 @@ export function ChatArea() {
         })()}
 
         {/* messages */}
-        {(() => {
-          const friendBg =
-            showBackground && chat && chat.type === "friend" && !chat.isSelf && chat.backgroundUrl
-              ? chat.backgroundUrl
-              : undefined;
-          return (
-            <div
-              ref={containerRef}
-              onScroll={onScroll}
-              onContextMenu={(e) => {
-                e.preventDefault();
-                setPanel({ x: e.clientX, y: e.clientY });
-              }}
-              className="vy-scroll vy-chat-surface vy-chat-messages flex-1 overflow-y-auto px-3 py-4 md:px-6"
-              data-pattern={theme.pattern}
-              data-image={friendBg || theme.chatImage ? "" : undefined}
-              style={
-                friendBg
-                  ? {
-                      backgroundImage: `linear-gradient(color-mix(in oklab, ${theme.chatBg} 62%, transparent), color-mix(in oklab, ${theme.chatBg} 62%, transparent)), url(${friendBg})`,
-                    }
-                  : undefined
-              }
-            >
-              <div className="mx-auto flex w-full max-w-3xl flex-col">
-                <div className="mb-4 flex justify-center">
-                  <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                    {chat.type === "group"
-                      ? "▲ ここがトークの一番上です"
-                      : "▲ ここから会話が始まります"}
+        <div
+          ref={containerRef}
+          onScroll={onScroll}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            setPanel({ x: e.clientX, y: e.clientY });
+          }}
+          className="vy-scroll vy-chat-surface vy-chat-messages flex-1 overflow-y-auto px-3 py-4 md:px-6"
+          data-pattern={theme.pattern}
+          data-image={theme.chatImage ? "" : undefined}
+        >
+          <div className="mx-auto flex w-full max-w-3xl flex-col">
+            <div className="mb-4 flex justify-center">
+              <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                {chat.type === "group"
+                  ? "▲ ここがトークの一番上です"
+                  : "▲ ここから会話が始まります"}
+              </span>
+            </div>
+            {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
+            {visibleRows.map(({ key, item }) =>
+              item.kind === "day" ? (
+                <div key={key} ref={(el) => measure(key, el)} className="my-3 flex justify-center">
+                  <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
+                    {item.label}
                   </span>
                 </div>
-                {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
-                {visibleRows.map(({ key, item }) =>
-                  item.kind === "day" ? (
-                    <div
-                      key={key}
-                      ref={(el) => measure(key, el)}
-                      className="my-3 flex justify-center"
-                    >
-                      <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
-                        {item.label}
-                      </span>
-                    </div>
-                  ) : (
-                    <div
-                      key={key}
-                      id={key}
-                      ref={(el) => measure(key, el)}
-                      className={cnRow(
-                        item.searching,
-                        item.isMatch,
-                        item.isActive,
-                        item.sameAuthorAsPrev,
-                        item.flash,
-                      )}
-                    >
-                      <MessageBubble
-                        message={item.message}
-                        chat={chat}
-                        showAvatar={!item.sameAuthorAsNext}
-                        showName={!item.sameAuthorAsPrev}
-                        highlight={item.searching ? (item.highlight as string) : undefined}
-                      />
-                    </div>
-                  ),
-                )}
-                {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}
-              </div>
-            </div>
-          );
-        })()}
+              ) : (
+                <div
+                  key={key}
+                  id={key}
+                  ref={(el) => measure(key, el)}
+                  className={cnRow(
+                    item.searching,
+                    item.isMatch,
+                    item.isActive,
+                    item.sameAuthorAsPrev,
+                    item.flash,
+                  )}
+                >
+                  <MessageBubble
+                    message={item.message}
+                    mediaGroup={item.mediaGroup}
+                    chat={chat}
+                    showAvatar={!item.sameAuthorAsNext}
+                    showName={!item.sameAuthorAsPrev}
+                    highlight={item.searching ? (item.highlight as string) : undefined}
+                  />
+                </div>
+              ),
+            )}
+            {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}
+          </div>
+        </div>
 
         {/* input */}
         {callHint && (

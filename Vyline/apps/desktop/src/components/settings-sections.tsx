@@ -11,7 +11,23 @@ function formatRelativeTime(ts: number): string {
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
   return `${Math.floor(diff / 86_400_000)}日前`;
 }
+
+function formatBytes(bytes: number): string {
+  if (bytes === 0) return "0 B";
+  const k = 1024;
+  const sizes = ["B", "KB", "MB", "GB"];
+  const i = Math.floor(Math.log(bytes) / Math.log(k));
+  return `${(bytes / k ** i).toFixed(1)} ${sizes[i]}`;
+}
+
+function formatPercent(value: number): string {
+  if (!Number.isFinite(value)) return "0%";
+  const digits = value >= 10 ? 0 : 1;
+  return `${value.toFixed(digits)}%`;
+}
+
 import { Toggle, Avatar } from "@/components/vy-ui";
+import { PremiumBadge } from "@/components/premium-badge";
 import { VyThemePanel } from "@/components/vy-theme-panel";
 import {
   IconArrowLeft,
@@ -23,6 +39,9 @@ import {
   IconChevron,
   IconSpark,
   IconBell,
+  IconHardDrive,
+  IconTrash,
+  IconDownload,
 } from "@/components/icons";
 
 type Section =
@@ -33,6 +52,7 @@ type Section =
   | "privacy"
   | "notifications"
   | "advanced"
+  | "storage"
   | "info";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
@@ -43,6 +63,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+  { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
@@ -84,7 +105,6 @@ export function SettingsSections() {
   const [section, setSection] = useState<Section>("read");
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
-  const [birthdayDraft, setBirthdayDraft] = useState("");
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
@@ -99,17 +119,10 @@ export function SettingsSections() {
       const body: {
         displayName?: string;
         statusMessage?: string;
-        birthday?: { day: string; year?: string };
       } = {
         displayName: nameDraft.trim(),
         statusMessage: statusDraft,
       };
-      const bday = birthdayDraft.replace(/[^0-9]/g, "");
-      if (bday.length === 4) {
-        body.birthday = { day: bday };
-      } else if (bday.length === 8) {
-        body.birthday = { year: bday.slice(0, 4), day: bday.slice(4) };
-      }
       const res = await api.line.updateProfile(accountId, body);
       if (!res.ok || !res.profile) {
         setProfileMsg(
@@ -123,6 +136,10 @@ export function SettingsSections() {
         birthday: res.profile.birthday?.display,
         avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
         mid: res.profile.mid,
+        phoneticName: res.profile.phoneticName || self.phoneticName,
+        pictureStatus: res.profile.pictureStatus || self.pictureStatus,
+        profileId: res.profile.profileId || self.profileId,
+        premium: res.profile.premium ?? self.premium,
       });
       setProfileMsg("LINE プロフィールを更新しました");
     } catch (err) {
@@ -163,9 +180,11 @@ export function SettingsSections() {
         setProfileMsg("背景画像をアップロードしました");
         // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
         updateSelf({
-          backgroundUrl: self.backgroundUrl
-            ? `${self.backgroundUrl.split("?")[0]}?t=${Date.now()}`
-            : self.backgroundUrl,
+          backgroundUrl: res.backgroundUrl
+            ? `${res.backgroundUrl.split("?")[0]}?t=${Date.now()}`
+            : self.backgroundUrl
+              ? `${self.backgroundUrl.split("?")[0]}?t=${Date.now()}`
+              : self.backgroundUrl,
         });
       } else {
         setProfileMsg(res.error ?? "背景更新に失敗しました");
@@ -283,6 +302,10 @@ export function SettingsSections() {
                         </label>
                       </div>
                       <div className="min-w-0 flex-1 pb-1">
+                        <div className="flex items-center gap-1.5">
+                          <p className="truncate text-base font-semibold">{self.name}</p>
+                          {self.premium?.active && <PremiumBadge size={14} compact />}
+                        </div>
                         <p className="text-xs text-[var(--vy-text-dim)]">
                           下の欄で表示名・ステメを編集
                         </p>
@@ -306,24 +329,7 @@ export function SettingsSections() {
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
                     </div>
-                    <div className="py-3">
-                      <label className="text-sm font-medium">誕生日（MMDD / YYYYMMDD・任意）</label>
-                      <input
-                        value={birthdayDraft}
-                        onChange={(e) => setBirthdayDraft(e.target.value)}
-                        placeholder={self.birthday || "0701"}
-                        className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-                      />
-                      <p className="mt-1 text-[0.7rem] text-[var(--vy-text-dim)]">
-                        一部デバイス種別では誕生日更新がサーバ拒否されることがあります
-                      </p>
-                    </div>
                   </Card>
-                  {self.musicProfile && (
-                    <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-                      音楽（表示のみ）: {self.musicProfile.slice(0, 80)}
-                    </p>
-                  )}
                   <button
                     type="button"
                     disabled={profileSaving}
@@ -486,6 +492,8 @@ export function SettingsSections() {
               {section === "privacy" && <PrivacySection />}
 
               {section === "advanced" && <AdvancedSection />}
+
+              {section === "storage" && <StorageSection />}
 
               {section === "info" && <InfoSection />}
             </div>
@@ -813,14 +821,6 @@ function AdvancedSection() {
             インポート
           </button>
         </Row>
-        <Row title="キャッシュを削除" desc="メディアの一時ファイルを削除します">
-          <button
-            type="button"
-            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
-          >
-            削除
-          </button>
-        </Row>
         <Row title="デバッグログを表示" desc="接続状態や送受信ログを確認します（開発者向け）">
           <button
             type="button"
@@ -892,6 +892,329 @@ function AdvancedSection() {
         </p>
       )}
     </Section>
+  );
+}
+
+function StorageSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [storage, setStorage] = useState<{
+    ok: boolean;
+    driveLetter?: string;
+    disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
+    vylineTotal: number;
+    cacheSize: number;
+    savedMediaSize: number;
+    cache: { cdn: number; icons: number };
+    savedMedia: { image: number; video: number; audio: number; file: number };
+    error?: string;
+  } | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!accountId) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await api.line.vylineStorage(accountId);
+      if (res.ok) setStorage(res);
+      else setMsg(res.error ?? "取得に失敗しました");
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const clearType = async (
+    label: string,
+    action: () => Promise<{ ok: boolean; removed?: number }>,
+  ) => {
+    if (!accountId) return;
+    if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
+    setLoading(true);
+    setMsg(null);
+    try {
+      const res = await action();
+      if (res.ok) {
+        setMsg(`${label}を削除しました (${res.removed ?? 0} 件)`);
+        await load();
+      } else {
+        setMsg("削除に失敗しました");
+      }
+    } catch (e) {
+      setMsg(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [accountId]);
+
+  const segments = storage
+    ? [
+        { key: "cdn", label: "CDN", size: storage.cache.cdn, color: "var(--vy-accent)" },
+        { key: "icons", label: "アイコン", size: storage.cache.icons, color: "var(--vy-accent)" },
+        { key: "image", label: "画像", size: storage.savedMedia.image, color: "#3b82f6" },
+        { key: "video", label: "動画", size: storage.savedMedia.video, color: "#a855f7" },
+        { key: "audio", label: "音声", size: storage.savedMedia.audio, color: "#22c55e" },
+        { key: "file", label: "ファイル", size: storage.savedMedia.file, color: "#6b7280" },
+      ]
+    : [];
+  const diskFree = storage?.disk?.freeBytes ?? 0;
+  const diskUsed = storage?.disk?.usedBytes ?? 0;
+  const diskTotal = storage?.disk?.totalBytes ?? 0;
+  const diskUsedPct = diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0;
+
+  return (
+    <Section title="ストレージ" desc="アプリが使用している容量を管理します">
+      {storage && (
+        <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+          <div className="p-5">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+              <div>
+                <p className="text-sm font-medium text-[var(--vy-text-dim)]">
+                  ドライブ {storage.driveLetter ?? "---"}
+                </p>
+                <p className="mt-2 text-3xl font-semibold tracking-tight">
+                  {formatBytes(storage.vylineTotal)}
+                </p>
+                <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
+                  アプリが保存している CDN
+                  キャッシュ、プロフィール画像、チャットメディアの合計です。
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-[var(--vy-border)] px-4 py-3">
+                <p className="text-xs text-[var(--vy-text-dim)]">ドライブ使用率</p>
+                <p className="mt-1 text-xl font-semibold tracking-tight">
+                  {formatPercent(diskUsedPct)}
+                </p>
+                <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+                  空き {formatBytes(diskFree)}
+                </p>
+              </div>
+            </div>
+
+            <div className="mt-5 h-3 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+              {segments.map((s) => {
+                const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
+                return (
+                  <div
+                    key={s.key}
+                    className="h-full transition-all duration-500"
+                    style={{ background: s.color, width: `${pct}%` }}
+                  />
+                );
+              })}
+            </div>
+
+            <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--vy-text-dim)]">
+              {segments.map((s) => (
+                <span
+                  key={s.key}
+                  className="inline-flex items-center gap-2 rounded-full border border-[var(--vy-border)] px-3 py-1.5"
+                >
+                  <span
+                    className="inline-block h-2 w-2 rounded-full"
+                    style={{ background: s.color }}
+                  />
+                  <span>{s.label}</span>
+                  <span className="font-mono">{formatBytes(s.size)}</span>
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      <div className="mb-3 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-medium">削除候補</p>
+          <p className="text-xs text-[var(--vy-text-dim)]">容量の大きいものから並べています。</p>
+        </div>
+        {storage && (
+          <p className="text-xs text-[var(--vy-text-dim)]">
+            合計 {formatBytes(storage.cacheSize + storage.savedMediaSize)}
+          </p>
+        )}
+      </div>
+
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+        <TypeCard
+          title="CDN キャッシュ"
+          desc="スタンプ・LINE絵文字など"
+          size={storage?.cache.cdn ?? 0}
+          ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
+          icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
+          iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId!))
+          }
+          disabled={loading || !accountId}
+          accent="var(--vy-accent)"
+        />
+        <TypeCard
+          title="アイコンキャッシュ"
+          desc="プロフィール画像など"
+          size={storage?.cache.icons ?? 0}
+          ratio={storage && storage.vylineTotal > 0 ? storage.cache.icons / storage.vylineTotal : 0}
+          icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
+          iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId!))
+          }
+          disabled={loading || !accountId}
+          accent="var(--vy-accent)"
+        />
+        <TypeCard
+          title="画像"
+          desc="チャット画像"
+          size={storage?.savedMedia.image ?? 0}
+          ratio={
+            storage && storage.vylineTotal > 0 ? storage.savedMedia.image / storage.vylineTotal : 0
+          }
+          icon={<IconDownload size={20} className="text-[#3b82f6]" />}
+          iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId!, "image"))
+          }
+          disabled={loading || !accountId}
+          accent="#3b82f6"
+        />
+        <TypeCard
+          title="動画"
+          desc="チャット動画"
+          size={storage?.savedMedia.video ?? 0}
+          ratio={
+            storage && storage.vylineTotal > 0 ? storage.savedMedia.video / storage.vylineTotal : 0
+          }
+          icon={<IconDownload size={20} className="text-[#a855f7]" />}
+          iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId!, "video"))
+          }
+          disabled={loading || !accountId}
+          accent="#a855f7"
+        />
+        <TypeCard
+          title="音声"
+          desc="ボイスメッセージなど"
+          size={storage?.savedMedia.audio ?? 0}
+          ratio={
+            storage && storage.vylineTotal > 0 ? storage.savedMedia.audio / storage.vylineTotal : 0
+          }
+          icon={<IconDownload size={20} className="text-[#22c55e]" />}
+          iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId!, "audio"))
+          }
+          disabled={loading || !accountId}
+          accent="#22c55e"
+        />
+        <TypeCard
+          title="ファイル"
+          desc="PDF など"
+          size={storage?.savedMedia.file ?? 0}
+          ratio={
+            storage && storage.vylineTotal > 0 ? storage.savedMedia.file / storage.vylineTotal : 0
+          }
+          icon={<IconDownload size={20} className="text-[#6b7280]" />}
+          iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
+          onDelete={() =>
+            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId!, "file"))
+          }
+          disabled={loading || !accountId}
+          accent="#6b7280"
+        />
+      </div>
+
+      {msg && (
+        <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
+          <p className="text-xs text-[var(--vy-text-dim)]">{msg}</p>
+        </div>
+      )}
+      {!accountId && (
+        <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
+          ストレージ情報を取得するにはログインが必要です。
+        </p>
+      )}
+    </Section>
+  );
+}
+
+function TypeCard({
+  title,
+  desc,
+  size,
+  ratio,
+  icon,
+  iconBg,
+  accent,
+  onDelete,
+  disabled,
+}: {
+  title: string;
+  desc: string;
+  size: number;
+  ratio: number;
+  icon: React.ReactNode;
+  iconBg: string;
+  accent: string;
+  onDelete: () => void;
+  disabled: boolean;
+}) {
+  const hasData = size > 0;
+  return (
+    <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div className="p-5">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex min-w-0 items-center gap-3">
+            <div
+              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
+            >
+              {icon}
+            </div>
+            <div className="min-w-0">
+              <p className="truncate text-sm font-medium">{title}</p>
+              <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{desc}</p>
+            </div>
+          </div>
+
+          <div className="shrink-0 text-right">
+            <p className="text-[11px] text-[var(--vy-text-dim)]">使用量</p>
+            <p className="mt-1 font-mono text-base font-semibold">{formatBytes(size)}</p>
+          </div>
+        </div>
+
+        <div className="mt-4">
+          <div className="h-2 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+            <div
+              className="h-full rounded-full transition-all duration-500"
+              style={{ background: accent, width: `${Math.max(ratio * 100, hasData ? 4 : 0)}%` }}
+            />
+          </div>
+          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+            {hasData ? `Vyline 全体の ${formatPercent(ratio * 100)}` : "保存データはありません"}
+          </p>
+        </div>
+
+        <button
+          type="button"
+          onClick={onDelete}
+          disabled={disabled || !hasData}
+          className={cn(
+            "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors",
+            "hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50",
+          )}
+        >
+          <IconTrash size={14} />
+          {hasData ? "削除" : "データなし"}
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -1045,7 +1368,12 @@ function NotificationsSection() {
       const res = await api.line.setNotification(accountId, next);
       if (!res.ok) throw new Error(res.error ?? "失敗");
       updateSetting("notificationsEnabled", next);
-      setMsg(next ? "通知を有効にしました" : "通知を無効にしました");
+      // マスタースイッチが無効のままなら通知は鳴らないので明示する
+      if (next && res.masterEnable === false) {
+        setMsg("有効化しました（ただし Settings の通知マスターが無効のため端末には届きません）");
+      } else {
+        setMsg(next ? "通知を有効にしました" : "通知を無効にしました");
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {

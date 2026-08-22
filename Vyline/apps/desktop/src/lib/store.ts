@@ -8,6 +8,7 @@ import type {
   ChatSort,
   Message,
   MessageReaction,
+  MessageSnapshot,
   VyTheme,
   Settings,
   Screen,
@@ -22,13 +23,31 @@ import {
   type ContactInfo,
 } from "./mappers.js";
 import { lineStickerUrl } from "../utils/lineMedia.js";
+import {
+  COMBO_EDITOR_SIZE,
+  COMBO_ITEM_MAX_SIZE,
+  COMBO_ITEM_MIN_SIZE,
+  renderCombinationStickerPreview,
+  setCombinationStickerPreview,
+  type CombinationStickerPlacement,
+} from "../utils/combinationStickers.js";
 import { getDismissedChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
+import type { MessageState } from "./store-types.js";
 
-export type { Chat, ChatSort, Message, Member, VyTheme, Settings, Screen } from "./store-types.js";
+export type {
+  Chat,
+  ChatSort,
+  Message,
+  Member,
+  VyTheme,
+  Settings,
+  Screen,
+  MessageState,
+} from "./store-types.js";
 
 /** chatId → 送信済み lastMessageId（既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
@@ -70,6 +89,76 @@ function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
     }
   }
   return contactCache;
+}
+
+function snapshotFromMessage(m: Message): MessageSnapshot {
+  const { history: _history, revokedSnapshot: _revokedSnapshot, ...snapshot } = m;
+  return snapshot;
+}
+
+function isDataUrl(value?: string): boolean {
+  return typeof value === "string" && value.startsWith("data:");
+}
+
+function mergePreservingComboStickerPreview(existing: Message, incoming: Message): Message {
+  if (existing.kind !== "sticker" || incoming.kind !== "sticker") return incoming;
+  if (!isDataUrl(existing.sticker)) return incoming;
+  if (isDataUrl(incoming.sticker)) return incoming;
+  // ローカル合成プレビューはサーバ再取得結果（🧩 や無効 URL）より常に優先
+  return {
+    ...incoming,
+    sticker: existing.sticker,
+  };
+}
+
+function combinationPlacementsFromItems(
+  items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
+): CombinationStickerPlacement[] {
+  return items.map((item, index) => {
+    const size = Math.round(
+      Math.max(
+        COMBO_ITEM_MIN_SIZE,
+        Math.min(COMBO_ITEM_MAX_SIZE, item.size ?? COMBO_ITEM_MAX_SIZE / 2),
+      ),
+    );
+    const fallback = Math.max(
+      0,
+      COMBO_EDITOR_SIZE / 2 - size / 2 + (index % 3) * 16 + Math.floor(index / 3) * 16,
+    );
+    return {
+      packageId: item.packageId,
+      stickerId: item.stickerId,
+      url: lineStickerUrl(item.stickerId),
+      name: item.stickerId,
+      x: item.x ?? fallback,
+      y: item.y ?? fallback,
+      size,
+    };
+  });
+}
+
+/** 送信済みコンビネーションのローカル合成プレビューを CSSTKID とメッセージIDの両方に保存 */
+async function persistCombinationStickerPreview(
+  accountId: string,
+  message: LineMessage | null,
+  placements: CombinationStickerPlacement[],
+): Promise<string | null> {
+  if (!message) return null;
+  try {
+    const dataUrl = await renderCombinationStickerPreview(placements);
+    if (!dataUrl) return null;
+    const meta = (message.contentMetadata ?? null) as Record<string, unknown> | null;
+    const comboId =
+      typeof meta?.CSSTKID === "string" && meta.CSSTKID.trim() ? meta.CSSTKID.trim() : null;
+    if (comboId) setCombinationStickerPreview(accountId, comboId, dataUrl);
+    const messageId = message.id != null ? String(message.id) : "";
+    if (messageId && messageId !== comboId) {
+      setCombinationStickerPreview(accountId, messageId, dataUrl);
+    }
+    return dataUrl;
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -151,7 +240,14 @@ function applyReadWatermarkLocal(
 }
 
 function messagePreview(m: Message): string {
-  if (m.revoked) return "メッセージの送信を取り消しました";
+  if (m.messageState.startsWith("revoked")) {
+    if (m.revokedSnapshot) return `取り消し済み: ${messagePreview(m.revokedSnapshot)}`;
+    const last = m.history
+      ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
+      : undefined;
+    if (last?.text) return `取り消し済み: ${last.text}`;
+    return "取り消し済みのメッセージ";
+  }
   switch (m.kind) {
     case "sticker":
       return m.altText || "スタンプ";
@@ -257,9 +353,19 @@ type State = {
       displayName: string;
       statusMessage: string;
       thumbnailUrl?: string;
+      phoneticName?: string;
+      pictureStatus?: string;
       musicProfile?: string;
       birthday?: { display?: string } | null;
       backgroundUrl?: string;
+      profileId?: string;
+      premium?: {
+        active: boolean;
+        planType?: string | number;
+        validUntil?: number;
+        onFreeTrial?: boolean;
+        willExpire?: boolean;
+      } | null;
     } | null;
     chats: LineChat[];
     messages: LineMessage[];
@@ -279,6 +385,10 @@ type State = {
     packageId: string,
     stickerId: string,
     isPremium?: boolean,
+  ) => Promise<void>;
+  sendCombinationSticker: (
+    chatId: string,
+    items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
   ) => Promise<void>;
   sendLineEmoji: (chatId: string, packageId: string, sticonId: string) => Promise<void>;
   sendImageFile: (chatId: string, file: File) => Promise<void>;
@@ -332,8 +442,11 @@ type State = {
     opts?: { silent?: boolean },
   ) => void;
   applyRevoked: (chatId: string, messageId: string) => void;
+  /** 取消し済みメッセージを履歴から復元 */
+  restoreRevokedMessage: (chatId: string, messageId: string) => Promise<void>;
   /** 楽観リアクション更新（UNDO は自分の全リアクション除去） */
   setMessageReaction: (messageId: string, reaction: "UNDO" | string, myMid: string) => void;
+  fetchMessageHistory: (chatId: string, messageId: string) => Promise<Message["history"]>;
   backfillChat: (chatId: string) => Promise<void>;
   pollMessagesDelta: (chatId: string) => Promise<void>;
   pollIncoming: () => Promise<void>;
@@ -560,10 +673,14 @@ export const useStore = create<State>()(
                 avatar: initial(profile.displayName),
                 avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
                 status: profile.statusMessage || "",
+                phoneticName: profile.phoneticName || st.self.phoneticName,
+                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
                 musicProfile: profile.musicProfile || st.self.musicProfile,
                 birthday: profile.birthday?.display || st.self.birthday,
                 backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
                 mid: profile.mid || st.self.mid,
+                profileId: profile.profileId || st.self.profileId,
+                premium: profile.premium ?? st.self.premium,
               },
             }));
           }
@@ -674,10 +791,14 @@ export const useStore = create<State>()(
                 avatar: initial(profile.displayName),
                 avatarUrl: profile.thumbnailUrl || st.self.avatarUrl,
                 status: profile.statusMessage || "",
+                phoneticName: profile.phoneticName || st.self.phoneticName,
+                pictureStatus: profile.pictureStatus || st.self.pictureStatus,
                 musicProfile: profile.musicProfile || st.self.musicProfile,
                 birthday: profile.birthday?.display || st.self.birthday,
                 backgroundUrl: profile.backgroundUrl || st.self.backgroundUrl,
                 mid: profile.mid || st.self.mid,
+                profileId: profile.profileId || st.self.profileId,
+                premium: profile.premium ?? st.self.premium,
               }
             : st.self,
         }));
@@ -707,15 +828,6 @@ export const useStore = create<State>()(
                 : c,
             ),
           }));
-        }
-
-        // 自動選択チャットも「開いた」扱いにし、既読を送信する
-        if (chatId && !sessionOpenedChats.has(chatId)) {
-          sessionOpenedChats.add(chatId);
-          const { accountId, settings, readDisabledMids } = get();
-          if (accountId && settings.readReceipts && !readDisabledMids[chatId]) {
-            void get().markChatRead(chatId);
-          }
         }
       },
 
@@ -752,6 +864,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
           replyToId: relatedMessageId,
           retry: {
             kind: "text",
@@ -834,6 +947,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
           retry: { kind: "sticker", packageId, stickerId, isPremium },
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
@@ -898,6 +1012,99 @@ export const useStore = create<State>()(
         })();
       },
 
+      sendCombinationSticker: async (chatId, items) => {
+        const { accountId, blockedMids } = get();
+        if (!accountId || !items.length) return;
+        if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
+        const placements = combinationPlacementsFromItems(items);
+        const tempId = `pending_combo_${Date.now()}`;
+        const optimistic: Message = {
+          id: tempId,
+          chatId,
+          authorId: "me",
+          kind: "sticker",
+          sticker: lineStickerUrl(items[0]!.stickerId),
+          createdAt: Date.now(),
+          status: "sending",
+          read: false,
+          messageState: "normal",
+          retry: { kind: "combinationSticker", items: items.map((item) => ({ ...item })) },
+        };
+        set((st) => ({ messages: [...st.messages, optimistic] }));
+
+        void (async () => {
+          try {
+            const res = await api.line.sendCombinationSticker(accountId!, chatId, items);
+            if (!res.ok) {
+              set((st) => ({
+                messages: st.messages.map((m) =>
+                  m.id === tempId ? { ...m, status: "failed" } : m,
+                ),
+              }));
+              return;
+            }
+            if (res.message) {
+              // 送信レスポンスの実証用ログ（ID・キー名のみ。トークン等は出さない）
+              try {
+                const meta = (res.message.contentMetadata ?? null) as Record<
+                  string,
+                  unknown
+                > | null;
+                console.debug("[vyline] combination sticker sent", {
+                  messageId: res.message.id,
+                  metaKeys: meta ? Object.keys(meta) : null,
+                  csstkId: typeof meta?.CSSTKID === "string" ? meta.CSSTKID : null,
+                });
+              } catch {
+                /* ignore */
+              }
+              const contactCache = buildContactCache(get().chats);
+              const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
+              // 履歴表示は CSSTKID / メッセージID のどちらでもプレビューを引けるよう両方保存
+              const preview = await persistCombinationStickerPreview(
+                accountId!,
+                res.message,
+                placements,
+              );
+              const finalMsg: Message = {
+                ...mapped,
+                kind: "sticker",
+                sticker: preview || mapped.sticker || "🧩",
+              };
+              set((st) => ({
+                messages: st.messages.map((m) => (m.id === tempId ? finalMsg : m)),
+                chats: st.chats.map((c) =>
+                  c.id === chatId
+                    ? {
+                        ...c,
+                        lastMessagePreview: "スタンプ",
+                        lastMessageTime: Math.max(c.lastMessageTime ?? 0, finalMsg.createdAt),
+                      }
+                    : c,
+                ),
+              }));
+            } else {
+              set((st) => ({
+                messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
+              }));
+            }
+            const existing = refreshDebounce.get(chatId);
+            if (existing) clearTimeout(existing);
+            refreshDebounce.set(
+              chatId,
+              setTimeout(() => {
+                refreshDebounce.delete(chatId);
+                void get().refreshMessages(chatId, { force: true });
+              }, 800),
+            );
+          } catch {
+            set((st) => ({
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+            }));
+          }
+        })();
+      },
+
       sendLineEmoji: async (chatId, packageId, sticonId) => {
         const { accountId, blockedMids } = get();
         if (!accountId || !packageId || !sticonId) return;
@@ -922,6 +1129,7 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
           retry: { kind: "emoji", packageId, sticonId },
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
@@ -976,57 +1184,56 @@ export const useStore = create<State>()(
           createdAt: Date.now(),
           status: "sending",
           read: false,
+          messageState: "normal",
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
-        void (async () => {
-          try {
-            const highQuality = get().settings.highQualityImages;
-            const { blob, mime } = highQuality
-              ? { blob: file, mime: file.type || "application/octet-stream" }
-              : await compressImageFile(file);
-            if (blob.size > 11_000_000) {
-              window.alert(
-                blob === file
-                  ? "ファイルが大きすぎます（11MB まで）"
-                  : "画像が大きすぎます（圧縮後も 11MB 超）",
-              );
-              set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-              return;
-            }
-            const buf = await blob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = "";
-            const chunk = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-            }
-            const dataBase64 = btoa(binary);
-            const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
-              mimeType: mime,
-              filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
-              mediaType: isVideo ? "video" : "image",
-            });
-            if (res.ok) {
-              const existing = refreshDebounce.get(chatId);
-              if (existing) clearTimeout(existing);
-              refreshDebounce.set(
-                chatId,
-                setTimeout(() => {
-                  refreshDebounce.delete(chatId);
-                  void get().refreshMessages(chatId, { force: true });
-                }, 800),
-              );
-            } else {
-              // 画像は再送 UI を持たないので失敗時は楽観表示を除去
-              set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-            }
-          } catch {
+        try {
+          const highQuality = get().settings.highQualityImages;
+          const { blob, mime } = highQuality
+            ? { blob: file, mime: file.type || "application/octet-stream" }
+            : await compressImageFile(file);
+          if (blob.size > 11_000_000) {
+            window.alert(
+              blob === file
+                ? "ファイルが大きすぎます（11MB まで）"
+                : "画像が大きすぎます（圧縮後も 11MB 超）",
+            );
             set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
-          } finally {
-            // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
-            setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+            return;
           }
-        })();
+          const buf = await blob.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = "";
+          const chunk = 0x8000;
+          for (let i = 0; i < bytes.length; i += chunk) {
+            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+          }
+          const dataBase64 = btoa(binary);
+          const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+            mimeType: mime,
+            filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
+            mediaType: isVideo ? "video" : "image",
+          });
+          if (res.ok) {
+            const existing = refreshDebounce.get(chatId);
+            if (existing) clearTimeout(existing);
+            refreshDebounce.set(
+              chatId,
+              setTimeout(() => {
+                refreshDebounce.delete(chatId);
+                void get().refreshMessages(chatId, { force: true });
+              }, 800),
+            );
+          } else {
+            // 画像は再送 UI を持たないので失敗時は楽観表示を除去
+            set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+          }
+        } catch {
+          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+        } finally {
+          // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
+          setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
+        }
       },
 
       sendAudio: async (chatId, seconds, blob) => {
@@ -1078,11 +1285,34 @@ export const useStore = create<State>()(
           window.alert("送信が完了してから取り消しできます");
           return;
         }
+        if (msg.messageState.startsWith("revoked") || msg.revokedSnapshot) {
+          get().showNotice("一度取り消したメッセージは再度取り消せません");
+          return;
+        }
+        const prevState = msg.messageState ?? "normal";
+        const historyEntry = {
+          state: prevState,
+          text: msg.text ?? null,
+          contentType: msg.kind,
+          updatedTime: Date.now(),
+        };
+        set((st) => ({
+          messages: st.messages.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  history: [...(m.history ?? []), historyEntry],
+                  revokedSnapshot: m.revokedSnapshot ?? snapshotFromMessage(m),
+                  messageState: "revoked-by-self" as MessageState,
+                  text: undefined,
+                }
+              : m,
+          ),
+        }));
         const res = await api.line.unsend(accountId, id);
         if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
         else if (!res.ok) {
           const errText = res.error ?? "";
-          // 送信取り消し可能な時間を過ぎた（MESSAGE_NOT_DESTRUCTIBLE / message too old）
           if (
             errText.includes("MESSAGE_NOT_DESTRUCTIBLE") ||
             errText.includes("message too old") ||
@@ -1158,7 +1388,14 @@ export const useStore = create<State>()(
       retryMessage: async (id) => {
         const accountId = get().accountId;
         const msg = get().messages.find((m) => m.id === id);
-        if (!accountId || !msg || msg.status !== "failed" || msg.revoked || !msg.retry) return;
+        if (
+          !accountId ||
+          !msg ||
+          msg.status !== "failed" ||
+          msg.messageState.startsWith("revoked") ||
+          !msg.retry
+        )
+          return;
         const chatId = msg.chatId;
         const intent = msg.retry;
         set((st) => ({
@@ -1192,6 +1429,18 @@ export const useStore = create<State>()(
               sticonId: intent.sticonId,
             });
             ok = res.ok;
+          } else if (intent.kind === "combinationSticker") {
+            const res = await api.line.sendCombinationSticker(accountId, chatId, intent.items);
+            ok = res.ok;
+            confirmed = res.ok ? (res.message ?? null) : null;
+          }
+          if (ok && confirmed && intent.kind === "combinationSticker") {
+            // 再送でも送信時と同じくローカルプレビューを保存（mapMessage が CSSTKID/メッセージIDで引ける）
+            await persistCombinationStickerPreview(
+              accountId,
+              confirmed,
+              combinationPlacementsFromItems(intent.items),
+            );
           }
           if (!ok) {
             markFailed();
@@ -1240,6 +1489,10 @@ export const useStore = create<State>()(
         const { accountId, messages, settings, readDisabledMids } = get();
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
+          messages: st.messages.map((m) => {
+            if (m.chatId !== id) return m;
+            return { ...m, read: true, status: "read" };
+          }),
         }));
         // 全体無効（設定）または個別無効（右クリック）なら送信しない
         if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
@@ -1467,7 +1720,7 @@ export const useStore = create<State>()(
               for (let i = 0; i < mapped.length; i++) {
                 const m = mapped[i]!;
                 const prev = prevById.get(m.id);
-                if (prev?.read && !m.read) {
+                if (m.authorId === "me" && prev?.read && !m.read) {
                   mapped[i] = {
                     ...m,
                     read: true,
@@ -1475,12 +1728,54 @@ export const useStore = create<State>()(
                     readBy: m.readBy?.length ? m.readBy : prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
-                } else if (prev?.readBy?.length && !m.readBy?.length) {
+                } else if (
+                  m.authorId === "me" &&
+                  prev?.readBy?.length &&
+                  (!m.readBy?.length || !m.read)
+                ) {
                   mapped[i] = {
                     ...m,
+                    read: true,
                     readBy: prev.readBy,
                     readCount: m.readCount ?? prev.readCount,
                   };
+                } else if (
+                  m.authorId === "me" &&
+                  prev?.readBy?.length &&
+                  m.readBy?.length &&
+                  prev.readBy.length > m.readBy.length
+                ) {
+                  mapped[i] = {
+                    ...m,
+                    read: true,
+                    readBy: prev.readBy,
+                    readCount: m.readCount ?? prev.readCount,
+                  };
+                }
+                if (prev?.history?.length && !m.history?.length) {
+                  mapped[i] = { ...m, history: prev.history };
+                }
+                if (
+                  prev?.messageState?.startsWith("revoked") &&
+                  !m.messageState?.startsWith("revoked")
+                ) {
+                  mapped[i] = { ...m, messageState: prev.messageState };
+                }
+                // メッセージステートが undefined の場合もローカルの取り消し状態を優先
+                // （サーバが取り消し未処理の場合の fallback）
+                if (
+                  prev?.messageState === "revoked-by-self" &&
+                  m.messageState !== "revoked-by-self" &&
+                  // undefined や normal になっている場合はローカル状態を優先
+                  (m.messageState === undefined || m.messageState === "normal")
+                ) {
+                  mapped[i] = { ...m, messageState: "revoked-by-self" as MessageState };
+                }
+                if (prev?.revokedSnapshot && !m.revokedSnapshot) {
+                  mapped[i] = { ...m, revokedSnapshot: prev.revokedSnapshot };
+                }
+                if (prev && mapped[i]) {
+                  mapped[i] = mergePreservingComboStickerPreview(prev, mapped[i]);
                 }
               }
               // pending / 送信直後の確定メッセージをサーバ欠落時も残す
@@ -1596,7 +1891,7 @@ export const useStore = create<State>()(
                 m.authorId === "me" &&
                 m.id &&
                 !m.id.startsWith("pending_") &&
-                !m.revoked,
+                !m.messageState.startsWith("revoked"),
             )
             .map((m) => m.id)
             .slice(-50);
@@ -1700,17 +1995,20 @@ export const useStore = create<State>()(
               const patch = res.receipts![m.id];
               if (!patch) return m;
               const readBy = patch.readBy ?? [];
+              const alreadyRead = m.read;
               const read =
                 patch.seen === true ||
                 Boolean((patch as { read?: boolean }).read) ||
                 (patch.readCount != null && patch.readCount > 0) ||
                 readBy.length > 0;
+              // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
+              const finalRead = alreadyRead ? true : read;
               return {
                 ...m,
-                read,
-                readBy: readBy.length ? readBy : m.readBy,
-                readCount: patch.readCount ?? m.readCount,
-                status: read ? ("read" as const) : m.status === "read" ? "sent" : m.status,
+                read: finalRead,
+                readBy: finalRead ? (readBy.length ? readBy : m.readBy) : m.readBy,
+                readCount: finalRead ? (patch.readCount ?? m.readCount) : m.readCount,
+                status: finalRead ? ("read" as const) : m.status === "read" ? "sent" : m.status,
               };
             }),
           }));
@@ -1736,10 +2034,23 @@ export const useStore = create<State>()(
         const existingIds = new Set(messages.filter((m) => m.chatId === chatId).map((m) => m.id));
         const fresh = mapped.filter((m) => !existingIds.has(m.id));
 
-        // 既存メッセージにもリアクション等の更新を反映（同期で re-fetch された場合）
-        const hasUpdates = [...incomingById.values()].some(
-          (m) => existingIds.has(m.id) && m.reactions && m.reactions.length > 0,
-        );
+        // 既存メッセージにもリアクションや状態の更新を反映（同期で re-fetch された場合）
+        const hasUpdates = [...incomingById.values()].some((m) => {
+          if (!existingIds.has(m.id)) return false;
+          const existing = messages.find((x) => x.id === m.id);
+          if (!existing) return false;
+          if (
+            m.reactions?.length &&
+            JSON.stringify(m.reactions) !== JSON.stringify(existing.reactions)
+          )
+            return true;
+          if (
+            m.messageState?.startsWith("revoked") &&
+            !existing.messageState?.startsWith("revoked")
+          )
+            return true;
+          return false;
+        });
         if (fresh.length === 0 && !hasUpdates) return;
 
         // キャッシュ済み既読ウォーターマークを新着にも即適用（RPC なしで既読化）
@@ -1765,13 +2076,37 @@ export const useStore = create<State>()(
                 if (m.chatId !== chatId) return m;
                 const upd = incomingById.get(m.id);
                 if (!upd) return m;
-                if (JSON.stringify(upd.reactions) === JSON.stringify(m.reactions)) return m;
-                if (upd.reactions?.length) {
-                  messageReactionCache.set(m.id, upd.reactions);
-                } else {
-                  messageReactionCache.delete(m.id);
+                const reactionChanged =
+                  JSON.stringify(upd.reactions) !== JSON.stringify(m.reactions);
+                const revokedChanged =
+                  upd.messageState?.startsWith("revoked") && !m.messageState?.startsWith("revoked");
+                if (!reactionChanged && !revokedChanged) return m;
+                const updated = { ...m };
+                if (reactionChanged) {
+                  if (upd.reactions?.length) {
+                    messageReactionCache.set(m.id, upd.reactions);
+                  } else {
+                    messageReactionCache.delete(m.id);
+                  }
+                  updated.reactions = upd.reactions;
                 }
-                return { ...m, reactions: upd.reactions };
+                if (revokedChanged) {
+                  updated.messageState = upd.messageState;
+                  updated.revokedSnapshot =
+                    m.revokedSnapshot ?? upd.revokedSnapshot ?? snapshotFromMessage(m);
+                  const prevState = m.messageState ?? "normal";
+                  updated.history = [
+                    ...(m.history ?? []),
+                    {
+                      state: prevState,
+                      text: m.text ?? null,
+                      contentType: m.kind,
+                      updatedTime: Date.now(),
+                    },
+                  ];
+                  updated.text = undefined;
+                }
+                return mergePreservingComboStickerPreview(m, updated);
               })
             : st.messages;
           const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);
@@ -1833,14 +2168,85 @@ export const useStore = create<State>()(
 
       applyRevoked: (chatId, messageId) => {
         set((st) => {
-          const msgs = st.messages.map((m) =>
-            m.chatId === chatId && m.id === messageId ? { ...m, revoked: true } : m,
-          );
-          // キャッシュからも削除
+          const msgs = st.messages.map((m) => {
+            if (m.chatId !== chatId || m.id !== messageId) return m;
+            const prevState = m.messageState ?? "normal";
+            const history = [
+              ...(m.history ?? []),
+              {
+                state: prevState,
+                text: m.text ?? null,
+                contentType: m.kind,
+                updatedTime: Date.now(),
+              },
+            ];
+            return {
+              ...m,
+              messageState: (m.authorId === "me"
+                ? "revoked-by-self"
+                : "revoked-by-other") as MessageState,
+              history,
+              revokedSnapshot: m.revokedSnapshot ?? snapshotFromMessage(m),
+              text: undefined,
+            };
+          });
           invalidateMessage(messageReactionCache, messageId);
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
+      },
+
+      fetchMessageHistory: async (chatId, messageId) => {
+        const accountId = get().accountId;
+        if (!accountId) return [];
+        const res = await api.line.messageHistory(accountId, chatId, messageId);
+        if (res.ok) return res.history ?? [];
+        return [];
+      },
+
+      restoreRevokedMessage: async (_chatId, messageId) => {
+        const accountId = get().accountId;
+        if (!accountId) return;
+        const msg = get().messages.find((m) => m.id === messageId);
+        if (!msg || msg.messageState !== "revoked-by-self") return;
+        const snapshot = msg.revokedSnapshot;
+        const lastNormal = [...(msg.history ?? [])]
+          .reverse()
+          .find((h) => h.state === "normal" || h.state === "edited");
+        if (!snapshot && !lastNormal) {
+          window.alert("復元できる元のメッセージがありません");
+          return;
+        }
+        const historyEntry = {
+          state: "normal" as const,
+          text: msg.text ?? null,
+          contentType: msg.kind,
+          updatedTime: Date.now(),
+        };
+        set((st) => ({
+          messages: st.messages.map((m) =>
+            m.id === messageId
+              ? {
+                  ...m,
+                  ...snapshot,
+                  messageState: (snapshot?.messageState ??
+                    (lastNormal?.state === "edited" ? "edited" : "normal")) as MessageState,
+                  history: [...(m.history ?? []), historyEntry],
+                  ...(snapshot
+                    ? { revokedSnapshot: snapshot }
+                    : m.revokedSnapshot
+                      ? { revokedSnapshot: m.revokedSnapshot }
+                      : {}),
+                  text: snapshot?.text ?? lastNormal?.text ?? undefined,
+                }
+              : m,
+          ),
+        }));
+        try {
+          await api.line.restoreRevokedMessage(accountId, _chatId, messageId);
+        } catch {
+          /* local update already applied */
+        }
       },
 
       setMessageReaction: (messageId, reaction, myMid) => {

@@ -1,0 +1,7 @@
+{
+  "id": "settings-demo",
+  "name": "Settings Demo",
+  "version": "0.1.0",
+  "description": "プラグイン設定の保存/読込とメッセージ購読の組み合わせサンプル",
+  "permissions": ["messages:read", "settings:read", "settings:write"]
+}

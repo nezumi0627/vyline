@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store";
 import { api } from "@/api/client";
 import { Avatar } from "@/components/vy-ui";
+import { PremiumBadge } from "@/components/premium-badge";
 import {
   IconClose,
   IconChat,
@@ -15,14 +16,17 @@ import {
   IconMemo,
 } from "@/components/icons";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
-import { parseMusicProfile } from "@/lib/vyline-cache";
 import { dismissChatMid } from "@/utils/dismissedChats";
 
 type RichInfo = {
   statusMessage?: string;
+  phoneticName?: string;
   musicProfile?: string;
   birthday?: string;
   backgroundUrl?: string;
+  pictureStatus?: string;
+  profileId?: string;
+  userType?: number;
 };
 
 export function ProfileDrawer({ chat }: { chat: Chat }) {
@@ -35,6 +39,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   const settings = useStore((s) => s.settings);
   const setLocalName = useStore((s) => s.setLocalName);
   const accountId = useStore((s) => s.accountId);
+  const selfPremium = useStore((s) => s.self.premium?.active ?? false);
 
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(chat.localName ?? chat.name);
@@ -144,19 +149,27 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
           ok: boolean;
           profile?: {
             statusMessage?: string;
+            phoneticName?: string;
             musicProfile?: string;
             birthday?: { display?: string };
             backgroundUrl?: string;
             displayName?: string;
             thumbnailUrl?: string;
+            pictureStatus?: string;
+            profileId?: string;
+            userType?: number;
           };
         };
         if (!r.profile) return;
         setRich({
           statusMessage: r.profile.statusMessage,
+          phoneticName: r.profile.phoneticName,
           musicProfile: r.profile.musicProfile,
           birthday: r.profile.birthday?.display,
           backgroundUrl: r.profile.backgroundUrl,
+          pictureStatus: r.profile.pictureStatus,
+          profileId: r.profile.profileId,
+          userType: r.profile.userType,
         });
         const nextName =
           r.profile.displayName && !looksLikeMid(r.profile.displayName)
@@ -216,7 +229,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
   const name = displayName(chat, streamerMode);
-  const music = parseMusicProfile(rich.musicProfile);
+  const backgroundUrl = chat.backgroundUrl ?? rich.backgroundUrl;
+  const showBackground = Boolean(!streamerMode && settings.showBackground && backgroundUrl);
 
   const handleTalk = () => {
     if (chat.type === "friend") {
@@ -402,11 +416,9 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             <div
               className="h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
               style={
-                !streamerMode &&
-                settings.showBackground &&
-                (chat.backgroundUrl ?? rich.backgroundUrl)
+                showBackground
                   ? {
-                      backgroundImage: `url(${rich.backgroundUrl})`,
+                      backgroundImage: `linear-gradient(180deg, color-mix(in oklab, black 8%, transparent), color-mix(in oklab, black 20%, transparent)), url(${backgroundUrl})`,
                       backgroundSize: "cover",
                       backgroundPosition: "center",
                     }
@@ -444,6 +456,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               ) : (
                 <div className="mt-3 flex items-center gap-2">
                   <h2 className="text-xl font-bold">{name}</h2>
+                  {chat.isSelf && selfPremium && <PremiumBadge size={14} compact />}
                   {!streamerMode && !chat.isSelf && (
                     <button
                       type="button"
@@ -481,21 +494,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             </div>
           </div>
 
-          {!streamerMode && (music || rich.birthday) && (
-            <div className="mt-4 space-y-2 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm">
-              {music && (
-                <p>
-                  <span className="text-[var(--vy-text-dim)]">音楽 · </span>
-                  {music.title || music.raw}
-                  {music.artist ? ` — ${music.artist}` : ""}
-                </p>
-              )}
-              {rich.birthday && (
-                <p>
-                  <span className="text-[var(--vy-text-dim)]">誕生日 · </span>
-                  {rich.birthday}
-                </p>
-              )}
+          {!streamerMode && (chat.isOfficial || rich.userType === 2) && (
+            <div className="mt-4">
+              <span className="inline-flex w-fit items-center rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
+                公式アカウント
+              </span>
             </div>
           )}
 
