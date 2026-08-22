@@ -4,7 +4,7 @@
  * 通話モジュールは遅延 import（ログイン等の基本機能を通話スタック障害から切り離す）
  */
 
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 
 import { existsSync } from "node:fs";
@@ -17,6 +17,7 @@ import { lineRouter } from "./api/line.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
 import { publicRouter } from "./api/public.js";
+import { lineOpenApiSpec } from "./api/openapi.line.js";
 import { restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
 import { warmAccountCache } from "./storage/chatStore.js";
@@ -36,6 +37,42 @@ const app = new Hono();
 app.use("*", cors({ origin: CORS_ORIGIN }));
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
+app.get("/api/v1/status", (c) =>
+  c.json({
+    ok: true,
+    status: "ready",
+    uptimeSec: Math.floor(performance.now() / 1000),
+    version: process.env.npm_package_version ?? "dev",
+  }),
+);
+
+// 軽量メトリクス: リクエストカウンタ + プロセス統計のみ（重い集計は行わない）
+const metricsState = { requests: 0, errors: 0 };
+app.use("*", async (c, next) => {
+  await next();
+  if (c.req.path === "/metrics") return;
+  metricsState.requests++;
+  if (c.res.status >= 500) metricsState.errors++;
+});
+app.get("/metrics", (c) => {
+  const mem = process.memoryUsage();
+  const body = [
+    "# TYPE vyline_requests_total counter",
+    `vyline_requests_total ${metricsState.requests}`,
+    "# TYPE vyline_errors_total counter",
+    `vyline_errors_total ${metricsState.errors}`,
+    "# TYPE vyline_process_uptime_seconds gauge",
+    `vyline_process_uptime_seconds ${Math.floor(performance.now() / 1000)}`,
+    "# TYPE vyline_memory_rss_bytes gauge",
+    `vyline_memory_rss_bytes ${mem.rss}`,
+    "# TYPE vyline_memory_heap_used_bytes gauge",
+    `vyline_memory_heap_used_bytes ${mem.heapUsed}`,
+  ].join("\n");
+  return new Response(body, {
+    status: 200,
+    headers: { "Content-Type": "text/plain; version=0.0.4; charset=utf-8" },
+  });
+});
 app.route("/auth", authRouter);
 app.route("/line", lineRouter);
 app.route("/debug", debugRouter);
@@ -53,6 +90,10 @@ app.route("/v1", publicRouter);
 app.route("/api/v1", publicRouter);
 
 // OpenAPI 仕様
+// /openapi.yaml      — 公開 REST API (/v1) の YAML
+// /openapi.json      — BFF (/line) API の JSON
+// /openapi/v1.yaml   — 公開 REST API (/v1) の YAML（Swagger UI 用エイリアス）
+// /docs, /swagger    — Swagger UI（CDN）
 app.get("/openapi.yaml", async (c) => {
   try {
     const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../openapi.yaml");
@@ -65,18 +106,39 @@ app.get("/openapi.yaml", async (c) => {
     return c.json({ ok: false, error: "openapi.yaml not found" }, 404);
   }
 });
-app.get("/openapi.json", async (c) => {
-  try {
-    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../openapi.yaml");
-    const yaml = await readFile(yamlPath, "utf8");
-    return new Response(yaml, {
-      status: 200,
-      headers: { "Content-Type": "text/yaml; charset=utf-8" },
-    });
-  } catch {
-    return c.json({ ok: false, error: "openapi.yaml not found" }, 404);
-  }
-});
+app.get("/openapi/v1.yaml", (c) => c.redirect("/openapi.yaml"));
+app.get("/openapi.json", (c) => c.json(lineOpenApiSpec));
+app.get("/docs", (c) => docsHtml(c));
+app.get("/swagger", (c) => docsHtml(c));
+
+function docsHtml(c: Context): Response {
+  const html = `<!doctype html>
+<html lang="ja">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vyline API Docs</title>
+    <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+  </head>
+  <body>
+    <div id="swagger"></div>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+    <script>
+      SwaggerUIBundle({
+        urls: [
+          { name: "BFF API (/line)", url: "/openapi.json" },
+          { name: "Public API (/v1)", url: "/openapi.yaml" },
+        ],
+        dom_id: "#swagger",
+        deepLinking: true,
+      });
+    </script>
+  </body>
+</html>`;
+  return new Response(html, {
+    status: 200,
+    headers: { "Content-Type": "text/html; charset=utf-8" },
+  });
+}
 
 const MIME: Record<string, string> = {
   ".html": "text/html; charset=utf-8",

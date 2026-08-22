@@ -27,6 +27,7 @@ import { childLogger } from "../logger.js";
 import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
+import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
 import {
   fetchProfile,
   fetchContactProfile,
@@ -115,6 +116,31 @@ import {
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
+
+// ─── plugins（基盤: マニフェスト一覧と有効/無効の永続化。コード実行は未対応） ───
+lineRouter.get("/:accountId/plugins", (c) => {
+  const accountId = c.req.param("accountId");
+  const states = getPluginStates(accountId);
+  return c.json({
+    plugins: listPlugins().map((p) => ({ ...p, enabled: states[p.id] === true })),
+    runtimePending: true,
+  });
+});
+
+lineRouter.post("/:accountId/plugins/:pluginId/:action", (c) => {
+  const accountId = c.req.param("accountId");
+  const pluginId = c.req.param("pluginId");
+  const action = c.req.param("action");
+  if (action !== "enable" && action !== "disable") {
+    return c.json({ ok: false, error: "action must be enable or disable" }, 400);
+  }
+  try {
+    setPluginState(accountId, pluginId, action === "enable");
+    return c.json({ ok: true, pluginId, enabled: action === "enable" });
+  } catch (err) {
+    return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 404);
+  }
+});
 
 // ─── helpers ─────────────────────────────
 
