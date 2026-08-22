@@ -372,6 +372,10 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 | [docs/selfhosting.md](docs/selfhosting.md) | Docker と Cloudflare Access |
 | [docs/protocol/dictionary.md](docs/protocol/dictionary.md) | RPC 辞書 |
 | [docs/api/openapi.md](docs/api/openapi.md) | OpenAPI と公開 API |
+| [docs/developers/index.md](docs/developers/index.md) | **開発者向けガイド（読む順序つき）** |
+| [docs/developers/plugin-system.md](docs/developers/plugin-system.md) | プラグイン開発（サンプル付き） |
+| [docs/developers/for-ai.md](docs/developers/for-ai.md) | AI エージェント向け指示書 |
+| [examples/](examples/) | プラグイン・API サンプルコード |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | コントリビューションガイド |
 | [AGENTS.md](AGENTS.md) | コーディングエージェント向けガイド |
 | [CHANGELOG.md](CHANGELOG.md) | 変更履歴 |

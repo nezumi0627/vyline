@@ -90,11 +90,7 @@ export interface E2EEBackupOperationRequest {
 /* ─── 内部ヘルパー ─────────────────────────────── */
 
 /** TalkService 配下の未ラップ RPC を汎用呼び出しする */
-async function talkRpc(
-  client: VylineClient,
-  method: string,
-  args: unknown,
-): Promise<unknown> {
+async function talkRpc(client: VylineClient, method: string, args: unknown): Promise<unknown> {
   const talk = client.base.talk as unknown as {
     client: {
       request: {
@@ -265,7 +261,9 @@ export async function createGroupCallUrl(
   client: VylineClient,
   req: CreateGroupCallUrlRequest,
 ): Promise<{ url: unknown }> {
-  const res = (await callSvc(client).createGroupCallUrl({ request: { title: req.title } } as never)) as {
+  const res = (await callSvc(client).createGroupCallUrl({
+    request: { title: req.title },
+  } as never)) as {
     url?: unknown;
   };
   return { url: res.url ?? res };
@@ -279,10 +277,7 @@ export async function deleteGroupCallUrl(
   return await callSvc(client).deleteGroupCallUrl({ request } as never);
 }
 
-export async function getGroupCallUrls(
-  accountId: string,
-  client: VylineClient,
-): Promise<unknown> {
+export async function getGroupCallUrls(accountId: string, client: VylineClient): Promise<unknown> {
   // Pb1_C13042j5 は空構造（サーバ側で全件返却）
   return await callSvc(client).getGroupCallUrls({ request: {} } as never);
 }
@@ -329,11 +324,7 @@ export async function kickoutFromGroupCall(
 
 /* ─── E2EE 鍵バックアップ（LINEStruct 汎用・/EKBS4） ── */
 
-async function ekbsRpc(
-  client: VylineClient,
-  method: string,
-  args: unknown,
-): Promise<unknown> {
+async function ekbsRpc(client: VylineClient, method: string, args: unknown): Promise<unknown> {
   const talk = client.base.talk as unknown as {
     client: {
       request: {
