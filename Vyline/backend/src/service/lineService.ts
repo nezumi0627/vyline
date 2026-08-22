@@ -5364,11 +5364,17 @@ export async function unblockContactMid(accountId: string, mid: string): Promise
   log.info({ accountId, mid }, "contact unblocked");
 }
 
-/** モバイルプッシュ通知の有効/無効 — Desktop: TalkService_setNotificationsEnabled (type=USER) */
+/**
+ * モバイルプッシュ通知の有効/無効 — Desktop: TalkService_setNotificationsEnabled (type=USER)
+ *
+ * 加えて Settings.notificationEnable（マスタースイッチ）を同じ値に揃える。
+ * これが OFF のままだと USER フラグを切り替えても端末に通知が届かない
+ * （「有効化したのに効かない」の主因）。
+ */
 export async function setNotificationsEnabled(
   accountId: string,
   enablement: boolean,
-): Promise<void> {
+): Promise<{ userFlag: boolean; masterEnable: boolean }> {
   const authService = require("../auth/mod.js").AuthService;
   await authService.tryRefreshToken(accountId);
 
@@ -5382,7 +5388,33 @@ export async function setNotificationsEnabled(
     target: mid,
     enablement,
   });
+
+  // マスタースイッチの整合
+  let masterEnable = enablement;
+  try {
+    const settings = (await client.base.talk.getSettings({ syncReason: 0 })) as {
+      notificationEnable?: boolean;
+    };
+    if ((settings.notificationEnable ?? true) !== enablement) {
+      await client.base.talk.updateSettingsAttributes2({
+        reqSeq: await client.base.getReqseq(),
+        settings: { notificationEnable: enablement },
+        attributesToUpdate: ["NOTIFICATION_ENABLE"],
+      });
+      log.info({ accountId, enablement }, "Settings.notificationEnable updated");
+    } else {
+      masterEnable = settings.notificationEnable ?? enablement;
+    }
+  } catch (err) {
+    // マスタースイッチ更新の失敗は警告に留める（USER フラグは反映済み）
+    log.warn(
+      { accountId, err: err instanceof Error ? err.message : String(err) },
+      "Settings.notificationEnable sync failed",
+    );
+  }
+
   log.info({ accountId, enablement }, "notificationsEnabled updated");
+  return { userFlag: true, masterEnable };
 }
 
 /** react RPC は稀に 8s を超えるため専用タイムアウト（通常 15s） */

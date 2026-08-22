@@ -612,9 +612,11 @@ export const api = {
       ),
 
     setNotification: (accountId: string, enable: boolean) =>
-      request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/notifications`, {
-        enable,
-      }),
+      request<{ ok: boolean; masterEnable?: boolean; error?: string }>(
+        "POST",
+        `/line/${accountId}/notifications`,
+        { enable },
+      ),
 
     /** 既読にする */
     markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>

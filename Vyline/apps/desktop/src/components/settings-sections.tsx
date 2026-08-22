@@ -1368,7 +1368,12 @@ function NotificationsSection() {
       const res = await api.line.setNotification(accountId, next);
       if (!res.ok) throw new Error(res.error ?? "失敗");
       updateSetting("notificationsEnabled", next);
-      setMsg(next ? "通知を有効にしました" : "通知を無効にしました");
+      // マスタースイッチが無効のままなら通知は鳴らないので明示する
+      if (next && res.masterEnable === false) {
+        setMsg("有効化しました（ただし Settings の通知マスターが無効のため端末には届きません）");
+      } else {
+        setMsg(next ? "通知を有効にしました" : "通知を無効にしました");
+      }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
     } finally {

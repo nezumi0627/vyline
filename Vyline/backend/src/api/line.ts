@@ -1259,8 +1259,8 @@ lineRouter.post("/:accountId/notifications", async (c) => {
     return c.json({ ok: false, error: "enable required" }, 400);
   }
   try {
-    await setNotificationsEnabled(accountId, body.enable);
-    return c.json({ ok: true });
+    const result = await setNotificationsEnabled(accountId, body.enable);
+    return c.json({ ok: true, ...result });
   } catch (err) {
     return handleError(err, c);
   }
