@@ -17,6 +17,9 @@
 | [developers/index.md](./developers/index.md)                             | 開発者ガイド（読む順序・人間向け入口）     |
 | [developers/for-ai.md](./developers/for-ai.md)                           | AI エージェント向け指示書                 |
 | [developers/plugin-system.md](./developers/plugin-system.md)              | プラグインシステム（ユーザーガイド）       |
+| [user-guide/update.md](./user-guide/update.md)                            | アップデート方法                          |
+| [user-guide/custom-client.md](./user-guide/custom-client.md)              | カスタムクライアントの作り方               |
+| [user-guide/themes.md](./user-guide/themes.md)                            | テーマの作り方                            |
 | [developer-guide/multi-account.md](./developer-guide/multi-account.md) | マルチアカウントデータ分離の現状と計画     |
 
 ---
