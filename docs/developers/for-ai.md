@@ -20,7 +20,8 @@ Vyline/
   backend/          Hono BFF (ロジック: service/lineService.ts)
   packages/
     protocol/       → GIT SUBMODULE (= github.com/nezumi0627/vyline-api)
-    plugin-sdk/     プラグイン型定義
+    plugin/         → GIT SUBMODULE (= github.com/nezumi0627/vyline-plugin) — sdk/ + examples/
+    themes/         → GIT SUBMODULE (= github.com/nezumi0627/vyline-thme) — VyTheme プリセット
     line-types/     Thrift 型定義（生成物に準拠）
 examples/
   plugins/          プラグインサンプル（コピーして使う）
@@ -48,6 +49,7 @@ docs/
 4. 型は `@vyline/line-types` の Thrift Request に合わせる
 
 ### プラグイン関連
+- SDK・サンプル: **vyline-plugin サブモジュール** (`Vyline/packages/plugin`) 内で変更 → コミット & push → 本 repo でポインタ更新
 - ランタイム: `backend/src/line/pluginRuntime.ts`
 - レジストリ: `pluginManager.ts`（manifest 検出・状態永続化）
 - 権限を増やす場合は SDK の `PluginPermission` と runtime の強制を両方更新

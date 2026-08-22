@@ -4,3 +4,9 @@
 [submodule "Vyline/packages/protocol"]
 	path = Vyline/packages/protocol
 	url = https://github.com/nezumi0627/vyline-api
+[submodule "Vyline/packages/plugin"]
+	path = Vyline/packages/plugin
+	url = https://github.com/nezumi0627/vyline-plugin.git
+[submodule "Vyline/packages/themes"]
+	path = Vyline/packages/themes
+	url = https://github.com/nezumi0627/vyline-thme.git
