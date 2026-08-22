@@ -1,4 +1,4 @@
-import { assertEquals, assertInstanceOf, assertThrows } from "jsr:@std/assert@^1.0.2";
+import { assertEquals, assertInstanceOf, assertThrows } from "@vyline/protocol/stack/assert";
 import {
   CompactMessageProtocolError,
   decodeCompactMessageResponse,

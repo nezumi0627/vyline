@@ -1,5 +1,6 @@
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
 import { extractStickerId, lineStickerUrl } from "../utils/lineMedia.js";
+import { getCombinationStickerPreview } from "../utils/combinationStickers.js";
 import {
   contentTypeLabel,
   isAudioContent,
@@ -118,7 +119,9 @@ function messageStatus(m: LineMessage): MessageStatus {
     if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
     return "sent";
   }
-  return "read";
+  // For received messages, status depends on whether we've read it
+  if (m.seen || (m.readCount != null && m.readCount > 0)) return "read";
+  return "sent";
 }
 
 function messageKind(m: LineMessage): MessageKind {
@@ -226,8 +229,17 @@ export function mapMessage(
   _contactCache?: Map<string, ContactInfo>,
 ): Message {
   const kind = messageKind(m);
-  const revoked = m.contentType === "UNSENT" || m.contentType === "UNSEND";
+  const messageState =
+    m.messageState ??
+    (m.contentType === "UNSENT" || m.contentType === "UNSEND"
+      ? m.isMyMessage
+        ? "revoked-by-self"
+        : "revoked-by-other"
+      : "normal");
+  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
   const stickerId = extractStickerId(m.contentMetadata ?? null);
+  const comboStickerId =
+    typeof meta?.CSSTKID === "string" && meta.CSSTKID.trim() ? meta.CSSTKID.trim() : null;
   const authorId = m.isMyMessage ? "me" : m.from;
 
   let imageSrc: string | undefined;
@@ -239,7 +251,16 @@ export function mapMessage(
     audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
   }
 
-  const read = m.isMyMessage ? Boolean(m.seen || (m.readCount != null && m.readCount > 0)) : true;
+  const isPersonalChat = chatId.startsWith("u");
+  const read = m.isMyMessage
+    ? isPersonalChat
+      ? Boolean(m.seen)
+      : m.seen ||
+        (m.readCount != null && m.readCount > 0) ||
+        (m.seen === undefined && m.readCount === undefined)
+    : isPersonalChat
+      ? Boolean(m.seen)
+      : Boolean(m.seen) || (m.readCount != null && m.readCount > 0);
 
   let text = sanitizeText(m.text);
   if (kind === "system") {
@@ -256,7 +277,6 @@ export function mapMessage(
     }
   }
 
-  const meta = (m.contentMetadata ?? null) as Record<string, unknown> | null;
   const altText = altTextFromMeta(meta);
   if ((kind === "flex" || kind === "rich") && !text && altText) {
     text = altText;
@@ -279,18 +299,27 @@ export function mapMessage(
       ? parseContactFromMeta(m.contentMetadata as Record<string, unknown> | null, text)
       : undefined;
 
+  let stickerSrc: string | undefined;
+  if (kind === "sticker") {
+    // コンビネーション: CSSTKID → メッセージID の順でローカルプレビューを引く。
+    // 履歴レスポンスに CSSTKID が載らない場合でも、送信時に保存したプレビューで表示を維持する。
+    const comboPreview = comboStickerId
+      ? getCombinationStickerPreview(accountId, comboStickerId)
+      : null;
+    const preview = comboPreview ?? getCombinationStickerPreview(accountId, m.id);
+    if (preview) stickerSrc = preview;
+    else if (comboStickerId) stickerSrc = lineStickerUrl(comboStickerId);
+    else if (stickerId) stickerSrc = lineStickerUrl(stickerId);
+    else stickerSrc = "🧩";
+  }
+
   const result: Message = {
     id: m.id,
     chatId,
     authorId,
     kind,
     text,
-    sticker:
-      kind === "sticker" && stickerId
-        ? lineStickerUrl(stickerId)
-        : kind === "sticker"
-          ? "🎴"
-          : undefined,
+    sticker: stickerSrc,
     imageSrc,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
@@ -311,7 +340,7 @@ export function mapMessage(
     status: messageStatus(m),
     read,
     readBy: m.readBy,
-    revoked,
+    messageState,
     replyToId: m.relatedMessageId ?? undefined,
     reactions: m.reactions
       ?.filter((r) => Number.isFinite(r.type))
@@ -330,6 +359,10 @@ export function mapMessage(
       Boolean(m.originalText),
     editedAt: m.updatedTime != null && m.updatedTime > 0 ? m.updatedTime : undefined,
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
+    history: m.history?.length ? m.history : undefined,
+    ...(m.revokedSnapshot
+      ? { revokedSnapshot: mapMessage(m.revokedSnapshot, chatId, accountId, _contactCache) }
+      : {}),
     contact,
     location,
   };

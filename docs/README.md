@@ -1,9 +1,21 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-07-31
+最終更新: 2026-08-22
 
 新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
+
+---
+
+## API / デプロイ / 開発者ガイド
+
+| ドキュメント                                            | 内容                                                     |
+| ------------------------------------------------------- | -------------------------------------------------------- |
+| [api/openapi.md](./api/openapi.md)                      | OpenAPI / Swagger ルートと仕様の管理方法                 |
+| [api/media-batch.md](./api/media-batch.md)              | 複数メディア一括送信 API                                 |
+| [deployment/docker.md](./deployment/docker.md)          | Docker / Docker Compose デプロイ                         |
+| [developer-guide/plugin-system.md](./developer-guide/plugin-system.md) | プラグインシステム基盤とロードマップ       |
+| [developer-guide/multi-account.md](./developer-guide/multi-account.md) | マルチアカウントデータ分離の現状と計画     |
 
 ---
 
@@ -66,7 +78,6 @@
 | [tools/find-native-symbol.md](./tools/find-native-symbol.md)         | Desktop 内 RPC 名検索        |
 | [tools/desktop-delta.md](./tools/desktop-delta.md)                   | Desktop 更新時の差分調査     |
 | [tools/focus-recovered-source.md](./tools/focus-recovered-source.md) | 復元ソースのピンポイント表示 |
-| [tools/nezu-bot-agent.md](./tools/nezu-bot-agent.md)                 | Nezu BOT 指示チャネル        |
 
 ---
 

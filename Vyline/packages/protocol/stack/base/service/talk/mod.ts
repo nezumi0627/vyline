@@ -95,17 +95,28 @@ export class TalkService implements BaseService {
     contentType?: LINETypes.ContentType;
     contentMetadata?: Record<string, string>;
     relatedMessageId?: string;
+    messageRelationType?: "FORWARD" | "AUTO_REPLY" | "SUBORDINATE" | "REPLY";
     location?: LINETypes.Location;
     chunks?: string[] | Buffer[];
     e2ee?: boolean;
   }): Promise<LINETypes.Message> {
-    const { to, text, contentType, contentMetadata, relatedMessageId, location, e2ee, chunks } = {
+    const {
+      to,
+      text,
+      contentType,
+      contentMetadata,
+      relatedMessageId,
+      messageRelationType,
+      location,
+      e2ee,
+      chunks,
+    } = {
       contentType: "NONE" as LINETypes.ContentType,
       contentMetadata: {},
       ...options,
     };
     if ((e2ee && !chunks && location) || (e2ee && !chunks && text)) {
-      const chunks = await this.client.e2ee.encryptE2EEMessage(
+      const encrypted = await this.client.e2ee.encryptE2EEMessage(
         to,
         text || location || "invalid",
         contentType,
@@ -118,15 +129,16 @@ export class TalkService implements BaseService {
           e2eeMark: "2",
         },
       };
-      const options = {
+      const next = {
         to,
         contentType,
         contentMetadata: _contentMetadata,
         relatedMessageId,
+        messageRelationType,
         e2ee,
-        chunks,
+        chunks: encrypted.chunks,
       };
-      return this.sendMessage(options);
+      return this.sendMessage(next);
     }
 
     const message = LINEStruct.sendMessage_args({
@@ -146,7 +158,7 @@ export class TalkService implements BaseService {
         relatedMessageId,
         ...(relatedMessageId
           ? {
-              messageRelationType: "REPLY",
+              messageRelationType: messageRelationType ?? "REPLY",
               relatedMessageServiceCode: "TALK",
             }
           : {}),

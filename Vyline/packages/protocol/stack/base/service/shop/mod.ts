@@ -294,12 +294,36 @@ export class ShopService implements BaseService {
     );
   }
 
+  async canCreateCombinationSticker(
+    ...param: Parameters<typeof LINEStruct.canCreateCombinationSticker_args>
+  ): Promise<LINETypes.canCreateCombinationSticker_result["success"]> {
+    return await this.client.request.request(
+      LINEStruct.canCreateCombinationSticker_args(...param),
+      "canCreateCombinationSticker",
+      this.protocolType,
+      true,
+      this.requestPath,
+    );
+  }
+
   async createCombinationSticker(
     ...param: Parameters<typeof LINEStruct.createCombinationSticker_args>
   ): Promise<LINETypes.createCombinationSticker_result["success"]> {
     return await this.client.request.request(
       LINEStruct.createCombinationSticker_args(...param),
       "createCombinationSticker",
+      this.protocolType,
+      true,
+      this.requestPath,
+    );
+  }
+
+  async isStickerAvailableForCombinationSticker(
+    ...param: Parameters<typeof LINEStruct.isStickerAvailableForCombinationSticker_args>
+  ): Promise<LINETypes.isStickerAvailableForCombinationSticker_result["success"]> {
+    return await this.client.request.request(
+      LINEStruct.isStickerAvailableForCombinationSticker_args(...param),
+      "isStickerAvailableForCombinationSticker",
       this.protocolType,
       true,
       this.requestPath,

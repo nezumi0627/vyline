@@ -113,6 +113,12 @@ bun run typecheck
 | `desktop-e2ee-keys.json` / token をコミット | 秘密情報                 |
 | Desktop 未検証のまま path を変える          | 実機 x-lc:400 の温床     |
 
+### Vyline では公開しない項目
+
+- 自分プロフィールの「誕生日（MMDD / YYYYMMDD）」更新は扱わない。
+- これは Desktop 側でも主に primary 寄りのデバイスタイプでしか安定しないため、Vyline では入力欄を出さず、backend でも更新経路を持たない。
+- 表示用に取得済みの誕生日データは残してよいが、編集導線は追加しない。
+
 ---
 
 ## コード規約（短く）

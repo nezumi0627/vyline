@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { createVoomClient, VoomChannelId } from "./voom.ts";
 
 function makeFake() {

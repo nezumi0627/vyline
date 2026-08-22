@@ -48,6 +48,8 @@ export interface MessageLogEntry {
 
 const streams = new Map<string, WriteStream>();
 const rotatedBytes = new Map<string, number>();
+/** 追記バイト数カウンタ（毎回 stat() するコストを避ける） */
+const writtenBytes = new Map<string, number>();
 
 function logPath(accountId: string): string {
   return join(LOG_DIR, `message-log-${accountId}.jsonl`);
@@ -62,6 +64,10 @@ function streamFor(accountId: string): WriteStream {
   mkdirSync(LOG_DIR, { recursive: true });
   const stream = createWriteStream(logPath(accountId), { flags: "a", encoding: "utf8" });
   streams.set(accountId, stream);
+  // カウンタ初期化: 既存サイズは1回だけ取得
+  stat(logPath(accountId))
+    .then((s) => writtenBytes.set(accountId, s.size))
+    .catch(() => writtenBytes.set(accountId, 0));
   stream.on("error", (err) => {
     if (streams.get(accountId) === stream) streams.delete(accountId);
     log.debug({ accountId, err }, "message log stream error");
@@ -70,14 +76,9 @@ function streamFor(accountId: string): WriteStream {
 }
 
 async function maybeRotate(accountId: string): Promise<void> {
-  const p = logPath(accountId);
-  let size = 0;
-  try {
-    size = (await stat(p)).size;
-  } catch {
-    return;
-  }
+  const size = writtenBytes.get(accountId) ?? 0;
   if (size < ROTATE_BYTES) return;
+  const p = logPath(accountId);
   const last = rotatedBytes.get(accountId);
   if (last != null && size - last < ROTATE_BYTES) return; // 直前ローテ直後
   rotatedBytes.set(accountId, size);
@@ -85,6 +86,7 @@ async function maybeRotate(accountId: string): Promise<void> {
     const s = streams.get(accountId);
     s?.end();
     streams.delete(accountId);
+    writtenBytes.set(accountId, 0);
     const prev = `${p}.2`;
     if (existsSync(prev))
       await import("node:fs/promises").then(({ unlink }) => unlink(prev)).catch(() => undefined);
@@ -99,7 +101,10 @@ async function maybeRotate(accountId: string): Promise<void> {
 export function appendMessageLog(entry: MessageLogEntry): void {
   try {
     const s = streamFor(entry.accountId);
-    s.write(`${JSON.stringify(entry)}\n`);
+    const line = `${JSON.stringify(entry)}\n`;
+    s.write(line);
+    // stat() の代わりに書き込みバイト数で追跡
+    writtenBytes.set(entry.accountId, (writtenBytes.get(entry.accountId) ?? 0) + line.length);
     void maybeRotate(entry.accountId).catch(() => undefined);
   } catch (err) {
     log.debug({ err }, "message log append failed");

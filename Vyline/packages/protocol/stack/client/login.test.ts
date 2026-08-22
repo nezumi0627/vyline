@@ -1,4 +1,4 @@
-import { assertEquals, assertRejects } from "jsr:@std/assert@^1.0.2";
+import { assertEquals, assertRejects } from "@vyline/protocol/stack/assert";
 import { loginWithAuthToken } from "./login.ts";
 import { MemoryStorage } from "../base/storage/mod.ts";
 

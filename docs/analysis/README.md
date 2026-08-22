@@ -15,6 +15,8 @@ agents は `bun run vyline:delta` のレポートが指す feature ごとに、�
 | e2ee-send                | [e2ee-send.md](./e2ee-send.md)                   |                                                      |
 | e2ee-decrypt             | [e2ee-decrypt.md](./e2ee-decrypt.md)             |                                                      |
 | talk-send                | [talk-send.md](./talk-send.md)                   |                                                      |
+| multi-image-send         | [multi-image-send-handoff.md](./multi-image-send-handoff.md) | 複数画像送信の未解決事項と handoff |
+| combination-sticker     | [combination-sticker-handoff.md](./combination-sticker-handoff.md) | 複数スタンプの組み合わせ送信・表示の未解決事項と handoff |
 | sync-events              | [sync-events.md](./sync-events.md)               |                                                      |
 | stickers                 | [stickers.md](./stickers.md)                     |                                                      |
 | line-emoji               | [line-emoji.md](./line-emoji.md)                 |                                                      |

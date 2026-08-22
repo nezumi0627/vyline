@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { Buffer } from "node:buffer";
 import dgram from "node:dgram";
 import { AndromedaTransport } from "./andromeda.ts";

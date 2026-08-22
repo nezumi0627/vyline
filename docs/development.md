@@ -7,7 +7,7 @@
 ## セットアップ
 
 ```powershell
-# Bun (未インストール時)
+# Bun 1.4 以上 (推奨環境・engines で強制はしない)
 # https://bun.sh
 
 git clone <repo>

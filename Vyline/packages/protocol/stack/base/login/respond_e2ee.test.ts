@@ -1,5 +1,5 @@
 import { Buffer } from "node:buffer";
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { Login } from "./mod.ts";
 
 // Minimal stub of BaseClient.request — captures the NestedArray and

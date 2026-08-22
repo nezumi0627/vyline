@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals, assertRejects } from "@vyline/protocol/stack/assert";
 import { CallSession, type CallTransport } from "./session.ts";
 import type { AudioDecoder, AudioEncoder, CodecFactory, PcmFrame } from "./audio.ts";
 import { bufferSink, bufferSource } from "./audio.ts";

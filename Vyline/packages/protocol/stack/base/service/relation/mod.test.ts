@@ -1,4 +1,4 @@
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { type NestedArray, Protocols } from "../../thrift/readwrite/declares.ts";
 import { readThrift } from "../../thrift/readwrite/read.ts";
 import { writeThrift } from "../../thrift/readwrite/write.ts";

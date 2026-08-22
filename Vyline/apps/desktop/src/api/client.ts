@@ -28,6 +28,7 @@ import type {
   CallStatusResponse,
   CallActiveResponse,
   CallType,
+  Message,
 } from "@vyline/types";
 
 // re-export for convenience
@@ -219,6 +220,25 @@ export const api = {
         ...opts,
       }),
 
+    sendMediaBatch: (
+      accountId: string,
+      chatMid: string,
+      items: Array<{
+        dataBase64: string;
+        mimeType?: string;
+        filename?: string;
+        mediaType?: string;
+      }>,
+    ) =>
+      request<{ ok: boolean; count?: number; error?: string }>(
+        "POST",
+        `/line/${accountId}/send-media-batch`,
+        {
+          chatMid,
+          items,
+        },
+      ),
+
     sendSticker: (
       accountId: string,
       chatMid: string,
@@ -227,6 +247,61 @@ export const api = {
       request<SendResponse>("POST", `/line/${accountId}/send-sticker`, {
         chatMid,
         ...opts,
+      }),
+
+    canCreateCombinationSticker: (accountId: string, packageIds: string[]) =>
+      request<{ ok: boolean; canCreate: boolean; usablePackageIds: string[]; error?: string }>(
+        "POST",
+        `/line/${accountId}/combination-stickers/can-create`,
+        { packageIds },
+      ),
+
+    isStickerAvailableForCombinationSticker: (accountId: string, packageId: string) =>
+      request<{ ok: boolean; availableForCombinationSticker: boolean; error?: string }>(
+        "POST",
+        `/line/${accountId}/combination-stickers/available`,
+        { packageId },
+      ),
+
+    createCombinationSticker: (
+      accountId: string,
+      items: Array<{
+        packageId: string;
+        stickerId: string;
+      }>,
+      opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+    ) =>
+      request<{ ok: boolean; id: string; error?: string }>(
+        "POST",
+        `/line/${accountId}/combination-stickers`,
+        opts?.idOfPreviousVersionOfCombinationSticker
+          ? {
+              items,
+              idOfPreviousVersionOfCombinationSticker: opts.idOfPreviousVersionOfCombinationSticker,
+            }
+          : { items },
+      ),
+
+    sendCombinationSticker: (
+      accountId: string,
+      chatMid: string,
+      items: Array<{
+        packageId: string;
+        stickerId: string;
+        x?: number;
+        y?: number;
+        size?: number;
+      }>,
+      opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+    ) =>
+      request<SendResponse>("POST", `/line/${accountId}/send-combination-sticker`, {
+        chatMid,
+        items,
+        ...(opts?.idOfPreviousVersionOfCombinationSticker
+          ? {
+              idOfPreviousVersionOfCombinationSticker: opts.idOfPreviousVersionOfCombinationSticker,
+            }
+          : {}),
       }),
 
     sendEmoji: (
@@ -269,11 +344,24 @@ export const api = {
     unsend: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
 
+    restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: true; text?: string | null; contentType?: string }>(
+        "POST",
+        `/line/${accountId}/restore?chatMid=${encodeURIComponent(chatMid)}`,
+        { messageId },
+      ),
+
     editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
       request<EditResponse>("POST", `/line/${accountId}/edit`, { chatMid, messageId, text }),
 
     editNotice: (accountId: string, chatMid: string) =>
       request<EditNoticeResponse>("GET", `/line/${accountId}/edit-notice/${chatMid}`),
+
+    messageHistory: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: true; history: Message["history"] }>(
+        "GET",
+        `/line/${accountId}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}/history`,
+      ),
 
     /** 相手ユーザーのプロフィール取得 (アイコン URL 用) */
     contactProfile: (accountId: string, targetMid: string) =>
@@ -299,6 +387,57 @@ export const api = {
         groups?: Record<string, unknown>;
         error?: string;
       }>("GET", `/line/${accountId}/vyline/cache`),
+
+    vylineStorage: (accountId: string) =>
+      request<{
+        ok: boolean;
+        driveLetter?: string;
+        disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
+        vylineTotal: number;
+        cacheSize: number;
+        savedMediaSize: number;
+        cache: {
+          cdn: number;
+          icons: number;
+        };
+        savedMedia: {
+          image: number;
+          video: number;
+          audio: number;
+          file: number;
+        };
+        error?: string;
+      }>("GET", `/line/${accountId}/vyline/storage`),
+
+    clearVylineCache: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/cache`,
+      ),
+
+    clearVylineCdnCache: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/cache/cdn`,
+      ),
+
+    clearVylineIconCache: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/cache/icons`,
+      ),
+
+    clearVylineSavedMedia: (accountId: string) =>
+      request<{ ok: boolean; removed?: number; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/saved-media`,
+      ),
+
+    clearVylineSavedMediaType: (accountId: string, type: string) =>
+      request<{ ok: boolean; removed?: number; type?: string; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/vyline/saved-media/${type}`,
+      ),
 
     vylineWarm: (accountId: string, mids: string[]) =>
       request<{ ok: boolean; profiles?: Record<string, unknown>; count?: number; error?: string }>(
@@ -347,7 +486,6 @@ export const api = {
         statusMessage?: string;
         phoneticName?: string;
         musicProfile?: string;
-        birthday?: { year?: string; day: string; yearEnabled?: boolean; dayEnabled?: boolean };
       },
     ) => request<ProfileResponse>("PATCH", `/line/${accountId}/profile`, body),
 

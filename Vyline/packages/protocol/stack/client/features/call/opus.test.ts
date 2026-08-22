@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { opusCodecFactory } from "./opus.ts";
 
 Deno.test("opusCodecFactory: encodes + decodes a 20ms 48kHz mono frame", async () => {

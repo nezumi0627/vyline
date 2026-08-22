@@ -44,6 +44,7 @@ import {
   vylinePutProfiles,
   vylineResolvedNameMap,
 } from "../storage/vylineCache.js";
+import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import {
@@ -73,18 +74,57 @@ import {
   upsertChats,
   upsertMessages,
   markMessageRevoked,
+  restoreRevokedMessage,
+  getMessageHistory,
   warmAccountCache,
   saveBoxOrder,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
+
+export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
+import { writeMediaCache } from "../storage/mediaCache.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
 
 const log = childLogger("service:line");
+
+type CombinationStickerLayoutInfo = {
+  width: number;
+  height: number;
+  rotation: number;
+  x: number;
+  y: number;
+};
+
+type CombinationStickerStickerInfo = {
+  stickerId: number;
+  productId: number;
+  stickerHash: string;
+  stickerOptions: string;
+  stickerVersion: number;
+};
+
+type CombinationStickerLayout = {
+  layoutInfo: CombinationStickerLayoutInfo;
+  stickerInfo: CombinationStickerStickerInfo;
+};
+
+type CombinationStickerMetadata = {
+  version: number;
+  canvasWidth: number;
+  canvasHeight: number;
+  stickerLayouts: CombinationStickerLayout[];
+};
+
+type CombinationStickerStickerData = {
+  packageId: string;
+  stickerId: string;
+  version: number;
+};
 
 // ─── helpers ──────────────────────────────────
 
@@ -112,7 +152,7 @@ export function backgroundObjToUrl(objId: string | undefined | null): string | n
   if (!objId || !String(objId).trim()) return null;
   const s = String(objId).trim();
   if (s.startsWith("https://") || s.startsWith("http://")) return s;
-  return `https://obs.line-scdn.net/myhome/h/${s}`;
+  return `https://obs.line-apps.com/r/myhome/h/${s}`;
 }
 
 // ─── プロフィール背景（他ユーザー）────────────────
@@ -135,9 +175,18 @@ function extractBackgroundUrl(value: unknown, depth = 0): string | null {
   if (depth > 12 || value == null) return null;
   if (typeof value === "string") {
     const s = value.trim();
+    if (/^\/(?:myhome|mh|hm)\//i.test(s)) {
+      return `https://obs.line-scdn.net${s}`;
+    }
+    if (/^[a-z0-9_-]{8,}$/i.test(s) && !s.includes(" ")) {
+      const maybe = backgroundObjToUrl(s);
+      if (maybe) return maybe;
+    }
     if (
       /^https?:\/\//i.test(s) &&
-      (s.includes("myhome") || /\.(png|jpe?g|webp|gif)(\?|$)/i.test(s))
+      (s.includes("myhome") ||
+        s.includes("line-scdn.net") ||
+        /\.(png|jpe?g|webp|gif)(\?|$)/i.test(s))
     ) {
       return s;
     }
@@ -173,7 +222,17 @@ const HOME_BACKGROUND_CACHE_MS = 30 * 60 * 1000; // 30 分
 const HOME_BACKGROUND_RPC_TIMEOUT_MS = 6_000;
 
 /**
- * VOOM ホームプロフィール API からユーザーのプロフィール背景 URL を取得する。
+ * 相手のプロフィール背景（カバー画像）URL を取得する。
+ *
+ * 実データは HOME チャネルの home/cover API が正解（live-verified 2026-08-21）:
+ *   GET gw.line.naver.jp/hm/api/v1/home/cover.json?homeId=<mid>
+ *   ヘッダ X-Line-ChannelToken = issueChannelToken(HOME).channelAccessToken
+ * レスポンス:
+ *   { code:0, result:{ coverObsInfo:{ objectId, obsNamespace:"c", serviceName:"myhome" }, isDefaultCover:false } }
+ * 画像 URL: https://obs.line-apps.com/r/myhome/<obsNamespace>/<objectId>
+ *
+ * 注: ルーティングは MYHOME_RENEWAL(/hm)。HOMEAPI(/ma) や MYHOME(/mh) は 401/404 になる。
+ * チャネルトークンは voom.call("HOME", ...) が自動で発行する(channelAccessToken を使用)。
  * 失敗時は null（タイムアウト・権限なし・未設定などは静かに握りつぶす）。
  */
 async function fetchHomeProfileBackgroundUrl(
@@ -184,27 +243,37 @@ async function fetchHomeProfileBackgroundUrl(
   const key = `${accountId}:${targetMid}`;
   const cached = homeBackgroundCache.get(key);
   if (cached && Date.now() - cached.at < HOME_BACKGROUND_CACHE_MS) {
-    return cached.url;
+    return cached.url || null;
   }
   try {
     const client = requireClient(accountId);
     const res = await withTimeout(
-      (async () => {
-        const r = await client.voomRest<unknown>({
-          routing: "HOMEAPI",
-          path: `/api/v1/home/profile.json?homeId=${encodeURIComponent(targetMid)}`,
-        });
-        return r;
-      })(),
+      client.voom.call("HOME", {
+        routing: "MYHOME_RENEWAL",
+        path: `/api/v1/home/cover.json?homeId=${encodeURIComponent(targetMid)}`,
+      }),
       HOME_BACKGROUND_RPC_TIMEOUT_MS,
-      "homeProfile",
+      "homeCover",
     );
-    const result = (res as { result?: unknown })?.result;
-    const url = result ? extractBackgroundUrl(result) : null;
-    homeBackgroundCache.set(key, { at: Date.now(), url: url ?? "" });
-    return url;
+    const result = (res as { result?: unknown }).result as
+      | {
+          coverObsInfo?: { objectId?: string; obsNamespace?: string };
+          isDefaultCover?: boolean;
+        }
+      | null
+      | undefined;
+    const info = result?.coverObsInfo;
+    // isDefaultCover=true は LINE の既定カバー（未設定）とみなし表示しない
+    if (info?.objectId && result?.isDefaultCover !== true) {
+      const ns = info.obsNamespace || "c";
+      const url = `https://obs.line-apps.com/r/myhome/${ns}/${info.objectId}`;
+      homeBackgroundCache.set(key, { at: Date.now(), url });
+      return url;
+    }
+    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    return null;
   } catch (err) {
-    log.debug({ accountId, targetMid, err }, "homeProfile background fetch failed");
+    log.debug({ accountId, targetMid, err }, "home cover background fetch failed");
     homeBackgroundCache.set(key, { at: Date.now(), url: "" });
     return null;
   }
@@ -297,8 +366,9 @@ async function ensureGroupE2EEKey(
         msg.includes("NOT_FOUND") ||
         msg.includes("no valid group key") ||
         msg.includes("there is no valid group key");
-      if (expectedMissing) {
+      if (expectedMissing || isRetryPlainError(msg)) {
         log.debug({ chatMid, err: msg }, "ensureGroupE2EEKey: no group key (skip)");
+        if (isRetryPlainError(msg)) noE2eePeers.add(chatMid);
       } else {
         log.warn(
           { chatMid, err: msg },
@@ -576,6 +646,15 @@ const CONTACT_PROFILE_MISS_MS = Number(process.env.VYLINE_CONTACT_MISS_CACHE_MS 
 const contactProfileMiss = new Map<string, number>();
 const myProfileCache = new Map<string, { at: number; profile: LineProfile }>();
 const myMidCache = new Map<string, string>();
+type PremiumStatus = {
+  active: boolean;
+  planType?: string | number;
+  validUntil?: number;
+  onFreeTrial?: boolean;
+  willExpire?: boolean;
+};
+const premiumStatusCache = new Map<string, { at: number; premium: PremiumStatus }>();
+const PREMIUM_STATUS_CACHE_MS = Number(process.env.VYLINE_PREMIUM_STATUS_CACHE_MS ?? 10 * 60_000);
 
 /** Desktop: 起動時に鍵検証済み — 毎リクエスト getE2EEPublicKeys を避ける */
 const e2eeIdentityEnsuredAt = new Map<string, number>();
@@ -810,12 +889,21 @@ function invalidateBoxCursorCache(accountId: string, chatMid?: string): void {
 }
 
 function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
-  return Promise.race([
-    promise,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`${label} timed out after ${ms}ms`)), ms);
-    }),
-  ]);
+  return new Promise<T>((resolve, reject) => {
+    const timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+    promise.then(
+      (value) => {
+        clearTimeout(timeoutId);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeoutId);
+        reject(error);
+      },
+    );
+  });
 }
 
 async function resolveMyMid(
@@ -877,6 +965,48 @@ function requireClient(accountId: string) {
   return client;
 }
 
+async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
+  const now = Date.now();
+  const cached = premiumStatusCache.get(accountId);
+  if (cached && now - cached.at < PREMIUM_STATUS_CACHE_MS) {
+    return cached.premium;
+  }
+
+  const client = requireClient(accountId);
+  let premium: PremiumStatus = { active: false };
+  try {
+    const status = (await client.base.request.request(
+      LINEStruct.getPremiumStatus_args({ req: {} as never }),
+      "getPremiumStatus",
+      4,
+      true,
+      "/EXT/line-premium/common/thrift/status",
+    )) as {
+      active?: boolean;
+      planType?: string | number;
+      validUntil?: number | bigint;
+      onFreeTrial?: boolean;
+      willExpire?: boolean;
+    };
+    premium = {
+      active: Boolean(status?.active),
+      onFreeTrial: Boolean(status?.onFreeTrial),
+      willExpire: Boolean(status?.willExpire),
+    };
+    if (status?.planType != null) premium.planType = status.planType;
+    if (status?.validUntil != null) premium.validUntil = Number(status.validUntil);
+  } catch (err) {
+    log.debug(
+      { accountId, err: err instanceof Error ? err.message : String(err) },
+      "getPremiumStatus failed",
+    );
+  }
+
+  premiumStatusCache.set(accountId, { at: Date.now(), premium });
+  void updateSessionMeta(accountId, { premium });
+  return premium;
+}
+
 /** 自分のプロフィール取得（メモリ / base.profile / Vyline 優先、RPC は短タイムアウト） */
 export async function fetchProfile(accountId: string): Promise<LineProfile> {
   // Refresh token before making profile requests to ensure it's valid
@@ -886,7 +1016,12 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   const now = Date.now();
   const mem = myProfileCache.get(accountId);
   if (mem && now - mem.at < MY_PROFILE_CACHE_MS) {
-    return mem.profile;
+    if (mem.profile.premium) return mem.profile;
+    const premium =
+      premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
+    const next = { ...mem.profile, premium };
+    myProfileCache.set(accountId, { at: mem.at, profile: next });
+    return next;
   }
 
   const client = requireClient(accountId);
@@ -906,7 +1041,10 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       backgroundUrl?: string;
     },
     birthday: LineBirthday | null = null,
+    premium: PremiumStatus | null = null,
   ): LineProfile => {
+    // ふりがな / profileId / pictureStatus / birthday は backend で保持しておく。
+    // 現在の UI では出さないが、将来の再表示やデバッグ用にレスポンス形は残す。
     const pictureStatus = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const thumbnailUrl = pictureStatusToUrl(pictureStatus) ?? "";
     const out: LineProfile = {
@@ -921,8 +1059,9 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       musicProfile: String(raw.musicProfile ?? ""),
       videoProfile: String(raw.videoProfile ?? ""),
       profileId: String(raw.profileId ?? ""),
-      backgroundUrl: raw.backgroundUrl || undefined,
+      backgroundUrl: raw.backgroundUrl || extractBackgroundUrl(raw) || undefined,
       birthday,
+      ...(premium ? { premium } : {}),
     };
     return out;
   };
@@ -967,6 +1106,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       if (out.birthday?.display) put.birthday = out.birthday.display;
       if (out.backgroundUrl) put.backgroundUrl = out.backgroundUrl;
       void vylinePutProfile(accountId, put);
+      if (out.premium) void updateSessionMeta(accountId, { premium: out.premium });
     }
     return out;
   };
@@ -980,6 +1120,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
           MY_PROFILE_RPC_TIMEOUT_MS,
           "getProfile.bg",
         );
+        const premium = await fetchPremiumStatus(accountId);
         let birthday: LineBirthday | null = mem?.profile.birthday ?? null;
         try {
           const ext = await withTimeout(
@@ -999,7 +1140,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
         } catch {
           /* optional */
         }
-        persistAndReturn(mapRaw(profile as never, birthday));
+        persistAndReturn(mapRaw(profile as never, birthday, premium));
       } catch (err) {
         log.debug({ accountId, err }, "fetchProfile background refresh failed");
       }
@@ -1012,7 +1153,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   }
 
   if (baseProf?.mid && baseProf.displayName) {
-    const quick = mapRaw(baseProf, mem?.profile.birthday ?? null);
+    const quick = mapRaw(baseProf, mem?.profile.birthday ?? null, mem?.profile.premium ?? null);
     persistAndReturn(quick);
     refreshInBg();
     return quick;
@@ -1024,6 +1165,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     const profile = await vylineGetProfile(accountId, String(knownMid));
     if (profile?.displayName) {
       const mapped = lineProfileFromVyline(profile);
+      mapped.premium =
+        premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
       myProfileCache.set(accountId, { at: now, profile: mapped });
       refreshInBg();
       return mapped;
@@ -1036,6 +1179,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       MY_PROFILE_RPC_TIMEOUT_MS,
       "getProfile",
     );
+    const premium = await fetchPremiumStatus(accountId);
     let birthday: LineBirthday | null = null;
     try {
       const ext = await withTimeout(
@@ -1056,13 +1200,16 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       log.debug({ accountId, err }, "getExtendedProfile skipped");
     }
 
-    const out = persistAndReturn(mapRaw(profile as never, birthday));
+    const out = persistAndReturn(mapRaw(profile as never, birthday, premium));
     log.debug({ accountId, mid: out.mid, hasThumb: Boolean(out.thumbnailUrl) }, "profile fetched");
     return out;
   } catch (err) {
     log.debug({ accountId, err }, "fetchProfile timed out — fallback");
     if (mem) return mem.profile;
-    if (baseProf?.mid) return persistAndReturn(mapRaw(baseProf, null));
+    if (baseProf?.mid) {
+      const premium = await fetchPremiumStatus(accountId).catch(() => null);
+      return persistAndReturn(mapRaw(baseProf, null, premium));
+    }
     throw err;
   }
 }
@@ -1669,6 +1816,19 @@ export async function fetchContactProfile(
 
   const cached = contactProfileCache.get(cacheKey);
   if (cached && now - cached.at < CONTACT_PROFILE_CACHE_MS) {
+    if (targetMid.startsWith("u") && !cached.profile.backgroundUrl) {
+      const next = { ...cached.profile };
+      try {
+        const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
+        if (bg) {
+          next.backgroundUrl = bg;
+          contactProfileCache.set(cacheKey, { at: Date.now(), profile: next });
+          return next;
+        }
+      } catch {
+        /* optional */
+      }
+    }
     return cached.profile;
   }
 
@@ -1687,6 +1847,14 @@ export async function fetchContactProfile(
     const vylineHit = await vylineGetProfile(accountId, targetMid);
     if (vylineHit && !vylineProfileNeedsRefresh(vylineHit)) {
       const profile = lineProfileFromVyline(vylineHit);
+      if (targetMid.startsWith("u") && !profile.backgroundUrl) {
+        try {
+          const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
+          if (bg) profile.backgroundUrl = bg;
+        } catch {
+          /* optional */
+        }
+      }
       contactProfileCache.set(cacheKey, { at: Date.now(), profile });
       return profile;
     }
@@ -1739,9 +1907,10 @@ export async function fetchContactProfile(
   })();
 
   contactProfileInflight.set(cacheKey, task);
-  void task.finally(() => {
+  const cleanup = () => {
     contactProfileInflight.delete(cacheKey);
-  });
+  };
+  task.then(cleanup, cleanup);
   return task;
 }
 
@@ -1755,7 +1924,11 @@ async function fetchContactProfileInner(
       const raw = await resolveUserContactV3Like(client, targetMid);
       if (!raw) return null;
       const profile = mapContactV3Like(raw, targetMid);
-      // プロフィール背景は homeProfile API から（別途・短タイムアウト・失敗許容）
+      // getProfile / contact raw に背景が入ることがあるのでまずそこを優先する。
+      const rawBackground = extractBackgroundUrl(raw);
+      if (rawBackground) profile.backgroundUrl = rawBackground;
+
+      // プロフィール背景は homeProfile API も別途試す（失敗許容の保険）
       try {
         const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
         if (bg) profile.backgroundUrl = bg;
@@ -3531,7 +3704,11 @@ async function fetchMessagesInner(
   for (const m of merged) byId.set(m.id, m);
   for (const m of messages) {
     const prev = byId.get(m.id);
-    byId.set(m.id, prev ? { ...prev, ...m } : m);
+    const combined = prev ? { ...prev, ...m } : m;
+    if (prev?.history?.length && !combined.history?.length) {
+      combined.history = prev.history;
+    }
+    byId.set(m.id, combined);
   }
   const out = [...byId.values()].sort((a, b) => b.createdTime - a.createdTime).slice(0, limit);
 
@@ -3590,6 +3767,11 @@ function isMissingGroupKeyError(errMsg: string): boolean {
   );
 }
 
+function isRetryPlainError(errMsg: string): boolean {
+  const lower = errMsg.toLowerCase();
+  return errMsg.includes("E2EE_RETRY_PLAIN") || lower.includes("member settings off");
+}
+
 /**
  * グループ宛送信前: 最新共有鍵を用意。無ければ新規 register。
  * （uploadMediaByE2EE / Letter Sealing は鍵無しだと NOT_FOUND で落ちる）
@@ -3614,6 +3796,11 @@ async function ensureGroupKeyReadyForSend(
     return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+    if (isRetryPlainError(msg)) {
+      noE2eePeers.add(chatMid);
+      log.debug({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: retry plain");
+      return;
+    }
     if (!isMissingGroupKeyError(msg)) {
       log.warn({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: getLast failed");
       throw err;
@@ -3882,10 +4069,64 @@ export async function sendMessage(
 }
 
 export type MediaSendType = "image" | "video" | "audio" | "file" | "gif";
+export type MediaBatchItem = {
+  dataBase64: string;
+  mimeType?: string;
+  filename?: string;
+  mediaType?: MediaSendType;
+};
 
 /** スクショ／画像など E2EE メディア送信 */
 /** メディア送信は E2EE 鍵整備 + OBS アップロード + プレビューで時間がかかるため通常より長め */
 const MEDIA_SEND_TIMEOUT_MS = 90_000;
+const MEDIA_FLOW_REQSEQ = 1;
+const mediaFlowCache = new Map<string, { flowMap: Record<string, number>; expiresAt: number }>();
+
+function mediaContentTypeNumber(mediaType: MediaSendType): number {
+  if (mediaType === "video") return 2;
+  if (mediaType === "audio") return 3;
+  if (mediaType === "file") return 14;
+  return 1;
+}
+
+async function determinePlainMediaFlow(
+  client: ReturnType<typeof requireClient>,
+  accountId: string,
+  chatMid: string,
+  mediaTypes: MediaSendType[],
+): Promise<boolean> {
+  const now = Date.now();
+  const cached = mediaFlowCache.get(chatMid);
+  let flowMap = cached && cached.expiresAt > now ? cached.flowMap : undefined;
+  if (!flowMap) {
+    try {
+      const res = await client.base.talk.determineMediaMessageFlow({
+        request: { chatMid },
+      });
+      flowMap = Object.fromEntries(
+        Object.entries(res.flowMap ?? {}).map(([key, value]) => [String(key), Number(value)]),
+      );
+      const ttl =
+        typeof res.cacheTtlMillis === "bigint"
+          ? Number(res.cacheTtlMillis)
+          : Number(res.cacheTtlMillis ?? 0);
+      mediaFlowCache.set(chatMid, {
+        flowMap,
+        expiresAt: now + Math.max(60_000, Math.min(ttl || 0, 6 * 60 * 60 * 1000)),
+      });
+      log.info({ accountId, chatMid, flowMap }, "media message flow determined");
+    } catch (err) {
+      log.warn(
+        { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+        "determineMediaMessageFlow failed",
+      );
+      return false;
+    }
+  }
+  return mediaTypes.every(
+    (type) => flowMap[String(mediaContentTypeNumber(type))] === MEDIA_FLOW_REQSEQ,
+  );
+}
 
 export async function sendMedia(
   accountId: string,
@@ -3916,26 +4157,6 @@ export async function sendMedia(
         log.warn({ accountId, err }, "E2EE ensure before media send failed");
       }
 
-      // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
-      // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
-      // 新規 register はしない（テキストは plain フォールバックで問題ない）
-      let plainMode = noE2eePeers.has(chatMid);
-      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
-        try {
-          await ensureGroupE2EEKey(client, chatMid);
-          if (groupKeyWarmFailed.has(chatMid)) {
-            groupKeyWarmFailed.delete(chatMid);
-            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
-          }
-        } catch (err) {
-          log.warn(
-            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-            "group E2EE key setup failed — sending media as plain",
-          );
-          plainMode = true;
-        }
-      }
-
       const mime = opts?.mimeType ?? "image/png";
       const mediaType: MediaSendType =
         opts?.mediaType ??
@@ -3957,6 +4178,32 @@ export async function sendMedia(
           ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
           : "file.bin");
 
+      // Desktop 準拠: REFRESH_MEDIA_FLOW を待たず、送信前にメディア flow を確認する。
+      // flow=1 は OBS /r/talk/m/reqseq でサーバー側に message を作らせる。
+      let plainMode =
+        noE2eePeers.has(chatMid) ||
+        (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
+
+      // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
+      // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
+      // 新規 register はしない（テキストは plain フォールバックで問題ない）
+      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        try {
+          await ensureGroupE2EEKey(client, chatMid);
+          if (groupKeyWarmFailed.has(chatMid)) {
+            groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+          }
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "group E2EE key setup failed — sending media as plain",
+          );
+          plainMode = true;
+        }
+        plainMode = plainMode || noE2eePeers.has(chatMid);
+      }
+
       const tryUpload = async () => {
         await client.base.obs.uploadMediaByE2EE({
           data: blob,
@@ -3968,11 +4215,25 @@ export async function sendMedia(
 
       try {
         if (plainMode) {
-          // E2EE 鍵を整えられない相手は uploadMediaByE2EE の内部 plain フォールバックを使う
-          // （uploadObjTalk は talk メッセージを作らないため使わない）
-          await tryUpload();
+          // 平文チャットは E2EE メディアメッセージではなく raw OBS upload で送る。
+          // uploadObjTalk が talk 側のメッセージ作成まで面倒を見るため、sendMessage は呼ばない。
+          const { objId, objHash } = await client.base.obs.uploadObjTalk(
+            chatMid,
+            mediaType,
+            blob,
+            undefined,
+            filename,
+          );
           log.info(
-            { accountId, chatMid, mediaType, size: binary.byteLength, plain: true },
+            {
+              accountId,
+              chatMid,
+              mediaType,
+              size: binary.byteLength,
+              plain: true,
+              objId,
+              objHash,
+            },
             "media sent",
           );
           return;
@@ -4046,6 +4307,275 @@ export async function sendMedia(
   );
 }
 
+export async function sendMediaBatch(
+  accountId: string,
+  chatMid: string,
+  items: MediaBatchItem[],
+): Promise<number> {
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "sendMediaBatch blocked: user is blocked");
+      return 0;
+    }
+  }
+
+  return runSendRpc(
+    accountId,
+    async () => {
+      const client = requireClient(accountId);
+      await resolveMyMid(client, accountId);
+      try {
+        await ensureE2EEIdentityCached(client, accountId);
+      } catch (err) {
+        log.warn({ accountId, err }, "E2EE ensure before media batch send failed");
+      }
+
+      const batchMediaTypes = items.map((item) => {
+        const mime = item.mimeType ?? "image/png";
+        return (
+          item.mediaType ??
+          (mime.startsWith("video/")
+            ? "video"
+            : mime.startsWith("audio/")
+              ? "audio"
+              : mime === "image/gif"
+                ? "gif"
+                : mime.startsWith("image/")
+                  ? "image"
+                  : "file")
+        );
+      });
+      let plainMode =
+        noE2eePeers.has(chatMid) ||
+        (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
+      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+        try {
+          await ensureGroupE2EEKey(client, chatMid);
+          if (groupKeyWarmFailed.has(chatMid)) {
+            groupKeyWarmFailed.delete(chatMid);
+            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+          }
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "group E2EE key setup failed — sending media batch as plain",
+          );
+          plainMode = true;
+        }
+        plainMode = plainMode || noE2eePeers.has(chatMid);
+      }
+
+      if (plainMode) {
+        // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
+        // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
+        // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らない。
+        try {
+          const uploaded = await client.base.obs.uploadObjTalkBatch(
+            chatMid,
+            items.map((item, idx) => ({
+              type: (batchMediaTypes[idx] ?? "image") as Parameters<
+                typeof client.base.obs.uploadObjTalk
+              >[1],
+              data: new Blob([Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0))], {
+                type: item.mimeType ?? "image/png",
+              }),
+              filename:
+                item.filename ??
+                ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
+            })),
+          );
+          // reqseq 生成メッセージは OBS から OID が取れないため、
+          // アップロード応答の objId（== 生成メッセージID の実測）をキーに
+          // 送信バイトをローカル media cache に置く（自クライアントの即表示用）
+          for (let i = 0; i < uploaded.length; i++) {
+            const objId = uploaded[i]?.objId;
+            if (!objId) continue;
+            const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
+            void writeMediaCache(
+              accountId,
+              chatMid,
+              objId,
+              binary,
+              items[i]!.mimeType ?? "image/png",
+            );
+          }
+          log.info(
+            { accountId, chatMid, count: uploaded.length, batch: true, plain: true, reqseq: true },
+            "media batch sent via OBS reqseq",
+          );
+          return items.length;
+        } catch (err) {
+          log.warn(
+            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+            "OBS reqseq batch failed — falling back to sendMessage path",
+          );
+        }
+        let previousMessageId: string | undefined;
+        let count = 0;
+        for (let i = 0; i < items.length; i++) {
+          const item = items[i]!;
+          const mime = item.mimeType ?? "image/png";
+          const mediaType = batchMediaTypes[i] ?? "image";
+          const binary = Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0));
+          const blob = new Blob([binary], { type: mime });
+          const filename =
+            item.filename ??
+            (mediaType === "image" || mediaType === "gif"
+              ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+              : "file.bin");
+          const message = await client.base.obs.uploadObjTalkMessage({
+            to: chatMid,
+            type: mediaType,
+            data: blob,
+            filename,
+            ...(previousMessageId
+              ? {
+                  relatedMessageId: previousMessageId,
+                  messageRelationType: "SUBORDINATE",
+                }
+              : {}),
+          });
+          previousMessageId = message.id;
+          count++;
+          log.info(
+            {
+              accountId,
+              chatMid,
+              mediaType,
+              size: binary.byteLength,
+              plain: true,
+              batch: true,
+              messageId: message.id,
+              relatedMessageId: message.relatedMessageId,
+              messageRelationType: message.messageRelationType,
+            },
+            "media batch item sent",
+          );
+        }
+        return count;
+      }
+
+      let count = 0;
+      let previousMessageId: string | undefined;
+      for (const item of items) {
+        const mime = item.mimeType ?? "image/png";
+        const mediaType: MediaSendType =
+          item.mediaType ??
+          (mime.startsWith("video/")
+            ? "video"
+            : mime.startsWith("audio/")
+              ? "audio"
+              : mime === "image/gif"
+                ? "gif"
+                : mime.startsWith("image/")
+                  ? "image"
+                  : "file");
+        const binary = Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0));
+        const blob = new Blob([binary], { type: mime });
+        const filename =
+          item.filename ??
+          (mediaType === "image" || mediaType === "gif"
+            ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+            : "file.bin");
+
+        const tryUpload = async () => {
+          const message = await client.base.obs.uploadMediaByE2EE({
+            data: blob,
+            oType: mediaType,
+            to: chatMid,
+            filename,
+            ...(previousMessageId
+              ? {
+                  relatedMessageId: previousMessageId,
+                  messageRelationType: "SUBORDINATE",
+                }
+              : {}),
+          });
+          previousMessageId = message.id;
+          return message;
+        };
+
+        try {
+          const message = await tryUpload();
+          log.info(
+            {
+              accountId,
+              chatMid,
+              mediaType,
+              size: binary.byteLength,
+              batch: true,
+              messageId: message.id,
+              relatedMessageId: message.relatedMessageId,
+              messageRelationType: message.messageRelationType,
+            },
+            "media batch item sent",
+          );
+          count++;
+        } catch (err) {
+          let errMsg = err instanceof Error ? err.message : String(err);
+
+          if (isSenderKeyError(errMsg)) {
+            log.warn(
+              { accountId, chatMid, errMsg },
+              "media batch send: invalid sender key — rotating and retrying",
+            );
+            try {
+              await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+              const message = await tryUpload();
+              previousMessageId = message.id;
+              count++;
+              continue;
+            } catch (retryErr) {
+              err = retryErr;
+              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            }
+          }
+
+          if (
+            (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+            (chatMid.startsWith("c") || chatMid.startsWith("r"))
+          ) {
+            log.warn(
+              { accountId, chatMid, errMsg },
+              "media batch send: old/missing group key — recreating and retrying",
+            );
+            try {
+              await recreateE2EEGroupKey(client, chatMid);
+              groupKeyWarm.delete(chatMid);
+              groupKeyWarmFailed.delete(chatMid);
+              const message = await tryUpload();
+              previousMessageId = message.id;
+              count++;
+              continue;
+            } catch (retryErr) {
+              log.warn(
+                {
+                  accountId,
+                  chatMid,
+                  retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
+                },
+                "media batch send after group-key recreate failed",
+              );
+              throw retryErr;
+            }
+          }
+
+          throw err;
+        }
+      }
+
+      return count;
+    },
+    {
+      timeoutMs: Math.min(
+        300_000,
+        Math.max(MEDIA_SEND_TIMEOUT_MS, MEDIA_SEND_TIMEOUT_MS * items.length),
+      ),
+    },
+  );
+}
+
 /** スタンプ送信（所持パック / Premium）。E2EE 非対応相手は最初から plain */
 export async function sendSticker(
   accountId: string,
@@ -4059,70 +4589,322 @@ export async function sendSticker(
       return null;
     }
   }
-  return runSendRpc(accountId, async () => {
-    const client = requireClient(accountId);
-    const myMid = await resolveMyMid(client, accountId);
-    const packageId = String(opts?.packageId ?? "11537");
-    const stickerId = String(opts?.stickerId ?? "52002734");
-    // Premium sticker: STKVER=100, 所持チェック不要
-    const premium = Boolean(opts?.isPremium);
-    const stkver = premium ? "100" : "1";
-    const contentMetadata: Record<string, string> = {
-      STKPKGID: packageId,
-      STKID: stickerId,
-      STKVER: stkver,
-      STKTXT: "[スタンプ]",
-    };
-    if (premium) {
-      contentMetadata.STKOPT = "A";
-    }
-
-    const sendPlain = async () =>
-      client.base.talk.sendMessage({
-        to: chatMid,
-        contentType: "STICKER",
+  return runSendRpc(accountId, async () =>
+    sendStickerMessage(accountId, chatMid, async () => {
+      const packageId = String(opts?.packageId ?? "11537");
+      const stickerId = String(opts?.stickerId ?? "52002734");
+      // Premium sticker: STKVER=100, 所持チェック不要
+      const premium = Boolean(opts?.isPremium);
+      const stkver = premium ? "100" : "1";
+      const contentMetadata: Record<string, string> = {
+        STKPKGID: packageId,
+        STKID: stickerId,
+        STKVER: stkver,
+        STKTXT: "[スタンプ]",
+      };
+      if (premium) {
+        contentMetadata.STKOPT = "A";
+      }
+      return {
         contentMetadata,
-        e2ee: false,
-      });
+      };
+    }),
+  );
+}
 
-    let sent: unknown;
-    if (noE2eePeers.has(chatMid)) {
-      sent = await sendPlain();
-    } else {
-      try {
-        await ensureE2EEIdentityCached(client, accountId);
-        const envelope = await encryptLetterSealingMessage(client, {
-          to: chatMid,
-          from: myMid,
-          contentType: 7, // STICKER
-          payload: {},
-        });
-        sent = await client.base.talk.sendMessage({
-          to: chatMid,
-          contentType: "STICKER",
-          contentMetadata: { ...contentMetadata, ...envelope.contentMetadata },
-          chunks: envelope.chunks,
-          e2ee: true,
-        });
-      } catch (err) {
-        const errMsg = err instanceof Error ? err.message : String(err);
-        markNoE2eePeer(chatMid, errMsg);
-        log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
-        sent = await sendPlain();
+type CombinationStickerInput = {
+  packageId: string;
+  stickerId: string;
+  x?: number;
+  y?: number;
+  size?: number;
+};
+
+/** frontend sticker-emoji-panel の正規座標空間 (COMBO_EDITOR_SIZE) と同期 */
+const COMBO_EDITOR_SPACE = 240;
+
+function buildCombinationStickerLayouts(items: CombinationStickerInput[]): {
+  metadata: CombinationStickerMetadata;
+  stickers: CombinationStickerStickerData[];
+} {
+  const canvasWidth = 512;
+  const canvasHeight = 512;
+  const count = Math.max(1, items.length);
+
+  const toLayoutInfo = (index: number): CombinationStickerLayoutInfo => {
+    const item = items[index];
+    if (item?.x != null && item?.y != null && item?.size != null) {
+      const scale = canvasWidth / COMBO_EDITOR_SPACE;
+      const size = Math.max(40, Math.min(canvasWidth, Math.round(item.size * scale)));
+      return {
+        width: size,
+        height: size,
+        rotation: 0,
+        x: Math.max(0, Math.min(canvasWidth - size, Math.round(item.x * scale))),
+        y: Math.max(0, Math.min(canvasHeight - size, Math.round(item.y * scale))),
+      };
+    }
+    switch (count) {
+      case 1:
+        return { width: 352, height: 352, rotation: 0, x: 80, y: 80 };
+      case 2:
+        return {
+          width: 216,
+          height: 216,
+          rotation: 0,
+          x: index === 0 ? 40 : 256,
+          y: 148,
+        };
+      case 3:
+        return index === 0
+          ? { width: 240, height: 240, rotation: 0, x: 136, y: 20 }
+          : {
+              width: 200,
+              height: 200,
+              rotation: 0,
+              x: index === 1 ? 44 : 268,
+              y: 248,
+            };
+      case 4: {
+        const col = index % 2;
+        const row = Math.floor(index / 2);
+        return { width: 192, height: 192, rotation: 0, x: 48 + col * 224, y: 48 + row * 224 };
+      }
+      case 5:
+        if (index < 2) {
+          return { width: 176, height: 176, rotation: 0, x: 68 + index * 204, y: 56 };
+        }
+        return { width: 160, height: 160, rotation: 0, x: 48 + (index - 2) * 148, y: 292 };
+      case 6: {
+        const col = index % 3;
+        const row = Math.floor(index / 3);
+        return {
+          width: 140,
+          height: 140,
+          rotation: 0,
+          x: 38 + col * 158,
+          y: 86 + row * 168,
+        };
+      }
+      default: {
+        const cols = count <= 8 ? 3 : 4;
+        const rows = Math.ceil(count / cols);
+        const cellW = Math.floor((canvasWidth - 72) / cols);
+        const cellH = Math.floor((canvasHeight - 72) / rows);
+        const col = index % cols;
+        const row = Math.floor(index / cols);
+        const size = Math.min(cellW, cellH) - 10;
+        return {
+          width: size,
+          height: size,
+          rotation: 0,
+          x: 36 + col * cellW + Math.floor((cellW - size) / 2),
+          y: 36 + row * cellH + Math.floor((cellH - size) / 2),
+        };
       }
     }
+  };
 
-    invalidateMessageBoxesCache(accountId);
-    invalidateBoxCursorCache(accountId, chatMid);
-    // 送信結果に STK メタが無い場合もあるので補完してキャッシュ
-    if (sent && typeof sent === "object") {
-      const raw = sent as Record<string, unknown>;
-      const meta = (raw.contentMetadata ?? {}) as Record<string, string>;
-      raw.contentMetadata = { ...contentMetadata, ...meta };
-      raw.contentType = raw.contentType ?? "STICKER";
+  const metadata: CombinationStickerMetadata = {
+    version: 1,
+    canvasWidth,
+    canvasHeight,
+    stickerLayouts: items.map((item, index) => ({
+      layoutInfo: toLayoutInfo(index),
+      stickerInfo: {
+        stickerId: Number(item.stickerId),
+        productId: Number(item.packageId),
+        stickerHash: "",
+        stickerOptions: "",
+        stickerVersion: 1,
+      },
+    })),
+  };
+
+  return {
+    metadata,
+    stickers: items.map((item) => ({
+      packageId: item.packageId,
+      stickerId: item.stickerId,
+      version: 1,
+    })),
+  };
+}
+
+export async function canCreateCombinationSticker(
+  accountId: string,
+  packageIds: string[],
+): Promise<{ canCreate: boolean; usablePackageIds: string[] }> {
+  const client = requireClient(accountId);
+  const shop = (
+    client.base as unknown as {
+      shop: {
+        canCreateCombinationSticker: (input: {
+          request: { packageIds: string[] };
+        }) => Promise<{ canCreate: boolean; usablePackageIds: string[] }>;
+      };
     }
-    const remembered = await rememberSentRaw(accountId, chatMid, myMid, sent);
-    log.info({ accountId, chatMid, packageId, stickerId }, "sticker sent");
+  ).shop;
+  return await shop.canCreateCombinationSticker({
+    request: {
+      packageIds,
+    },
+  });
+}
+
+export async function isStickerAvailableForCombinationSticker(
+  accountId: string,
+  packageId: string,
+): Promise<{ availableForCombinationSticker: boolean }> {
+  const client = requireClient(accountId);
+  const shop = (
+    client.base as unknown as {
+      shop: {
+        isStickerAvailableForCombinationSticker: (input: {
+          request: { packageId: string };
+        }) => Promise<{ availableForCombinationSticker: boolean }>;
+      };
+    }
+  ).shop;
+  return await shop.isStickerAvailableForCombinationSticker({
+    request: {
+      packageId,
+    },
+  });
+}
+
+export async function createCombinationSticker(
+  accountId: string,
+  items: CombinationStickerInput[],
+  opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+): Promise<{ id: string }> {
+  if (items.length === 0) {
+    throw new Error("at least one sticker is required");
+  }
+  return await runSendRpc(accountId, async () => {
+    return await createCombinationStickerCore(accountId, items, opts);
+  });
+}
+
+async function createCombinationStickerCore(
+  accountId: string,
+  items: CombinationStickerInput[],
+  opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+): Promise<{ id: string }> {
+  const client = requireClient(accountId);
+  const payload = buildCombinationStickerLayouts(items);
+  const shop = (
+    client.base as unknown as {
+      shop: {
+        createCombinationSticker: (input: {
+          request: typeof payload & { idOfPreviousVersionOfCombinationSticker: string };
+        }) => Promise<{ id: string | number | null | undefined }>;
+      };
+    }
+  ).shop;
+  const result = await shop.createCombinationSticker({
+    request: {
+      ...payload,
+      idOfPreviousVersionOfCombinationSticker: opts?.idOfPreviousVersionOfCombinationSticker ?? "",
+    },
+  });
+  return { id: String(result?.id ?? "") };
+}
+
+async function sendStickerMessage(
+  accountId: string,
+  chatMid: string,
+  build: (
+    client: ReturnType<typeof requireClient>,
+    myMid: string,
+  ) => Promise<{
+    contentMetadata: Record<string, string>;
+  }>,
+): Promise<Message | null> {
+  const client = requireClient(accountId);
+  const myMid = await resolveMyMid(client, accountId);
+  const built = await build(client, myMid);
+
+  const sendPlain = async () =>
+    client.base.talk.sendMessage({
+      to: chatMid,
+      contentType: "STICKER",
+      contentMetadata: built.contentMetadata,
+      e2ee: false,
+    });
+
+  let sent: unknown;
+  if (noE2eePeers.has(chatMid)) {
+    sent = await sendPlain();
+  } else {
+    try {
+      await ensureE2EEIdentityCached(client, accountId);
+      const envelope = await encryptLetterSealingMessage(client, {
+        to: chatMid,
+        from: myMid,
+        contentType: 7, // STICKER
+        payload: {},
+      });
+      sent = await client.base.talk.sendMessage({
+        to: chatMid,
+        contentType: "STICKER",
+        contentMetadata: { ...built.contentMetadata, ...envelope.contentMetadata },
+        chunks: envelope.chunks,
+        e2ee: true,
+      });
+    } catch (err) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      markNoE2eePeer(chatMid, errMsg);
+      log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
+      sent = await sendPlain();
+    }
+  }
+
+  invalidateMessageBoxesCache(accountId);
+  invalidateBoxCursorCache(accountId, chatMid);
+  if (sent && typeof sent === "object") {
+    const raw = sent as Record<string, unknown>;
+    const meta = (raw.contentMetadata ?? {}) as Record<string, string>;
+    raw.contentMetadata = { ...built.contentMetadata, ...meta };
+    raw.contentType = raw.contentType ?? "STICKER";
+  }
+  const remembered = await rememberSentRaw(accountId, chatMid, myMid, sent);
+  return remembered;
+}
+
+export async function sendCombinationSticker(
+  accountId: string,
+  chatMid: string,
+  items: CombinationStickerInput[],
+  opts?: { idOfPreviousVersionOfCombinationSticker?: string },
+): Promise<Message | null> {
+  if (chatMid.startsWith("u")) {
+    const blocked = await fetchBlockedContactIds(accountId);
+    if (blocked.includes(chatMid)) {
+      log.info({ accountId, chatMid }, "sendCombinationSticker blocked: user is blocked");
+      return null;
+    }
+  }
+  if (!items.length) {
+    throw new Error("at least one sticker is required");
+  }
+  return runSendRpc(accountId, async () => {
+    const created = await createCombinationStickerCore(accountId, items, opts);
+    const remembered = await sendStickerMessage(accountId, chatMid, async () => ({
+      contentMetadata: { CSSTKID: created.id },
+    }));
+    const sentMeta = (remembered?.contentMetadata ?? null) as Record<string, unknown> | null;
+    log.info(
+      {
+        accountId,
+        chatMid,
+        combinationStickerId: created.id,
+        count: items.length,
+        sentMetaKeys: sentMeta ? Object.keys(sentMeta) : null,
+        sentMetaHasCsstk: typeof sentMeta?.CSSTKID === "string" && sentMeta.CSSTKID.length > 0,
+      },
+      "combination sticker sent",
+    );
     return remembered;
   });
 }
@@ -4200,13 +4982,45 @@ export async function sendLineEmoji(
 export async function unsendMessage(accountId: string, messageId: string): Promise<void> {
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
+    const found = await findStoredMessageByIdLocal(accountId, messageId);
+    const chatMid = found?.chatMid;
+    if (found) {
+      const stored = found.message;
+      if (
+        stored.revokedSnapshot ||
+        stored.messageState?.startsWith("revoked") ||
+        stored.contentType === "UNSENT" ||
+        stored.contentType === "UNSEND"
+      ) {
+        throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+      }
+    }
     const client = requireClient(accountId);
     await client.base.talk.unsendMessage({
       seq: await client.base.getReqseq(),
       messageId,
     });
+    if (chatMid) {
+      await markMessageRevoked(accountId, chatMid, messageId);
+    }
     log.info({ accountId, messageId }, "message unsent");
   });
+}
+
+async function findStoredMessageByIdLocal(
+  accountId: string,
+  messageId: string,
+): Promise<{
+  chatMid: string;
+  message: Awaited<ReturnType<typeof getStoredMessages>>[number];
+} | null> {
+  const chats = await getStoredChats(accountId);
+  for (const chat of chats) {
+    const messages = await getStoredMessages(accountId, chat.mid, Number.MAX_SAFE_INTEGER);
+    const message = messages.find((m) => m.id === messageId);
+    if (message) return { chatMid: chat.mid, message };
+  }
+  return null;
 }
 
 /** メッセージ編集（Desktop: editMessage） */
@@ -4277,7 +5091,7 @@ export async function getMessageEditNotice(
 // ─── Profile / Chat admin / Contacts (domain facade) ───────────────────────
 // Desktop: TalkService_updateProfileAttributes / updateChat / updateContactSetting
 
-/** 自分プロフィール属性更新（表示名・ステメ・誕生日等） */
+/** 自分プロフィール属性更新（表示名・ステメ等） */
 export async function updateMyProfile(
   accountId: string,
   input: ProfileUpdateInput,
@@ -4287,7 +5101,7 @@ export async function updateMyProfile(
 
   // musicProfile は ANDROIDSECONDARY 等で "music profile update not allowed"
   // → 書き込みは行わずログのみ（取得・表示は fetchProfile 側）
-  const { musicProfile, birthday, ...attrs } = input;
+  const { musicProfile, ...attrs } = input;
   if (musicProfile !== undefined) {
     log.info({ accountId }, "musicProfile write skipped (server rejects on this device type)");
   }
@@ -4295,41 +5109,6 @@ export async function updateMyProfile(
   const attrInput: ProfileUpdateInput = { ...attrs };
   if (Object.keys(attrInput).length > 0) {
     await session.profile.update(attrInput);
-  }
-
-  if (birthday) {
-    try {
-      await session.profile.update({ birthday });
-    } catch (err1) {
-      log.debug({ accountId, err: err1 }, "birthday update attr 0 failed — retry attr 1");
-      try {
-        const day = birthday.day.replace(/[^0-9]/g, "").slice(0, 4);
-        const year = (birthday.year ?? "").replace(/[^0-9]/g, "").slice(0, 4);
-        await client.base.talk.updateExtendedProfileAttribute({
-          reqSeq: await client.base.getReqseq(),
-          attr: 1,
-          extendedProfile: {
-            birthday: {
-              year,
-              day,
-              yearEnabled: birthday.yearEnabled ?? Boolean(year),
-              dayEnabled: birthday.dayEnabled ?? true,
-              yearPrivacyLevelType: birthday.yearPrivacy ?? "PRIVATE",
-              dayPrivacyLevelType: birthday.dayPrivacy ?? "PUBLIC",
-            },
-          },
-        });
-      } catch (err2) {
-        // ANDROIDSECONDARY 等では x-lc:500 / 空ボディで失敗することがある
-        log.info(
-          {
-            accountId,
-            err: err2 instanceof Error ? err2.message : String(err2),
-          },
-          "birthday update skipped (not supported on this device)",
-        );
-      }
-    }
   }
 
   myMidCache.delete(accountId);
@@ -4352,14 +5131,6 @@ export async function updateMyProfile(
       musicProfile: musicProfile ?? "",
       videoProfile: "",
       profileId: "",
-      birthday: birthday
-        ? formatBirthdayDisplay({
-            day: birthday.day,
-            ...(birthday.year !== undefined ? { year: birthday.year } : {}),
-            ...(birthday.yearEnabled !== undefined ? { yearEnabled: birthday.yearEnabled } : {}),
-            ...(birthday.dayEnabled !== undefined ? { dayEnabled: birthday.dayEnabled } : {}),
-          })
-        : null,
     };
   }
 }
@@ -5545,34 +6316,7 @@ export async function fetchStickersCatalog(
 
   const client = requireClient(accountId);
 
-  let premium: StickersCatalog["premium"] = { active: false };
-  try {
-    const status = (await client.base.request.request(
-      LINEStruct.getPremiumStatus_args({ req: {} as never }),
-      "getPremiumStatus",
-      4,
-      true,
-      "/EXT/line-premium/common/thrift/status",
-    )) as {
-      active?: boolean;
-      planType?: string | number;
-      validUntil?: number | bigint;
-      onFreeTrial?: boolean;
-      willExpire?: boolean;
-    };
-    premium = {
-      active: Boolean(status?.active),
-      onFreeTrial: Boolean(status?.onFreeTrial),
-      willExpire: Boolean(status?.willExpire),
-    };
-    if (status?.planType != null) premium.planType = status.planType;
-    if (status?.validUntil != null) premium.validUntil = Number(status.validUntil);
-  } catch (err) {
-    log.debug(
-      { accountId, err: err instanceof Error ? err.message : String(err) },
-      "getPremiumStatus failed",
-    );
-  }
+  const premium = await fetchPremiumStatus(accountId);
 
   const stickerIds = [
     ...DEFAULT_STICKER_PACKS,

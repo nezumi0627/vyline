@@ -7,7 +7,7 @@
  * 手順:
  * 1. "privateKey" ASCII をメモリ走査し近傍を dump
  * 2. keyId / publicKey / privateKey をパース
- * 3. Curve25519 でペア検証 → desktop-e2ee-keys.json に保存
+ * 3. Curve25519 でペア検証 → desktop-e2ee-keys-{accountId}.json に保存
  *
  * 実行: bun Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts
  */
@@ -23,8 +23,6 @@ import type { DesktopE2EEKey, DesktopE2EEKeyDump } from "../login/importDesktopE
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "../../../../..");
 const DATA = join(REPO, "Vyline", "backend", "data");
-const OUT = join(DATA, "desktop-e2ee-keys.json");
-const RAW_OUT = join(DATA, "e2ee-selfchain-raw.txt");
 
 function verifyPair(privB64: string, pubB64: string): boolean {
   try {
@@ -38,19 +36,19 @@ function verifyPair(privB64: string, pubB64: string): boolean {
 }
 
 /** PowerShell: "privateKey" ヒット近傍の ASCII 窓を dump */
-function dumpPrivateKeyWindows(): string {
+function dumpPrivateKeyWindows(rawOut: string): string {
   const ps1 = join(dirname(fileURLToPath(import.meta.url)), "scanLinePrivateKeyWindows.ps1");
   const r = spawnSync(
     "powershell.exe",
-    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-OutFile", RAW_OUT],
+    ["-NoProfile", "-ExecutionPolicy", "Bypass", "-File", ps1, "-OutFile", rawOut],
     { encoding: "utf-8", maxBuffer: 64 * 1024 * 1024, timeout: 180_000 },
   );
   if (r.error) throw r.error;
   if (r.status !== 0) {
     throw new Error(`scan failed: ${r.stderr || r.stdout}`);
   }
-  if (!existsSync(RAW_OUT)) return "";
-  return readFileSync(RAW_OUT, "utf8");
+  if (!existsSync(rawOut)) return "";
+  return readFileSync(rawOut, "utf8");
 }
 
 function parseKeys(raw: string): Map<number, DesktopE2EEKey> {
@@ -81,13 +79,55 @@ function parseKeys(raw: string): Map<number, DesktopE2EEKey> {
 async function main(): Promise<void> {
   const tokensPath = join(DATA, "tokens.json");
   if (!existsSync(tokensPath)) throw new Error(`missing ${tokensPath}`);
-  const tokens = JSON.parse(readFileSync(tokensPath, "utf8")) as {
-    main?: { authToken: string };
-  };
-  if (!tokens.main?.authToken) throw new Error("no main authToken");
+  const tokens = JSON.parse(readFileSync(tokensPath, "utf8")) as Record<
+    string,
+    {
+      authToken?: string;
+      storageFile?: string;
+    }
+  >;
+
+  const accountArgIndex = process.argv.indexOf("--account");
+  const requestedAccount = accountArgIndex >= 0 ? process.argv[accountArgIndex + 1] : undefined;
+
+  if (accountArgIndex >= 0 && !requestedAccount) {
+    throw new Error("--account requires an account ID");
+  }
+
+  const availableAccounts = Object.entries(tokens).filter(
+    ([, entry]) => typeof entry?.authToken === "string" && entry.authToken.length > 0,
+  );
+
+  let selected: [string, { authToken?: string; storageFile?: string }] | undefined;
+
+  if (requestedAccount) {
+    selected = availableAccounts.find(([accountId]) => accountId === requestedAccount);
+
+    if (!selected) {
+      throw new Error(
+        `account "${requestedAccount}" not found. available: ${availableAccounts
+          .map(([accountId]) => accountId)
+          .join(", ")}`,
+      );
+    }
+  } else {
+    selected =
+      availableAccounts.find(([accountId]) => accountId === "main") ?? availableAccounts[0];
+  }
+
+  if (!selected) throw new Error("no authToken");
+
+  const [accountId, tokenEntry] = selected;
+  const authToken = tokenEntry.authToken!;
+
+  const OUT = join(DATA, `desktop-e2ee-keys-${accountId}.json`);
+  const RAW_OUT = join(DATA, `e2ee-selfchain-raw-${accountId}.txt`);
+
+  console.log(`[extract] using account: ${accountId}`);
+  console.log(`[extract] output: ${OUT}`);
 
   console.log("[extract] scanning LINE.exe for privateKey windows...");
-  const raw = dumpPrivateKeyWindows();
+  const raw = dumpPrivateKeyWindows(RAW_OUT);
   if (!raw || raw.includes("NO_PROCESS") || raw.includes("OPENFAIL")) {
     throw new Error("LINE.exe not readable — open official LINE Desktop and retry");
   }
@@ -99,9 +139,10 @@ async function main(): Promise<void> {
   );
 
   const profile = loadCachedOrFallback(join(DATA, "vyline"));
-  const client = await loginWithToken(tokens.main.authToken, {
+  const client = await loginWithToken(authToken, {
     profile,
-    storagePath: join(DATA, "storage-main.json"),
+    storagePath: tokenEntry.storageFile ?? join(DATA, `storage-${accountId}.json`),
+    desktopKeysPath: OUT,
   });
   await client.base.talk.getProfile();
   const mid = client.base.profile?.mid;

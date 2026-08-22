@@ -47,7 +47,8 @@ export interface ObsMetadata {
 
 export class LineObs {
   client: BaseClient;
-  prefix = "https://obs.line-apps.com/";
+  // リージョン別エンドポイント（JP アカウントは obs-jp。アルバム(GID)付与はリージョン側で行われる）
+  prefix = process.env.VYLINE_OBS_PREFIX ?? "https://obs-jp.line-apps.com/";
   constructor(client: BaseClient) {
     this.client = client;
   }
@@ -141,6 +142,7 @@ export class LineObs {
     oid?: string,
     filename?: string,
     durationMs?: number,
+    reqseqOverride?: number,
   ): Promise<{
     objId: string;
     objHash: string;
@@ -150,7 +152,7 @@ export class LineObs {
       throw new InternalError("Not setup yet", "Please call 'login()' first");
     }
     const ext = MimeType[data.type as keyof typeof MimeType];
-    const reqseqValue = await this.client.getReqseq("talk");
+    const reqseqValue = oid ? undefined : (reqseqOverride ?? (await this.client.getReqseq("talk")));
     const param: {
       oid: string;
       reqseq?: string;
@@ -190,6 +192,112 @@ export class LineObs {
       obsPath: `${toType}/m/${oid ?? "reqseq"}`,
       filename: param.name,
       params: param,
+    });
+  }
+
+  public async uploadObjTalkBatch(
+    to: string,
+    items: Array<{
+      type: ObjType;
+      data: Blob;
+      filename?: string;
+      durationMs?: number;
+    }>,
+  ): Promise<Array<{ objId: string; objHash: string; headers: Headers }>> {
+    if (!items.length) return [];
+    const reqseqs = await this.client.getReqseqs("talk", items.length);
+    return await Promise.all(
+      items.map((item, index) =>
+        this.uploadObjTalk(
+          to,
+          item.type,
+          item.data,
+          undefined,
+          item.filename,
+          item.durationMs,
+          reqseqs[index],
+        ),
+      ),
+    );
+  }
+
+  public async uploadObjTalkMessage(options: {
+    to: string;
+    type: ObjType;
+    data: Blob;
+    filename?: string;
+    durationMs?: number;
+    relatedMessageId?: string;
+    messageRelationType?: "FORWARD" | "AUTO_REPLY" | "SUBORDINATE" | "REPLY";
+  }): Promise<Message> {
+    const {
+      to,
+      type,
+      data,
+      filename,
+      durationMs,
+      relatedMessageId,
+      messageRelationType,
+    } = options;
+    const ext = MimeType[data.type as keyof typeof MimeType];
+    const typeSet: {
+      image: [string, 1];
+      video: [string, 2];
+      audio: [string, 3];
+      file: [string, 14];
+      gif: [string, 1];
+    } = {
+      image: ["emi", 1],
+      video: ["emv", 2],
+      audio: ["ema", 3],
+      file: ["emf", 14],
+      gif: ["emi", 1],
+    };
+    const [obsNamespace, contentType] = typeSet[type];
+    const params: Record<string, string> = { type: "file" };
+    if (type === "image" || type === "gif") {
+      params["cat"] = "original";
+    }
+    if (type === "gif") {
+      params["type"] = "image";
+    }
+    if (type === "audio" || type === "video") {
+      params["duration"] = (durationMs ?? 1919).toString();
+    }
+    const toType: "talk" | "g2" = to[0] === "m" || to[0] === "t" ? "g2" : "talk";
+    const oid = crypto.randomUUID();
+    const { objId } = await this.uploadObjectForService({
+      data,
+      oType: type,
+      obsPath: `${toType}/m/${oid}`,
+      params: {
+        ...params,
+        ver: "2.0",
+        name: filename || `vyline.${ext}`,
+      },
+    });
+
+    return await this.client.talk.sendMessage({
+      to,
+      contentType,
+      contentMetadata: {
+        SID: obsNamespace,
+        OID: objId,
+        FILE_SIZE: data.size.toString(),
+        fileName: filename || `line.${ext}`,
+        ...(type === "image" || type === "gif" || type === "video"
+          ? {
+              MEDIA_CONTENT_INFO: JSON.stringify({
+                category: "original",
+                fileSize: data.size,
+                extension: ext,
+                animated: type === "gif",
+              }),
+            }
+          : {}),
+      },
+      relatedMessageId,
+      messageRelationType: relatedMessageId ? messageRelationType : undefined,
     });
   }
 
@@ -279,8 +387,10 @@ export class LineObs {
     filename?: string;
     /** Optional thumbnail; encrypted with the same keyMaterial. #103. */
     preview?: Blob;
+    relatedMessageId?: string;
+    messageRelationType?: "FORWARD" | "AUTO_REPLY" | "SUBORDINATE" | "REPLY";
   }): Promise<Message> {
-    const { data, oType, to, filename, preview } = options;
+    const { data, oType, to, filename, preview, relatedMessageId, messageRelationType } = options;
     const typeSet: {
       image: [string, 1];
       video: [string, 2];
@@ -361,7 +471,10 @@ export class LineObs {
     } catch (e) {
       if (
         e instanceof Error &&
-        (e.name === "Not support E2EE" || e.message?.startsWith("Not support E2EE"))
+        (e.name === "Not support E2EE" ||
+          e.message?.startsWith("Not support E2EE") ||
+          e.message.includes("E2EE_RETRY_PLAIN") ||
+          e.message.includes("member settings off"))
       ) {
         e2ee = false;
         chunks = [];
@@ -379,7 +492,6 @@ export class LineObs {
         SID: obsNamespace,
         OID: objId,
         FILE_SIZE: edata.size.toString(),
-        // Desktop 準拠: メディア鍵は受信側が OBS データを復号するために必ず載せる
         keyMaterial,
         fileName: filename || `line.${ext}`,
         ...(e2ee ? { e2eeVersion: "2" } : {}),
@@ -394,6 +506,8 @@ export class LineObs {
             }
           : {}),
       },
+      relatedMessageId,
+      messageRelationType: relatedMessageId ? messageRelationType : undefined,
     });
   }
 

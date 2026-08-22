@@ -71,6 +71,8 @@ export type LinkPreview = {
   site: string;
 };
 
+export type MessageState = "normal" | "edited" | "revoked-by-other" | "revoked-by-self";
+
 export type Message = {
   id: string;
   chatId: string;
@@ -100,7 +102,7 @@ export type Message = {
   read: boolean;
   readBy?: string[];
   readCount?: number;
-  revoked?: boolean;
+  messageState: MessageState;
   replyToId?: string;
   /** 絵文字リアクション（type は MessageReactionType 数値） */
   reactions?: MessageReaction[];
@@ -116,6 +118,15 @@ export type Message = {
   originalText?: string;
   /** 編集前の元テキストを表示中かどうか */
   showOriginal?: boolean;
+  /** 状態変更履歴 */
+  history?: Array<{
+    state: MessageState;
+    text: string | null;
+    contentType: string;
+    updatedTime: number;
+  }>;
+  /** 取り消し前のメッセージ本体スナップショット */
+  revokedSnapshot?: MessageSnapshot;
   linkPreview?: LinkPreview;
   /** 失敗時の再送に使う送信意図（楽観メッセージに保持） */
   retry?: RetryIntent;
@@ -130,6 +141,8 @@ export type Message = {
   };
 };
 
+export type MessageSnapshot = Omit<Message, "history" | "revokedSnapshot">;
+
 export type RetryIntent =
   | {
       kind: "text";
@@ -138,6 +151,10 @@ export type RetryIntent =
       contentMetadata?: Record<string, string>;
     }
   | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
+  | {
+      kind: "combinationSticker";
+      items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
+    }
   | { kind: "emoji"; packageId: string; sticonId: string };
 
 export type Member = {
@@ -211,8 +228,18 @@ export type SelfProfile = {
   avatar: string;
   avatarUrl?: string;
   status: string;
+  phoneticName?: string;
+  pictureStatus?: string;
   musicProfile?: string;
   birthday?: string;
   backgroundUrl?: string;
   mid?: string;
+  profileId?: string;
+  premium?: {
+    active: boolean;
+    planType?: string | number;
+    validUntil?: number;
+    onFreeTrial?: boolean;
+    willExpire?: boolean;
+  };
 };

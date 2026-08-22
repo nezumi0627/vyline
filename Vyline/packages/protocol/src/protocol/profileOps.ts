@@ -29,21 +29,6 @@ export interface MyProfileUpdate {
   hiddenFromList?: boolean;
 }
 
-/** ExtendedProfile.birthday — Desktop: TalkService_updateExtendedProfileAttribute */
-export interface MyBirthdayUpdate {
-  /** "YYYY" — 空で年非表示 */
-  year?: string;
-  /** "MMDD" */
-  day: string;
-  yearEnabled?: boolean;
-  dayEnabled?: boolean;
-  yearPrivacy?: "PUBLIC" | "PRIVATE";
-  dayPrivacy?: "PUBLIC" | "PRIVATE";
-}
-
-/** ExtendedProfileAttribute.BIRTHDAY（Thrift: attr i32、誕生日のみ） */
-const EXTENDED_PROFILE_ATTR_BIRTHDAY = 0;
-
 function bool(v: boolean): string {
   return v ? "true" : "false";
 }
@@ -85,28 +70,6 @@ export async function updateMyProfile(client: Client, update: MyProfileUpdate): 
 
 export async function getMyExtendedProfile(client: Client) {
   return client.base.talk.getExtendedProfile({ syncReason: "INTERNAL" });
-}
-
-export async function updateMyBirthday(client: Client, birthday: MyBirthdayUpdate): Promise<void> {
-  const day = birthday.day.replace(/[^0-9]/g, "").slice(0, 4);
-  if (day.length !== 4) {
-    throw new Error("birthday.day must be MMDD");
-  }
-  const year = (birthday.year ?? "").replace(/[^0-9]/g, "").slice(0, 4);
-  await client.base.talk.updateExtendedProfileAttribute({
-    reqSeq: await client.base.getReqseq(),
-    attr: EXTENDED_PROFILE_ATTR_BIRTHDAY,
-    extendedProfile: {
-      birthday: {
-        year,
-        day,
-        yearEnabled: birthday.yearEnabled ?? Boolean(year),
-        dayEnabled: birthday.dayEnabled ?? true,
-        yearPrivacyLevelType: birthday.yearPrivacy ?? "PRIVATE",
-        dayPrivacyLevelType: birthday.dayPrivacy ?? "PUBLIC",
-      },
-    },
-  });
 }
 
 export async function uploadMyProfileImage(

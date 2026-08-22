@@ -1,4 +1,4 @@
-import { assert, assertEquals, assertRejects, assertThrows } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals, assertRejects, assertThrows } from "@vyline/protocol/stack/assert";
 import {
   bufferSink,
   bufferSource,

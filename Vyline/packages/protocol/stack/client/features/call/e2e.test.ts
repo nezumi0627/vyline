@@ -1,7 +1,7 @@
 // End-to-end: PCM → codec → SRTP wire → SRTP receive → codec → PCM,
 // using a loopback transport. Proves the audio plumbing carries
 // samples bit-identical without needing a real Opus impl.
-import { assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assertEquals } from "@vyline/protocol/stack/assert";
 import { CallSession, type CallTransport } from "./session.ts";
 import {
   type AudioDecoder,

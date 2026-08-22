@@ -172,10 +172,14 @@ export class SquareMessage {
       throw new TypeError("The message is not sticker.");
     }
     const stickerMetadata = this.raw.message.contentMetadata as unknown as StickerMetadata;
+    const stickerId = stickerMetadata.CSSTKID ?? stickerMetadata.STKID;
+    if (!stickerId) {
+      throw new TypeError("The sticker ID is missing.");
+    }
     if (stickerMetadata.STKOPT === "A") {
-      return `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerMetadata.STKID}/android/sticker_animation.png`;
+      return `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/android/sticker_animation.png`;
     } else {
-      return `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerMetadata.STKID}/android/sticker.png`;
+      return `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/android/sticker.png`;
     }
   }
 

@@ -1,4 +1,4 @@
-import { assert, assertEquals } from "jsr:@std/assert@^1.0.2";
+import { assert, assertEquals } from "@vyline/protocol/stack/assert";
 import { buildAudioOffer, buildSdp, cryptoAttr, parseSdp, readCrypto, readRtpmap } from "./sdp.ts";
 
 Deno.test("buildSdp + parseSdp round-trip", () => {

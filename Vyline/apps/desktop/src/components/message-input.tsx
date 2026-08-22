@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
+import { compressImageFile } from "@/utils/compressImage";
 import {
   IconSend,
   IconSmile,
@@ -17,15 +18,16 @@ import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
 import { PlusMenu } from "@/components/plus-menu";
+import type { MessageState } from "@/lib/store-types";
 
 function replyPreviewText(msg: {
   kind: string;
   text?: string;
   altText?: string;
   sticker?: string;
-  revoked?: boolean;
+  messageState?: MessageState;
 }): string {
-  if (msg.revoked) return "取り消されたメッセージ";
+  if (msg.messageState?.startsWith("revoked")) return "取り消されたメッセージ";
   if (msg.kind === "image") return "写真";
   if (msg.kind === "video") return "動画";
   if (msg.kind === "audio") return "音声メッセージ";
@@ -94,12 +96,22 @@ function detectMentionTrigger(
   return null;
 }
 
+async function blobToBase64(blob: Blob): Promise<string> {
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  let binary = "";
+  const chunk = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunk) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
+  }
+  return btoa(binary);
+}
+
 export function MessageInput({ chatId }: { chatId: string }) {
   const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
   const sendMessage = useStore((s) => s.sendMessage);
   const sendSticker = useStore((s) => s.sendSticker);
-  const sendImageFile = useStore((s) => s.sendImageFile);
+  const sendCombinationSticker = useStore((s) => s.sendCombinationSticker);
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
   const enterToSend = useStore((s) => s.settings.enterToSend);
@@ -125,6 +137,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const [mentionPicker, setMentionPicker] = useState<{ start: number; query: string } | null>(null);
   const [mentionIndex, setMentionIndex] = useState(0);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const [pendingMedia, setPendingMedia] = useState<
+    Array<{
+      id: string;
+      file: File;
+      url: string;
+      kind: "image" | "video";
+    }>
+  >([]);
+  const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
 
   // 画像送信中かどうか（楽観メッセージの pending image を検出）
   const sendingImage = messages.some(
@@ -137,6 +158,11 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+
+  useEffect(() => {
+    for (const item of pendingMedia) URL.revokeObjectURL(item.url);
+    setPendingMedia([]);
+  }, [chatId]);
 
   // ￼ プレースホルダの実幅（1em 比）を計測し、絵文字画像を同じ幅に描画する。
   // オーバーレイと textarea の折返し位置・キャレットを一致させるため。1em 固定だとフォント fallback 時にズレる。
@@ -294,6 +320,80 @@ export function MessageInput({ chatId }: { chatId: string }) {
     recorder.stop();
   }
 
+  function addPendingFiles(files: File[]) {
+    const targets = files.filter(
+      (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
+    );
+    if (targets.length === 0) return;
+    setPendingMedia((prev) => [
+      ...prev,
+      ...targets.map((file) => ({
+        id: `pending_media_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        file,
+        url: URL.createObjectURL(file),
+        kind: (file.type.startsWith("video/") ? "video" : "image") as "video" | "image",
+      })),
+    ]);
+  }
+
+  function removePendingMedia(id: string) {
+    setPendingMedia((prev) => {
+      const hit = prev.find((item) => item.id === id);
+      if (hit) URL.revokeObjectURL(hit.url);
+      return prev.filter((item) => item.id !== id);
+    });
+  }
+
+  function clearPendingMedia() {
+    setPendingMedia((prev) => {
+      for (const item of prev) URL.revokeObjectURL(item.url);
+      return [];
+    });
+  }
+
+  async function sendPendingMedia() {
+    if (sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
+    setSendingMediaBatch(true);
+    try {
+      const highQuality = useStore.getState().settings.highQualityImages;
+      const items = await Promise.all(
+        pendingMedia.map(async (item) => {
+          const prepared =
+            item.kind === "video"
+              ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
+              : highQuality
+                ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
+                : await compressImageFile(item.file);
+          if (prepared.blob.size > 11_000_000) {
+            throw new Error(
+              prepared.blob === item.file
+                ? `ファイルが大きすぎます: ${item.file.name}`
+                : `画像が大きすぎます（圧縮後も 11MB 超）: ${item.file.name}`,
+            );
+          }
+          const dataBase64 = await blobToBase64(prepared.blob);
+          return {
+            dataBase64,
+            mimeType: prepared.mime,
+            filename: item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg"),
+            mediaType: item.kind,
+          };
+        }),
+      );
+      const res = await api.line.sendMediaBatch(accountId, chatId, items);
+      if (!res.ok) {
+        window.alert(res.error ?? "まとめて送信に失敗しました");
+        return;
+      }
+      clearPendingMedia();
+      await useStore.getState().refreshMessages(chatId, { force: true });
+    } catch (err) {
+      window.alert(err instanceof Error ? err.message : String(err));
+    } finally {
+      setSendingMediaBatch(false);
+    }
+  }
+
   useEffect(() => {
     const ta = taRef.current;
     if (!ta) return;
@@ -384,14 +484,18 @@ export function MessageInput({ chatId }: { chatId: string }) {
     }
     if (e.key === "Enter" && !e.shiftKey && enterToSend && !composing) {
       e.preventDefault();
+      if (!draft.trim() && pendingMedia.length > 0) {
+        void sendPendingMedia();
+        return;
+      }
       send();
     }
   }
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (file) {
-      void sendImageFile(chatId, file);
+    const files = Array.from(e.target.files ?? []);
+    if (files.length > 0) {
+      addPendingFiles(files);
       e.target.value = "";
     }
   }
@@ -400,16 +504,16 @@ export function MessageInput({ chatId }: { chatId: string }) {
     // クリップボードに画像があれば優先して画像として送信する（テキスト貼り付けは従来通り）
     const items = e.clipboardData?.items;
     if (!items || items.length === 0) return;
-    let file: File | null = null;
+    const files: File[] = [];
     for (const item of items) {
       if (item.kind === "file" && item.type.startsWith("image/")) {
-        file = item.getAsFile();
-        if (file) break;
+        const file = item.getAsFile();
+        if (file) files.push(file);
       }
     }
-    if (file) {
+    if (files.length > 0) {
       e.preventDefault();
-      void sendImageFile(chatId, file);
+      addPendingFiles(files);
     }
   }
 
@@ -464,12 +568,20 @@ export function MessageInput({ chatId }: { chatId: string }) {
       onDrop={(e) => {
         // スタンプ画像等のドロップでブラウザがナビゲート/URL挿入するのを防ぐ
         e.preventDefault();
+        if (e.dataTransfer.types.includes("application/x-vyline-sticker")) return;
+        const files = Array.from(e.dataTransfer.files ?? []).filter(
+          (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
+        );
+        if (files.length > 0) {
+          addPendingFiles(files);
+        }
       }}
     >
       <input
         ref={fileRef}
         type="file"
         accept="image/*,video/*"
+        multiple
         className="hidden"
         aria-hidden
         onChange={onFileChange}
@@ -484,8 +596,17 @@ export function MessageInput({ chatId }: { chatId: string }) {
           onPickEmoji={(packageId, sticonId) => {
             insertLineEmoji(packageId, sticonId);
           }}
-          onPickUnicode={(glyph) => {
-            insertAtCursor(glyph);
+          onSendCombinationSticker={async (
+            items: Array<{
+              packageId: string;
+              stickerId: string;
+              x?: number;
+              y?: number;
+              size?: number;
+            }>,
+          ) => {
+            await sendCombinationSticker(chatId, items);
+            setPicker(false);
           }}
         />
       )}
@@ -557,6 +678,61 @@ export function MessageInput({ chatId }: { chatId: string }) {
         </div>
       ) : (
         <>
+          {pendingMedia.length > 0 && (
+            <div className="vy-fade-in mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2 shadow-sm">
+              <div className="mb-2 flex items-center justify-between gap-2 px-1">
+                <div className="text-xs font-medium text-[var(--vy-text-dim)]">
+                  {pendingMedia.length} 件のメディアを待機中
+                </div>
+                <button
+                  type="button"
+                  onClick={clearPendingMedia}
+                  className="text-xs text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
+                >
+                  クリア
+                </button>
+              </div>
+              <div className="grid max-h-56 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4 md:grid-cols-5">
+                {pendingMedia.map((item) => (
+                  <div
+                    key={item.id}
+                    className="group relative overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)]"
+                  >
+                    {item.kind === "video" ? (
+                      <video src={item.url} className="h-24 w-full object-cover" muted />
+                    ) : (
+                      <img src={item.url} alt="" className="h-24 w-full object-cover" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removePendingMedia(item.id)}
+                      className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white opacity-90 transition hover:bg-black/75"
+                      aria-label="添付を削除"
+                    >
+                      <IconClose size={12} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-2 flex items-center justify-end gap-2">
+                <button
+                  type="button"
+                  onClick={clearPendingMedia}
+                  className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)]"
+                >
+                  キャンセル
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void sendPendingMedia()}
+                  disabled={sendingMediaBatch}
+                  className="rounded-full bg-[var(--vy-accent)] px-4 py-1 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-60"
+                >
+                  {sendingMediaBatch ? "送信中…" : "まとめて送信"}
+                </button>
+              </div>
+            </div>
+          )}
           {mentionPicker && mentionOptions.length > 0 && (
             <div className="mb-1.5 max-h-52 overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] py-1 shadow-lg">
               <p className="px-3 py-1.5 text-[0.65rem] font-medium text-[var(--vy-text-dim)]">
@@ -655,7 +831,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                     ? undefined
                     : muteNext
                       ? "メッセージを入力（ミュート送信: 通知なし）"
-                      : "メッセージを入力（絵文字は文中に挿入）"
+                      : "メッセージを入力"
                 }
                 aria-label="メッセージを入力"
                 className={cn(

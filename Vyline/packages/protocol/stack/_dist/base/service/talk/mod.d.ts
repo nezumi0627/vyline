@@ -52,6 +52,7 @@ export declare class TalkService implements BaseService {
         contentType?: LINETypes.ContentType;
         contentMetadata?: Record<string, string>;
         relatedMessageId?: string;
+        messageRelationType?: "FORWARD" | "AUTO_REPLY" | "SUBORDINATE" | "REPLY";
         location?: LINETypes.Location;
         chunks?: string[] | Buffer[];
         e2ee?: boolean;

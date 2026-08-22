@@ -16791,11 +16791,11 @@ export interface createCollectionForUser_result {
 }
 
 export interface createCombinationSticker_args {
-  request: any;
+  request: CreateCombinationStickerRequest;
 }
 
 export interface createCombinationSticker_result {
-  success: any;
+  success: CreateCombinationStickerResponse;
   e: ShopException;
 }
 
