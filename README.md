@@ -6,7 +6,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.5.1--beta-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.6.0--beta-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" />
@@ -31,7 +31,7 @@
 > Vyline は **LINE 非公式・未承認**のサードパーティクライアントです。LINE 株式会社および LY Corporation とは関係ありません。利用規約への抵触やアカウント停止を含むリスクを理解したうえで、自己責任で使用してください。
 
 > [!NOTE]
-> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.5.1** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。
+> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.6.0** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。
 
 ---
 
@@ -46,7 +46,7 @@
 | 対象 | UI を自分好みに調整したいユーザー、開発者、セルフホスト利用者 |
 | 特徴 | 自前プロトコル、VyTheme、公開 API、ローカル優先のデータ管理 |
 | 技術 | React + Vite / Hono on Bun / TypeScript / Thrift |
-| 状態 | Beta 0.5.1 |
+| 状態 | Beta 0.6.0 |
 | ライセンス | MIT |
 
 ## 主な機能
@@ -339,6 +339,30 @@ bun run dev
 ```
 
 既存のログイン状態は維持されます。詳細な変更内容は [CHANGELOG.md](CHANGELOG.md) を参照してください。
+
+---
+
+## バージョニング
+
+Vyline はセマンティックバージョン（`X.Y.Z`、Beta 期間中は `X.Y.Z-beta`）を採用します。リリース時は Git タグ `v<version>`（例: `v0.6.0-beta`）を作成します。
+
+バージョンは次の **4 箇所を同一に** 保つ必要があります:
+
+| 場所 | フィールド |
+| --- | --- |
+| `package.json`（ルート） | `version` |
+| `Vyline/apps/desktop/package.json` | `version` |
+| `Vyline/apps/desktop/src/lib/store.ts` | `UPDATE_NOTES.version`（+ `title` / `items` はユーザー向け更新内容） |
+| `README.md` | バッジの `version-...` |
+
+手動更新の手間を避けるため、bump スクリプトで一括更新できます:
+
+```bash
+bun run bump -- 0.7.0        # 指定バージョンへ一括更新
+bun run bump -- patch         # 0.6.0-beta → 0.6.1-beta のように相対指定も可 (major / minor / patch)
+```
+
+スクリプトは上記のバージョン箇所と README バッジを自動で書き換えます。`UPDATE_NOTES.items` と CHANGELOG エントリはリリースごとに手動（または AI エージェント）で追記します。詳細は [AGENTS.md](AGENTS.md) の「バージョン管理」を参照してください。
 
 ---
 

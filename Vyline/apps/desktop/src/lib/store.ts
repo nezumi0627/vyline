@@ -279,12 +279,16 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "0.5.1-beta",
-  title: "Vyline 0.5.1-beta — メッセージ編集UI + プッシュ通知切替",
+  version: "0.6.0-beta",
+  title: "Vyline 0.6.0-beta — Backup & ログ & セルフホスト",
   items: [
-    "メッセージ編集UIを追加",
-    "プッシュ通知のON/OFF切替を設定に追加",
-    "バージョン表記を 0.5.1-beta に統一",
+    "VylineBackup: トーク履歴・メディアのスナップショット作成/復元/削除",
+    "チャット詳細ログ（JSONL）を追加（設定 > 詳細・復元 > デバッグログ）",
+    "セルフホスト対応（Docker Compose）+ メディアのサーバー側キャッシュ",
+    "複数画像の同時送信とグルーピング表示、FILE メッセージ描画",
+    "Keepメモ、プロフィール背景表示、通話中バッジ、リアクションキャッシュ高速化",
+    "リブランディング: @vyline/protocol（旧 @vyline/nezuline）、Nezu* → Vyline*",
+    "利用規約・免責同意ゲートをログイン直後に追加",
   ],
 };
 

@@ -1,6 +1,6 @@
 {
   "name": "@vyline/desktop",
-  "version": "0.5.1-beta",
+  "version": "0.6.0-beta",
   "private": true,
   "type": "module",
   "scripts": {
