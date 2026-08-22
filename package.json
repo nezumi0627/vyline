@@ -5,7 +5,11 @@
   "engines": {
     "bun": ">=1.4.0"
   },
-  "workspaces": ["Vyline/packages/*", "Vyline/apps/*", "Vyline/backend"],
+  "workspaces": [
+    "Vyline/packages/*",
+    "Vyline/apps/*",
+    "Vyline/backend"
+  ],
   "scripts": {
     "dev": "concurrently -n backend,frontend -c cyan,magenta \"bun run dev:backend\" \"bun run dev:frontend\"",
     "dev:backend": "bun --watch Vyline/backend/src/index.ts",
