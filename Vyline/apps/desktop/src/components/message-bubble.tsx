@@ -335,7 +335,7 @@ function stickerAnimationUrl(url: string): string {
 }
 
 // MessageReactionType → 表示絵文字（LINE 公式: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7）
-export const REACTION_EMOJI: Record<number, string> = {
+const REACTION_EMOJI: Record<number, string> = {
   2: "👍",
   3: "❤️",
   4: "😆",
@@ -345,7 +345,7 @@ export const REACTION_EMOJI: Record<number, string> = {
 };
 
 // 各リアクションの公式 sticon（LINE 本家の絵文字画像）: productId / sticonId
-export const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
+const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
   2: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "143" }, // NICE 👍
   3: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "165" }, // LOVE ❤️
   4: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "002" }, // FUN 😆
@@ -355,7 +355,7 @@ export const REACTION_STICON: Record<number, { productId: string; sticonId: stri
 };
 
 /** リアクション公式 sticon のプロキシ URL（未定義は空文字） */
-export function reactionSticonUrl(type: number): string {
+function reactionSticonUrl(type: number): string {
   const ref = REACTION_STICON[type];
   if (!ref) return "";
   return lineCdnProxy(
