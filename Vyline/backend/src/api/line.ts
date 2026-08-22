@@ -29,6 +29,14 @@ import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
 import {
+  createNote,
+  deleteNote,
+  getNote,
+  listNotes,
+  shareNoteToChat,
+} from "../service/noteService.js";
+import { getClient } from "../line/clientManager.js";
+import {
   fetchProfile,
   fetchContactProfile,
   markAsRead,
@@ -117,6 +125,78 @@ import {
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
 
+// ─── notes（LINE ノート / Timeline） ───
+lineRouter.get("/:accountId/notes", async (c) => {
+  const accountId = c.req.param("accountId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await listNotes(accountId, client, homeId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ homeId?: string; text?: string }>();
+  if (!body.homeId || !body.text) {
+    return c.json({ ok: false, error: "homeId and text required" }, 400);
+  }
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await createNote(accountId, client, body.homeId, body.text));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/notes/:postId", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await getNote(accountId, client, homeId, postId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/notes/:postId", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await deleteNote(accountId, client, homeId, postId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes/:postId/share", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const body = await c.req.json<{ homeId?: string; chatMid?: string }>();
+  if (!body.homeId || !body.chatMid) {
+    return c.json({ ok: false, error: "homeId and chatMid required" }, 400);
+  }
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await shareNoteToChat(accountId, client, body.homeId, postId, body.chatMid));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
 // ─── plugins（基盤: マニフェスト一覧と有効/無効の永続化。コード実行は未対応） ───
 lineRouter.get("/:accountId/plugins", async (c) => {
   const accountId = c.req.param("accountId");
