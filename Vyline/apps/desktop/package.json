@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@vyline/themes": "workspace:*",
     "@vyline/types": "workspace:*",
     "clsx": "^2.1.1",
     "qrcode.react": "^4.2.0",

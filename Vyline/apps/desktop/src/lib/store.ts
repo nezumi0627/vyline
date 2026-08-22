@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type Announcement } from "../api/client.js";
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
-import { THEME_PRESETS } from "./theme-presets.js";
+import { THEME_PRESETS } from "@vyline/themes";
 import type {
   Chat,
   ChatSort,

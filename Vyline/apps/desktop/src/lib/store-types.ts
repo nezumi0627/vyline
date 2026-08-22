@@ -1,26 +1,6 @@
 export type Screen = "lock" | "home" | "chat" | "settings" | "login";
 
-export type VyTheme = {
-  id: string;
-  name: string;
-  accent: string;
-  accentContrast: string;
-  bg: string;
-  surface: string;
-  surface2: string;
-  sidebar: string;
-  text: string;
-  textDim: string;
-  border: string;
-  msgIn: string;
-  msgOut: string;
-  msgInText: string;
-  msgOutText: string;
-  radius: number;
-  chatBg: string;
-  chatImage?: string;
-  pattern: 0 | 1;
-};
+export type { VyTheme } from "@vyline/themes";
 
 export type MessageReaction = {
   fromMid: string;

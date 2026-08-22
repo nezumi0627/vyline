@@ -45,6 +45,8 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 - `bun run vyline:find-native -- <name>` — Desktop LINE.exe 内シンボル検索 (unpack → string scan → Ghidra)
 - `bun run vyline:focus-recovered` — 逆コンパイル結果のキーワード分類
 - `tools/` — スタンドアロンツール (Git Submodule として [vyline-search](https://github.com/nezumi0627/vyline-search) リポジトリをリンク)
+- `Vyline/packages/plugin` — plugin-sdk + examples ([vyline-plugin](https://github.com/nezumi0627/vyline-plugin) を Submodule リンク)
+- `Vyline/packages/themes` — VyTheme プリセット ([vyline-thme](https://github.com/nezumi0627/vyline-thme) を Submodule リンク)
 - `source/desktop/` — 解析データ (gitignore)
 - `docs/tools/` — ツール使用ガイド
 
