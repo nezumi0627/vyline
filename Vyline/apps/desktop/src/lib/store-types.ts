@@ -49,6 +49,7 @@ export type MessageKind =
   | "image"
   | "video"
   | "audio"
+  | "file"
   | "system"
   | "call"
   | "flex"
@@ -132,6 +133,7 @@ export type Message = {
   retry?: RetryIntent;
   /** 連絡先メッセージ（contentType=13）の名刺情報 */
   contact?: { mid?: string; name?: string; thumbnailUrl?: string };
+  file?: { name?: string; size?: number };
   /** 位置情報メッセージ（contentType=15） */
   location?: {
     title?: string;

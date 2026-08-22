@@ -32,6 +32,7 @@
     "vyline:get-edited-json": "bun scripts/getEditedMessageJson.ts",
     "test:media": "bun scripts/sendTestMediaBatch.ts",
     "test:api": "bun scripts/apiSmokeTest.ts",
+    "update": "git submodule update --init --recursive && git pull --ff-only && bun install && bun run build",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
