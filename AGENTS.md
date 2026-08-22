@@ -267,9 +267,23 @@ bun run vyline:update  # Desktop を最新版へ更新（root 直下でも可）
 
 - バージョン形式: セマンティックバージョン（`X.Y.Z` または `X.Y.Z-beta`）
 - beta は非公開テスト段階。public リリース前に外す
-- `CHANGELOG.md` にも同バージョンのエントリを追加
-- リリース時は `docs/distribution.md` のリリースチェックリストに従う
-- `UPDATE_NOTES.items` は変更内容を箇条書きで記載（ユーザーが起動時に確認する内容）
+- リリース時は Git タグ **`v<version>`**（例: `v0.6.0-beta`）を作成する。タグ = 4 箇所のバージョン + CHANGELOG エントリが揃ったコミットを指す
+- 破壊的変更 → major、機能追加 → minor、修正のみ → patch。Beta 期間中は `-beta` 接尾辞を維持
+
+### 自動 bump（AI・人間共通の手順）
+
+```powershell
+bun run bump -- 0.7.0        # 指定バージョンへ一括更新（4 箇所 + UPDATE_NOTES.title のバージョン部分）
+bun run bump -- minor        # 相対指定も可 (major / minor / patch)
+bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
+```
+
+スクリプト (`scripts/bump-version.ts`) が機械的な置換を行う。エージェントがバージョンを上げるときは手動編集ではなくこのスクリプトを使い、残りを仕上げる:
+
+1. `UPDATE_NOTES.items` を今回の変更内容に書き換え（ユーザーが起動時に確認する内容・古い内容は削除）
+2. `CHANGELOG.md` に同バージョンのエントリを追加（Unreleased を統合）
+3. README 冒頭 NOTE の「現在のバージョン」と「状態」行を目視確認
+4. リリース時は `docs/distribution.md` のリリースチェックリストに従う
 
 ---
 

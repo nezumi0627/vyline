@@ -1,6 +1,6 @@
 {
   "name": "vyline",
-  "version": "0.5.1-beta",
+  "version": "0.6.0-beta",
   "private": true,
   "engines": {
     "bun": ">=1.4.0"
@@ -33,6 +33,7 @@
     "test:media": "bun scripts/sendTestMediaBatch.ts",
     "test:api": "bun scripts/apiSmokeTest.ts",
     "update": "git submodule update --init --recursive && git pull --ff-only && bun install && bun run build",
+    "bump": "bun scripts/bump-version.ts",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {

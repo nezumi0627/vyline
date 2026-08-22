@@ -46,51 +46,47 @@
 
 ---
 
-## [Unreleased] — 2026-08-19 — Keepメモ, 背景, 通話状態, 法的対応
+## [0.6.0-beta] — 2026-08-23 — Backup & ログ & セルフホスト
 
 ### 新機能
 
-- **Keepメモ** — 自分自身のトーク（`mid === myMid`）を `isSelf` フラグで判定し「Keepメモ」と表示。公式アイコン（IconMemo）を使用し、プロフィール詳細の自動取得・共通グループ・ブロック操作をスキップ
-- **プロフィール背景の表示** — 相手のプロフィール背景（VOOM home API から取得）をトーク背景に表示。プロフィール描画時にチャットの `backgroundUrl` もストアへ伝搬
-- **グループ通話状態** — グループヘッダーに「通話中」バッジを 15 秒ポーリングで表示（`GET /call/group-status`）
-- **共通グループの高速化** — プロフィール・メンバー描画時に VylineCache 一括読みで共通グループを取得（RPC なし）
-- **送信取り消しエラー表示** — 可能時間超過（`MESSAGE_NOT_DESTRUCTIBLE` / message too old）を専用通知「取り消し失敗(送信取り消し可能な時間を過ぎています)」で表示
-- **利用規約・免責同意ゲート** — ログイン直後に ToS 同意画面を表示し、同意しない限り同期・通信・表示を含めアプリは一切動作しない。skip 等の想定外手法も同意とみなす（localStorage `vyline:tos-consent-v1`）
-
-### 修正
-
-- リアクション・公式画像 / カスタム（sticon）対応は調査中（次ラウンド）
-- **既読高速化ウォーターマーク** — 相手の最終既読地点をローカルキャッシュし、それ以前の自分のメッセージを全て既読フラグ付け。毎回の既読 API 取得を 30s TTL キャッシュで避けて高速化。既読地点は `getMessageReadRange`（10s タイムアウト）で取得し、キャッシュが有効期限切れまたは read イベント時に再取得。
-- **deltaAfterId 最適化** — `fetchMessagesSince` / `pollMessagesDelta` で `afterMessageId` が既知の場合、`getMessageBoxes` RPC（最大 5s）を省略し合成カーソルで最新を取得。リアクション表示高速化。
-- **受信ポーリング高速化** — `useVylineSync.ts` でイベントポーリング間隔を 4s/12s/60s から **2s/8s/60s** へ変更。ポーリングタイマーを分離し、slow delta 完了を待たずに即座に次の poll をスケジュール。
-
-### その他
-
-- ブロック操作の UI 統合 — サイドバー・プロフィール・設定からブロック/ブロック解除を実行可能。ブロック中の友だちへの送信を UI および API レベルで防止。
-
-## [Unreleased] — 2026-08-18 — Rebranding, Backup & Logging
-
-### 新機能
-
-- **VylineBackup** — トーク履歴・メディアのスナップショットをサーバーに保存（`data/backups/`）。設定 > VylineBackup から作成・復元・削除。復元は「すべて / チャット選択」「メディア含む / テキストのみ」を選択可能（[docs](docs/plugin-api.md 参照、バックアップは [selfhosting.md](docs/selfhosting.md) の `data/` ボリュームに永続化）
+- **VylineBackup** — トーク履歴・メディアのスナップショットをサーバーに保存（`data/backups/`）。設定 > VylineBackup から作成・復元・削除。復元は「すべて / チャット選択」「メディア含む / テキストのみ」を選択可能（バックアップは [selfhosting.md](docs/selfhosting.md) の `data/` ボリュームに永続化）
 - **チャット詳細ログ** — チャット内容・アナウンス（CHATEVENT）をタイミング付き JSONL で記録（`data/logs/message-log-<account>.jsonl`）。画像・動画・音声・ファイル・スタンプのメディア情報も記録。設定 > 詳細・復元 > デバッグログで閲覧
-- **Nezu→Vy リブランディング** — パッケージ名 `@vyline/nezuline` → `@vyline/protocol`、`NezuClient`/`NezuUpdater`/`NezuCache`/`NezuStorage` → `Vyline*`。旧 `nezu-*` データ・`nezuline` ディレクトリからの自動移行
-- **予定機能を docs に記載** — プラグイン API・オープンチャット（実装未確定）を [docs/tasks/STATUS.md](docs/tasks/STATUS.md) / [docs/plugin-api.md](docs/plugin-api.md) に整理
-
-## [Unreleased] — 2026-08-18 — Self-host & Stability
-
-### 新機能
-
 - **セルフホスト対応（Docker）** — バックエンドが本番フロントビルドを同一オリジンで配信。`docker compose up -d --build` のワンコマンドで自宅サーバーに Vyline を構築可能（[docs/selfhosting.md](docs/selfhosting.md)）
 - **メディアのサーバー側キャッシュ** — 画像・動画を `data/media-cache/` に永続化。端末を変えても過去の画像が残る
 - **環境変数の拡充** — `VYLINE_HOST` / `VYLINE_CORS_ORIGIN` / `VYLINE_STATIC_DIR` / `VYLINE_MEDIA_CACHE_DIR` / `VYLINE_CDN_CACHE_DIR`。Docker ボリュームで全データを永続化
 - **アンケート / あみだくじ / イベント作成の自動化** — 作成後に Flex メッセージを自動送信（投票・結果共有・スケジュール共有ボタン付き）
 - **ブロック表示** — ブロック済み連絡先をチャット一覧に赤丸バッジで表示
+- **複数画像の同時送信** — 複数画像を選択して個別の IMAGE メッセージとして送信し、チャット内でグルーピング表示。コンボスタンプ（複数スタンプ連投）にも対応
+- **FILE メッセージ描画** — ファイル添付メッセージの表示に対応（未知の content type は安全にガード）
+- **Keepメモ** — 自分自身のトーク（`mid === myMid`）を `isSelf` フラグで判定し「Keepメモ」と表示。公式アイコン（IconMemo）を使用し、プロフィール詳細の自動取得・共通グループ・ブロック操作をスキップ
+- **プロフィール背景の表示** — 相手のプロフィール背景（VOOM home API から取得）をトーク背景に表示。プロフィール描画時にチャットの `backgroundUrl` もストアへ伝搬
+- **グループ通話状態** — グループヘッダーに「通話中」バッジを 15 秒ポーリングで表示（`GET /call/group-status`）
+- **共通グループの高速化** — プロフィール・メンバー描画時に VylineCache 一括読みで共通グループを取得（RPC なし）
+- **リアクションキャッシュ** — リアクション取得をキャッシュしてメッセージ一覧の再描画を高速化
+- **送信取り消しエラー表示** — 可能時間超過（`MESSAGE_NOT_DESTRUCTIBLE` / message too old）を専用通知「取り消し失敗(送信取り消し可能な時間を過ぎています)」で表示
+- **利用規約・免責同意ゲート** — ログイン直後に ToS 同意画面を表示し、同意しない限り同期・通信・表示を含めアプリは一切動作しない。skip 等の想定外手法も同意とみなす（localStorage `vyline:tos-consent-v1`）
+- **Nezu→Vy リブランディング** — パッケージ名 `@vyline/nezuline` → `@vyline/protocol`、`NezuClient`/`NezuUpdater`/`NezuCache`/`NezuStorage` → `Vyline*`。旧 `nezu-*` データ・`nezuline` ディレクトリからの自動移行
+- **予定機能を docs に記載** — プラグイン API・オープンチャット（実装未確定）を [docs/tasks/STATUS.md](docs/tasks/STATUS.md) / [docs/plugin-api.md](docs/plugin-api.md) に整理
+
+### 改善
+
+- **既読高速化ウォーターマーク** — 相手の最終既読地点をローカルキャッシュし、それ以前の自分のメッセージを全て既読フラグ付け。毎回の既読 API 取得を 30s TTL キャッシュで避けて高速化。既読地点は `getMessageReadRange`（10s タイムアウト）で取得し、キャッシュが有効期限切れまたは read イベント時に再取得
+- **deltaAfterId 最適化** — `fetchMessagesSince` / `pollMessagesDelta` で `afterMessageId` が既知の場合、`getMessageBoxes` RPC（最大 5s）を省略し合成カーソルで最新を取得。リアクション表示高速化
+- **受信ポーリング高速化** — `useVylineSync.ts` でイベントポーリング間隔を 4s/12s/60s から **2s/8s/60s** へ変更。ポーリングタイマーを分離し、slow delta 完了を待たずに即座に次の poll をスケジュール
+- **高画質画像送信** — 表示タブの「高画質で画像送信」トグルで圧縮せず元画質のまま送信可能
 
 ### 修正
 
 - アンケート作成・投票の `206` エラー（LINE 公式 LIFF API の要求ヘッダ不足）を修正
 - スケジュール共有でグループ名照合に失敗する問題を `groups/{chatMid}` API 直接取得に変更
+- ブロックリストをキャッシュ + background キュー + 8s タイムアウトで取得し、504 を回避
+- `useVirtualList` の実測高さ変更時にオフセットを再計算するよう修正
+
+### その他
+
+- **ブロック操作の UI 統合** — サイドバー・プロフィール・設定からブロック/ブロック解除を実行可能。ブロック中の友だちへの送信を UI および API レベルで防止
+- 既定のデバイスモードを IOSIPAD に統一（プロトコル実装と整合）
 
 ## [0.4.0-beta] — 2026-08-17 — Mention & Media
 
