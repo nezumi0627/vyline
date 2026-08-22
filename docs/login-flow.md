@@ -140,11 +140,11 @@ i32/i64: [zigzag varint]
   "accessToken": "eyJ...",
   "refreshToken": "eyJ...",
   "certificate": "...",
-  "device": "ANDROIDSECONDARY"
+  "device": "IOSIPAD"
 }
 ```
 
-> **同時ログイン**: Vyline 既定は `ANDROIDSECONDARY`（`VYLINE_DEVICE`）。  
+> **同時ログイン**: Vyline 既定は `IOSIPAD`（`VYLINE_DEVICE`）。  
 > `DESKTOPWIN` のままだと公式 LINE Desktop Windows と同じスロットを占有し、互いにキックする。  
 > 詳細: [docs/analysis/dual-login-desktop.md](./analysis/dual-login-desktop.md)
 

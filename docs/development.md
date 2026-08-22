@@ -66,7 +66,7 @@ bun run vyline:focus-recovered -- sendMessage
 
 | 変数                     | 用途                                                                  | デフォルト                         |
 | ------------------------ | --------------------------------------------------------------------- | ---------------------------------- |
-| `VYLINE_DEVICE`          | `ANDROIDSECONDARY` / `DESKTOPWIN` 等                                  | —                                  |
+| `VYLINE_DEVICE`          | `IOSIPAD` / `ANDROIDSECONDARY` / `DESKTOPWIN` / `DESKTOPMAC`          | `IOSIPAD`                          |
 | `VYLINE_DATA_DIR`        | backend データ（token, storage, chatdb, feature-locks, vyline-cache） | `backend/data/`                    |
 | `VYLINE_CDN_CACHE_DIR`   | スタンプ / sticon CDN キャッシュ                                      | `backend/data/cdn-cache/`          |
 | `VYLINE_MEDIA_CACHE_DIR` | 画像 / 動画メディアのサーバー側キャッシュ                             | `backend/data/media-cache/`        |

@@ -10,7 +10,7 @@ agents は `bun run vyline:delta` のレポートが指す feature ごとに、�
 | login-qr                 | [login-qr.md](./login-qr.md)                     | [login-flow.md](../login-flow.md)                    |
 | login-email              | [login-email.md](./login-email.md)               | [login-flow.md](../login-flow.md)                    |
 | headers-transport        | [headers-transport.md](./headers-transport.md)   | [login-flow.md](../login-flow.md)                    |
-| dual-login / device slot | [dual-login-desktop.md](./dual-login-desktop.md) | `VYLINE_DEVICE`（既定 ANDROIDSECONDARY）             |
+| dual-login / device slot | [dual-login-desktop.md](./dual-login-desktop.md) | `VYLINE_DEVICE`（既定 IOSIPAD）                      |
 | e2ee-keys                | [e2ee-keys.md](./e2ee-keys.md)                   | [login-flow.md](../login-flow.md)                    |
 | e2ee-send                | [e2ee-send.md](./e2ee-send.md)                   |                                                      |
 | e2ee-decrypt             | [e2ee-decrypt.md](./e2ee-decrypt.md)             |                                                      |
