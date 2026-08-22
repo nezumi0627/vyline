@@ -118,7 +118,7 @@ const log = childLogger("bff:line");
 export const lineRouter = new Hono();
 
 // ─── plugins（基盤: マニフェスト一覧と有効/無効の永続化。コード実行は未対応） ───
-lineRouter.get("/:accountId/plugins", (c) => {
+lineRouter.get("/:accountId/plugins", async (c) => {
   const accountId = c.req.param("accountId");
   const states = getPluginStates(accountId);
   return c.json({
@@ -127,7 +127,7 @@ lineRouter.get("/:accountId/plugins", (c) => {
   });
 });
 
-lineRouter.post("/:accountId/plugins/:pluginId/:action", (c) => {
+lineRouter.post("/:accountId/plugins/:pluginId/:action", async (c) => {
   const accountId = c.req.param("accountId");
   const pluginId = c.req.param("pluginId");
   const action = c.req.param("action");
@@ -135,10 +135,11 @@ lineRouter.post("/:accountId/plugins/:pluginId/:action", (c) => {
     return c.json({ ok: false, error: "action must be enable or disable" }, 400);
   }
   try {
-    setPluginState(accountId, pluginId, action === "enable");
+    await setPluginState(accountId, pluginId, action === "enable");
     return c.json({ ok: true, pluginId, enabled: action === "enable" });
   } catch (err) {
-    return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 404);
+    const msg = err instanceof Error ? err.message : String(err);
+    return c.json({ ok: false, error: msg }, msg.startsWith("unknown") ? 404 : 422);
   }
 });
 

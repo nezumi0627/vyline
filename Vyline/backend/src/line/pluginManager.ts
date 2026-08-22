@@ -1,27 +1,27 @@
 /**
- * line/pluginManager.ts — プラグインレジストリ（基盤）
+ * line/pluginManager.ts — プラグインレジストリ
  *
- * 現状はマニフェストの検出と有効/無効状態の管理のみを行う。
- * プラグインコードの実行（activate/deactivate）は権限サンドボックス設計後に有効化する。
- * 詳細: README「Plugin System」/ docs/developer-guide/plugin-system.md
+ * マニフェスト検出 + アカウント単位の有効/無効状態の永続化 + 実行ランタイムの起動。
+ * プラグインの実行詳細は pluginRuntime.ts、
+ * ユーザー向けガイドは docs/developer-guide/plugin-system.md を参照。
  */
 
-import { existsSync, readdirSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import type { PluginManifest } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
+import { DATA_DIR, PLUGIN_DIR } from "./pluginPaths.js";
+import { activatePlugin, deactivatePlugin, resolvePluginEntry } from "./pluginRuntime.js";
 
 const log = childLogger("plugins");
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-const PLUGIN_DIR = process.env.VYLINE_PLUGIN_DIR ?? join(DATA_DIR, "plugins");
 const STATES_PATH = join(DATA_DIR, "plugin-states.json");
 
 export interface PluginEntry extends PluginManifest {
-  /** プラグインコードの実行は未対応（サンドボックス設計待ち）。常に true */
-  runtimePending: true;
+  /** プラグインディレクトリ名（= manifest の置かれたフォルダ） */
+  dir: string;
+  /** エントリファイルが存在し実行可能か */
+  loadable: boolean;
 }
 
 type PluginStates = Record<string, Record<string, boolean>>;
@@ -36,13 +36,13 @@ function loadStates(): PluginStates {
 
 function saveStates(states: PluginStates): void {
   try {
-    require("node:fs").writeFileSync(STATES_PATH, JSON.stringify(states, null, 2), "utf8");
+    writeFileSync(STATES_PATH, JSON.stringify(states, null, 2), "utf8");
   } catch (err) {
     log.warn({ err }, "failed to save plugin states");
   }
 }
 
-/** プラグインディレクトリを走査し manifest.json を読む（コードは実行しない） */
+/** プラグインディレクトリを走査し manifest.json を読む（この関数自体はコードを実行しない） */
 export function listPlugins(): PluginEntry[] {
   if (!existsSync(PLUGIN_DIR)) return [];
   const out: PluginEntry[] = [];
@@ -51,15 +51,18 @@ export function listPlugins(): PluginEntry[] {
     const manifestPath = join(PLUGIN_DIR, entry.name, "manifest.json");
     if (!existsSync(manifestPath)) continue;
     try {
-      const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as Partial<PluginManifest>;
-      if (!manifest.id || !manifest.name) continue;
+      const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as Partial<PluginManifest> & {
+        main?: string;
+      };
+      if (!raw.id || !raw.name) continue;
       out.push({
-        id: manifest.id,
-        name: manifest.name,
-        version: manifest.version ?? "0.0.0",
-        ...(manifest.description ? { description: manifest.description } : {}),
-        permissions: Array.isArray(manifest.permissions) ? manifest.permissions : [],
-        runtimePending: true,
+        id: raw.id,
+        name: raw.name,
+        version: raw.version ?? "0.0.0",
+        ...(raw.description ? { description: raw.description } : {}),
+        permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
+        dir: entry.name,
+        loadable: resolvePluginEntry(entry.name, raw.main) != null,
       });
     } catch (err) {
       log.warn({ plugin: entry.name, err }, "invalid plugin manifest");
@@ -68,16 +71,35 @@ export function listPlugins(): PluginEntry[] {
   return out;
 }
 
+function findPluginDir(pluginId: string): string | null {
+  return listPlugins().find((p) => p.id === pluginId)?.dir ?? null;
+}
+
 export function getPluginStates(accountId: string): Record<string, boolean> {
   return loadStates()[accountId] ?? {};
 }
 
-export function setPluginState(accountId: string, pluginId: string, enabled: boolean): void {
-  const states = loadStates();
-  const known = new Set(listPlugins().map((p) => p.id));
-  if (!known.has(pluginId)) {
-    throw new Error(`unknown plugin: ${pluginId}`);
+/**
+ * 有効/無効を永続化し、ランタイムへも反映する。
+ * activate 失敗時は状態を disabled に戻してエラーを返す（本体は落とさない）。
+ */
+export async function setPluginState(
+  accountId: string,
+  pluginId: string,
+  enabled: boolean,
+): Promise<void> {
+  const entry = listPlugins().find((p) => p.id === pluginId);
+  if (!entry) throw new Error(`unknown plugin: ${pluginId}`);
+
+  if (enabled) {
+    if (!entry.loadable) throw new Error("plugin has no index.ts / index.js entry");
+    const ok = await activatePlugin(accountId, pluginId, entry.dir, entry.permissions ?? []);
+    if (!ok) throw new Error("plugin activation failed (see backend logs)");
+  } else {
+    await deactivatePlugin(accountId, pluginId);
   }
+
+  const states = loadStates();
   states[accountId] = states[accountId] ?? {};
   states[accountId]![pluginId] = enabled;
   saveStates(states);
