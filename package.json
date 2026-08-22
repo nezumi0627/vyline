@@ -31,6 +31,7 @@
     "vyline:call-test": "bun Vyline/backend/src/tools/callTest.ts",
     "vyline:get-edited-json": "bun scripts/getEditedMessageJson.ts",
     "test:media": "bun scripts/sendTestMediaBatch.ts",
+    "test:api": "bun scripts/apiSmokeTest.ts",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {

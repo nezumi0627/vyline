@@ -84,7 +84,10 @@ async function maybeRotate(accountId: string): Promise<void> {
   rotatedBytes.set(accountId, size);
   try {
     const s = streams.get(accountId);
-    s?.end();
+    if (s) {
+      // flush を待ってから rename（バッファ中の行消失防止）
+      await new Promise<void>((resolve) => s.end(() => resolve()));
+    }
     streams.delete(accountId);
     writtenBytes.set(accountId, 0);
     const prev = `${p}.2`;
@@ -104,7 +107,10 @@ export function appendMessageLog(entry: MessageLogEntry): void {
     const line = `${JSON.stringify(entry)}\n`;
     s.write(line);
     // stat() の代わりに書き込みバイト数で追跡
-    writtenBytes.set(entry.accountId, (writtenBytes.get(entry.accountId) ?? 0) + line.length);
+    writtenBytes.set(
+      entry.accountId,
+      (writtenBytes.get(entry.accountId) ?? 0) + Buffer.byteLength(line, "utf8"),
+    );
     void maybeRotate(entry.accountId).catch(() => undefined);
   } catch (err) {
     log.debug({ err }, "message log append failed");

@@ -4369,90 +4369,62 @@ export async function sendMediaBatch(
       if (plainMode) {
         // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
         // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
-        // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らない。
-        try {
-          const uploaded = await client.base.obs.uploadObjTalkBatch(
-            chatMid,
-            items.map((item, idx) => ({
-              type: (batchMediaTypes[idx] ?? "image") as Parameters<
-                typeof client.base.obs.uploadObjTalk
-              >[1],
-              data: new Blob([Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0))], {
-                type: item.mimeType ?? "image/png",
-              }),
-              filename:
-                item.filename ??
-                ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
-            })),
-          );
-          // reqseq 生成メッセージは OBS から OID が取れないため、
-          // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-          // 送信バイトをローカル media cache に置く（自クライアントの即表示用）
-          for (let i = 0; i < uploaded.length; i++) {
-            const objId = uploaded[i]?.objId;
-            if (!objId) continue;
-            const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
-            void writeMediaCache(
-              accountId,
-              chatMid,
-              objId,
-              binary,
-              items[i]!.mimeType ?? "image/png",
-            );
-          }
-          log.info(
-            { accountId, chatMid, count: uploaded.length, batch: true, plain: true, reqseq: true },
-            "media batch sent via OBS reqseq",
-          );
-          return items.length;
-        } catch (err) {
-          log.warn(
-            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-            "OBS reqseq batch failed — falling back to sendMessage path",
-          );
-        }
-        let previousMessageId: string | undefined;
+        // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らないため
+        // 失敗時のフォールバック送信も行わない（二重送信になる）。
+        const uploaded = await client.base.obs.uploadObjTalkBatch(
+          chatMid,
+          items.map((item, idx) => ({
+            type: (batchMediaTypes[idx] ?? "image") as Parameters<
+              typeof client.base.obs.uploadObjTalk
+            >[1],
+            data: new Blob([Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0))], {
+              type: item.mimeType ?? "image/png",
+            }),
+            filename:
+              item.filename ??
+              ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
+          })),
+        );
+        // reqseq 生成メッセージは OBS から OID が取れないため、
+        // アップロード応答の objId（== 生成メッセージID の実測）をキーに
+        // 送信バイトをローカル media cache に置く（自クライアントの即表示用）
         let count = 0;
-        for (let i = 0; i < items.length; i++) {
-          const item = items[i]!;
-          const mime = item.mimeType ?? "image/png";
-          const mediaType = batchMediaTypes[i] ?? "image";
-          const binary = Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0));
-          const blob = new Blob([binary], { type: mime });
-          const filename =
-            item.filename ??
-            (mediaType === "image" || mediaType === "gif"
-              ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
-              : "file.bin");
-          const message = await client.base.obs.uploadObjTalkMessage({
-            to: chatMid,
-            type: mediaType,
-            data: blob,
-            filename,
-            ...(previousMessageId
-              ? {
-                  relatedMessageId: previousMessageId,
-                  messageRelationType: "SUBORDINATE",
-                }
-              : {}),
-          });
-          previousMessageId = message.id;
+        for (let i = 0; i < uploaded.length; i++) {
+          const result = uploaded[i];
+          if (!result || "error" in result) {
+            log.warn(
+              {
+                accountId,
+                chatMid,
+                index: i,
+                err: result && "error" in result ? String(result.error) : "no result",
+              },
+              "media batch item failed (partial success kept)",
+            );
+            continue;
+          }
           count++;
-          log.info(
-            {
-              accountId,
-              chatMid,
-              mediaType,
-              size: binary.byteLength,
-              plain: true,
-              batch: true,
-              messageId: message.id,
-              relatedMessageId: message.relatedMessageId,
-              messageRelationType: message.messageRelationType,
-            },
-            "media batch item sent",
+          const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
+          void writeMediaCache(
+            accountId,
+            chatMid,
+            result.objId,
+            binary,
+            items[i]!.mimeType ?? "image/png",
           );
         }
+        log.info(
+          {
+            accountId,
+            chatMid,
+            count,
+            total: items.length,
+            batch: true,
+            plain: true,
+            reqseq: true,
+          },
+          "media batch sent via OBS reqseq",
+        );
         return count;
       }
 
@@ -4561,7 +4533,8 @@ export async function sendMediaBatch(
             }
           }
 
-          throw err;
+          // 部分成功をエラーメッセージに含める（リトライ時の二重送信防止のヒント）
+          throw new Error(`media send failed after ${count} items: ${errMsg}`);
         }
       }
 

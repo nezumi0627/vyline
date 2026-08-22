@@ -224,18 +224,24 @@ export class BaseClient extends TypedEventEmitter<ClientEvents> {
     return typeMapping[mid[0]] ?? null;
   }
   reqseqs?: Record<string, number>;
+  #reqseqsLoaded?: Promise<void>;
+  /** 初回ロードを promise キャッシュし、並列呼び出しでも二重読み込みしない */
+  private loadReqseqs(): Promise<void> {
+    this.#reqseqsLoaded ??= (async () => {
+      this.reqseqs = JSON.parse(
+        ((await this.storage.get("reqseq")) ?? "{}").toString(),
+      ) as Record<string, number>;
+    })();
+    return this.#reqseqsLoaded;
+  }
+
   async getReqseq(name: string = "talk"): Promise<number> {
     const [seq] = await this.getReqseqs(name, 1);
     return seq ?? 0;
   }
 
   async getReqseqs(name: string = "talk", count: number = 1): Promise<number[]> {
-    if (!this.reqseqs) {
-      this.reqseqs = JSON.parse(((await this.storage.get("reqseq")) ?? "{}").toString()) as Record<
-        string,
-        number
-      >;
-    }
+    await this.loadReqseqs();
     if (!this.reqseqs[name]) {
       this.reqseqs[name] = 0;
     }

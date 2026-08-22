@@ -203,22 +203,31 @@ export class LineObs {
       filename?: string;
       durationMs?: number;
     }>,
-  ): Promise<Array<{ objId: string; objHash: string; headers: Headers }>> {
+  ): Promise<Array<{ objId: string; objHash: string; headers: Headers } | { error: unknown }>> {
     if (!items.length) return [];
     const reqseqs = await this.client.getReqseqs("talk", items.length);
-    return await Promise.all(
-      items.map((item, index) =>
-        this.uploadObjTalk(
-          to,
-          item.type,
-          item.data,
-          undefined,
-          item.filename,
-          item.durationMs,
-          reqseqs[index],
-        ),
-      ),
-    );
+    // 順次アップロード。失敗は結果に記録し、成功済み分を保持する
+    //（Promise.all だと 1 失敗で全体が throw され、部分成功が分からなくなる）
+    const out: Array<{ objId: string; objHash: string; headers: Headers } | { error: unknown }> = [];
+    for (let index = 0; index < items.length; index++) {
+      const item = items[index]!;
+      try {
+        out.push(
+          await this.uploadObjTalk(
+            to,
+            item.type,
+            item.data,
+            undefined,
+            item.filename,
+            item.durationMs,
+            reqseqs[index],
+          ),
+        );
+      } catch (error) {
+        out.push({ error });
+      }
+    }
+    return out;
   }
 
   public async uploadObjTalkMessage(options: {
