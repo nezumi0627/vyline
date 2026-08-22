@@ -320,6 +320,7 @@ function replySnippet(m: Message): string {
   if (m.kind === "image") return "写真";
   if (m.kind === "video") return "動画";
   if (m.kind === "audio") return "音声";
+  if (m.kind === "file") return m.file?.name || "ファイル";
   if (m.kind === "sticker") return "スタンプ";
   if (m.kind === "emoji") return "絵文字";
   if (m.kind === "flex" || m.kind === "rich") return m.altText || m.text || "カード";
@@ -1399,12 +1400,11 @@ export const MessageBubble = memo(
                   href={`https://www.google.com/maps/search/?api=1&query=${message.location.latitude},${message.location.longitude}`}
                   target="_blank"
                   rel="noreferrer"
-                  className="block h-32 w-full bg-cover bg-center"
-                  style={{
-                    backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=${message.location.latitude},${message.location.longitude}&zoom=15&size=280x128&markers=color:red%7C${message.location.latitude},${message.location.longitude}&key=)`,
-                  }}
+                  className="flex h-20 w-full items-center justify-center bg-[var(--vy-accent)]/10 text-2xl"
                   aria-label="地図を開く"
-                />
+                >
+                  🗺️
+                </a>
               ) : null}
               <div className="bg-[var(--vy-msg-in)] px-3 py-2 text-[var(--vy-msg-in-text)]">
                 <p className="flex items-center gap-1.5 text-sm font-semibold">
@@ -1424,6 +1424,42 @@ export const MessageBubble = memo(
                     style={{ color: "var(--vy-accent)" }}
                   >
                     地図を開く
+                  </a>
+                )}
+              </div>
+            </div>
+          ) : message.kind === "file" ? (
+            <div
+              {...pressHandlers}
+              className="vy-msg-enter w-[260px] overflow-hidden rounded-msg shadow-sm"
+            >
+              {replyQuote}
+              <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
+                <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--vy-accent)]/15 text-xl">
+                  📄
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-semibold">
+                    {message.file?.name || "ファイル"}
+                  </p>
+                  {message.file?.size != null && (
+                    <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                      {message.file.size > 1024 * 1024
+                        ? `${(message.file.size / 1024 / 1024).toFixed(1)} MB`
+                        : `${Math.max(1, Math.round(message.file.size / 1024))} KB`}
+                    </p>
+                  )}
+                </div>
+                {useStore.getState().accountId && (
+                  <a
+                    href={`/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
+                    download={message.file?.name || true}
+                    onClick={(e) => e.stopPropagation()}
+                    aria-label="ダウンロード"
+                    className="shrink-0 rounded-md p-1.5 hover:bg-black/10"
+                    style={{ color: "var(--vy-accent)" }}
+                  >
+                    ⬇
                   </a>
                 )}
               </div>
