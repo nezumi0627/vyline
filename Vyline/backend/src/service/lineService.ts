@@ -86,6 +86,7 @@ export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.j
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 import { writeMediaCache } from "../storage/mediaCache.js";
+import { dispatchPluginMessage } from "../line/pluginRuntime.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
@@ -3180,6 +3181,14 @@ async function processSingleOperation(
         { ...message, chatMid, savedAt: new Date().toISOString() },
       ]);
       logMessageAsync(accountId, chatMid, message);
+      dispatchPluginMessage(accountId, {
+        id: String(message.id),
+        chatId: chatMid,
+        authorId: String(message.from),
+        text: typeof message.text === "string" ? message.text : null,
+        contentType: String(message.contentType),
+        createdAt: Number(message.createdTime),
+      });
     }
     return;
   }
