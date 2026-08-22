@@ -67,6 +67,7 @@ function buildPreviewMap(
     if (m.kind === "image") return "[画像]";
     if (m.kind === "video") return "[動画]";
     if (m.kind === "audio") return "[音声メッセージ]";
+    if (m.kind === "file") return `[${m.file?.name || "ファイル"}]`;
     if (m.kind === "flex" || m.kind === "rich")
       return m.altText || m.text || (m.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
     if (m.kind === "call") return "[通話]";

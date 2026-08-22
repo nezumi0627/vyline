@@ -5,6 +5,7 @@ import {
   contentTypeLabel,
   isAudioContent,
   isCallContent,
+  isFileContent,
   isContactContent,
   isImageContent,
   isLocationContent,
@@ -134,6 +135,7 @@ function messageKind(m: LineMessage): MessageKind {
   if (isVideoContent(ct)) return "video";
   if (isImageContent(ct)) return "image";
   if (isAudioContent(ct)) return "audio";
+  if (isFileContent(ct)) return "file";
   if (isLocationContent(ct)) return "location";
   if (isContactContent(ct)) return "contact";
   if (isFlexContentType(ct)) return "flex";
@@ -281,6 +283,11 @@ export function mapMessage(
   if ((kind === "flex" || kind === "rich") && !text && altText) {
     text = altText;
   }
+  // 未対応 contentType が空バブルになるのを防ぐ（FILE 等は専用 UI、その他はラベル表示）
+  const ctUpper = String(m.contentType ?? "").toUpperCase();
+  if (kind === "text" && !text && ctUpper !== "NONE" && ctUpper !== "0") {
+    text = `[${contentTypeLabel(m.contentType)}]`;
+  }
   // Flex JSON が text に入っているときはバブルに出さない
   if (kind === "flex" && text?.startsWith("{") && /"type"\s*:/.test(text)) {
     text = altText || undefined;
@@ -297,6 +304,17 @@ export function mapMessage(
   const contact =
     kind === "contact"
       ? parseContactFromMeta(m.contentMetadata as Record<string, unknown> | null, text)
+      : undefined;
+
+  const file =
+    kind === "file"
+      ? {
+          name:
+            typeof meta?.FILE_NAME === "string" && meta.FILE_NAME
+              ? meta.FILE_NAME
+              : (sanitizeText(m.text) ?? "ファイル"),
+          size: Number(meta?.FILE_SIZE) || undefined,
+        }
       : undefined;
 
   let stickerSrc: string | undefined;
@@ -365,6 +383,7 @@ export function mapMessage(
       : {}),
     contact,
     location,
+    file,
   };
 
   // sticon のみの本文は emoji 扱いにして本家同等の大きさで表示
