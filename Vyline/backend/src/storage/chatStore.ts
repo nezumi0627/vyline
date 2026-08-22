@@ -17,6 +17,7 @@ import type {
   MessageSnapshot,
 } from "@vyline/types";
 import { childLogger } from "../logger.js";
+import { accountFile, readAccountJson } from "./accountDirs.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -86,8 +87,9 @@ const dirty = new Set<string>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function dbPath(accountId: string): string {
-  return join(DATA_DIR, `chatdb-${accountId}.json`);
+  return accountFile(accountId, "chatdb.json");
 }
+const legacyDbPath = (accountId: string) => join(DATA_DIR, `chatdb-${accountId}.json`);
 
 function emptyDb(): ChatDb {
   return { meta: {}, chats: {}, messages: {} };
@@ -102,6 +104,18 @@ async function ensureDataDir(): Promise<void> {
 async function loadDbFromDisk(accountId: string): Promise<ChatDb> {
   await ensureDataDir();
   const path = dbPath(accountId);
+  const legacy = await readAccountJson<Partial<ChatDb>>(
+    accountId,
+    "chatdb.json",
+    legacyDbPath(accountId),
+  );
+  if (legacy) {
+    return {
+      meta: legacy.meta ?? {},
+      chats: legacy.chats ?? {},
+      messages: legacy.messages ?? {},
+    };
+  }
   if (!existsSync(path)) return emptyDb();
   try {
     const raw = await readFile(path, "utf-8");

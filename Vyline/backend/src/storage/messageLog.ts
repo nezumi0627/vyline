@@ -12,6 +12,7 @@ import { readFile, rename, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { accountDir, ensureAccount } from "./accountDirs.js";
 
 const log = childLogger("message-log");
 
@@ -52,6 +53,11 @@ const rotatedBytes = new Map<string, number>();
 const writtenBytes = new Map<string, number>();
 
 function logPath(accountId: string): string {
+  ensureAccount(accountId);
+  return join(accountDir(accountId), "message-log.jsonl");
+}
+
+function legacyLogPath(accountId: string): string {
   return join(LOG_DIR, `message-log-${accountId}.jsonl`);
 }
 
@@ -78,7 +84,7 @@ function streamFor(accountId: string): WriteStream {
 async function maybeRotate(accountId: string): Promise<void> {
   const size = writtenBytes.get(accountId) ?? 0;
   if (size < ROTATE_BYTES) return;
-  const p = logPath(accountId);
+  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
   const last = rotatedBytes.get(accountId);
   if (last != null && size - last < ROTATE_BYTES) return; // 直前ローテ直後
   rotatedBytes.set(accountId, size);
@@ -116,7 +122,7 @@ export async function readRecentMessageLog(
   accountId: string,
   limit = 200,
 ): Promise<MessageLogEntry[]> {
-  const p = logPath(accountId);
+  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
   if (!existsSync(p)) return [];
   try {
     const raw = await readFile(p, "utf8");
@@ -137,7 +143,7 @@ export async function readRecentMessageLog(
 
 /** 起動時などに未ログ分を再スキャンして追記（履歴同期の取りこぼし補填） */
 export async function replayMissingLogs(accountId: string, knownIds: Set<string>): Promise<number> {
-  const p = logPath(accountId);
+  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
   if (!existsSync(p)) return 0;
   try {
     const raw = await readFile(p, "utf8");

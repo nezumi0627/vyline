@@ -10,6 +10,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { accountDir, readAccountJson } from "./accountDirs.js";
 
 const log = childLogger("VylineStorage");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -30,6 +31,9 @@ export class VylineStorage<T extends object> {
   }
 
   private path(accountId: string): string {
+    return join(accountDir(accountId), `vyline-${this.namespace}.json`);
+  }
+  private legacyPath(accountId: string): string {
     return join(DATA_DIR, `vyline-${this.namespace}-${accountId}.json`);
   }
 
@@ -43,23 +47,32 @@ export class VylineStorage<T extends object> {
 
     const p = this.path(accountId);
     if (!existsSync(p)) {
-      // 旧ブランド (nezu-*) からの移行: 旧ファイルがあれば読んで新名で保存
-      const legacy = join(DATA_DIR, `nezu-${this.namespace}-${accountId}.json`);
-      if (existsSync(legacy)) {
-        try {
-          const raw = await readFile(legacy, "utf8");
-          const parsed = JSON.parse(raw) as T;
-          this.memory.set(accountId, parsed);
-          await mkdir(DATA_DIR, { recursive: true });
-          await writeFile(p, JSON.stringify(parsed), "utf8");
-          return parsed;
-        } catch {
-          // fallthrough to empty
+      // 旧フラット (vyline-<ns>-<id>.json / nezu-<ns>-<id>.json) からの移行:
+      // あれば読んで accounts/<id>/ へ保存
+      const legacy = await readAccountJson<T>(
+        accountId,
+        `vyline-${this.namespace}.json`,
+        this.legacyPath(accountId),
+      );
+      if (!legacy) {
+        const nezuLegacy = join(DATA_DIR, `nezu-${this.namespace}-${accountId}.json`);
+        if (existsSync(nezuLegacy)) {
+          try {
+            const parsed = JSON.parse(await readFile(nezuLegacy, "utf8")) as T;
+            this.memory.set(accountId, parsed);
+            await mkdir(dirname(p), { recursive: true });
+            await writeFile(p, JSON.stringify(parsed), "utf8");
+            return parsed;
+          } catch {
+            // fallthrough to empty
+          }
         }
+        const empty = this.factory();
+        this.memory.set(accountId, empty);
+        return empty;
       }
-      const empty = this.factory();
-      this.memory.set(accountId, empty);
-      return empty;
+      this.memory.set(accountId, legacy);
+      return legacy;
     }
 
     try {
