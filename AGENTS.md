@@ -97,6 +97,21 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ---
 
+## Skill 方針（必須）
+
+大規模タスク（監査・リファクタ・API設計・plugin実装・docs整理）の前に、以下の skill を確認し使用する。
+
+| Skill | 用途 |
+|---|---|
+| `ponytail` / `ponytail-*` | YAGNI・最小実装・再利用優先（既定の思考モード） |
+| `caveman` / `caveman-compress` | 報告の圧縮のみ（コード/OpenAPI/YAML/docs本文には適用しない） |
+| `agent-skills-standard` 系 | 必要なときだけ必要な skill を階層ロード（一括読込禁止） |
+| `api-and-interface-design` など addyosmani/agent-skills 系 | 本番級レビュー・perf・API 設計（必要時のみ） |
+| `minimize-cursor-cost` (~/.agents/skills) | 再読込禁止・並列ツール呼び出し・無駄検証禁止 |
+
+優先順位: ユーザー指示 > セキュリティ > プライバシー > データ保護 > 既存機能互換 > 実リポジトリ挙動 > テスト結果 > Ponytail > 各skill推奨 > トークン削減。
+
+大型タスク開始時は最初の報告に Skill Bootstrap 表を含めること。
 ## 開発哲学 (最重要)
 
 **最大反復速度 (Maximum Iteration Speed)** を最優先とする。
@@ -267,21 +282,21 @@ bun run vyline:update  # Desktop を最新版へ更新（root 直下でも可）
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
 
-- `master` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
+- `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
 
 ```
-1. master から作業ブランチを切る
-   git checkout master && git pull && git checkout -b feature/<名前>
+1. main から作業ブランチを切る
+   git checkout main && git pull && git checkout -b feature/<名前>
 2. 変更をコミットしてブランチに push
    git push -u origin feature/<名前>
-3. GitHub で PR を作成（base: master ← head: feature/<名前>）
+3. GitHub で PR を作成（base: main ← head: feature/<名前>）
 4. レビュー・承認後にマージする（repo 所有者以外のマージはブロックされる）
 ```
 
-- 小さな修正（1 コミットのドキュメント更新など）でも、master への直接 push はせずブランチ経由にする
+- 小さな修正（1 コミットのドキュメント更新など）でも、main への直接 push はせずブランチ経由にする
 - PR の説明には変更内容とテスト確認結果を書く
-- マージ後に作業ブランチは削除し、master を pull して最新に保つ
+- マージ後に作業ブランチは削除し、main を pull して最新に保つ
 
 ## 報告プロトコル
 
