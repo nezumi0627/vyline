@@ -11,7 +11,7 @@ COPY Vyline/packages/types/package.json Vyline/packages/types/
 COPY Vyline/packages/protocol/package.json Vyline/packages/protocol/
 COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/
 COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/
-RUN bun install --frozen-lockfile || bun install
+RUN bun install --frozen-lockfile --ignore-scripts
 
 FROM oven/bun:1 AS build
 WORKDIR /app
