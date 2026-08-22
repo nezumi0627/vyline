@@ -45,3 +45,12 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+
+  docker-build:
+    name: Docker build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: docker build --pull -t vyline .
