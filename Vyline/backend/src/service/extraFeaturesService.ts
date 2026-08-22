@@ -1,9 +1,8 @@
 /**
- * service/extraFeaturesService.ts — iOS / Desktop 版 LINE の未実装機能を BFF に公開
+ * service/extraFeaturesService.ts — iOS / Desktop 版 LINE の未実装機能を BFF に公開（型付き）
  *
- * 実装方式: 既存の talk/call/relation サービスメソッド + LINEStruct 汎用 RPC 呼び出し。
- * スタック内部の型を backend の strict プログラムに引き込まないため、
- * 未ラップ RPC は LINEStruct 経由で直接 request する。
+ * リクエスト/レスポンスは @vyline/line-types の Thrift 定義に準拠する。
+ * 実装方式: 既存 talk/call/relation サービスメソッド + LINEStruct 汎用 RPC 呼び出し。
  *
  * 注意:
  * - メンバー削除・通報など破壊的操作を含む。**実機テストは未実施**（コメント明記）。
@@ -15,10 +14,87 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("extra");
 
-type Req = Record<string, unknown>;
+/* ─── 公開リクエスト型（BFF API コントラクト） ─── */
+
+export interface DeleteChatMemberRequest {
+  chatMid: string;
+  /** 削除するメンバーの MID 配列 */
+  targetUserMids: string[];
+}
+
+export interface CancelChatInvitationRequest {
+  chatMid: string;
+  /** 招待を取り消す対象の MID 配列 */
+  targetUserMids: string[];
+}
+
+export interface AcceptChatByTicketRequest {
+  chatMid: string;
+  ticketId: string;
+}
+
+export interface ReissueChatTicketRequest {
+  groupMid: string;
+}
+
+export interface FindChatByTicketRequest {
+  ticketId: string;
+}
+
+export interface AddFriendByMidRequest {
+  userMid: string;
+  reference?: string;
+}
+
+export interface FindContactsByPhoneRequest {
+  phoneNumbers: string[];
+}
+
+export interface GenerateUserTicketRequest {
+  /** UNIX 秒。0 = 無期限 */
+  expirationTime?: number;
+  /** 最大使用回数。0 = 無制限 */
+  maxUseCount?: number;
+}
+
+export interface ReportProfileRequest {
+  profile: Record<string, unknown>;
+  syncOpRevision?: number;
+}
+
+export interface CreateGroupCallUrlRequest {
+  title: string;
+}
+
+export interface JoinChatByCallUrlRequest {
+  urlId: string;
+}
+
+export interface InviteIntoGroupCallRequest {
+  chatMid: string;
+  memberMids: string[];
+  /** AUDIO / VIDEO / LIVE / PHOTOBOOTH（既定 AUDIO） */
+  mediaType?: "AUDIO" | "VIDEO" | "LIVE" | "PHOTOBOOTH";
+}
+
+export interface KickoutFromGroupCallRequest {
+  chatMid: string;
+  targetMids: string[];
+}
+
+export interface E2EEBackupOperationRequest {
+  /** E2EEKeyBackup サービスの request オブジェクト（Pb1_* 生成型） */
+  [key: string]: unknown;
+}
+
+/* ─── 内部ヘルパー ─────────────────────────────── */
 
 /** TalkService 配下の未ラップ RPC を汎用呼び出しする */
-async function talkRpc(client: VylineClient, method: string, args: unknown): Promise<unknown> {
+async function talkRpc(
+  client: VylineClient,
+  method: string,
+  args: unknown,
+): Promise<unknown> {
   const talk = client.base.talk as unknown as {
     client: {
       request: {
@@ -41,19 +117,24 @@ async function talkRpc(client: VylineClient, method: string, args: unknown): Pro
   );
 }
 
+async function nextReqSeq(client: VylineClient): Promise<number> {
+  return await client.base.getReqseq();
+}
+
 /* ─── チャット管理 ─────────────────────────────── */
 
 /** メンバー削除（グループ）。※実機テスト未実施 */
 export async function deleteChatMember(
   accountId: string,
   client: VylineClient,
-  chatMid: string,
-  targetMid: string,
+  req: DeleteChatMemberRequest,
 ): Promise<unknown> {
   const res = await talkRpc(client, "deleteOtherFromChat", {
-    request: { chatMid, targetMid },
+    reqSeq: await nextReqSeq(client),
+    chatMid: req.chatMid,
+    targetUserMids: req.targetUserMids,
   });
-  log.warn({ accountId, chatMid, targetMid }, "member deleted from chat (untested live)");
+  log.warn({ accountId, ...req }, "member deleted from chat (untested live)");
   return res;
 }
 
@@ -61,11 +142,12 @@ export async function deleteChatMember(
 export async function cancelChatInvitation(
   accountId: string,
   client: VylineClient,
-  chatMid: string,
-  inviteeMid: string,
+  req: CancelChatInvitationRequest,
 ): Promise<unknown> {
   return await talkRpc(client, "cancelChatInvitation", {
-    request: { chatMid, inviteeMid },
+    reqSeq: await nextReqSeq(client),
+    chatMid: req.chatMid,
+    targetUserMids: req.targetUserMids,
   });
 }
 
@@ -73,27 +155,36 @@ export async function cancelChatInvitation(
 export async function acceptChatByTicket(
   accountId: string,
   client: VylineClient,
-  ticketId: string,
+  req: AcceptChatByTicketRequest,
 ): Promise<unknown> {
-  return await talkRpc(client, "acceptChatInvitationByTicket", { request: { ticketId } });
+  return await talkRpc(client, "acceptChatInvitationByTicket", {
+    reqSeq: await nextReqSeq(client),
+    chatMid: req.chatMid,
+    ticketId: req.ticketId,
+  });
 }
 
 /** チャット Ticket 再発行。※実機テスト未実施 */
 export async function reissueChatTicket(
   accountId: string,
   client: VylineClient,
-  chatMid: string,
-): Promise<unknown> {
-  return await talkRpc(client, "reissueChatTicket", { request: { chatMid } });
+  req: ReissueChatTicketRequest,
+): Promise<{ ticketId: string }> {
+  const res = (await talkRpc(client, "reissueChatTicket", {
+    reqSeq: await nextReqSeq(client),
+    groupMid: req.groupMid,
+  })) as { ticketId?: string };
+  log.info({ accountId, groupMid: req.groupMid }, "chat ticket reissued");
+  return { ticketId: String(res?.ticketId ?? "") };
 }
 
 /** Ticket でチャット検索（参加前プレビュー）。※実機テスト未実施 */
 export async function findChatByTicket(
   accountId: string,
   client: VylineClient,
-  ticketId: string,
+  req: FindChatByTicketRequest,
 ): Promise<unknown> {
-  return await talkRpc(client, "findChatByTicket", { request: { ticketId } });
+  return await talkRpc(client, "findChatByTicket", { ticketId: req.ticketId });
 }
 
 /* ─── 連絡先 ───────────────────────────────────── */
@@ -102,9 +193,12 @@ export async function findChatByTicket(
 export async function addFriendByMid(
   accountId: string,
   client: VylineClient,
-  targetMid: string,
+  req: AddFriendByMidRequest,
 ): Promise<unknown> {
-  return await client.base.relation.addFriendByMid({ mid: targetMid } as never);
+  return await client.base.relation.addFriendByMid({
+    mid: req.userMid,
+    ...(req.reference !== undefined ? { reference: req.reference } : {}),
+  } as never);
 }
 
 /** UserID で検索 */
@@ -120,21 +214,22 @@ export async function findContactByUserid(
 export async function findContactsByPhone(
   accountId: string,
   client: VylineClient,
-  phones: string[],
+  req: FindContactsByPhoneRequest,
 ): Promise<unknown> {
-  return await talkRpc(client, "findContactsByPhone", { phoneNumbers: phones });
+  return await talkRpc(client, "findContactsByPhone", {
+    phoneNumbers: req.phoneNumbers,
+  });
 }
 
 /** 自分のユーザー Ticket 生成（QR 追加用）。※実機テスト未実施 */
 export async function generateUserTicket(
   accountId: string,
   client: VylineClient,
-  expirationTime?: number,
-  maxUseCount?: number,
+  req: GenerateUserTicketRequest,
 ): Promise<unknown> {
   return await client.base.talk.generateUserTicket({
-    expirationTime: BigInt(expirationTime ?? 0),
-    maxUseCount: maxUseCount ?? 0,
+    expirationTime: BigInt(req.expirationTime ?? 0),
+    maxUseCount: req.maxUseCount ?? 0,
   });
 }
 
@@ -142,12 +237,11 @@ export async function generateUserTicket(
 export async function reportProfile(
   accountId: string,
   client: VylineClient,
-  profile: Req,
-  syncOpRevision?: number,
+  req: ReportProfileRequest,
 ): Promise<unknown> {
   return await talkRpc(client, "reportProfile", {
-    syncOpRevision: String(syncOpRevision ?? 0),
-    profile,
+    syncOpRevision: String(req.syncOpRevision ?? 0),
+    profile: req.profile,
   });
 }
 
@@ -160,7 +254,7 @@ function callSvc(client: VylineClient) {
     getGroupCallUrls(p: never): Promise<unknown>;
     getGroupCallUrlInfo(p: never): Promise<unknown>;
     joinChatByCallUrl(p: never): Promise<unknown>;
-    inviteIntoGroupCall(p: never): Promise<unknown>;
+    inviteIntoGroupCall(p: never): Promise<void>;
     kickoutFromGroupCall(p: never): Promise<unknown>;
     acquireOACallRoute(p: never): Promise<unknown>;
   };
@@ -169,15 +263,18 @@ function callSvc(client: VylineClient) {
 export async function createGroupCallUrl(
   accountId: string,
   client: VylineClient,
-  request: Req,
-): Promise<unknown> {
-  return await callSvc(client).createGroupCallUrl({ request } as never);
+  req: CreateGroupCallUrlRequest,
+): Promise<{ url: unknown }> {
+  const res = (await callSvc(client).createGroupCallUrl({ request: { title: req.title } } as never)) as {
+    url?: unknown;
+  };
+  return { url: res.url ?? res };
 }
 
 export async function deleteGroupCallUrl(
   accountId: string,
   client: VylineClient,
-  request: Req,
+  request: { urlId: string },
 ): Promise<unknown> {
   return await callSvc(client).deleteGroupCallUrl({ request } as never);
 }
@@ -185,15 +282,15 @@ export async function deleteGroupCallUrl(
 export async function getGroupCallUrls(
   accountId: string,
   client: VylineClient,
-  request: Req,
 ): Promise<unknown> {
-  return await callSvc(client).getGroupCallUrls({ request } as never);
+  // Pb1_C13042j5 は空構造（サーバ側で全件返却）
+  return await callSvc(client).getGroupCallUrls({ request: {} } as never);
 }
 
 export async function getGroupCallUrlInfo(
   accountId: string,
   client: VylineClient,
-  request: Req,
+  request: { urlId: string },
 ): Promise<unknown> {
   return await callSvc(client).getGroupCallUrlInfo({ request } as never);
 }
@@ -201,33 +298,42 @@ export async function getGroupCallUrlInfo(
 export async function joinChatByCallUrl(
   accountId: string,
   client: VylineClient,
-  request: Req,
+  req: JoinChatByCallUrlRequest,
 ): Promise<unknown> {
-  return await callSvc(client).joinChatByCallUrl({ request } as never);
+  return await callSvc(client).joinChatByCallUrl({
+    request: { urlId: req.urlId, reqSeq: await nextReqSeq(client) },
+  } as never);
 }
 
 export async function inviteIntoGroupCall(
   accountId: string,
   client: VylineClient,
-  chatMid: string,
-  memberMids: string[],
-): Promise<unknown> {
-  return await callSvc(client).inviteIntoGroupCall({ chatMid, memberMids } as never);
+  req: InviteIntoGroupCallRequest,
+): Promise<void> {
+  return await callSvc(client).inviteIntoGroupCall({
+    chatMid: req.chatMid,
+    memberMids: req.memberMids,
+    ...(req.mediaType ? { mediaType: req.mediaType } : { mediaType: "AUDIO" }),
+  } as never);
 }
 
 export async function kickoutFromGroupCall(
   accountId: string,
   client: VylineClient,
-  request: Req,
+  req: KickoutFromGroupCallRequest,
 ): Promise<unknown> {
   return await callSvc(client).kickoutFromGroupCall({
-    kickoutFromGroupCallRequest: request,
+    kickoutFromGroupCallRequest: { chatMid: req.chatMid, targetMids: req.targetMids },
   } as never);
 }
 
 /* ─── E2EE 鍵バックアップ（LINEStruct 汎用・/EKBS4） ── */
 
-async function ekbsRpc(client: VylineClient, method: string, args: unknown): Promise<unknown> {
+async function ekbsRpc(
+  client: VylineClient,
+  method: string,
+  args: unknown,
+): Promise<unknown> {
   const talk = client.base.talk as unknown as {
     client: {
       request: {
@@ -261,36 +367,38 @@ export async function getE2EEKeyBackupCertificates(
 export async function createE2EEKeyBackup(
   accountId: string,
   client: VylineClient,
-  request: Req,
+  req: E2EEBackupOperationRequest,
 ): Promise<unknown> {
-  return await ekbsRpc(client, "createE2EEKeyBackupEnforced", { request });
+  return await ekbsRpc(client, "createE2EEKeyBackupEnforced", { request: req });
 }
 
 export async function deleteE2EEKeyBackup(
   accountId: string,
   client: VylineClient,
-  request: Req,
+  req: E2EEBackupOperationRequest,
 ): Promise<unknown> {
-  return await ekbsRpc(client, "deleteE2EEKeyBackup", { request });
+  return await ekbsRpc(client, "deleteE2EEKeyBackup", { request: req });
 }
 
-/* ─── サブスク（OA Membership /LOMS4? は service 定義に従う） ── */
+/* ─── サブスク（OA Membership） ────────────────── */
 
-function membershipSvc(client: VylineClient) {
-  return client.base as unknown as {
+export async function activateSubscription(
+  accountId: string,
+  client: VylineClient,
+  req: { uniqueKey: string; activeStatus?: number },
+): Promise<unknown> {
+  const base = client.base as unknown as {
     oamembership?: {
       activateSubscription(p: never): Promise<unknown>;
       getJoinedMembership(): Promise<unknown>;
     };
   };
-}
-
-export async function activateSubscription(
-  accountId: string,
-  client: VylineClient,
-  request: Req,
-): Promise<unknown> {
-  const svc = membershipSvc(client).oamembership;
+  const svc = base.oamembership;
   if (!svc) throw new Error("oamembership service not available on this build");
-  return await svc.activateSubscription({ request } as never);
+  return await svc.activateSubscription({
+    request: {
+      uniqueKey: req.uniqueKey,
+      ...(req.activeStatus !== undefined ? { activeStatus: req.activeStatus } : {}),
+    },
+  } as never);
 }
