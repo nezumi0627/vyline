@@ -257,7 +257,7 @@ export async function markMessageRevoked(
     contentType: stored.contentType,
     updatedTime: Date.now(),
   };
-  stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
+
   stored.messageState = stored.isMyMessage ? "revoked-by-self" : "revoked-by-other";
   stored.history = [...(stored.history ?? []), entry];
   stored.contentType = "UNSENT";

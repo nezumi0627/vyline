@@ -96,7 +96,7 @@ app.route("/api/v1", publicRouter);
 // /docs, /swagger    — Swagger UI（CDN）
 app.get("/openapi.yaml", async (c) => {
   try {
-    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../openapi.yaml");
+    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../../openapi.yaml");
     const yaml = await readFile(yamlPath, "utf8");
     return new Response(yaml, {
       status: 200,

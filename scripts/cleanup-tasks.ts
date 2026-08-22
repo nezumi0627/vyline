@@ -39,7 +39,7 @@ if (processes.length === 0) {
     const match = p.match(/"(\d+)"/);
     if (match) {
       try {
-        require("node:process").kill(parseInt(match[1]), "SIGKILL");
+        require("node:process").kill(Number.parseInt(match[1]), "SIGKILL");
         console.log("Killed process " + match[1]);
       } catch (e) {
         console.log("Failed to kill " + match[1] + ": " + e.message);

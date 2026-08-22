@@ -36,24 +36,28 @@ export const lineOpenApiSpec = {
   info: {
     title: "Vyline BFF API",
     version: "0.6.0",
+    license: { name: "MIT" },
     description:
       "Vyline フロントエンドが利用する内部 BFF API。セッション Cookie / ローカル実行を前提とし、" +
       "外部公開は想定していない。安定した公開 API は /v1 (openapi.yaml) を使用すること。",
   },
   servers: [{ url: "{baseUrl}", variables: { baseUrl: { default: "http://127.0.0.1:3001" } } }],
+  // BFF はローカルセッション前提のため匿名（security 定義なしを明示）
+  security: [],
   tags: [
-    { name: "session" },
-    { name: "chats" },
-    { name: "messages" },
-    { name: "media" },
-    { name: "stickers" },
-    { name: "backup" },
-    { name: "storage" },
+    { name: "session", description: "セッション・プロフィール・ヘルスチェック" },
+    { name: "chats", description: "チャット一覧と起動時 hydrate" },
+    { name: "messages", description: "メッセージ取得・送信・既読" },
+    { name: "media", description: "メディア送受信（複数一括含む）" },
+    { name: "stickers", description: "スタンプ・コンビネーションスタンプ" },
+    { name: "backup", description: "VylineBackup の作成・復元" },
+    { name: "storage", description: "キャッシュ・ストレージ管理" },
   ],
   paths: {
     "/healthz": {
       get: {
         tags: ["session"],
+        operationId: "healthz",
         summary: "ヘルスチェック",
         responses: {
           "200": { description: "ready", content: { "application/json": { schema: ok } } },
@@ -63,6 +67,7 @@ export const lineOpenApiSpec = {
     "/auth/accounts": {
       get: {
         tags: ["session"],
+        operationId: "listAccounts",
         summary: "登録済みアカウント一覧",
         responses: {
           "200": {
@@ -77,6 +82,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/profile": {
       get: {
         tags: ["session"],
+        operationId: "getProfile",
         summary: "自分のプロフィール",
         parameters: [accountParam],
         responses: {
@@ -95,6 +101,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/bootstrap": {
       get: {
         tags: ["chats"],
+        operationId: "getBootstrap",
         summary: "起動時一括 hydrate（チャット + 直近メッセージ）",
         parameters: [accountParam],
         responses: {
@@ -108,6 +115,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/chats": {
       get: {
         tags: ["chats"],
+        operationId: "listChats",
         summary: "チャット一覧",
         parameters: [accountParam],
         responses: {
@@ -123,6 +131,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/messages/{chatMid}": {
       get: {
         tags: ["messages"],
+        operationId: "getMessages",
         summary: "メッセージ取得（local-first + サーバ同期）",
         parameters: [
           accountParam,
@@ -157,6 +166,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/send": {
       post: {
         tags: ["messages"],
+        operationId: "sendMessage",
         summary: "テキスト送信",
         parameters: [accountParam],
         requestBody: {
@@ -187,6 +197,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/send-media-batch": {
       post: {
         tags: ["media"],
+        operationId: "sendMediaBatch",
         summary: "複数メディアの一括送信",
         description:
           "各アイテムは個別の IMAGE メッセージとして送信される。" +
@@ -230,6 +241,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/send-media": {
       post: {
         tags: ["media"],
+        operationId: "sendMedia",
         summary: "単体メディア送信",
         parameters: [accountParam],
         requestBody: {
@@ -258,6 +270,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/media/{chatMid}/{messageId}": {
       get: {
         tags: ["media"],
+        operationId: "getMedia",
         summary: "メディア取得（キャッシュ → OBS → RPC フォールバック）",
         parameters: [
           accountParam,
@@ -282,6 +295,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/unsend": {
       post: {
         tags: ["messages"],
+        operationId: "unsendMessage",
         summary: "メッセージ送信取り消し",
         parameters: [accountParam],
         requestBody: {
@@ -304,6 +318,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/read": {
       post: {
         tags: ["messages"],
+        operationId: "markAsRead",
         summary: "既読送信",
         parameters: [accountParam],
         requestBody: {
@@ -326,6 +341,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/read-receipts/{chatMid}": {
       get: {
         tags: ["messages"],
+        operationId: "getReadReceipts",
         summary: "既読情報取得",
         parameters: [accountParam, chatParam],
         responses: {
@@ -339,6 +355,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/stickers": {
       get: {
         tags: ["stickers"],
+        operationId: "listStickers",
         summary: "所持スタンプ一覧",
         parameters: [accountParam],
         responses: {
@@ -354,6 +371,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/send-sticker": {
       post: {
         tags: ["stickers"],
+        operationId: "sendSticker",
         summary: "スタンプ送信",
         parameters: [accountParam],
         requestBody: {
@@ -383,6 +401,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/combination-stickers/can-create": {
       post: {
         tags: ["stickers"],
+        operationId: "canCreateCombinationSticker",
         summary: "コンビネーションスタンプ作成可否",
         parameters: [accountParam],
         responses: {
@@ -396,6 +415,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/send-combination-sticker": {
       post: {
         tags: ["stickers"],
+        operationId: "sendCombinationSticker",
         summary: "コンビネーションスタンプ送信",
         parameters: [accountParam],
         requestBody: {
@@ -436,6 +456,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/vyline/cache": {
       get: {
         tags: ["storage"],
+        operationId: "getStorageUsage",
         summary: "ストレージ / キャッシュ使用量",
         parameters: [accountParam],
         responses: {
@@ -449,6 +470,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/vyline/warm": {
       post: {
         tags: ["storage"],
+        operationId: "warmCache",
         summary: "キャッシュウォーム",
         parameters: [accountParam],
         responses: {
@@ -459,6 +481,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/backup": {
       get: {
         tags: ["backup"],
+        operationId: "listBackups",
         summary: "バックアップ一覧 / チャット選択用リスト",
         parameters: [accountParam],
         responses: {
@@ -472,6 +495,7 @@ export const lineOpenApiSpec = {
     "/line/{accountId}/restore": {
       post: {
         tags: ["backup"],
+        operationId: "restoreBackup",
         summary: "バックアップ復元",
         parameters: [accountParam],
         requestBody: {
@@ -520,15 +544,15 @@ export const lineOpenApiSpec = {
           id: { type: "string" },
           from: { type: "string" },
           to: { type: "string" },
-          text: { type: "string", nullable: true },
+          text: { type: ["string", "null"] },
           contentType: { type: "string" },
           createdTime: { type: "integer", format: "int64" },
           isMyMessage: { type: "boolean" },
-          relatedMessageId: { type: "string", nullable: true },
-          messageRelationType: { type: "string", nullable: true },
-          relatedMessageServiceCode: { type: "string", nullable: true },
-          contentMetadata: { type: "object", nullable: true },
-          readCount: { type: "integer", nullable: true },
+          relatedMessageId: { type: ["string", "null"] },
+          messageRelationType: { type: ["string", "null"] },
+          relatedMessageServiceCode: { type: ["string", "null"] },
+          contentMetadata: { type: ["object", "null"] },
+          readCount: { type: ["integer", "null"] },
         },
       },
     },

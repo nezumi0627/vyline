@@ -757,7 +757,7 @@ lineRouter.post("/:accountId/send-media", async (c) => {
   if (!body.chatMid || !body.dataBase64) {
     return c.json({ ok: false, error: "chatMid and dataBase64 required" }, 400);
   }
-  if (body.dataBase64.length > 12_000_000) {
+  if (body.dataBase64.length > 15_000_000) {
     return c.json({ ok: false, error: "file too large" }, 413);
   }
 
@@ -797,6 +797,10 @@ lineRouter.post("/:accountId/send-media-batch", async (c) => {
   }
 
   try {
+    if (body.items.some((item) => !item?.dataBase64)) {
+      // 黙めて除外すると count < items.length になりクライアントが二重送信しかねない
+      return c.json({ ok: false, error: "all items require dataBase64" }, 400);
+    }
     const items = body.items
       .filter((item): item is NonNullable<typeof item> & { dataBase64: string } =>
         Boolean(item?.dataBase64),
@@ -819,7 +823,7 @@ lineRouter.post("/:accountId/send-media-batch", async (c) => {
     }
 
     for (const item of items) {
-      if (item.dataBase64.length > 12_000_000) {
+      if (item.dataBase64.length > 15_000_000) {
         return c.json({ ok: false, error: "file too large" }, 413);
       }
     }
