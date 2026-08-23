@@ -4,8 +4,7 @@
  * GitHub Releases から最新バージョンをチェックし、
  * 更新があれば通知する。
  *
- * exe 配布時は Vyline Updater (別プロセス) が
- * ダウンロードと置換を行う。
+ * Windows 配布時は GitHub Release の Setup.exe を直接案内する。
  */
 
 import { UPDATE_NOTES } from "./store";
@@ -19,6 +18,7 @@ export interface UpdateInfo {
   latestVersion: string | null;
   hasUpdate: boolean;
   url: string | null;
+  downloadUrl: string | null;
   body: string | null;
   error: string | null;
 }
@@ -35,6 +35,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
         latestVersion: null,
         hasUpdate: false,
         url: null,
+        downloadUrl: null,
         body: null,
         error: `GitHub API returned ${res.status}`,
       };
@@ -43,14 +44,19 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       tag_name?: string;
       html_url?: string;
       body?: string;
+      assets?: Array<{ name?: string; browser_download_url?: string }>;
     };
     const tag = release.tag_name?.replace(/^v/, "") ?? null;
     const hasUpdate = tag != null && tag !== current;
+    const downloadUrl =
+      release.assets?.find((asset) => asset.name === `VylineSetup-${tag}.exe`)
+        ?.browser_download_url ?? null;
     return {
       currentVersion: current,
       latestVersion: tag,
       hasUpdate,
       url: release.html_url ?? null,
+      downloadUrl,
       body: release.body ?? null,
       error: null,
     };
@@ -60,6 +66,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       latestVersion: null,
       hasUpdate: false,
       url: null,
+      downloadUrl: null,
       body: null,
       error: err instanceof Error ? err.message : String(err),
     };
