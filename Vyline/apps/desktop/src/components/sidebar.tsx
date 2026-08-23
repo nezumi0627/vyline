@@ -182,6 +182,7 @@ function SidebarBase() {
   const listRef = useRef<HTMLDivElement>(null);
   const [rowH, setRowH] = useState(70); // ChatRow 概算: avatar48 + py-2.5×2 + mb-0.5
   const [win, setWin] = useState({ start: 0, end: 24 });
+  const [hasMeasured, setHasMeasured] = useState(false);
   const recomputeWin = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
@@ -194,8 +195,11 @@ function SidebarBase() {
   useEffect(() => {
     const row = listRef.current?.querySelector<HTMLElement>("[data-vy-chat-row]");
     const h = row?.offsetHeight ?? 0;
-    if (h > 0 && Math.abs(h - rowH) > 1) setRowH(h);
-  }, [win.start, rowH]);
+    if (h > 0) {
+      if (Math.abs(h - rowH) > 1) setRowH(h);
+      if (!hasMeasured) setHasMeasured(true);
+    }
+  }, [win.start, rowH, hasMeasured]);
 
   useEffect(() => {
     recomputeWin();
@@ -511,7 +515,7 @@ function SidebarBase() {
         <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
       )}
 
-      <div className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
+      <div ref={listRef} className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]">
@@ -523,7 +527,7 @@ function SidebarBase() {
           </div>
         ) : (
           <>
-            {winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
+            {hasMeasured && winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
             {filtered.slice(winStart, winEnd).map((chat) => (
               <ChatRow
                 key={chat.id}
@@ -550,7 +554,7 @@ function SidebarBase() {
                 preview={previewMap.get(chat.id) ?? null}
               />
             ))}
-            {filtered.length - winEnd > 0 && (
+            {hasMeasured && filtered.length - winEnd > 0 && (
               <div style={{ height: (filtered.length - winEnd) * rowH }} aria-hidden />
             )}
           </>
