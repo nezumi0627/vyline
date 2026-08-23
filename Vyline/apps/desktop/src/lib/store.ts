@@ -225,7 +225,7 @@ function applyReadWatermarkLocal(
       const prevReadBy = m.readBy ?? [];
       const prevReadCount = m.readCount ?? 0;
       // 既知の既読者より少なくならない範囲で補完（force 時は上書き）
-      const nextReadBy = force || readBy.length >= prevReadBy.length ? readBy : prevReadBy;
+      const nextReadBy = [...new Set([...prevReadBy, ...readBy])];
       if (force || readCount > prevReadCount || (readBy.length > 0 && prevReadBy.length === 0)) {
         patches.set(m.id, {
           read: true,
@@ -486,6 +486,7 @@ export const useStore = create<State>()(
         betaBlockCheckManual: false,
         betaBlockCheckAuto: false,
         betaMidSearch: false,
+        betaAgentI: false,
       },
       chats: [],
       messages: [],
@@ -520,6 +521,9 @@ export const useStore = create<State>()(
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
+          myMessageIdsByChat.clear();
+          backfillInflight.clear();
+          lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
@@ -683,6 +687,7 @@ export const useStore = create<State>()(
             betaBlockCheckManual: false,
             betaBlockCheckAuto: false,
             betaMidSearch: false,
+            betaAgentI: false,
           },
           sidebarWidth: 360,
           customOrder: [],
@@ -1515,7 +1520,9 @@ export const useStore = create<State>()(
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
           messages: st.messages.map((m) => {
-            if (m.chatId !== id) return m;
+            // 自分の送信メッセージの read は相手側の既読状態。
+            // チャットを開いただけで自分の最新送信まで既読にしてはいけない。
+            if (m.chatId !== id || m.authorId === "me") return m;
             return { ...m, read: true, status: "read" };
           }),
         }));
@@ -1523,7 +1530,9 @@ export const useStore = create<State>()(
         if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
         const last = [...messages]
           .reverse()
-          .find((m) => m.chatId === id && m.id && !m.id.startsWith("pending_"));
+          .find(
+            (m) => m.chatId === id && m.authorId !== "me" && m.id && !m.id.startsWith("pending_"),
+          );
         if (!last?.id) return;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
