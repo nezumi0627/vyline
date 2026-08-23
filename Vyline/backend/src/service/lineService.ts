@@ -47,6 +47,7 @@ import {
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
+import { checkStickerGiftEligibility } from "./liffFeatures.js";
 import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
@@ -5285,6 +5286,7 @@ const BLOCK_VERIFICATION_MIN_INTERVAL_MS = Number(
 );
 const blockVerificationLastRun = new Map<string, number>();
 const blockVerificationInflight = new Map<string, Promise<BlockVerificationResult[]>>();
+const blockVerificationLastResults = new Map<string, BlockVerificationResult[]>();
 
 function isOfficialUser(user: { raw?: unknown }): boolean {
   const userType = (user.raw as { userType?: unknown } | undefined)?.userType;
@@ -5305,7 +5307,18 @@ export async function verifyFriendBlockStatus(
   const now = Date.now();
   const lastRun = blockVerificationLastRun.get(accountId) ?? 0;
   if (now - lastRun < BLOCK_VERIFICATION_MIN_INTERVAL_MS) {
-    throw new Error("block verification rate limited; retry after two minutes");
+    const cached = blockVerificationLastResults.get(accountId) ?? [];
+    if (!targetMid) return cached;
+    return cached.filter((result) => result.mid === targetMid).length > 0
+      ? cached.filter((result) => result.mid === targetMid)
+      : [
+          {
+            mid: targetMid,
+            status: "unknown",
+            reason: "確認済み結果を再利用できません。2分後に再確認してください",
+            official: false,
+          },
+        ];
   }
 
   // ponytail: one sequential list pass is sufficient; per-contact probing would add API load and no stronger evidence.
@@ -5313,11 +5326,8 @@ export async function verifyFriendBlockStatus(
     blockVerificationLastRun.set(accountId, Date.now());
     try {
       const client = requireClient(accountId);
-      const [users, blockedMids] = await Promise.all([
-        client.fetchUsers(),
-        fetchBlockedContactIds(accountId),
-      ]);
-      const blocked = new Set(blockedMids);
+      const users = await client.fetchUsers();
+      const giftResults = await checkStickerGiftEligibility(accountId);
       const friend = users.find((user) => user.mid === targetMid);
 
       if (targetMid && !friend) {
@@ -5342,16 +5352,40 @@ export async function verifyFriendBlockStatus(
           ? [friend]
           : []
         : users.filter((user) => !isOfficialUser(user));
-      return candidates.map(
-        (user): BlockVerificationResult => ({
+      const results = candidates.map((user): BlockVerificationResult => {
+        const raw = user.raw as {
+          targetProfileDetail?: { profileName?: string };
+          friendDetail?: { user?: { overriddenName?: string } };
+        };
+        const name =
+          raw.friendDetail?.user?.overriddenName || raw.targetProfileDetail?.profileName || "";
+        const matches = giftResults.filter((result) => result.name === name);
+        if (matches.length !== 1) {
+          return {
+            mid: user.mid,
+            status: "unknown",
+            reason:
+              matches.length === 0
+                ? "ギフト可否の対象プロフィールを特定できません"
+                : "表示名が重複しているため特定できません",
+            official: false,
+          };
+        }
+        const gift = matches[0]!;
+        const blocked = !gift.giftable && gift.code === 16646;
+        return {
           mid: user.mid,
-          status: blocked.has(user.mid) ? "blocked" : "not_blocked",
-          reason: blocked.has(user.mid)
-            ? "present in LINE blocked contact list"
-            : "not present in LINE blocked contact list",
+          status: gift.giftable ? "not_blocked" : blocked ? "blocked" : "unknown",
+          reason: gift.giftable
+            ? "スタンプをギフト可能"
+            : blocked
+              ? "スタンプをギフト不可（HAR の拒否コード 16646）"
+              : `スタンプをギフト不可（理由コード ${gift.code ?? "不明"}）`,
           official: false,
-        }),
-      );
+        };
+      });
+      blockVerificationLastResults.set(accountId, results);
+      return results;
     } catch (error) {
       if (targetMid) {
         return [
