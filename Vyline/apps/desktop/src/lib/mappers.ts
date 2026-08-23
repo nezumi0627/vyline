@@ -257,9 +257,7 @@ export function mapMessage(
   const read = m.isMyMessage
     ? isPersonalChat
       ? Boolean(m.seen)
-      : m.seen ||
-        (m.readCount != null && m.readCount > 0) ||
-        (m.seen === undefined && m.readCount === undefined)
+      : Boolean(m.seen) || (m.readCount != null && m.readCount > 0)
     : isPersonalChat
       ? Boolean(m.seen)
       : Boolean(m.seen) || (m.readCount != null && m.readCount > 0);

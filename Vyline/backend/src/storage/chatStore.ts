@@ -165,6 +165,20 @@ function scheduleSave(accountId: string): void {
   );
 }
 
+/** 既読情報はサーバ応答の欠落で巻き戻さない。未読を既読へ昇格させるのは明示値だけにする。 */
+export function mergeStoredReadState(
+  previous: Pick<StoredMessage, "seen" | "readCount" | "readBy"> | undefined,
+  incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy">,
+): Pick<StoredMessage, "seen" | "readCount" | "readBy"> {
+  const readBy = [...new Set([...(previous?.readBy ?? []), ...(incoming.readBy ?? [])])];
+  const readCount = Math.max(previous?.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
+  return {
+    ...(previous?.seen === true || incoming.seen === true ? { seen: true } : {}),
+    ...(readCount > 0 ? { readCount } : {}),
+    ...(readBy.length > 0 ? { readBy } : {}),
+  };
+}
+
 async function flushDb(accountId: string): Promise<void> {
   if (!dirty.has(accountId)) return;
   dirty.delete(accountId);
@@ -215,6 +229,7 @@ export async function upsertMessages(
     const next: StoredMessage = {
       ...message,
       history: prev?.history?.length ? prev.history : message.history,
+      ...mergeStoredReadState(prev, message),
     };
     const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
     if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;

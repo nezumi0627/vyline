@@ -27,6 +27,8 @@ Thrift の `getMessageReadRange` は `{ success: TMessageReadRange[] }` のwrapp
 
 本番の取得経路は raw request ではなく、debug 経路と同じ型付き `talk.getMessageReadRange({ chatIds })` を使用する。raw request に `syncReason` を手動指定すると、実装差分によって成功レスポンスを正しく復号できず、グループ既読者が空になることがある。
 
+既読フラグは、取得できた明示的な `seen` / `readCount` / `readBy` だけから導出する。グループの既読情報がレスポンスに無いことを「既読」と解釈してはいけない。chatdb 保存時は既存の `seen` と `readBy` を保持し、後続レスポンスの欠落で既読状態を未読へ戻さない。
+
 メッセージ取得中のバックグラウンド既読更新も、更新後のメッセージをアカウント別 chatdb へ再保存する。既読者プロフィールは `fetchContactProfile` で事前解決し、Desktop の読者一覧で名前を表示できる。
 
 API の既読取得 in-flight キーには `accountId`、チャットMID、要求したメッセージID集合を含める。異なるアカウントや異なるID集合の応答を共有しない。
