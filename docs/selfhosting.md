@@ -19,7 +19,7 @@ docker compose up -d --build
 
 ### 永続化されるデータ
 
-Docker ボリューム `vyline_data`（→ `/app/data`）と `vyline_storage`（→ `/app/storage`）に保存されます:
+Docker Compose の bind mount（`./data` → `/app/data`、`./storage` → `/app/storage`）に保存されます。
 
 | データ                       | 場所                                |
 | ---------------------------- | ----------------------------------- |
@@ -31,15 +31,14 @@ Docker ボリューム `vyline_data`（→ `/app/data`）と `vyline_storage`（
 | 送信済み・取得済みメディア   | `/app/storage/saved-media/`         |
 | 操作ロック                   | `/app/data/feature-locks.json`          |
 
-`docker compose down` してもデータは消えません。完全削除したい場合は `docker volume rm vyline_data vyline_storage` を実行します。
+`docker compose down` してもデータは消えません。完全削除する場合は、停止後にホスト側の `./data` と `./storage` を確認してから削除します。
 
 ### バックアップ
 
-ボリュームを tar で退避:
+ホスト側の bind mount を tar で退避:
 
 ```bash
-docker run --rm -v vyline_data:/data -v vyline_storage:/storage -v "$PWD":/backup alpine \
-  sh -c 'tar czf /backup/vyline-backup-$(date +%Y%m%d).tar.gz -C /data . -C /storage .'
+tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 ```
 
 ---

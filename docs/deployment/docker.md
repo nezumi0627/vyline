@@ -27,6 +27,7 @@ docker compose up -d --build
 | `PORT` | `3000` | リッスンポート |
 | `VYLINE_HOST` | `0.0.0.0` | バインドアドレス |
 | `VYLINE_DATA_DIR` | `/app/data` | 永続データ |
+| `VYLINE_STORAGE_DIR` | `/app/storage` | 保存メディアなどの永続ストレージ |
 | `VYLINE_CORS_ORIGIN` | `http://localhost:5173` | CORS 許可オリジン |
 | `VYLINE_API_ADMIN_SECRET` | 未設定 | 公開 API (/v1) の管理トークン発行用 |
 

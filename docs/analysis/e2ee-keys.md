@@ -1,5 +1,7 @@
 # e2ee-keys — 調査メモ
 
+最終更新: 2026-08-24
+
 確認ポイント:
 
 - keychain 全エントリ保存 (`decodeE2EEKeyV1` パッチ)

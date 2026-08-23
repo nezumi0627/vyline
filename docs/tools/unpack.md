@@ -1,5 +1,7 @@
 # unpack — Themida LINE.exe → unpacked_LINE.exe
 
+最終更新: 2026-08-24
+
 [ergrelet/unlicense](https://github.com/ergrelet/unlicense) を使って、Desktop LINE の Themida 保護を動的に unpack し、`data/unpacked_LINE.exe` に配置します。
 
 > **教育・実験目的のみ。** 対象を実際に起動・計装します。自分の環境・自分のインストールに限定し、dump の再配布はしないでください。  

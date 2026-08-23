@@ -1,5 +1,7 @@
 # sync-events — リアルタイムイベント取得の解析メモ
 
+最終更新: 2026-08-24
+
 LINE Desktop / Mobile とのリアルタイム同期には2つの経路が存在する。
 
 ## 1. Talk ポーリング (`pollEvents`)

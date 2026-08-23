@@ -1,5 +1,7 @@
 # Vyline メッセージ編集・ミュート送信 構造解説
 
+最終更新: 2026-08-24
+
 本ドキュメントでは、Vyline に新しく追加されたメッセージ編集機能 (`editMessage`, `getMessageEditNotice`) およびミュート送信機能 (`mute` / `NOTIFICATION_DISABLED`) の内部構造とデータフローを解説します。
 
 ---

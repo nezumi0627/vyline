@@ -1,5 +1,7 @@
 # login-qr — 調査メモ
 
+最終更新: 2026-08-24
+
 Desktop 更新時に確認するポイント:
 
 - `createSession` / `createQrCodeForSecure` / `checkQrCodeVerified` / `qrCodeLoginV2ForSecure`

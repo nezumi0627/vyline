@@ -1,5 +1,7 @@
 # CONTRIBUTING — Vyline への貢献ガイド
 
+最終更新: 2026-08-24
+
 新規参入者向け。**UI/UX を触らずにプロトコル・backend・protocol を伸ばす**ときの道筋です。
 
 ---

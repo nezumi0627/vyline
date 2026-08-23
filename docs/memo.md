@@ -1,5 +1,7 @@
 # 起動コマンド
 
+最終更新: 2026-08-24
+
 ## ⚠️ 必ずルート (e:\projects\Vyline) で実行すること
 
 # backend + frontend 同時起動

@@ -1,5 +1,7 @@
 # Desktop / プロトコル分析メモ
 
+最終更新: 2026-08-24
+
 LINE Desktop 更新や RPC 差分を調べた結果を置く場所。  
 agents は `bun run vyline:delta` のレポートが指す feature ごとに、ここに追記する。
 
