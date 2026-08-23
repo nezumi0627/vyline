@@ -1,6 +1,6 @@
 # dual-login-desktop — 公式 LINE Desktop と Vyline の同時ログイン
 
-最終更新: 2026-07-26
+最終更新: 2026-08-24
 
 ## 結論（推奨）
 

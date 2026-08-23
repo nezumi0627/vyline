@@ -1,6 +1,6 @@
 # Protocol dictionary — LINE.js 名で Desktop を探す
 
-最終更新: 2026-07-29
+最終更新: 2026-08-24
 
 ---
 

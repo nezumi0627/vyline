@@ -1,5 +1,7 @@
 # login-email — 調査メモ
 
+最終更新: 2026-08-24
+
 確認ポイント:
 
 - `getRSAKeyInfo` → `/api/v3/TalkService.do` (v4 は Desktop email で失敗しがち)
