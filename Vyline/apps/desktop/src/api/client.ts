@@ -42,6 +42,11 @@ export interface Announcement {
   createdTime: number;
 }
 
+export interface AgentIHistoryItem {
+  role: "user" | "assistant";
+  text: string;
+}
+
 const BASE = "/api";
 
 /** バックエンド未起動時は TypeError(ECONNREFUSED) が飛ぶ → 静かに失敗 */
@@ -88,6 +93,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  agentI: {
+    chat: (accountId: string, prompt: string, history?: AgentIHistoryItem[]) =>
+      request<{ ok: boolean; text?: string; error?: string }>(
+        "POST",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/chat`,
+        { prompt, history },
+      ),
+    reset: (accountId: string) =>
+      request<{ ok: boolean }>("DELETE", `/beta/agent-i/${encodeURIComponent(accountId)}/session`),
+  },
   auth: {
     loginEmail: (params: { accountId: string; email: string; password: string }) =>
       request<LoginResult>("POST", "/auth/login/email", params),

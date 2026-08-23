@@ -4,6 +4,7 @@ import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
+import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -490,7 +491,12 @@ export function SettingsSections() {
 
               {section === "info" && <InfoSection />}
 
-              {section === "beta" && <BetaSection />}
+              {section === "beta" && (
+                <>
+                  <BetaSection />
+                  <AgentIBetaPanel />
+                </>
+              )}
             </div>
           </div>
         </div>
