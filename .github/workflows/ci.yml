@@ -47,10 +47,30 @@ jobs:
       - run: bun run build
 
   docker-build:
-    name: Docker build
+    name: Docker build + runtime smoke
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - run: docker build --pull -t vyline .
+      - name: Verify container startup
+        shell: bash
+        run: |
+          set -euo pipefail
+          container_id="$(docker run -d -p 127.0.0.1:3000:3000 vyline)"
+          trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          for _ in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:3000/healthz >/dev/null; then
+              exit 0
+            fi
+            if [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != "true" ]; then
+              echo "Container exited during startup"
+              docker logs "$container_id"
+              exit 1
+            fi
+            sleep 1
+          done
+          echo "Health check timed out"
+          docker logs "$container_id"
+          exit 1
