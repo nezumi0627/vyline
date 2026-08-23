@@ -1,13 +1,11 @@
-name: Deploy API Docs to GitHub Pages
+name: Deploy landing page to GitHub Pages
 
 on:
   push:
     branches: [main]
     paths:
-      - "openapi.yaml"
-      - "Vyline/backend/src/api/openapi.line.ts"
-      - "scripts/build-api-docs.ts"
       - ".github/workflows/pages.yml"
+      - "scripts/build-landing.ts"
   workflow_dispatch:
 
 permissions:
@@ -27,15 +25,14 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
-      - uses: oven-sh/setup-bun@v2
-      - name: Build static docs
-        run: bun scripts/build-api-docs.ts dist-api-docs
+      - name: Build landing page
+        run: bun scripts/build-landing.ts dist-landing
       - name: Setup Pages
         uses: actions/configure-pages@v5
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: dist-api-docs
+          path: dist-landing
       - name: Deploy to GitHub Pages
         id: deployment
         uses: actions/deploy-pages@v4
