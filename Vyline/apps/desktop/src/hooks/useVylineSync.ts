@@ -52,6 +52,8 @@ export function useVylineSync(enabled = true) {
   const { hiddenSet } = useHiddenChats(enabled ? accountId : null);
 
   const syncingChat = useRef(false);
+  const lastHydrateAt = useRef(0);
+  const hydrateTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
 
   const refreshReadReceipts = useStore((s) => s.refreshReadReceipts);
 
@@ -198,30 +200,40 @@ export function useVylineSync(enabled = true) {
 
     if (!line.chats.length && useStore.getState().chats.length > 0) return;
 
-    hydrateLineData({
-      profile: line.profile
-        ? {
-            displayName: line.profile.displayName,
-            phoneticName: line.profile.phoneticName,
-            pictureStatus: line.profile.pictureStatus,
-            statusMessage: line.profile.statusMessage,
-            thumbnailUrl: line.profile.thumbnailUrl,
-            musicProfile: line.profile.musicProfile,
-            birthday: line.profile.birthday,
-            backgroundUrl: line.profile.backgroundUrl,
-            profileId: line.profile.profileId,
-            premium: line.profile.premium ?? null,
-          }
-        : null,
+    // contactCache の逐次解決など連続更新を 1 回の hydrate にまとめる
+    // （連鎖する全チャット再マップ → 長タスク・ヒープ膨張を抑止）
+    const run = () => {
+      lastHydrateAt.current = Date.now();
+      hydrateLineData({
+        profile: line.profile
+          ? {
+              displayName: line.profile.displayName,
+              phoneticName: line.profile.phoneticName,
+              pictureStatus: line.profile.pictureStatus,
+              statusMessage: line.profile.statusMessage,
+              thumbnailUrl: line.profile.thumbnailUrl,
+              musicProfile: line.profile.musicProfile,
+              birthday: line.profile.birthday,
+              backgroundUrl: line.profile.backgroundUrl,
+              profileId: line.profile.profileId,
+              premium: line.profile.premium ?? null,
+            }
+          : null,
+        chats: line.chats,
+        messages: line.messages,
+        hiddenMids: hiddenSet,
+        contactCache: line.contactCache,
+      });
+    };
 
-      chats: line.chats,
-
-      messages: line.messages,
-
-      hiddenMids: hiddenSet,
-
-      contactCache: line.contactCache,
-    });
+    const wait = Math.max(0, 300 - (Date.now() - lastHydrateAt.current));
+    if (wait === 0) {
+      run();
+      return;
+    }
+    clearTimeout(hydrateTimer.current);
+    hydrateTimer.current = setTimeout(run, wait);
+    return () => clearTimeout(hydrateTimer.current);
   }, [
     enabled,
 

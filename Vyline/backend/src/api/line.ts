@@ -1414,8 +1414,6 @@ lineRouter.get("/:accountId/restore/status", async (c) => {
     return handleError(err, c);
   }
 });
-
-// ─── POST /line/:accountId/call ────────────────
 // kind=route のみ route 返却。start/end/status は /call/start 等。
 
 lineRouter.post("/:accountId/call/start", async (c) => {

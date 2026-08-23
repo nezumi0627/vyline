@@ -21,5 +21,6 @@
       "@vyline/types": ["./../../packages/types/src/index.ts"]
     }
   },
-  "include": ["src"]
+  "include": ["src"],
+  "exclude": ["src/components/IosBackupWizard.tsx", "node_modules", "dist"]
 }

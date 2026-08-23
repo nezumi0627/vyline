@@ -674,6 +674,54 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/restore/status`),
 
+    /** iOS 暗号化バックアップのデバイス一覧を取得 */
+    listIosBackups: (accountId: string) =>
+      request<{
+        ok: boolean;
+        devices?: Array<{
+          udid: string;
+          name: string;
+          iOSVersion: string;
+          deviceType: string;
+          encrypted: boolean;
+          passcodeSet: boolean;
+        }>;
+        error?: string;
+      }>("GET", `/line/${accountId}/ios-backups`),
+
+    /** iOS 暗号化バックアップからの履歴復元を開始 */
+    startIosBackupRestore: (accountId: string, udid: string, password: string) =>
+      request<{
+        ok: boolean;
+        sessionId?: string;
+        error?: string;
+      }>("POST", `/line/${accountId}/restore/ios-backup`, { udid, password }),
+
+    /** iOS バックアップ復元セッションのステータス取得 */
+    getIosBackupSession: (accountId: string, sessionId: string) =>
+      request<{
+        ok: boolean;
+        session?: {
+          id: string;
+          status: "pending" | "running" | "completed" | "failed";
+          progress: {
+            stage: string;
+            current: number;
+            total: number;
+            message: string;
+            file?: string;
+          } | null;
+          result: {
+            extracted: { lineFiles: number; databases: number };
+            parsed: { chats: number; totalMessages: number };
+          } | null;
+          error: string | null;
+          startedAt: number;
+          completedAt: number | null;
+        } | null;
+        error?: string;
+      }>("GET", `/line/${accountId}/restore/ios-backup/${encodeURIComponent(sessionId)}`),
+
     /** VylineBackup: チャット一覧 + メッセージ件数（選択 UI 用） */
     backupChats: (accountId: string) =>
       request<{

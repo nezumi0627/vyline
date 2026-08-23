@@ -112,7 +112,7 @@ function moveId(order: string[], fromId: string, toId: string): string[] {
   return next;
 }
 
-export function Sidebar() {
+function SidebarBase() {
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
@@ -177,6 +177,33 @@ export function Sidebar() {
     }
     return sortChats(list, sort, messages, customOrder);
   }, [chats, tab, query, messages, sort, customOrder, liveOrder]);
+
+  // --- チャット一覧の固定高ウィンドウリング（全件描画による DOM/listener 膨張を防ぐ） ---
+  const listRef = useRef<HTMLDivElement>(null);
+  const [rowH, setRowH] = useState(70); // ChatRow 概算: avatar48 + py-2.5×2 + mb-0.5
+  const [win, setWin] = useState({ start: 0, end: 24 });
+  const recomputeWin = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const start = Math.max(0, Math.floor(el.scrollTop / rowH) - 10);
+    const end = Math.min(filtered.length, Math.ceil((el.scrollTop + el.clientHeight) / rowH) + 10);
+    setWin((p) => (p.start === start && p.end === end ? p : { start, end }));
+  }, [filtered.length, rowH]);
+
+  // 実測行高で補正（フォントメトリ差分の累積ドリフト防止）
+  useEffect(() => {
+    const row = listRef.current?.querySelector<HTMLElement>("[data-vy-chat-row]");
+    const h = row?.offsetHeight ?? 0;
+    if (h > 0 && Math.abs(h - rowH) > 1) setRowH(h);
+  }, [win.start, rowH]);
+
+  useEffect(() => {
+    recomputeWin();
+  }, [recomputeWin]);
+
+  // ウィンドウ範囲（filtered 縮小時の空描画防止にクランプ）
+  const winStart = Math.min(win.start, filtered.length);
+  const winEnd = Math.max(winStart, Math.min(win.end, filtered.length));
 
   useEffect(() => {
     liveOrderRef.current = liveOrder;
@@ -495,32 +522,38 @@ export function Sidebar() {
             </p>
           </div>
         ) : (
-          filtered.map((chat) => (
-            <ChatRow
-              key={chat.id}
-              chat={chat}
-              active={chat.id === activeChatId}
-              draggable={sort === "custom"}
-              dragging={dragId === chat.id}
-              blocked={blockedSet.has(chat.id)}
-              onClick={() => openChat(chat.id)}
-              onContextMenu={(e) => openRowMenu(e, chat)}
-              onDragStart={() => onDragStart(chat.id)}
-              onDragEnd={finishDrag}
-              onDragOver={(e) => {
-                if (sort !== "custom" || !dragIdRef.current) return;
-                e.preventDefault();
-                e.dataTransfer.dropEffect = "move";
-                onDragOverRow(chat.id);
-              }}
-              onDrop={(e) => {
-                e.preventDefault();
-                finishDrag();
-              }}
-              streamerMode={streamerMode}
-              preview={previewMap.get(chat.id) ?? null}
-            />
-          ))
+          <>
+            {winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
+            {filtered.slice(winStart, winEnd).map((chat) => (
+              <ChatRow
+                key={chat.id}
+                chat={chat}
+                active={chat.id === activeChatId}
+                draggable={sort === "custom"}
+                dragging={dragId === chat.id}
+                blocked={blockedSet.has(chat.id)}
+                onClick={() => openChat(chat.id)}
+                onContextMenu={(e) => openRowMenu(e, chat)}
+                onDragStart={() => onDragStart(chat.id)}
+                onDragEnd={finishDrag}
+                onDragOver={(e) => {
+                  if (sort !== "custom" || !dragIdRef.current) return;
+                  e.preventDefault();
+                  e.dataTransfer.dropEffect = "move";
+                  onDragOverRow(chat.id);
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  finishDrag();
+                }}
+                streamerMode={streamerMode}
+                preview={previewMap.get(chat.id) ?? null}
+              />
+            ))}
+            {filtered.length - winEnd > 0 && (
+              <div style={{ height: (filtered.length - winEnd) * rowH }} aria-hidden />
+            )}
+          </>
         )}
       </div>
 
@@ -534,6 +567,8 @@ export function Sidebar() {
     </aside>
   );
 }
+
+export const Sidebar = memo(SidebarBase);
 
 const ChatRow = memo(function ChatRow({
   chat,
@@ -606,6 +641,7 @@ const ChatRow = memo(function ChatRow({
 
   return (
     <div
+      data-vy-chat-row
       draggable={draggable}
       onDragStart={(e) => {
         if (!draggable) return;

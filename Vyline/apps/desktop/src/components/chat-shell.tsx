@@ -1,11 +1,11 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
 import { ChatArea } from "@/components/chat-area";
 import { cn } from "@/lib/utils";
 import { IconPanelLeft } from "@/components/icons";
 
-export function ChatShell() {
+function ChatShellBase() {
   const activeChatId = useStore((s) => s.activeChatId);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
@@ -95,3 +95,5 @@ export function ChatShell() {
     </div>
   );
 }
+
+export const ChatShell = memo(ChatShellBase);
