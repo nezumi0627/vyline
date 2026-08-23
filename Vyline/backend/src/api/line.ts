@@ -957,6 +957,7 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const idsParam = c.req.query("ids") ?? "";
+  const force = c.req.query("force") === "1";
   const messageIds = idsParam
     .split(",")
     .map((s) => s.trim())
@@ -968,7 +969,7 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
   }
 
   // 同一チャットでも要求する messageIds が違えば結果も違う。
-  const inflightKey = `${accountId}:${chatMid}:${[...new Set(messageIds)].sort().join(",")}`;
+  const inflightKey = `${accountId}:${chatMid}:${force ? "force:" : ""}${[...new Set(messageIds)].sort().join(",")}`;
 
   try {
     const existing = readReceiptInflight.get(inflightKey);
@@ -976,7 +977,7 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
       existing ??
       (() => {
         const p = (async (): Promise<ReadReceiptPayload> => {
-          const result = await getReadReceiptsForChat(accountId, chatMid, messageIds);
+          const result = await getReadReceiptsForChat(accountId, chatMid, messageIds, { force });
           const payload: ReadReceiptPayload = {
             receipts: result.receipts,
             ...(result.peerReadUpTo ? { peerReadUpTo: result.peerReadUpTo } : {}),
