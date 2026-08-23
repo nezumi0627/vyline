@@ -93,6 +93,7 @@ export async function extractBackup(options: ExtractOptions): Promise<ExtractedB
 
     for (let i = 0; i < lineFiles.length; i++) {
       const row = lineFiles[i];
+      if (!row) continue;
       onProgress?.({
         stage: "extracting",
         current: 2,
@@ -184,9 +185,20 @@ export function getFileDecryptedCopy(
 ): { size: number } {
   const manifest = parseBplist(manifestEntry.file);
 
-  const fileData = manifest.$objects?.[manifest.$top?.root] ?? manifest;
-  const isEncrypted = "EncryptionKey" in fileData;
-  const isFolder = fileData.Size === 0 && !isEncrypted;
+  const fileData = manifest as {
+    $objects?: unknown[];
+    $top?: { root: number };
+    Size?: number;
+    EncryptionKey?: unknown;
+  };
+  const root = fileData.$top?.root;
+  const fileObject =
+    root === undefined
+      ? undefined
+      : (fileData.$objects?.[root] as Record<string, unknown> | undefined);
+  const entry = fileObject ?? fileData;
+  const isEncrypted = "EncryptionKey" in entry;
+  const isFolder = entry.Size === 0 && !isEncrypted;
 
   if (isFolder) {
     mkdirSync(targetPath, { recursive: true });
@@ -211,8 +223,9 @@ export function getFileDecryptedCopy(
 }
 
 function readUInt64BE(buf: Uint8Array, offset: number): number {
+  let result = 0;
   for (let i = 0; i < 8; i++) {
-    result = (result << 8) | buf[offset + i];
+    result = (result << 8) | (buf[offset + i] ?? 0);
   }
   return result;
 }
@@ -220,7 +233,7 @@ function readUInt64BE(buf: Uint8Array, offset: number): number {
 function readUIntBE(buf: Uint8Array, offset: number, size: number): number {
   let result = 0;
   for (let i = 0; i < size; i++) {
-    result = (result << 8) | buf[offset + i];
+    result = (result << 8) | (buf[offset + i] ?? 0);
   }
   return result;
 }

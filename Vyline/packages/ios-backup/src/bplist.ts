@@ -28,7 +28,9 @@ export function parseBplist(data: Uint8Array): unknown {
 
   const objects: unknown[] = new Array(numObjects);
   for (let i = 0; i < numObjects; i++) {
-    objects[i] = parseBplistObject(data, offsets[i], offsets, objectRefSize, objects);
+    const objectOffset = offsets[i];
+    if (objectOffset === undefined) throw new Error(`Missing object offset: ${i}`);
+    objects[i] = parseBplistObject(data, objectOffset, offsets, objectRefSize, objects);
   }
 
   return objects[topObject];
@@ -37,7 +39,7 @@ export function parseBplist(data: Uint8Array): unknown {
 function readUInt64BE(buf: Uint8Array, offset: number): number {
   let result = 0;
   for (let i = 0; i < 8; i++) {
-    result = (result << 8) | buf[offset + i];
+    result = (result << 8) | (buf[offset + i] ?? 0);
   }
   return result;
 }
@@ -45,7 +47,7 @@ function readUInt64BE(buf: Uint8Array, offset: number): number {
 function readUIntBE(buf: Uint8Array, offset: number, size: number): number {
   let result = 0;
   for (let i = 0; i < size; i++) {
-    result = (result << 8) | buf[offset + i];
+    result = (result << 8) | (buf[offset + i] ?? 0);
   }
   return result;
 }
@@ -58,6 +60,7 @@ function parseBplistObject(
   objects: unknown[],
 ): unknown {
   const marker = data[offset];
+  if (marker === undefined) throw new Error(`Missing bplist marker at offset ${offset}`);
   const type = marker & 0xf0;
   const info = marker & 0x0f;
 
@@ -96,7 +99,7 @@ function parseBplistObject(
 function readInt(data: Uint8Array, offset: number, size: number): number {
   let result = 0;
   for (let i = 0; i < size; i++) {
-    result = (result << 8) | data[offset + i];
+    result = (result << 8) | (data[offset + i] ?? 0);
   }
   return result;
 }
@@ -162,7 +165,7 @@ function readAsciiString(
     dataOffset =
       intOffset + (objectRefSize === 1 ? 1 : objectRefSize === 2 ? 2 : objectRefSize === 4 ? 4 : 8);
   }
-  return new TextDecoder("ascii" as const).decode(data.slice(dataOffset, dataOffset + length));
+  return Buffer.from(data.slice(dataOffset, dataOffset + length)).toString("ascii");
 }
 
 function readUnicodeString(
@@ -185,7 +188,7 @@ function readUnicodeString(
       intOffset + (objectRefSize === 1 ? 1 : objectRefSize === 2 ? 2 : objectRefSize === 4 ? 4 : 8);
   }
   const bytes = data.slice(dataOffset, dataOffset + length * 2);
-  return new TextDecoder("utf-16be" as const).decode(bytes);
+  return Buffer.from(bytes).swap16().toString("utf16le");
 }
 
 function readArray(
@@ -246,8 +249,11 @@ function readDict(
     );
   }
   for (let i = 0; i < count; i++) {
-    const key = objects[keyRefs[i]] as string;
-    result[key] = objects[valueRefs[i]];
+    const keyRef = keyRefs[i];
+    const valueRef = valueRefs[i];
+    if (keyRef === undefined || valueRef === undefined) throw new Error("Invalid dict reference");
+    const key = objects[keyRef] as string;
+    result[key] = objects[valueRef];
   }
   return result;
 }

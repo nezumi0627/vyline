@@ -3,11 +3,11 @@ import { extractAndParseLineHistory } from "../src/index.js";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
-const BACKUP_ROOT = process.env["IOS_BACKUP_ROOT"] || join(homedir(), "Apple", "MobileSync", "Backup");
-const UDID = process.env["IOS_UDID"] || "00008140-000668921A82801C";
-const PASSWORD = process.env["IOS_BACKUP_PASSWORD"] || process.argv[2];
-const OUTPUT_DIR =
-  process.env["IOS_OUTPUT_DIR"] || join(process.cwd(), "source", "ios-backup", "line");
+const { IOS_BACKUP_ROOT, IOS_UDID, IOS_BACKUP_PASSWORD, IOS_OUTPUT_DIR } = process.env;
+const BACKUP_ROOT = IOS_BACKUP_ROOT || join(homedir(), "Apple", "MobileSync", "Backup");
+const UDID = IOS_UDID || "00008140-000668921A82801C";
+const PASSWORD = IOS_BACKUP_PASSWORD || process.argv[2];
+const OUTPUT_DIR = IOS_OUTPUT_DIR || join(process.cwd(), "source", "ios-backup", "line");
 
 if (!PASSWORD) {
   console.error("Usage: IOS_BACKUP_PASSWORD=<password> bun run src/cli.ts");

@@ -1,5 +1,5 @@
 import { Database } from "bun:sqlite";
-import { writeFileSync, mkdirSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { parseContentMetadata } from "./bplist.js";
 
@@ -70,7 +70,13 @@ export async function parseLineDatabases(options: ParseOptions): Promise<ParsedC
     const users = new Map<number, { mid: string; name: string }>();
     for (const row of lineDb
       .prepare("SELECT Z_PK, ZMID, ZNAME, ZCUSTOMNAME, ZADDRESSBOOKNAME FROM ZUSER")
-      .iterate()) {
+      .iterate() as Iterable<{
+      Z_PK: number;
+      ZMID: string;
+      ZNAME: string;
+      ZCUSTOMNAME: string | null;
+      ZADDRESSBOOKNAME: string | null;
+    }>) {
       users.set(row.Z_PK, {
         mid: row.ZMID,
         name: row.ZCUSTOMNAME || row.ZADDRESSBOOKNAME || row.ZNAME || "Unknown",
@@ -80,7 +86,10 @@ export async function parseLineDatabases(options: ParseOptions): Promise<ParsedC
     onProgress?.({ stage: "groups", current: 1, total: 5, message: "Loading group names..." });
 
     const groupNames = new Map<string, string>();
-    for (const row of ugDb.prepare("SELECT ZID, ZNAME FROM ZUNIFIEDGROUP").iterate()) {
+    for (const row of ugDb.prepare("SELECT ZID, ZNAME FROM ZUNIFIEDGROUP").iterate() as Iterable<{
+      ZID: string | null;
+      ZNAME: string;
+    }>) {
       if (row.ZID) {
         groupNames.set(row.ZID.toLowerCase(), row.ZNAME);
       }
@@ -89,7 +98,11 @@ export async function parseLineDatabases(options: ParseOptions): Promise<ParsedC
     onProgress?.({ stage: "chats", current: 2, total: 5, message: "Loading chats..." });
 
     const chats = new Map<number, { chatMid: string; kind: string; name: string | null }>();
-    for (const row of lineDb.prepare("SELECT Z_PK, ZMID, ZTYPE FROM ZCHAT").iterate()) {
+    for (const row of lineDb.prepare("SELECT Z_PK, ZMID, ZTYPE FROM ZCHAT").iterate() as Iterable<{
+      Z_PK: number;
+      ZMID: string | null;
+      ZTYPE: number;
+    }>) {
       const mid = (row.ZMID || "").toLowerCase();
       const kind = row.ZTYPE === 2 ? "group" : row.ZTYPE === 0 ? "dm" : `type${row.ZTYPE}`;
       chats.set(row.Z_PK, {
@@ -111,6 +124,7 @@ export async function parseLineDatabases(options: ParseOptions): Promise<ParsedC
 
     for (let i = 0; i < chatRows.length; i++) {
       const cr = chatRows[i];
+      if (!cr) continue;
       const chat = chats.get(cr.Z_PK);
       if (!chat) continue;
 
@@ -237,8 +251,7 @@ interface MessageRow {
 export function findLineDatabases(
   extractedDir: string,
 ): { lineDb: string; unifiedGroupDb: string } | null {
-  const fs = require("node:fs");
-  const files = fs.readdirSync(extractedDir);
+  const files = readdirSync(extractedDir);
 
   const lineDb = files.find((f) => f.includes("Line.sqlite") && !f.includes("UnifiedGroup"));
   const unifiedGroupDb = files.find((f) => f.includes("UnifiedGroup.sqlite"));

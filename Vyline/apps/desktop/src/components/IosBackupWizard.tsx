@@ -211,11 +211,29 @@ export function IosBackupWizard({ onClose, onSuccess }: IosBackupWizardProps) {
       <div className="flex-1 flex items-center justify-center p-4 overflow-y-auto">
         <div className="w-full max-w-md vy-fade-in">
           {step === "welcome" && <WelcomeStep onNext={() => setStep("device")} />}
-          {step === "device" && <DeviceStep devices={devices} selected={selectedDevice} onSelect={setSelectedDevice} loading={loading} onNext={canProceed() ? () => setStep("password") : undefined} />}
-          {step === "password" && <PasswordStep password={password} onChange={setPassword} showPassword={showPassword} onToggleShow={setShowPassword} onNext={canProceed() ? startRestore : undefined} />}
+          {step === "device" && (
+            <DeviceStep
+              devices={devices}
+              selected={selectedDevice}
+              onSelect={setSelectedDevice}
+              loading={loading}
+              onNext={canProceed() ? () => setStep("password") : undefined}
+            />
+          )}
+          {step === "password" && (
+            <PasswordStep
+              password={password}
+              onChange={setPassword}
+              showPassword={showPassword}
+              onToggleShow={setShowPassword}
+              onNext={canProceed() ? startRestore : undefined}
+            />
+          )}
           {step === "restoring" && <RestoringStep session={session} progress={renderProgress()} />}
           {step === "complete" && <CompleteStep result={session?.result} onClose={onClose} />}
-          {step === "error" && <ErrorStep error={error} onRetry={() => setStep("password")} onClose={onClose} />}
+          {step === "error" && (
+            <ErrorStep error={error} onRetry={() => setStep("password")} onClose={onClose} />
+          )}
         </div>
       </div>
     </div>
@@ -231,22 +249,35 @@ function WelcomeStep({ onNext }: { onNext: () => void }) {
       <div>
         <h2 className="text-2xl font-bold">iPhoneのトーク履歴を復元</h2>
         <p className="mt-2 text-[var(--vy-text-dim)]">
-          iTunes または Apple Devices で作成した<br />
+          iTunes または Apple Devices で作成した
+          <br />
           暗号化バックアップから履歴を取り込みます
         </p>
       </div>
       <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 text-left space-y-3">
         <h3 className="font-medium">必要なもの</h3>
         <ul className="space-y-2 text-sm text-[var(--vy-text-dim)]">
-          <li className="flex items-center gap-2"><IconCheck size={14} className="text-[var(--vy-accent)]" /> iPhone（プライマリデバイス）</li>
-          <li className="flex items-center gap-2"><IconCheck size={14} className="text-[var(--vy-accent)]" /> USB ケーブル</li>
-          <li className="flex items-center gap-2"><IconCheck size={14} className="text-[var(--vy-accent)]" /> iTunes または Apple Devices アプリ</li>
-          <li className="flex items-center gap-2"><IconCheck size={14} className="text-[var(--vy-accent)]" /> バックアップ時の暗号化パスワード</li>
+          <li className="flex items-center gap-2">
+            <IconCheck size={14} className="text-[var(--vy-accent)]" /> iPhone（プライマリデバイス）
+          </li>
+          <li className="flex items-center gap-2">
+            <IconCheck size={14} className="text-[var(--vy-accent)]" /> USB ケーブル
+          </li>
+          <li className="flex items-center gap-2">
+            <IconCheck size={14} className="text-[var(--vy-accent)]" /> iTunes または Apple Devices
+            アプリ
+          </li>
+          <li className="flex items-center gap-2">
+            <IconCheck size={14} className="text-[var(--vy-accent)]" />{" "}
+            バックアップ時の暗号化パスワード
+          </li>
         </ul>
         <div className="mt-3 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
           <p className="flex items-center gap-2 text-sm text-[var(--vy-text-dim)]">
             <IconAlertCircle size={14} className="text-[var(--vy-warning)]" />
-            <strong>重要:</strong> サブデバイス（iPad・セカンダリiPhone・PC版LINE）ではバックアップ作成<strong>できません</strong>
+            <strong>重要:</strong>{" "}
+            サブデバイス（iPad・セカンダリiPhone・PC版LINE）ではバックアップ作成
+            <strong>できません</strong>
           </p>
         </div>
         <div className="mt-3 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
@@ -333,13 +364,21 @@ function DeviceStep({
                   </div>
                 </div>
                 {selected?.udid === d.udid && (
-                  <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)]" style={{ background: "var(--vy-accent)" }}>
+                  <div
+                    className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)]"
+                    style={{ background: "var(--vy-accent)" }}
+                  >
                     <IconCheck size={14} />
                   </div>
                 )}
               </div>
               <div className="mt-3 flex flex-wrap gap-2">
-                <span className={cn("inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] font-medium", d.encrypted ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400")}>
+                <span
+                  className={cn(
+                    "inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[0.6rem] font-medium",
+                    d.encrypted ? "bg-green-500/20 text-green-400" : "bg-red-500/20 text-red-400",
+                  )}
+                >
                   {d.encrypted ? <IconLock size={10} /> : <IconX size={10} />}
                   {d.encrypted ? "暗号化済み" : "暗号化なし（使用不可）"}
                 </span>
@@ -470,13 +509,18 @@ function RestoringStep({
                 i < currentStageIndex
                   ? "bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)]"
                   : i === currentStageIndex
-                  ? "border-2 border-[var(--vy-accent)] text-[var(--vy-accent)]"
-                  : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
+                    ? "border-2 border-[var(--vy-accent)] text-[var(--vy-accent)]"
+                    : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]",
               )}
             >
               {i < currentStageIndex ? <IconCheck size={14} /> : i + 1}
             </div>
-            <span className={cn("text-[0.6rem] whitespace-nowrap", i <= currentStageIndex ? "text-[var(--vy-text)]" : "text-[var(--vy-text-dim)]")}>
+            <span
+              className={cn(
+                "text-[0.6rem] whitespace-nowrap",
+                i <= currentStageIndex ? "text-[var(--vy-text)]" : "text-[var(--vy-text-dim)]",
+              )}
+            >
               {s.label}
             </span>
           </div>
@@ -518,7 +562,9 @@ function CompleteStep({
           </div>
           <div className="flex justify-between text-sm">
             <span className="text-[var(--vy-text-dim)]">メッセージ総数</span>
-            <span className="font-mono">{(result.parsed?.totalMessages ?? 0).toLocaleString()}</span>
+            <span className="font-mono">
+              {(result.parsed?.totalMessages ?? 0).toLocaleString()}
+            </span>
           </div>
         </div>
       )}

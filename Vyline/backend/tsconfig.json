@@ -17,5 +17,11 @@
       "@vyline/ios-backup": ["../../packages/ios-backup/src/index.ts"]
     }
   },
-  "exclude": ["src/tools/iosLineExtract.ts", "src/service/iosBackupService.ts", "node_modules", "dist", "data"]
+  "exclude": [
+    "src/tools/iosLineExtract.ts",
+    "src/service/iosBackupService.ts",
+    "node_modules",
+    "dist",
+    "data"
+  ]
 }

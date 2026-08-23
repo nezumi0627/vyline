@@ -29,7 +29,12 @@ const CLASSKEY_TAGS = [
 const WRAP_PASSCODE = 2;
 
 function readUInt32BE(buf: Uint8Array, offset: number): number {
-  return (buf[offset] << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | buf[offset + 3];
+  return (
+    ((buf[offset] ?? 0) << 24) |
+    ((buf[offset + 1] ?? 0) << 16) |
+    ((buf[offset + 2] ?? 0) << 8) |
+    (buf[offset + 3] ?? 0)
+  );
 }
 
 export function* loopTLVBlocks(blob: Uint8Array): Generator<[Uint8Array, Uint8Array]> {
@@ -77,7 +82,9 @@ export function parseKeybag(backupKeyBag: Uint8Array): ParsedKeybag {
 
     if (tagStr === "UUID") {
       if (currentClassKey) {
-        result.classKeys.set(currentClassKey.clas[0], currentClassKey as ClassKey);
+        const clas = currentClassKey.clas;
+        if (!clas) throw new Error("Class key is missing CLAS");
+        result.classKeys.set(clas[0] ?? 0, currentClassKey as ClassKey);
       }
       currentClassKey = { uuid: data };
     } else if (CLASSKEY_TAGS.some((t) => t.equals(tag))) {
@@ -90,7 +97,9 @@ export function parseKeybag(backupKeyBag: Uint8Array): ParsedKeybag {
   }
 
   if (currentClassKey) {
-    result.classKeys.set(currentClassKey.clas[0], currentClassKey as ClassKey);
+    const clas = currentClassKey.clas;
+    if (!clas) throw new Error("Class key is missing CLAS");
+    result.classKeys.set(clas[0] ?? 0, currentClassKey as ClassKey);
   }
 
   return result;
@@ -100,7 +109,7 @@ function unpack64bit(s: Uint8Array): bigint {
   if (s.length !== 8) throw new Error("Invalid 64-bit input");
   let result = 0n;
   for (let i = 0; i < 8; i++) {
-    result = (result << 8n) | BigInt(s[i]);
+    result = (result << 8n) | BigInt(s[i] ?? 0);
   }
   return result;
 }
@@ -129,8 +138,11 @@ export function aesUnwrap(kek: Uint8Array, wrapped: Uint8Array): Uint8Array | nu
 
   const R: bigint[] = new Array(n + 1).fill(0n);
   let A = C[0];
+  if (A === undefined) throw new Error("Wrapped data is empty");
   for (let i = 1; i <= n; i++) {
-    R[i] = C[i];
+    const block = C[i];
+    if (block === undefined) throw new Error("Invalid wrapped data");
+    R[i] = block;
   }
 
   const cipher = (block: Uint8Array) => {
@@ -144,7 +156,9 @@ export function aesUnwrap(kek: Uint8Array, wrapped: Uint8Array): Uint8Array | nu
       const toDec = new Uint8Array(16);
       const aXor = A ^ BigInt(n * j + i);
       toDec.set(pack64bit(aXor), 0);
-      toDec.set(pack64bit(R[i]), 8);
+      const block = R[i];
+      if (block === undefined) throw new Error("Invalid unwrap state");
+      toDec.set(pack64bit(block), 8);
 
       const B = cipher(toDec);
       A = unpack64bit(B.slice(0, 8));
@@ -158,7 +172,9 @@ export function aesUnwrap(kek: Uint8Array, wrapped: Uint8Array): Uint8Array | nu
 
   const result = new Uint8Array(n * 8);
   for (let i = 1; i <= n; i++) {
-    result.set(pack64bit(R[i]), (i - 1) * 8);
+    const block = R[i];
+    if (block === undefined) throw new Error("Invalid unwrap result");
+    result.set(pack64bit(block), (i - 1) * 8);
   }
   return result;
 }

@@ -35,10 +35,11 @@ const APPLE_2001_EPOCH = 978307200;
 
 function isOlderThanIOS10_2(version: string): boolean {
   const parts = version.split(".").map(Number);
-  if (parts[0] < 10) return true;
-  if (parts[0] > 10) return false;
+  const major = parts[0] ?? 0;
+  if (major < 10) return true;
+  if (major > 10) return false;
   if (parts.length < 2) return true;
-  return parts[1] < 2;
+  return (parts[1] ?? 0) < 2;
 }
 
 function convertTimeSince2001(timestamp: number): Date {
@@ -70,7 +71,12 @@ function deriveKeyFromPassword(
 }
 
 function readUInt32BE(buf: Uint8Array, offset: number): number {
-  return (buf[offset] << 24) | (buf[offset + 1] << 16) | (buf[offset + 2] << 8) | buf[offset + 3];
+  return (
+    ((buf[offset] ?? 0) << 24) |
+    ((buf[offset + 1] ?? 0) << 16) |
+    ((buf[offset + 2] ?? 0) << 8) |
+    (buf[offset + 3] ?? 0)
+  );
 }
 
 function aesDecryptCBC(
@@ -165,7 +171,7 @@ function parseXmlPlist(xml: string): unknown {
   const len = xml.length;
 
   function skipWhitespace(): void {
-    while (index < len && /\s/.test(xml[index])) index++;
+    while (index < len && /\s/.test(xml[index] ?? "")) index++;
   }
 
   function parseValue(): unknown {
@@ -277,10 +283,10 @@ function parseXmlPlist(xml: string): unknown {
     index += 7; // </date>
     return value;
   }
-skipWhitespace();
+  skipWhitespace();
   if (xml.startsWith("<plist", index)) {
     // skip plist tag
-    while (xml[index] !== ">") index++;
+    while (index < len && xml[index] !== ">") index++;
     index++;
     skipWhitespace();
   }
