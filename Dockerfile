@@ -36,4 +36,6 @@ COPY --from=build /app/Vyline/backend/src ./Vyline/backend/src
 COPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/dist
 EXPOSE 3000
 VOLUME ["/app/data"]
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD bun -e 'fetch("http://127.0.0.1:"+(process.env.PORT||3000)+"/healthz").then(function(r){process.exit(r.ok?0:1)},function(){process.exit(1)})'
 CMD ["bun", "Vyline/backend/src/index.ts"]
