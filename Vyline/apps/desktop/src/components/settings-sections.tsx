@@ -971,25 +971,27 @@ function StorageSection() {
   return (
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
       {storage && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-          <div className="p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-[var(--vy-text-dim)]">
-                  ドライブ {storage.driveLetter ?? "---"}
-                </p>
-                <p className="mt-2 text-3xl font-semibold tracking-tight">
+        <div className="mb-7 overflow-hidden rounded-3xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+          <div className="p-6">
+            <div className="flex flex-col gap-6 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <div className="flex flex-wrap items-center gap-2 text-xs text-[var(--vy-text-dim)]">
+                  <span className="rounded-full bg-[var(--vy-surface-2)] px-2.5 py-1 font-medium">
+                    VYLINE STORAGE
+                  </span>
+                  <span>ドライブ {storage.driveLetter ?? "---"}</span>
+                </div>
+                <p className="mt-4 text-4xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
                 </p>
-                <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
-                  アプリが保存している CDN
-                  キャッシュ、プロフィール画像、チャットメディアの合計です。
+                <p className="mt-2 max-w-md text-sm leading-relaxed text-[var(--vy-text-dim)]">
+                  CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。
                 </p>
               </div>
 
-              <div className="rounded-xl border border-[var(--vy-border)] px-4 py-3">
+              <div className="shrink-0 sm:min-w-36 sm:text-right">
                 <p className="text-xs text-[var(--vy-text-dim)]">ドライブ使用率</p>
-                <p className="mt-1 text-xl font-semibold tracking-tight">
+                <p className="mt-1 text-2xl font-semibold tracking-tight">
                   {formatPercent(diskUsedPct)}
                 </p>
                 <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
@@ -998,51 +1000,58 @@ function StorageSection() {
               </div>
             </div>
 
-            <div className="mt-5 h-3 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
-              {segments.map((s) => {
-                const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
-                return (
-                  <div
-                    key={s.key}
-                    className="h-full transition-all duration-500"
-                    style={{ background: s.color, width: `${pct}%` }}
-                  />
-                );
-              })}
+            <div className="mt-7">
+              <div className="mb-2 flex items-center justify-between text-xs text-[var(--vy-text-dim)]">
+                <span>保存データの内訳</span>
+                <span>{formatBytes(storage.vylineTotal)} 合計</span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+                {segments.map((s) => {
+                  const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
+                  return (
+                    <div
+                      key={s.key}
+                      className="h-full transition-all duration-500"
+                      style={{ background: s.color, width: `${pct}%` }}
+                    />
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--vy-text-dim)]">
+            <div className="mt-5 grid grid-cols-2 gap-x-5 gap-y-3 text-xs sm:grid-cols-3">
               {segments.map((s) => (
-                <span
+                <div
                   key={s.key}
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--vy-border)] px-3 py-1.5"
+                  className="flex min-w-0 items-center gap-2 text-[var(--vy-text-dim)]"
                 >
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ background: s.color }}
-                  />
-                  <span>{s.label}</span>
-                  <span className="font-mono">{formatBytes(s.size)}</span>
-                </span>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+                  <span className="min-w-0 truncate">{s.label}</span>
+                  <span className="ml-auto shrink-0 font-mono text-[var(--vy-text)]">
+                    {formatBytes(s.size)}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
         </div>
       )}
 
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-medium">削除候補</p>
-          <p className="text-xs text-[var(--vy-text-dim)]">容量の大きいものから並べています。</p>
+          <p className="text-base font-semibold">保存データ</p>
+          <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+            不要なデータを種類ごとに削除できます。
+          </p>
         </div>
         {storage && (
-          <p className="text-xs text-[var(--vy-text-dim)]">
-            合計 {formatBytes(storage.cacheSize + storage.savedMediaSize)}
-          </p>
+          <span className="shrink-0 rounded-full bg-[var(--vy-surface-2)] px-2.5 py-1 text-xs text-[var(--vy-text-dim)]">
+            {formatBytes(storage.cacheSize + storage.savedMediaSize)}
+          </span>
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="grid gap-4 sm:grid-cols-2">
         <TypeCard
           title="CDN キャッシュ"
           desc="スタンプ・LINE絵文字など"
@@ -1168,37 +1177,35 @@ function TypeCard({
 }) {
   const hasData = size > 0;
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div className="flex flex-1 flex-col p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <div
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
             >
               {icon}
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{title}</p>
-              <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{desc}</p>
-            </div>
+            <p className="min-w-0 break-words pt-1 text-sm font-semibold leading-snug">{title}</p>
           </div>
-
-          <div className="shrink-0 text-right">
-            <p className="text-[11px] text-[var(--vy-text-dim)]">使用量</p>
-            <p className="mt-1 font-mono text-base font-semibold">{formatBytes(size)}</p>
-          </div>
+          <p className="shrink-0 text-right font-mono text-base font-semibold leading-snug">
+            {formatBytes(size)}
+          </p>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-6">
+          <div className="mb-2 flex items-end justify-between gap-3 text-xs">
+            <p className="min-w-0 break-words leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>
+            <p className="shrink-0 font-medium text-[var(--vy-text-dim)]">
+              {hasData ? `Vyline 全体の ${formatPercent(ratio * 100)}` : "データなし"}
+            </p>
+          </div>
           <div className="h-2 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{ background: accent, width: `${Math.max(ratio * 100, hasData ? 4 : 0)}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            {hasData ? `Vyline 全体の ${formatPercent(ratio * 100)}` : "保存データはありません"}
-          </p>
         </div>
 
         <button
@@ -1206,7 +1213,7 @@ function TypeCard({
           onClick={onDelete}
           disabled={disabled || !hasData}
           className={cn(
-            "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors",
+            "mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-xs font-medium transition-colors",
             "hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50",
           )}
         >
