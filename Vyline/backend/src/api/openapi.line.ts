@@ -1116,7 +1116,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     "get",
     {
       op: "getStorageUsage",
-      summary: "ストレージ / キャッシュ使用量",
+      summary: "プロフィールキャッシュ",
       tags: ["storage"],
       params: [acc],
       responses: { "200": jsonRes("使用量サマリ") },
@@ -1127,7 +1127,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     "delete",
     {
       op: "clearCache",
-      summary: "キャッシュ削除",
+      summary: "再取得可能なキャッシュを削除",
       tags: ["storage"],
       params: [acc],
       responses: { "200": okRes() },

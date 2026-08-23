@@ -1,6 +1,6 @@
 # Development Workflow
 
-最終更新: 2026-07-29
+最終更新: 2026-08-24
 
 ---
 
@@ -69,13 +69,16 @@ bun run vyline:focus-recovered -- sendMessage
 | `VYLINE_DEVICE`          | `IOSIPAD` / `ANDROIDSECONDARY` / `DESKTOPWIN` / `DESKTOPMAC`          | `IOSIPAD`                          |
 | `VYLINE_DATA_DIR`        | backend データ（token, storage, chatdb, feature-locks, vyline-cache） | `backend/data/`                    |
 | `VYLINE_CDN_CACHE_DIR`   | スタンプ / sticon CDN キャッシュ                                      | `backend/data/cdn-cache/`          |
-| `VYLINE_MEDIA_CACHE_DIR` | 画像 / 動画メディアのサーバー側キャッシュ                             | `backend/data/media-cache/`        |
+| `VYLINE_MEDIA_STORAGE_DIR` | 送信済み・取得済みメディアの永続ストレージ                     | `backend/storage/saved-media/`     |
 | `VYLINE_HOST`            | バックエンドの bind アドレス                                          | `127.0.0.1`（Docker は `0.0.0.0`） |
 | `PORT`                   | バックエンドの listen ポート                                          | `3001`                             |
 | `VYLINE_CORS_ORIGIN`     | CORS 許可オリジン（dev は Vite 5173）                                 | `http://localhost:5173`            |
 | `VYLINE_STATIC_DIR`      | 本番で配信するフロントビルドの場所                                    | `apps/desktop/dist/`               |
 
 > セルフホストの詳細は [selfhosting.md](./selfhosting.md) を参照。
+
+`VYLINE_MEDIA_CACHE_DIR` も旧設定として読み込まれますが、新規環境では
+`VYLINE_MEDIA_STORAGE_DIR` を使用してください。
 
 ---
 

@@ -24,7 +24,7 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
-import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
+import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
@@ -455,8 +455,8 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   const preview = (c.req.query("preview") ?? "1") !== "0";
 
   try {
-    // サーバー側キャッシュ優先（端末乗り換え後も画像を保持）
-    const cached = await readMediaCache(accountId, chatMid, messageId);
+    // サーバー側の永続保存を優先（端末乗り換え後もメディアを保持）
+    const cached = await readMediaStorage(accountId, chatMid, messageId);
     if (cached) {
       return new Response(cached.buf as unknown as BodyInit, {
         status: 200,
@@ -468,7 +468,7 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
       });
     }
     const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
-    void writeMediaCache(accountId, chatMid, messageId, bytes, contentType);
+    void writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
@@ -1042,13 +1042,17 @@ lineRouter.get("/:accountId/vyline/cache", async (c) => {
 });
 
 // ─── DELETE /line/:accountId/vyline/cache ─────────
-// メディア一時キャッシュ（data/media-cache）を削除
+// 再取得可能な CDN / アイコンキャッシュだけを削除する。
+// 送信済みメディアは /saved-media で明示的に削除する。
 
 lineRouter.delete("/:accountId/vyline/cache", async (c) => {
-  const accountId = c.req.param("accountId");
   try {
-    const { clearMediaCache } = await import("../storage/mediaCache.js");
-    const removed = await clearMediaCache();
+    const [{ clearCdnCache }, { clearIconCache }] = await Promise.all([
+      import("../storage/cdnAssetCache.js"),
+      import("../storage/cdnAssetCache.js"),
+    ]);
+    const [cdnRemoved, iconRemoved] = await Promise.all([clearCdnCache(), clearIconCache()]);
+    const removed = cdnRemoved + iconRemoved;
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -1982,8 +1986,8 @@ lineRouter.delete("/:accountId/vyline/cache/icons", async (c) => {
 lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const { clearMediaCache } = await import("../storage/mediaCache.js");
-    const removed = await clearMediaCache();
+    const { clearMediaStorage } = await import("../storage/mediaStorage.js");
+    const removed = await clearMediaStorage();
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -1998,8 +2002,8 @@ lineRouter.delete("/:accountId/vyline/saved-media/:type", async (c) => {
     return c.json({ ok: false, error: "invalid media type" }, 400);
   }
   try {
-    const { clearMediaCacheType } = await import("../storage/mediaCache.js");
-    const removed = await clearMediaCacheType(type as "image" | "video" | "audio" | "file");
+    const { clearMediaStorageType } = await import("../storage/mediaStorage.js");
+    const removed = await clearMediaStorageType(type as "image" | "video" | "audio" | "file");
     return c.json({ ok: true, removed, type });
   } catch (err) {
     return handleError(err, c);

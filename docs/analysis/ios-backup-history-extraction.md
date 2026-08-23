@@ -156,7 +156,7 @@
 ### Phase 2: Vyline Backend 統合
 - [ ] `backend/src/tools/iosLineExtract.ts` — CLI エントリ（`bun run ios:extract`）
 - [ ] `backend/src/service/iosBackupService.ts` — サービス層（進捗コールバック付き）
-- [ ] `backend/src/api/iosBackup.ts` — BFF ルート（POST /api/ios-backup/extract）
+- [x] `backend/src/api/line.ts` — iOS バックアップ BFF ルート（`/ios-backups`、`/restore/ios-backup`）
 - [ ] 進捗 WebSocket / SSE 通知（フロント表示用）
 
 ### Phase 3: Vyline Frontend 統合
@@ -217,7 +217,7 @@ docs/analysis/edb-decrypt.md
 Vyline/packages/ios-backup/                    # 新パッケージ（Submodule）
 Vyline/backend/src/tools/iosLineExtract.ts     # CLI
 Vyline/backend/src/service/iosBackupService.ts # サービス
-Vyline/backend/src/api/iosBackup.ts            # BFF ルート
+Vyline/backend/src/api/line.ts                 # iOS バックアップ BFF ルート
 Vyline/apps/desktop/src/pages/SettingsBackup.tsx
 Vyline/apps/desktop/src/components/IosBackupWizard.tsx
 docs/guides/ios-backup-restore.md

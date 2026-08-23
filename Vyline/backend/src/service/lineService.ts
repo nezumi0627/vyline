@@ -85,7 +85,7 @@ import {
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
-import { writeMediaCache } from "../storage/mediaCache.js";
+import { writeMediaStorage } from "../storage/mediaStorage.js";
 import { dispatchPluginMessage } from "../line/pluginRuntime.js";
 
 export { CallNotAllowedError, callAllowlistHint };
@@ -4233,6 +4233,9 @@ export async function sendMedia(
             undefined,
             filename,
           );
+          // uploadObjTalk の成功後に、送信元バイト列を永続保存する。
+          // OBS の保持期限や 404 に依存せず、自分が送ったメディアを再表示できるようにする。
+          await writeMediaStorage(accountId, chatMid, objId, binary, mime);
           log.info(
             {
               accountId,
@@ -4396,7 +4399,7 @@ export async function sendMediaBatch(
         );
         // reqseq 生成メッセージは OBS から OID が取れないため、
         // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-        // 送信バイトをローカル media cache に置く（自クライアントの即表示用）
+        // 送信バイトを永続メディアストレージに置く。
         let count = 0;
         for (let i = 0; i < uploaded.length; i++) {
           const result = uploaded[i];
@@ -4414,7 +4417,7 @@ export async function sendMediaBatch(
           }
           count++;
           const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
-          void writeMediaCache(
+          await writeMediaStorage(
             accountId,
             chatMid,
             result.objId,
@@ -5741,8 +5744,9 @@ export function clearGroupCallStatus(accountId: string): void {
 }
 
 const MEDIA_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "1", "2", "3", "14"]);
-/** media 復号/OBS が失敗した messageId（セッション内での再試行抑止） */
-const mediaFailedIds = new Set<string>();
+/** 一時的な OBS / 復号失敗の連打を抑える短期バックオフ（期限切れにはしない） */
+const mediaFailedAt = new Map<string, number>();
+const MEDIA_FAILURE_BACKOFF_MS = 30_000;
 /** OBS ダウンロードがハングしないよう打ち切る（30s 固まり防止） */
 const MEDIA_OBS_TIMEOUT_MS = Number(process.env.VYLINE_MEDIA_OBS_TIMEOUT_MS ?? 15_000);
 
@@ -5775,7 +5779,7 @@ async function downloadObsMessageBytes(
 
 /**
  * メディア元メッセージを履歴から探す（最近ページに限定・短時間）。
- * 古いメディアはローカルキャッシュ / OBS 直取得に委ねる。
+ * 古いメディアはローカル永続ストレージ / OBS 直取得に委ねる。
  */
 async function findMediaSourceMessage(
   client: NonNullable<ReturnType<typeof getClient>>,
@@ -5852,12 +5856,17 @@ export async function fetchMessageMedia(
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
   const client = requireClient(accountId);
 
-  // 既に失敗済みのメディアは再試行しない（OBS 404 連打防止）
-  if (mediaFailedIds.has(`${accountId}:${messageId}`)) {
-    throw new Error(`media expired or unavailable (cached): ${messageId}`);
+  // 失敗直後だけ短期バックオフし、恒久的な再取得不能にはしない。
+  const failureKey = `${accountId}:${messageId}`;
+  const failedAt = mediaFailedAt.get(failureKey);
+  if (failedAt != null) {
+    if (Date.now() - failedAt < MEDIA_FAILURE_BACKOFF_MS) {
+      throw new Error(`media temporarily unavailable (retry later): ${messageId}`);
+    }
+    mediaFailedAt.delete(failureKey);
   }
 
-  // まずローカルキャッシュの contentMetadata（OID/SID）で OBS を試す — Push を切らない
+  // まずローカル履歴の contentMetadata（OID/SID）で OBS を試す — Push を切らない
   try {
     const cached = await getMessages(accountId, chatMid, 300);
     const hit = cached.find((m) => m.id === messageId);
@@ -5976,7 +5985,7 @@ export async function fetchMessageMedia(
         const msg = err instanceof Error ? err.message : String(err);
         // 404 は期限切れ/削除 — 500 連打しない
         if (msg.includes("404")) {
-          mediaFailedIds.add(`${accountId}:${messageId}`);
+          mediaFailedAt.set(failureKey, Date.now());
           throw new Error(`media expired or unavailable (OBS 404): ${messageId}`);
         }
         throw new Error(`message not found in history and OBS fallback failed: ${msg}`);
@@ -6066,7 +6075,7 @@ export async function fetchMessageMedia(
         await ensureGroupKeyById(client, chatMid, gk);
         return await tryDownload();
       }
-      mediaFailedIds.add(`${accountId}:${messageId}`);
+      mediaFailedAt.set(failureKey, Date.now());
       throw err;
     }
   });

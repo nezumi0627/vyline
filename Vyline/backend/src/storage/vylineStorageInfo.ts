@@ -28,7 +28,10 @@ export const VYLINE_DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "
 export const VYLINE_STORAGE_DIR =
   process.env.VYLINE_STORAGE_DIR ?? join(_dir, "..", "..", "storage");
 export const VYLINE_CACHE_DIR = join(VYLINE_STORAGE_DIR, "cache");
-export const VYLINE_SAVED_MEDIA_DIR = join(VYLINE_STORAGE_DIR, "saved-media");
+export const VYLINE_SAVED_MEDIA_DIR =
+  process.env.VYLINE_MEDIA_STORAGE_DIR ??
+  process.env.VYLINE_MEDIA_CACHE_DIR ??
+  join(VYLINE_STORAGE_DIR, "saved-media");
 
 const CDN_CACHE_DIR = join(VYLINE_CACHE_DIR, "cdn-cache");
 const ICON_CACHE_DIR = join(VYLINE_CACHE_DIR, "icons");

@@ -5,10 +5,12 @@ services:
       - "3000:3000"
     volumes:
       - ./data:/app/data
+      - ./storage:/app/storage
     environment:
       - VYLINE_HOST=0.0.0.0
       - PORT=3000
       - VYLINE_DATA_DIR=/app/data
+      - VYLINE_STORAGE_DIR=/app/storage
       # 必要に応じて設定
       # - VYLINE_CORS_ORIGIN=https://your-domain.example
       # - VYLINE_API_ADMIN_SECRET=change-me

@@ -284,7 +284,7 @@ export const UPDATE_NOTES = {
   items: [
     "VylineBackup: トーク履歴・メディアのスナップショット作成/復元/削除",
     "チャット詳細ログ（JSONL）を追加（設定 > 詳細・復元 > デバッグログ）",
-    "セルフホスト対応（Docker Compose）+ メディアのサーバー側キャッシュ",
+    "セルフホスト対応（Docker Compose）+ メディアのサーバー側永続保存",
     "複数画像の同時送信とグルーピング表示、FILE メッセージ描画",
     "Keepメモ、プロフィール背景表示、通話中バッジ、リアクションキャッシュ高速化",
     "リブランディング: @vyline/protocol（旧 @vyline/nezuline）、Nezu* → Vyline*",

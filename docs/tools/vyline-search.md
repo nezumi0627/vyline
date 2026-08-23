@@ -109,7 +109,6 @@ bun run vyline:focus-recovered -- --group storage=Storage|Index  # グループ�
 >
 > - [unpack.md](./unpack.md)
 > - [find-native-symbol.md](./find-native-symbol.md)
-> - [focus-recovered-source.md](./focus-recovered-source.md)
 
 ## データディレクトリ構造
 
