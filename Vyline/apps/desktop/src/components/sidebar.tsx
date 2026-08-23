@@ -182,6 +182,7 @@ function SidebarBase() {
   const listRef = useRef<HTMLDivElement>(null);
   const [rowH, setRowH] = useState(70); // ChatRow 概算: avatar48 + py-2.5×2 + mb-0.5
   const [win, setWin] = useState({ start: 0, end: 24 });
+  const [hasMeasured, setHasMeasured] = useState(false);
   const recomputeWin = useCallback(() => {
     const el = listRef.current;
     if (!el) return;
@@ -194,8 +195,11 @@ function SidebarBase() {
   useEffect(() => {
     const row = listRef.current?.querySelector<HTMLElement>("[data-vy-chat-row]");
     const h = row?.offsetHeight ?? 0;
-    if (h > 0 && Math.abs(h - rowH) > 1) setRowH(h);
-  }, [win.start, rowH]);
+    if (h > 0) {
+      if (Math.abs(h - rowH) > 1) setRowH(h);
+      if (!hasMeasured) setHasMeasured(true);
+    }
+  }, [win.start, rowH, hasMeasured]);
 
   useEffect(() => {
     recomputeWin();
@@ -523,7 +527,7 @@ function SidebarBase() {
           </div>
         ) : (
           <>
-            {winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
+            {hasMeasured && winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
             {filtered.slice(winStart, winEnd).map((chat) => (
               <ChatRow
                 key={chat.id}
@@ -550,7 +554,7 @@ function SidebarBase() {
                 preview={previewMap.get(chat.id) ?? null}
               />
             ))}
-            {filtered.length - winEnd > 0 && (
+            {hasMeasured && filtered.length - winEnd > 0 && (
               <div style={{ height: (filtered.length - winEnd) * rowH }} aria-hidden />
             )}
           </>

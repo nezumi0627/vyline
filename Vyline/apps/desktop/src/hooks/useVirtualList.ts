@@ -38,6 +38,8 @@ export function useVirtualList<T>({
     return { offsets: arr, total: acc };
   }, [rows, estimateHeight, measuredTick.current]);
 
+  const hasMeasured = measuredTick.current > 0;
+
   const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
     setScrollTop(e.currentTarget.scrollTop);
   }, []);
@@ -117,8 +119,10 @@ export function useVirtualList<T>({
   }, []);
 
   const visibleRows = useMemo(() => rows.slice(visible.startIdx, visible.endIdx), [rows, visible]);
-  const topSpacer = offsets.offsets[visible.startIdx] ?? 0;
-  const bottomSpacer = offsets.total - (offsets.offsets[visible.endIdx] ?? offsets.total);
+  const topSpacer = hasMeasured ? (offsets.offsets[visible.startIdx] ?? 0) : 0;
+  const bottomSpacer = hasMeasured
+    ? offsets.total - (offsets.offsets[visible.endIdx] ?? offsets.total)
+    : 0;
 
   return {
     containerRef,
