@@ -68,7 +68,7 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 
 ## 次（優先順）
 
-1. 既読者表示の完全修繕（メンバー名解決の事前取得済→表示検証）
+1. 実通信での取消・既読者・複数アカウント表示検証（保存・分離を安定化済み）
 2. 通話品質改善（acquireCallRoute エラー処理済→実通話テスト）
 3. UI 細部改善（継続）
 4. stack RPC の Desktop 準拠への段階的置換

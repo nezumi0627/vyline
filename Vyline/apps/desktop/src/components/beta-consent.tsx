@@ -1,9 +1,11 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Toggle } from "@/components/vy-ui";
+import { api } from "@/api/client";
 
 const CONSENT_KEY = "vyline:beta-feature-consent-v1";
 const BLOCK_CHECK_FEATURE = "block-status-check";
+const MID_SEARCH_FEATURE = "mid-user-search";
 
 type ConsentLog = Record<string, { consentedAt: string; version: string }>;
 
@@ -41,12 +43,22 @@ function recordBetaFeatureConsent(featureId: string): boolean {
 export function BetaSection() {
   const settings = useStore((s) => s.settings);
   const updateSetting = useStore((s) => s.updateSetting);
+  const accountId = useStore((s) => s.accountId);
+  const [mid, setMid] = useState("");
+  const [searching, setSearching] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<{
+    mid: string;
+    displayName: string;
+    statusMessage: string;
+  } | null>(null);
   const [consentPending, setConsentPending] = useState<
-    "betaBlockCheckManual" | "betaBlockCheckAuto" | null
+    "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | null
   >(null);
 
-  const requestEnable = (key: "betaBlockCheckManual" | "betaBlockCheckAuto") => {
-    if (hasBetaFeatureConsent(BLOCK_CHECK_FEATURE)) {
+  const requestEnable = (key: "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch") => {
+    const feature = key === "betaMidSearch" ? MID_SEARCH_FEATURE : BLOCK_CHECK_FEATURE;
+    if (hasBetaFeatureConsent(feature)) {
       updateSetting(key, true);
       return;
     }
@@ -54,7 +66,9 @@ export function BetaSection() {
   };
 
   const agree = () => {
-    if (!consentPending || !recordBetaFeatureConsent(BLOCK_CHECK_FEATURE)) return;
+    if (!consentPending) return;
+    const feature = consentPending === "betaMidSearch" ? MID_SEARCH_FEATURE : BLOCK_CHECK_FEATURE;
+    if (!recordBetaFeatureConsent(feature)) return;
     updateSetting(consentPending, true);
     setConsentPending(null);
   };
@@ -96,13 +110,82 @@ export function BetaSection() {
             label="自動ブロック確認"
           />
         </Row>
+        <Row
+          title="MID でユーザー検索（Beta）"
+          desc="u + 32桁の16進数のMIDからプロフィールだけを検索します。"
+        >
+          <Toggle
+            checked={settings.betaMidSearch}
+            onChange={(value) =>
+              value ? requestEnable("betaMidSearch") : updateSetting("betaMidSearch", false)
+            }
+            label="MID検索"
+          />
+        </Row>
       </Card>
+
+      {settings.betaMidSearch && (
+        <Card>
+          <div className="py-4">
+            <p className="text-sm font-medium">ユーザー MID を検索</p>
+            <div className="mt-2 flex gap-2">
+              <input
+                value={mid}
+                onChange={(event) => setMid(event.target.value.trim())}
+                placeholder="u + 32桁の16進数"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm"
+                spellCheck={false}
+              />
+              <button
+                type="button"
+                disabled={searching || !accountId}
+                onClick={async () => {
+                  if (!accountId || !/^u[0-9a-f]{32}$/i.test(mid)) {
+                    setSearchError("u + 32桁の16進数で入力してください");
+                    setProfile(null);
+                    return;
+                  }
+                  setSearching(true);
+                  setSearchError(null);
+                  setProfile(null);
+                  try {
+                    const response = await api.line.contactProfile(accountId, mid);
+                    if (!response.ok || !response.profile)
+                      throw new Error("ユーザーが見つかりません");
+                    setProfile({
+                      mid,
+                      displayName: response.profile.displayName,
+                      statusMessage: response.profile.statusMessage,
+                    });
+                  } catch (error) {
+                    setSearchError(error instanceof Error ? error.message : "検索に失敗しました");
+                  } finally {
+                    setSearching(false);
+                  }
+                }}
+                className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                style={{ background: "var(--vy-accent)" }}
+              >
+                {searching ? "検索中…" : "検索"}
+              </button>
+            </div>
+            {searchError && <p className="mt-2 text-xs text-red-400">{searchError}</p>}
+            {profile && (
+              <div className="mt-3 rounded-lg border border-[var(--vy-border)] p-3 text-xs">
+                <p className="font-semibold">{profile.displayName || profile.mid}</p>
+                <p className="mt-1 break-all text-[var(--vy-text-dim)]">{profile.mid}</p>
+                {profile.statusMessage && <p className="mt-1">{profile.statusMessage}</p>}
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
 
       {consentPending && (
         <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">
           <p className="font-semibold">ベータ機能の個別同意</p>
           <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            ブロック確認機能を有効にすると、友だち一覧などの情報を端末上で処理します。
+            有効にした機能に応じて、友だち一覧または指定MIDのプロフィールを端末上で処理します。
             機能ごとの同意記録は端末内だけに保存します。利用を続ける場合は同意してください。
           </p>
           <div className="mt-3 flex gap-2">

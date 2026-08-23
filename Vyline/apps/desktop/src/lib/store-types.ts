@@ -206,6 +206,8 @@ export type Settings = {
   betaBlockCheckManual: boolean;
   /** ベータ: 友だち全員のブロック状態を自動確認 */
   betaBlockCheckAuto: boolean;
+  /** ベータ: u* MID を直接指定してプロフィールを検索 */
+  betaMidSearch: boolean;
 };
 
 export type SelfProfile = {
