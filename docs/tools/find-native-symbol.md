@@ -45,4 +45,3 @@ bun run search -- find sendMessage --max-functions 10
 ## 関連
 
 - [unpack.md](./unpack.md)
-- [focus-recovered-source.md](./focus-recovered-source.md)

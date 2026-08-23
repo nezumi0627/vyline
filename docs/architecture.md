@@ -1,6 +1,6 @@
 # Architecture
 
-最終更新: 2026-07-29
+最終更新: 2026-08-24
 
 ---
 
@@ -49,6 +49,10 @@
 | Stack           | `protocol/stack/`          | Thrift RPC（Talk `/S4` 等）。型は `_dist/`、実装は段階的ネイティブ化中 |
 | Protocol        | `protocol/src/protocol/`   | stack 非依存の薄い RPC ラッパ（domain から利用）                       |
 | Desktop patches | `protocol/src/login/`      | ヘッダー・login RPC の Desktop 追従                                    |
+
+メディアは `backend/storage/saved-media/` に永続保存する。プロフィール画像や CDN
+アセットなど再取得できるものは `backend/storage/cache/` に分離し、通常のキャッシュ削除で
+保存メディアを削除しない。
 
 ---
 

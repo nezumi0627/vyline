@@ -29,7 +29,8 @@ WORKDIR /app
 ENV NODE_ENV=production \
     VYLINE_HOST=0.0.0.0 \
     PORT=3000 \
-    VYLINE_DATA_DIR=/app/data
+    VYLINE_DATA_DIR=/app/data \
+    VYLINE_STORAGE_DIR=/app/storage
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modules
 COPY --from=build /app/Vyline/packages ./Vyline/packages
@@ -37,7 +38,7 @@ COPY --from=build /app/openapi.yaml ./openapi.yaml
 COPY --from=build /app/Vyline/backend/src ./Vyline/backend/src
 COPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/dist
 EXPOSE 3000
-VOLUME ["/app/data"]
+VOLUME ["/app/data", "/app/storage"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD bun -e 'fetch("http://127.0.0.1:"+(process.env.PORT||3000)+"/healthz").then(function(r){process.exit(r.ok?0:1)},function(){process.exit(1)})'
 CMD ["bun", "Vyline/backend/src/index.ts"]

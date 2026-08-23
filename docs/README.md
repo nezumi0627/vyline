@@ -1,9 +1,11 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-22
+最終更新: 2026-08-24
 
 新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
+
+ドキュメントの形式・更新日・廃止判断は **[DOCS_FORMAT.md](./DOCS_FORMAT.md)** に統一しています。
 
 ---
 
@@ -82,7 +84,6 @@
 | -------------------------------------------------------------------- | ---------------------------- |
 | [tools/find-native-symbol.md](./tools/find-native-symbol.md)         | Desktop 内 RPC 名検索        |
 | [tools/desktop-delta.md](./tools/desktop-delta.md)                   | Desktop 更新時の差分調査     |
-| [tools/focus-recovered-source.md](./tools/focus-recovered-source.md) | 復元ソースのピンポイント表示 |
 
 ---
 
