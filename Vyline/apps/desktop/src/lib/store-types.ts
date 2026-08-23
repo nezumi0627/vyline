@@ -202,6 +202,10 @@ export type Settings = {
   proxyUrl: string;
   /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
   notificationsEnabled: boolean;
+  /** ベータ: プロフィールにブロック確認導線を表示 */
+  betaBlockCheckManual: boolean;
+  /** ベータ: 友だち全員のブロック状態を自動確認 */
+  betaBlockCheckAuto: boolean;
 };
 
 export type SelfProfile = {

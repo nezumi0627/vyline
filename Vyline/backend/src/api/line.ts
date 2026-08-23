@@ -81,6 +81,7 @@ import {
   updateChatPicture,
   renameContact,
   fetchBlockedContactIds,
+  verifyFriendBlockStatus,
   createGroupChat,
   inviteToGroupChat,
   startDirectCall,
@@ -1248,6 +1249,19 @@ lineRouter.get("/:accountId/blocked", async (c) => {
   try {
     const mids = await fetchBlockedContactIds(accountId);
     return c.json({ ok: true, mids });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/block-verification ─────────────
+// Beta: authoritative friend/block-list check only; no message or sticker probe.
+lineRouter.post("/:accountId/block-verification", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body: { mid?: string } = await c.req.json<{ mid?: string }>().catch(() => ({}));
+  try {
+    const results = await verifyFriendBlockStatus(accountId, body.mid);
+    return c.json({ ok: true, results });
   } catch (err) {
     return handleError(err, c);
   }

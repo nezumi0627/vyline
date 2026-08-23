@@ -690,12 +690,13 @@ const ChatRow = memo(function ChatRow({
         {blocked && (
           <span
             title="ブロック済み"
+            aria-label="ブロック済み"
             className={cn(
-              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[0.55rem] font-bold text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
-              active ? "bg-[var(--vy-danger)]" : "bg-[var(--vy-danger)]",
+              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
+              "bg-[var(--vy-danger)]",
             )}
           >
-            !
+            <IconBlock size={10} />
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -719,6 +720,7 @@ const ChatRow = memo(function ChatRow({
             {chat.isOfficial && <OfficialBadge />}
             {chat.left && (
               <span
+                title={chat.type === "friend" ? "アカウントは削除済みです" : "退出済み"}
                 className={cn(
                   "shrink-0 rounded px-1 py-0.5 text-[0.65rem] font-medium",
                   active
@@ -726,7 +728,7 @@ const ChatRow = memo(function ChatRow({
                     : "bg-[color-mix(in_oklab,var(--vy-danger)_16%,transparent)] text-[var(--vy-danger)]",
                 )}
               >
-                退出
+                {chat.type === "friend" ? "削除済み" : "退出済み"}
               </span>
             )}
             {preview && preview.time > 0 && (

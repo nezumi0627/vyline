@@ -545,6 +545,18 @@ export const api = {
         `/line/${accountId}/blocked`,
       ),
 
+    verifyFriendBlockStatus: (accountId: string, mid?: string) =>
+      request<{
+        ok: boolean;
+        results?: Array<{
+          mid: string;
+          status: "blocked" | "not_blocked" | "skipped" | "unknown";
+          reason: string;
+          official: boolean;
+        }>;
+        error?: string;
+      }>("POST", `/line/${accountId}/block-verification`, mid ? { mid } : {}),
+
     createGroup: (accountId: string, name: string, memberMids: string[]) =>
       request<{
         ok: boolean;

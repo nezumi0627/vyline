@@ -3,6 +3,7 @@ import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store"
 import { api } from "@/api/client";
 import { Avatar } from "@/components/vy-ui";
 import { PremiumBadge } from "@/components/premium-badge";
+import { OfficialBadge } from "@/components/official-badge";
 import {
   IconClose,
   IconChat,
@@ -39,6 +40,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   const settings = useStore((s) => s.settings);
   const setLocalName = useStore((s) => s.setLocalName);
   const accountId = useStore((s) => s.accountId);
+  const blockedMids = useStore((s) => s.blockedMids);
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
 
   const [editing, setEditing] = useState(false);
@@ -48,6 +50,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   const [actionMsg, setActionMsg] = useState<string | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
   const [isBlocked, setIsBlocked] = useState(false);
+  const [verifyBusy, setVerifyBusy] = useState(false);
+  const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
 
   // 共通グループ: VylineCache 一括読み（RPC なし）→ 失敗時は従来のローカル判定へ
@@ -95,8 +99,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     setRich({});
     setActionMsg(null);
     setMembersLoading(false);
-    setIsBlocked(false);
-  }, [chat.id, chat.localName, chat.name]);
+    setIsBlocked(blockedMids.includes(chat.id));
+  }, [blockedMids, chat.id, chat.localName, chat.name]);
 
   useEffect(() => {
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
@@ -456,6 +460,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               ) : (
                 <div className="mt-3 flex items-center gap-2">
                   <h2 className="text-xl font-bold">{name}</h2>
+                  {!streamerMode && chat.isOfficial && <OfficialBadge />}
                   {chat.isSelf && selfPremium && <PremiumBadge size={14} compact />}
                   {!streamerMode && !chat.isSelf && (
                     <button
@@ -471,7 +476,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               )}
               {chat.left && (
                 <span className="mt-2 rounded-full bg-[color-mix(in_oklab,var(--vy-danger)_18%,transparent)] px-2.5 py-0.5 text-xs font-medium text-[var(--vy-danger)]">
-                  退出済み
+                  {chat.type === "friend" ? "アカウント削除済み" : "退出済み"}
                 </span>
               )}
               {isBlocked && (
@@ -496,9 +501,19 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
 
           {!streamerMode && (chat.isOfficial || rich.userType === 2) && (
             <div className="mt-4">
-              <span className="inline-flex w-fit items-center rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
+              <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
+                <OfficialBadge className="ml-0" />
                 公式アカウント
               </span>
+            </div>
+          )}
+
+          {!streamerMode && (chat.left || isBlocked) && (
+            <div className="mt-4 space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm">
+              {chat.left && <p className="text-[var(--vy-danger)]">アカウントは削除済みです</p>}
+              {isBlocked && (
+                <p className="text-[var(--vy-danger)]">アカウントをブロックしています</p>
+              )}
             </div>
           )}
 
@@ -522,6 +537,43 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               }}
             />
           </div>
+
+          {!streamerMode &&
+            settings.betaBlockCheckManual &&
+            chat.type === "friend" &&
+            !chat.isOfficial && (
+              <div className="mt-3">
+                <button
+                  type="button"
+                  disabled={verifyBusy}
+                  onClick={() => {
+                    if (!accountId) return;
+                    setVerifyBusy(true);
+                    setVerifyMsg(null);
+                    void api.line
+                      .verifyFriendBlockStatus(accountId, chat.id)
+                      .then((res) => {
+                        const result = res.results?.[0];
+                        setVerifyMsg(
+                          result?.status === "blocked"
+                            ? "ブロック中です"
+                            : result?.status === "not_blocked"
+                              ? "ブロックされていません"
+                              : (result?.reason ?? "確認できませんでした"),
+                        );
+                      })
+                      .catch((err) =>
+                        setVerifyMsg(err instanceof Error ? err.message : "確認に失敗しました"),
+                      )
+                      .finally(() => setVerifyBusy(false));
+                  }}
+                  className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2 text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+                >
+                  {verifyBusy ? "ブロック状態を確認中…" : "ブロック状態を確認"}
+                </button>
+                {verifyMsg && <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{verifyMsg}</p>}
+              </div>
+            )}
 
           {chat.type === "friend" && !streamerMode && !chat.isSelf && commonGroups.length > 0 && (
             <div className="mt-6">
