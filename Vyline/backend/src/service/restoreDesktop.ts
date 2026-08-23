@@ -13,6 +13,8 @@ import {
   ensureValidE2EEIdentity,
   importDesktopE2EEKeys,
   loadDesktopE2EEKeyDump,
+  loadSbcBackupKeyDumps,
+  mergeDesktopE2EEKeyDumps,
   seedSelfPublicKeyCache,
   detectInstalledDesktop,
 } from "@vyline/protocol";
@@ -57,6 +59,50 @@ function resolveSourceProfilePath(): string | null {
   return null;
 }
 
+function resolveSbcKeysDirs(): string[] {
+  return [
+    join(process.cwd(), "Vyline", "data", "sbc-extract"),
+    join(process.cwd(), "data", "sbc-extract"),
+    join(backendDataDir(), "sbc-extract"),
+  ];
+}
+
+/** Desktop dump + SBC 復元鍵をマージしたダンプを読み込む（方式は従来通り storage import） */
+function loadMergedKeyDump(): {
+  desktopPath: string | null;
+  sbcMerged: { files: number; keys: number } | null;
+  dump: ReturnType<typeof loadDesktopE2EEKeyDump>;
+} {
+  const desktopPath = resolveDesktopKeysPath();
+  const desktop = desktopPath ? loadDesktopE2EEKeyDump(desktopPath) : null;
+  let sbcDump: ReturnType<typeof loadDesktopE2EEKeyDump> = null;
+  let sbcFiles = 0;
+  for (const dir of resolveSbcKeysDirs()) {
+    const found = loadSbcBackupKeyDumps(dir);
+    if (found) {
+      sbcFiles += 1;
+      sbcDump = sbcDump ? mergeDesktopE2EEKeyDumps(sbcDump, found) : found;
+    }
+  }
+  if (!desktop) {
+    return {
+      desktopPath,
+      sbcMerged: sbcDump ? { files: sbcFiles, keys: sbcDump.keys.length } : null,
+      dump: sbcDump,
+    };
+  }
+  if (!sbcDump) return { desktopPath, sbcMerged: null, dump: desktop };
+  const merged = mergeDesktopE2EEKeyDumps(desktop, sbcDump);
+  return {
+    desktopPath,
+    sbcMerged: {
+      files: sbcFiles,
+      keys: Math.max(0, merged.keys.length - desktop.keys.length),
+    },
+    dump: merged,
+  };
+}
+
 function loadSourceProfile(): { path: string; profile: DesktopProfile } | null {
   const path = resolveSourceProfilePath();
   if (!path) return null;
@@ -75,7 +121,8 @@ export async function getRestoreStatus(accountId: string) {
   if (!client) throw new Error("not logged in");
 
   const keysPath = resolveDesktopKeysPath();
-  const dump = keysPath ? loadDesktopE2EEKeyDump(keysPath) : null;
+  const mergedInfo = keysPath ? loadMergedKeyDump() : null;
+  const dump = mergedInfo?.dump ?? null;
   const desktop = detectInstalledDesktop();
   const sourceProfile = loadSourceProfile();
 
@@ -105,6 +152,7 @@ export async function getRestoreStatus(accountId: string) {
     keysFileExists: Boolean(keysPath && existsSync(keysPath)),
     dumpKeyCount: dump?.keys?.length ?? 0,
     dumpExtractedAt: dump?.extractedAt ?? null,
+    sbcMerged: mergedInfo?.sbcMerged ?? null,
     sourceProfilePath: sourceProfile?.path ?? null,
     sourceProfileExists: Boolean(sourceProfile),
     serverKeyCount: serverKeyIds.length,
@@ -123,7 +171,9 @@ export async function restoreFromDesktop(accountId: string) {
     );
   }
 
-  const dump = loadDesktopE2EEKeyDump(keysPath);
+  // Desktop dump + SBC 復元鍵 (sbc-keys-*.json) をマージして import
+  const merged = loadMergedKeyDump();
+  const dump = merged.dump;
   if (!dump?.keys?.length) {
     throw new Error("desktop-e2ee-keys.json に有効な鍵がありません");
   }
@@ -168,6 +218,8 @@ export async function restoreFromDesktop(accountId: string) {
     imported: imported.imported,
     skipped: imported.skipped,
     keyIds: imported.keyIds,
+    sbcMerged: merged.sbcMerged,
+    totalKeys: dump.keys.length,
     seededPublicKeys: seeded,
     identity,
     restoredProfilePath: restoredProfile?.path ?? null,

@@ -37151,6 +37151,203 @@ export const Thrift: LooseType = {
       struct: "E2EEKeyBackupException",
     },
   ],
+
+  // E2EELifetimeKeyBackupService (/LKBS4) — q0jt/line-sbc resource/README.md
+  restoreLifetimeKeyBackupHeader_args: [
+    {
+      fid: 2,
+      name: "request",
+      struct: "RestoreLifetimeKeyBackupHeaderRequest",
+    },
+  ],
+  restoreLifetimeKeyBackupHeader_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "RestoreLifetimeKeyBackupHeaderResponse",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "E2EEKeyBackupException",
+    },
+  ],
+  validateLifetimeKeyBackup_args: [
+    {
+      fid: 2,
+      name: "request",
+      struct: "ValidateLifetimeKeyBackupRequest",
+    },
+  ],
+  validateLifetimeKeyBackup_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "ValidateLifetimeKeyBackupResponse",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "E2EEKeyBackupException",
+    },
+  ],
+  addLifetimeKeyBackupPayloadDataList_args: [
+    {
+      fid: 2,
+      name: "request",
+      struct: "AddLifetimeKeyBackupPayloadDataListRequest",
+    },
+  ],
+  addLifetimeKeyBackupPayloadDataList_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "AddLifetimeKeyBackupPayloadDataListResponse",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "E2EEKeyBackupException",
+    },
+  ],
+  updateLifetimeKeyBackupHeader_args: [
+    {
+      fid: 2,
+      name: "request",
+      struct: "UpdateLifetimeKeyBackupHeaderRequest",
+    },
+  ],
+  updateLifetimeKeyBackupHeader_result: [
+    {
+      fid: 1,
+      name: "e",
+      struct: "E2EEKeyBackupException",
+    },
+  ],
+  getLifetimeKeyBackupPayloadDataList_args: [
+    {
+      fid: 2,
+      name: "request",
+      struct: "GetLifetimeKeyBackupPayloadDataListRequest",
+    },
+  ],
+  getLifetimeKeyBackupPayloadDataList_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "GetLifetimeKeyBackupPayloadDataListResponse",
+    },
+    {
+      fid: 1,
+      name: "e",
+      struct: "E2EEKeyBackupException",
+    },
+  ],
+
+  // LKBS4 nested structs (resource/backup.thrift)
+  RestoreLifetimeKeyBackupHeaderRequest: [
+    {
+      fid: 1,
+      name: "restoreClaim",
+      type: 11,
+    },
+  ],
+  RestoreLifetimeKeyBackupHeaderResponse: [
+    {
+      fid: 1,
+      name: "recoveryKey",
+      type: 11,
+    },
+  ],
+  ValidateLifetimeKeyBackupRequest: [
+    {
+      fid: 1,
+      name: "masterKeyTimestamp",
+      type: 10,
+    },
+    {
+      fid: 2,
+      name: "blobHeaderHash",
+      type: 11,
+    },
+    {
+      fid: 3,
+      name: "metadataList",
+      list: "Pb1_W5",
+    },
+  ],
+  ValidateLifetimeKeyBackupResponse: [
+    {
+      fid: 1,
+      name: "missingMetadataList",
+      list: "Pb1_W5",
+    },
+  ],
+  AddLifetimeKeyBackupPayloadDataListRequest: [
+    {
+      fid: 1,
+      name: "payloadDataList",
+      list: "Pb1_X5",
+    },
+  ],
+  LifetimeBackupFailedPayload: [
+    {
+      fid: 1,
+      name: "metadata",
+      struct: "Pb1_X5",
+    },
+    {
+      fid: 2,
+      name: "errorCode",
+      struct: "KeyBackupErrorCode",
+    },
+  ],
+  AddLifetimeKeyBackupPayloadDataListResponse: [
+    {
+      fid: 1,
+      name: "failedPayloads",
+      list: "LifetimeBackupFailedPayload",
+    },
+  ],
+  UpdateLifetimeKeyBackupHeaderRequest: [
+    {
+      fid: 1,
+      name: "blobHeader",
+      type: 11,
+    },
+  ],
+  GetLifetimeKeyBackupPayloadDataListRequest: [
+    {
+      fid: 1,
+      name: "metadataList",
+      list: "Pb1_W5",
+    },
+  ],
+  GetLifetimeKeyBackupPayloadDataListResponse: [
+    {
+      fid: 1,
+      name: "payloadDataList",
+      list: "Pb1_X5",
+    },
+    {
+      fid: 2,
+      name: "failedPayloads",
+      list: "LifetimeBackupFailedPayload",
+    },
+  ],
+  KeyBackupErrorCode: {
+    "0": "ILLEGAL_ARGUMENT",
+    "1": "AUTHENTICATION_FAILED",
+    "2": "INTERNAL_ERROR",
+    "3": "RESTORE_KEY_FIRST",
+    "4": "NO_BACKUP",
+    "6": "INVALID_PIN",
+    "7": "PERMANENTLY_LOCKED",
+    "8": "INVALID_PASSWORD",
+    "9": "MASTER_KEY_CONFLICT",
+    "10": "KEY_BACKUP_HEADER_MISMATCH",
+  },
+
   I80_C26395c0: [
     {
       fid: 1,

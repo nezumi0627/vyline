@@ -30,6 +30,7 @@
     "vyline:extract-e2ee": "bun Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts",
     "vyline:decrypt-edb": "bun Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts",
     "vyline:call-test": "bun Vyline/backend/src/tools/callTest.ts",
+    "vyline:sbc-extract": "bun Vyline/backend/src/tools/sbcBackupExtract.ts",
     "vyline:get-edited-json": "bun scripts/getEditedMessageJson.ts",
     "test:media": "bun scripts/sendTestMediaBatch.ts",
     "test:api": "bun scripts/apiSmokeTest.ts",
@@ -41,5 +42,8 @@
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "^1.4.0",
     "concurrently": "^9.1.2"
-  }
+  },
+  "trustedDependencies": [
+    "@biomejs/biome"
+  ]
 }
