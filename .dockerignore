@@ -3,6 +3,13 @@
 node_modules
 **/node_modules
 Vyline/backend/data
+data/
+.env
+.env.*
+!.env.example
+*.session.json
+**/desktop-e2ee-keys.json
+.tmp-*
 Vyline/apps/desktop/dist
 docs
 source

@@ -88,6 +88,13 @@ Vyline は個人開発のオープンソースプロジェクトです。支援�
 > [!IMPORTANT]
 > 支援は任意であり、機能実装、バグ修正、個別サポート、将来の提供を保証するものではありません。ギフトカード番号、PayPayの送付情報、セッション、トークン、暗号鍵を Issue、Pull Request、公開チャットへ投稿しないでください。送信後の返金や取り消しには対応できない場合があります。
 
+### メンテナー
+
+| メンテナー | 役割 |
+| --- | --- |
+| [nezumi0627](https://github.com/nezumi0627) | リード開発者 |
+| [YoseiUshida](https://github.com/youseiushida) | 定期メンテナー |
+
 ### メンテナー・コントリビューター募集
 
 Vyline の継続的な開発を支えるメンテナーとコントリビューターを募集しています。
@@ -185,7 +192,7 @@ cd Vyline
 docker compose up -d --build
 ```
 
-起動後は `http://localhost:3001` へアクセスします。Docker版はフロントエンドとバックエンドを同一オリジンで配信します。
+起動後は `http://localhost:3000` へアクセスします。Docker版はフロントエンドとバックエンドを同一オリジンで配信します。
 
 ### Docker環境の更新
 
@@ -194,9 +201,9 @@ git pull --ff-only
 docker compose up -d --build
 ```
 
-`docker compose up -d --build` が既存コンテナを再作成し、`vyline_data` ボリュームは維持します。**`docker compose down -v` はデータボリュームを削除するため、通常の更新では使用しないでください。**
+`docker compose up -d --build` が既存コンテナを再作成しても、ホスト側の `./data/` ディレクトリは維持されます。**`data/` にはセッションや鍵が含まれるため、削除しないでください。**
 
-トーク履歴、画像、セッションなどは `vyline_data` ボリュームへ永続化され、同じ LINE セッションを複数の Web ブラウザから利用できます。
+トーク履歴、画像、セッションなどは `./data/` へ永続化され、同じ LINE セッションを複数の Web ブラウザから利用できます。
 
 設定方法と Cloudflare Access を利用した外部公開については、[セルフホストガイド](docs/selfhosting.md) を参照してください。
 
