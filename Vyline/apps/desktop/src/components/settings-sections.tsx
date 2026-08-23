@@ -494,7 +494,7 @@ export function SettingsSections() {
               {section === "beta" && (
                 <>
                   <BetaSection />
-                  <AgentIBetaPanel />
+                  {settings.betaAgentI && <AgentIBetaPanel />}
                 </>
               )}
             </div>

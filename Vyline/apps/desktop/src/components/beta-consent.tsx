@@ -6,6 +6,7 @@ import { api } from "@/api/client";
 const CONSENT_KEY = "vyline:beta-feature-consent-v1";
 const BLOCK_CHECK_FEATURE = "block-status-check";
 const MID_SEARCH_FEATURE = "mid-user-search";
+const AGENT_I_FEATURE = "agent-i-assistant";
 
 type ConsentLog = Record<string, { consentedAt: string; version: string }>;
 
@@ -53,11 +54,18 @@ export function BetaSection() {
     statusMessage: string;
   } | null>(null);
   const [consentPending, setConsentPending] = useState<
-    "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | null
+    "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | "betaAgentI" | null
   >(null);
 
-  const requestEnable = (key: "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch") => {
-    const feature = key === "betaMidSearch" ? MID_SEARCH_FEATURE : BLOCK_CHECK_FEATURE;
+  const requestEnable = (
+    key: "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | "betaAgentI",
+  ) => {
+    const feature =
+      key === "betaMidSearch"
+        ? MID_SEARCH_FEATURE
+        : key === "betaAgentI"
+          ? AGENT_I_FEATURE
+          : BLOCK_CHECK_FEATURE;
     if (hasBetaFeatureConsent(feature)) {
       updateSetting(key, true);
       return;
@@ -67,7 +75,12 @@ export function BetaSection() {
 
   const agree = () => {
     if (!consentPending) return;
-    const feature = consentPending === "betaMidSearch" ? MID_SEARCH_FEATURE : BLOCK_CHECK_FEATURE;
+    const feature =
+      consentPending === "betaMidSearch"
+        ? MID_SEARCH_FEATURE
+        : consentPending === "betaAgentI"
+          ? AGENT_I_FEATURE
+          : BLOCK_CHECK_FEATURE;
     if (!recordBetaFeatureConsent(feature)) return;
     updateSetting(consentPending, true);
     setConsentPending(null);
@@ -120,6 +133,18 @@ export function BetaSection() {
               value ? requestEnable("betaMidSearch") : updateSetting("betaMidSearch", false)
             }
             label="MID検索"
+          />
+        </Row>
+        <Row
+          title="Agent I AIアシスタント"
+          desc="質問・文章支援・明示選択したトークの要約を行います。入力内容はYahooへ送信されます。"
+        >
+          <Toggle
+            checked={settings.betaAgentI}
+            onChange={(value) =>
+              value ? requestEnable("betaAgentI") : updateSetting("betaAgentI", false)
+            }
+            label="Agent I AIアシスタント"
           />
         </Row>
       </Card>
