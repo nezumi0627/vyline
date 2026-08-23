@@ -19967,6 +19967,96 @@ export interface restoreE2EEKeyBackup_result {
   e: E2EEKeyBackupException;
 }
 
+// ─── E2EELifetimeKeyBackupService (/LKBS4) — q0jt/line-sbc resource/backup.thrift ───
+
+export interface RestoreLifetimeKeyBackupHeaderRequest {
+  restoreClaim: string;
+}
+
+export interface RestoreLifetimeKeyBackupHeaderResponse {
+  recoveryKey: string;
+}
+
+export interface ValidateLifetimeKeyBackupRequest {
+  masterKeyTimestamp?: Int64;
+  blobHeaderHash?: string;
+  metadataList?: Pb1_W5[];
+}
+
+export interface ValidateLifetimeKeyBackupResponse {
+  missingMetadataList?: Pb1_W5[];
+}
+
+export interface AddLifetimeKeyBackupPayloadDataListRequest {
+  payloadDataList?: Pb1_X5[];
+}
+
+export interface LifetimeBackupFailedPayload {
+  metadata?: Pb1_X5;
+  errorCode?: any;
+}
+
+export interface AddLifetimeKeyBackupPayloadDataListResponse {
+  failedPayloads?: LifetimeBackupFailedPayload[];
+}
+
+export interface UpdateLifetimeKeyBackupHeaderRequest {
+  blobHeader: string;
+}
+
+export interface GetLifetimeKeyBackupPayloadDataListRequest {
+  metadataList?: Pb1_W5[];
+}
+
+export interface GetLifetimeKeyBackupPayloadDataListResponse {
+  payloadDataList?: Pb1_X5[];
+  failedPayloads?: LifetimeBackupFailedPayload[];
+}
+
+export interface restoreLifetimeKeyBackupHeader_args {
+  request: RestoreLifetimeKeyBackupHeaderRequest;
+}
+
+export interface restoreLifetimeKeyBackupHeader_result {
+  success: RestoreLifetimeKeyBackupHeaderResponse;
+  e: E2EEKeyBackupException;
+}
+
+export interface validateLifetimeKeyBackup_args {
+  request: ValidateLifetimeKeyBackupRequest;
+}
+
+export interface validateLifetimeKeyBackup_result {
+  success: ValidateLifetimeKeyBackupResponse;
+  e: E2EEKeyBackupException;
+}
+
+export interface addLifetimeKeyBackupPayloadDataList_args {
+  request: AddLifetimeKeyBackupPayloadDataListRequest;
+}
+
+export interface addLifetimeKeyBackupPayloadDataList_result {
+  success: AddLifetimeKeyBackupPayloadDataListResponse;
+  e: E2EEKeyBackupException;
+}
+
+export interface updateLifetimeKeyBackupHeader_args {
+  request: UpdateLifetimeKeyBackupHeaderRequest;
+}
+
+export interface updateLifetimeKeyBackupHeader_result {
+  e: E2EEKeyBackupException;
+}
+
+export interface getLifetimeKeyBackupPayloadDataList_args {
+  request: GetLifetimeKeyBackupPayloadDataListRequest;
+}
+
+export interface getLifetimeKeyBackupPayloadDataList_result {
+  success: GetLifetimeKeyBackupPayloadDataListResponse;
+  e: E2EEKeyBackupException;
+}
+
 export interface I80_C26395c0 {
   request: I80_w0;
 }

@@ -13,8 +13,15 @@
     "paths": {
       "@vyline/types": ["../../packages/types/src/index.ts"],
       "@vyline/protocol": ["../../packages/protocol/src/index.ts"],
-      "@vyline/plugin-sdk": ["../../packages/plugin/sdk/src/index.ts"]
+      "@vyline/plugin-sdk": ["../../packages/plugin/sdk/src/index.ts"],
+      "@vyline/ios-backup": ["../../packages/ios-backup/src/index.ts"]
     }
   },
-  "include": ["src/**/*"]
+  "exclude": [
+    "src/tools/iosLineExtract.ts",
+    "src/service/iosBackupService.ts",
+    "node_modules",
+    "dist",
+    "data"
+  ]
 }

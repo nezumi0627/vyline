@@ -21,6 +21,10 @@ agents は `bun run vyline:delta` のレポートが指す feature ごとに、�
 | stickers                 | [stickers.md](./stickers.md)                     |                                                      |
 | line-emoji               | [line-emoji.md](./line-emoji.md)                 |                                                      |
 | history-restore          | [history-restore.md](./history-restore.md)       | [e2ee-decrypt-journey.md](./e2ee-decrypt-journey.md) |
+| edb-decrypt              | [edb-decrypt.md](./edb-decrypt.md)               | Desktop .edb 全履歴 dump（メモリ捕捉方式）           |
+| sbc-key-restore          | [sbc-key-restore.md](./sbc-key-restore.md)       | SBC クラウドバックアップ鍵取り出し（/EKBS4・/LKBS4） |
+| ios-backup-extract       | [ios-backup-extract.md](./ios-backup-extract.md) | iOS 暗号化バックアップからの履歴抽出・TS移植         |
+| ios-backup-history       | [ios-backup-history-extraction.md](./ios-backup-history-extraction.md) | iOS バックアップ履歴取り出し作業の全経緯・手順       |
 | calls                    | [calls.md](./calls.md)                           |                                                      |
 | profile-self             | [avatar-profile-api.md](./avatar-profile-api.md) | `protocol/profileOps.ts`                             |
 | profile-contacts         | [avatar-profile-api.md](./avatar-profile-api.md) | `domain/contacts.ts`                                 |
