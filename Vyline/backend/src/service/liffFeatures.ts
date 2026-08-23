@@ -91,6 +91,29 @@ async function getCreds(
   }
 }
 
+async function getCredsWithoutUserContext(
+  client: VylineClient,
+  liffId: string,
+): Promise<LiffCreds> {
+  const key = `without-context:${liffId}`;
+  const cached = credsCache.get(key);
+  if (cached && Date.now() - cached.at < CREDS_TTL_MS) return cached.creds;
+  const inflight = credsInflight.get(key);
+  if (inflight) return inflight;
+  const job = (async (): Promise<LiffCreds> => {
+    const view = await client.base.liff.getLiffViewWithoutUserContext({ request: { liffId } });
+    const creds = { accessToken: view.accessToken, idToken: view.idToken };
+    credsCache.set(key, { creds, at: Date.now() });
+    return creds;
+  })();
+  credsInflight.set(key, job);
+  try {
+    return await job;
+  } finally {
+    credsInflight.delete(key);
+  }
+}
+
 /** モーダル展開時に先読みして issueLiffView の遅延を隠す（失敗は無視） */
 export async function liffWarm(
   accountId: string,
@@ -223,7 +246,7 @@ export async function checkStickerGiftEligibility(
   accountId: string,
 ): Promise<Array<{ name: string; giftable: boolean; code: number | null }>> {
   const client = requireClient(accountId);
-  const creds = await getCreds(client, LIFF_APPS.stickerShop);
+  const creds = await getCredsWithoutUserContext(client, LIFF_APPS.stickerShop);
   const baseHeaders = {
     Authorization: `Bearer ${creds.accessToken}`,
     "X-Line-Shop-Credential-Type": "access_token",
