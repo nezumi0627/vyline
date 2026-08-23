@@ -48,6 +48,7 @@ import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import { checkStickerGiftEligibility } from "./liffFeatures.js";
+import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
 import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
@@ -2266,11 +2267,12 @@ export function attachGroupReadReceipts(
       if (m.readCount == null) m.readCount = 0;
       continue;
     }
-    // プロトコル readCount が無い／小さい場合はレンジ由来で上書き
-    if (m.readCount == null || readers.length > m.readCount) {
-      m.readCount = readers.length;
+    // 別ポーリングで得た既読者を失わない。既読は後から巻き戻らないため単調に保持する。
+    const mergedReaders = [...new Set([...(m.readBy ?? []), ...readers])];
+    if (m.readCount == null || mergedReaders.length > m.readCount) {
+      m.readCount = mergedReaders.length;
     }
-    m.readBy = readers;
+    m.readBy = mergedReaders;
   }
 }
 
@@ -3158,12 +3160,7 @@ async function processSingleOperation(
   const type = String(op.type ?? "");
 
   // メッセージ系 — op.message があれば直接処理
-  if (
-    type === "RECEIVE_MESSAGE" ||
-    type === "25" ||
-    type === "NOTIFIED_RECEIVE_MESSAGE" ||
-    type === "26"
-  ) {
+  if (isReceiveMessageOperationType(type)) {
     if (op.message) {
       const raw = op.message as Record<string, unknown>;
       const chatMid = chatMidFromRaw(raw, myMid);
@@ -3211,15 +3208,7 @@ async function processSingleOperation(
   }
 
   // 既読通知
-  if (
-    type === "NOTIFIED_READ_MESSAGE" ||
-    type === "25" ||
-    type === "RECEIVE_MESSAGE_RECEIPT" ||
-    type === "28" ||
-    type === "RECEIVE_READ_WATERMARK" ||
-    type === "30" ||
-    type === "29"
-  ) {
+  if (isReadOperationType(type)) {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "read", chatMid });
@@ -3682,6 +3671,12 @@ async function fetchMessagesInner(
         try {
           const ranges = await fetchReadRanges(accountId, chatMid, { force: true });
           applyReadReceiptsToMessages(messages, ranges, chatMid, myMid);
+          // バックグラウンド取得結果も必ずアカウント別 chatdb に保存する。
+          await upsertMessages(
+            accountId,
+            chatMid,
+            messages.map((m) => ({ ...m, chatMid, savedAt: new Date().toISOString() })),
+          );
           if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
             const readerMids = new Set<string>();
             for (const m of messages) {

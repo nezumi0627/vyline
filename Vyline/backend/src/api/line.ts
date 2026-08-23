@@ -967,7 +967,8 @@ lineRouter.get("/:accountId/read-receipts/:chatMid", async (c) => {
     return c.json({ ok: false, error: "ids query required" }, 400);
   }
 
-  const inflightKey = `${accountId}:${chatMid}`;
+  // 同一チャットでも要求する messageIds が違えば結果も違う。
+  const inflightKey = `${accountId}:${chatMid}:${[...new Set(messageIds)].sort().join(",")}`;
 
   try {
     const existing = readReceiptInflight.get(inflightKey);

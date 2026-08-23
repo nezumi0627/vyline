@@ -483,6 +483,7 @@ export const useStore = create<State>()(
         notificationsEnabled: true,
         betaBlockCheckManual: false,
         betaBlockCheckAuto: false,
+        betaMidSearch: false,
       },
       chats: [],
       messages: [],
@@ -520,7 +521,22 @@ export const useStore = create<State>()(
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
-        set({ accountId: id });
+        if (id !== get().accountId) {
+          // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
+          // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
+          set({
+            accountId: id,
+            chats: [],
+            messages: [],
+            activeChatId: null,
+            memberProfile: null,
+            readWatermarks: {},
+            announcements: {},
+            blockedMids: [],
+          });
+        } else {
+          set({ accountId: id });
+        }
       },
 
       resetAccountData: () =>
@@ -664,6 +680,7 @@ export const useStore = create<State>()(
             notificationsEnabled: true,
             betaBlockCheckManual: false,
             betaBlockCheckAuto: false,
+            betaMidSearch: false,
           },
           sidebarWidth: 360,
           customOrder: [],

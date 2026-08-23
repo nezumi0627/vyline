@@ -63,6 +63,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [analysis/README.md](./analysis/README.md)         | 機能別解析メモ索引                 |
 | [analysis/stickers.md](./analysis/stickers.md)     | スタンプ/絵文字 API 解析           |
 | [analysis/line-emoji.md](./analysis/line-emoji.md) | LINE 絵文字 (sticon) 解析          |
+| [analysis/stability-read-revoke-multi-account.md](./analysis/stability-read-revoke-multi-account.md) | 取消・既読者・複数アカウント・MID検索の安定化 |
 
 ## 検索・参照ツール
 
