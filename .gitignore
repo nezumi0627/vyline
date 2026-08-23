@@ -15,6 +15,7 @@ pnpm-debug.log*
 
 # ── Bun ──────────────────────────────────────────────────────
 .bun/
+.bun-cache/
 
 # ── Data (tokens / E2EE keys — never commit) ─────────────────
 /backend/data/

@@ -1250,12 +1250,12 @@ function InfoSection() {
           </p>
           {updateInfo?.hasUpdate && (
             <a
-              href={updateInfo.url ?? "#"}
+              href={updateInfo.downloadUrl ?? updateInfo.url ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
             >
-              更新あり: v{updateInfo.latestVersion}
+              更新あり: v{updateInfo.latestVersion}（インストーラー）
             </a>
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
