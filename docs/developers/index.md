@@ -18,7 +18,7 @@ git submodule update --init --recursive
 
 - `Vyline/packages/protocol` → [vyline-api](https://github.com/nezumi0627/vyline-api)（LINE プロトコルスタック）
 - `Vyline/packages/plugin` → [vyline-plugin](https://github.com/nezumi0627/vyline-plugin)（plugin-sdk + examples）
-- `Vyline/packages/themes` → [vyline-thme](https://github.com/nezumi0627/vyline-thme)（VyTheme プリセット）
+- `Vyline/packages/themes` → [vyline-theme](https://github.com/nezumi0627/vyline-theme)（VyTheme プリセット）
 - `tools/` → vyline-search ツールキット
 
 3. `bun install && bun run dev` で backend :3001 / frontend :5173
