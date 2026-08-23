@@ -1168,37 +1168,35 @@ function TypeCard({
 }) {
   const hasData = size > 0;
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
+    <div className="flex h-full flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div className="flex flex-1 flex-col p-5">
+        <div className="flex items-start gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
             <div
               className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
             >
               {icon}
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{title}</p>
-              <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{desc}</p>
-            </div>
+            <p className="min-w-0 break-words pt-1 text-sm font-semibold leading-snug">{title}</p>
           </div>
-
-          <div className="shrink-0 text-right">
-            <p className="text-[11px] text-[var(--vy-text-dim)]">使用量</p>
-            <p className="mt-1 font-mono text-base font-semibold">{formatBytes(size)}</p>
-          </div>
+          <p className="shrink-0 text-right font-mono text-base font-semibold leading-snug">
+            {formatBytes(size)}
+          </p>
         </div>
 
-        <div className="mt-4">
+        <div className="mt-6">
+          <div className="mb-2 flex items-end justify-between gap-3 text-xs">
+            <p className="min-w-0 break-words leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>
+            <p className="shrink-0 font-medium text-[var(--vy-text-dim)]">
+              {hasData ? `Vyline 全体の ${formatPercent(ratio * 100)}` : "データなし"}
+            </p>
+          </div>
           <div className="h-2 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
             <div
               className="h-full rounded-full transition-all duration-500"
               style={{ background: accent, width: `${Math.max(ratio * 100, hasData ? 4 : 0)}%` }}
             />
           </div>
-          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            {hasData ? `Vyline 全体の ${formatPercent(ratio * 100)}` : "保存データはありません"}
-          </p>
         </div>
 
         <button
@@ -1206,7 +1204,7 @@ function TypeCard({
           onClick={onDelete}
           disabled={disabled || !hasData}
           className={cn(
-            "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors",
+            "mt-5 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-xs font-medium transition-colors",
             "hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50",
           )}
         >
