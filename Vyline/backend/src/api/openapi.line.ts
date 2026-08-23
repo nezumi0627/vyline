@@ -696,6 +696,23 @@ const routes: Array<[string, Method, OpSpec]> = [
       responses: { "200": jsonRes("ブロック済み配列") },
     },
   ],
+  [
+    "/line/{accountId}/block-verification",
+    "post",
+    {
+      op: "verifyFriendBlockStatus",
+      summary: "友だちのブロック状態確認（Beta）",
+      description:
+        "現在の非公式友だちとLINEのブロックリストを突合する。メッセージ/スタンプ送信による確認は行わない。body.mid指定時は1人のみ、未指定時は全員（2分間隔）。",
+      tags: ["contacts"],
+      params: [acc],
+      requestBody: {
+        required: false,
+        content: { "application/json": { schema: { type: "object" } } },
+      },
+      responses: { "200": jsonRes("ブロック状態配列") },
+    },
+  ],
 
   // ── notes ───────────────────────────────────────────────
   [

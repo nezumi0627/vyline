@@ -13,6 +13,7 @@ import { useLineData } from "../hooks/useLineData.js";
 import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
 import { useStore } from "../lib/store.js";
+import { api } from "../api/client.js";
 
 function eventsPollIntervalMs(): number {
   if (typeof document === "undefined") return 2_000;
@@ -46,10 +47,27 @@ export function useVylineSync(enabled = true) {
   const setScreen = useStore((s) => s.setScreen);
 
   const showUpdateNote = useStore((s) => s.showUpdateNote);
+  const betaBlockCheckAuto = useStore((s) => s.settings.betaBlockCheckAuto);
 
   const line = useLineData({ accountId: enabled ? accountId : null });
 
   const { hiddenSet } = useHiddenChats(enabled ? accountId : null);
+
+  // Beta: one authoritative friend/block-list check at most every two minutes.
+  useEffect(() => {
+    if (!enabled || !accountId || !betaBlockCheckAuto) return;
+    let cancelled = false;
+    const run = () => {
+      if (cancelled) return;
+      void api.line.verifyFriendBlockStatus(accountId).catch(() => undefined);
+    };
+    run();
+    const timer = window.setInterval(run, 120_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, [accountId, betaBlockCheckAuto, enabled]);
 
   const syncingChat = useRef(false);
   const lastHydrateAt = useRef(0);

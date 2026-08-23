@@ -348,7 +348,7 @@ async function ensureGroupE2EEKey(
   const inflight = groupKeyWarmInflight.get(chatMid);
   if (inflight) return inflight;
 
-  const task = (async () => {
+  const task: Promise<void> = (async () => {
     try {
       // 最新鍵だけ先に温める（履歴は prepareGroupKeysForMessages が by-id で補完）
       const last = await client.base.talk.getLastE2EEGroupSharedKey({
@@ -5268,6 +5268,107 @@ export async function fetchBlockedContactIds(accountId: string): Promise<string[
     }
   })();
   blockedInflight.set(accountId, task);
+  return task;
+}
+
+export type BlockVerificationStatus = "blocked" | "not_blocked" | "skipped" | "unknown";
+
+export type BlockVerificationResult = {
+  mid: string;
+  status: BlockVerificationStatus;
+  reason: string;
+  official: boolean;
+};
+
+const BLOCK_VERIFICATION_MIN_INTERVAL_MS = Number(
+  process.env.VYLINE_BLOCK_VERIFICATION_MIN_INTERVAL_MS ?? 120_000,
+);
+const blockVerificationLastRun = new Map<string, number>();
+const blockVerificationInflight = new Map<string, Promise<BlockVerificationResult[]>>();
+
+function isOfficialUser(user: { raw?: unknown }): boolean {
+  const userType = (user.raw as { userType?: unknown } | undefined)?.userType;
+  return userType === 2 || userType === "BOT";
+}
+
+/**
+ * Beta-only local verification. It uses only authoritative friend/block lists;
+ * it never sends a message or probes a contact with a sticker.
+ */
+export async function verifyFriendBlockStatus(
+  accountId: string,
+  targetMid?: string,
+): Promise<BlockVerificationResult[]> {
+  const inflight = blockVerificationInflight.get(accountId);
+  if (inflight) return inflight;
+
+  const now = Date.now();
+  const lastRun = blockVerificationLastRun.get(accountId) ?? 0;
+  if (now - lastRun < BLOCK_VERIFICATION_MIN_INTERVAL_MS) {
+    throw new Error("block verification rate limited; retry after two minutes");
+  }
+
+  // ponytail: one sequential list pass is sufficient; per-contact probing would add API load and no stronger evidence.
+  const task: Promise<BlockVerificationResult[]> = (async () => {
+    blockVerificationLastRun.set(accountId, Date.now());
+    try {
+      const client = requireClient(accountId);
+      const [users, blockedMids] = await Promise.all([
+        client.fetchUsers(),
+        fetchBlockedContactIds(accountId),
+      ]);
+      const blocked = new Set(blockedMids);
+      const friend = users.find((user) => user.mid === targetMid);
+
+      if (targetMid && !friend) {
+        return [
+          { mid: targetMid, status: "skipped", reason: "not a current friend", official: false },
+        ];
+      }
+
+      if (targetMid && friend && isOfficialUser(friend)) {
+        return [
+          {
+            mid: targetMid,
+            status: "skipped",
+            reason: "official account is excluded",
+            official: true,
+          },
+        ];
+      }
+
+      const candidates = targetMid
+        ? friend && !isOfficialUser(friend)
+          ? [friend]
+          : []
+        : users.filter((user) => !isOfficialUser(user));
+      return candidates.map(
+        (user): BlockVerificationResult => ({
+          mid: user.mid,
+          status: blocked.has(user.mid) ? "blocked" : "not_blocked",
+          reason: blocked.has(user.mid)
+            ? "present in LINE blocked contact list"
+            : "not present in LINE blocked contact list",
+          official: false,
+        }),
+      );
+    } catch (error) {
+      if (targetMid) {
+        return [
+          {
+            mid: targetMid,
+            status: "unknown",
+            reason: error instanceof Error ? error.message : String(error),
+            official: false,
+          },
+        ];
+      }
+      throw error;
+    } finally {
+      blockVerificationInflight.delete(accountId);
+    }
+  })();
+  blockVerificationInflight.set(accountId, task);
   return task;
 }
 

@@ -178,33 +178,6 @@ function SidebarBase() {
     return sortChats(list, sort, messages, customOrder);
   }, [chats, tab, query, messages, sort, customOrder, liveOrder]);
 
-  // --- チャット一覧の固定高ウィンドウリング（全件描画による DOM/listener 膨張を防ぐ） ---
-  const listRef = useRef<HTMLDivElement>(null);
-  const [rowH, setRowH] = useState(70); // ChatRow 概算: avatar48 + py-2.5×2 + mb-0.5
-  const [win, setWin] = useState({ start: 0, end: 24 });
-  const recomputeWin = useCallback(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const start = Math.max(0, Math.floor(el.scrollTop / rowH) - 10);
-    const end = Math.min(filtered.length, Math.ceil((el.scrollTop + el.clientHeight) / rowH) + 10);
-    setWin((p) => (p.start === start && p.end === end ? p : { start, end }));
-  }, [filtered.length, rowH]);
-
-  // 実測行高で補正（フォントメトリ差分の累積ドリフト防止）
-  useEffect(() => {
-    const row = listRef.current?.querySelector<HTMLElement>("[data-vy-chat-row]");
-    const h = row?.offsetHeight ?? 0;
-    if (h > 0 && Math.abs(h - rowH) > 1) setRowH(h);
-  }, [win.start, rowH]);
-
-  useEffect(() => {
-    recomputeWin();
-  }, [recomputeWin]);
-
-  // ウィンドウ範囲（filtered 縮小時の空描画防止にクランプ）
-  const winStart = Math.min(win.start, filtered.length);
-  const winEnd = Math.max(winStart, Math.min(win.end, filtered.length));
-
   useEffect(() => {
     liveOrderRef.current = liveOrder;
   }, [liveOrder]);
@@ -523,8 +496,7 @@ function SidebarBase() {
           </div>
         ) : (
           <>
-            {winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
-            {filtered.slice(winStart, winEnd).map((chat) => (
+            {filtered.map((chat) => (
               <ChatRow
                 key={chat.id}
                 chat={chat}
@@ -550,9 +522,6 @@ function SidebarBase() {
                 preview={previewMap.get(chat.id) ?? null}
               />
             ))}
-            {filtered.length - winEnd > 0 && (
-              <div style={{ height: (filtered.length - winEnd) * rowH }} aria-hidden />
-            )}
           </>
         )}
       </div>
@@ -682,12 +651,13 @@ const ChatRow = memo(function ChatRow({
         {blocked && (
           <span
             title="ブロック済み"
+            aria-label="ブロック済み"
             className={cn(
-              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[0.55rem] font-bold text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
-              active ? "bg-[var(--vy-danger)]" : "bg-[var(--vy-danger)]",
+              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
+              "bg-[var(--vy-danger)]",
             )}
           >
-            !
+            <IconBlock size={10} />
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -711,6 +681,7 @@ const ChatRow = memo(function ChatRow({
             {chat.isOfficial && <OfficialBadge />}
             {chat.left && (
               <span
+                title={chat.type === "friend" ? "アカウントは削除済みです" : "退出済み"}
                 className={cn(
                   "shrink-0 rounded px-1 py-0.5 text-[0.65rem] font-medium",
                   active
@@ -718,7 +689,7 @@ const ChatRow = memo(function ChatRow({
                     : "bg-[color-mix(in_oklab,var(--vy-danger)_16%,transparent)] text-[var(--vy-danger)]",
                 )}
               >
-                退出
+                {chat.type === "friend" ? "削除済み" : "退出済み"}
               </span>
             )}
             {preview && preview.time > 0 && (
