@@ -13,7 +13,7 @@
 - 対応: `sendMediaBatch` plain 経路を `uploadObjTalkBatch`（reqseq 連番）へ変更
   → 2〜3 枚送信で履歴に IMAGE が出ることを実機確認
 - 応答ヘッダ `x-obs-oid`（== 生成メッセージ ID の実測）をキーに送信バイトを
-  ローカル media cache に置き、自クライアントの即表示を実現
+  サーバー側の永続メディアストレージに置き、自クライアントの再表示を実現
   （reqseq 生成メッセージは contentMetadata に OID を持たないため）
 
 ## 未解決

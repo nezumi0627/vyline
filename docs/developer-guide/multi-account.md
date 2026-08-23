@@ -1,6 +1,6 @@
 # Multi Account Design（複数アカウント分離）
 
-最終更新: 2026-08-22
+最終更新: 2026-08-24
 
 ## 現状（実装済み）
 
@@ -12,7 +12,7 @@ Vyline は `accountId` をキーにデータを分離している。実体はフ
 | チャット / メッセージ DB | `data/chatdb-{accountId}.json` | ✅ ファイル単位 |
 | プロフィール等キャッシュ | `data/vyline-cache-{accountId}.json` | ✅ |
 | 既読レンジ | `data/vyline-readRanges-{accountId}.json` | ✅ |
-| メディアキャッシュ | `data/media-cache/{accountId}/...` | ✅ ディレクトリ単位 |
+| 保存メディア | `storage/saved-media/{type}/...`（accountId + chatMid + messageId をハッシュ化） | ✅ キー単位 |
 | メッセージ詳細ログ | `data/logs/message-log-{accountId}.jsonl` | ✅ |
 | バックアップ | `data/backups/` (スナップショットに accountId を記録) | ✅ メタで分離 |
 | プラグイン有効状態 | `data/plugin-states.json` (`{ [accountId]: ... }`) | ✅ key 単位 |

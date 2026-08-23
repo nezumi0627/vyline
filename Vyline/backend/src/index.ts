@@ -23,7 +23,7 @@ import { initVylineProfile } from "./vyline/profileBridge.js";
 import { warmAccountCache } from "./storage/chatStore.js";
 import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
-import { ensureMediaCacheDir } from "./storage/mediaCache.js";
+import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const HOST = process.env.VYLINE_HOST ?? "127.0.0.1";
@@ -231,7 +231,7 @@ process.on("unhandledRejection", (reason) => {
 
 await initVylineProfile();
 void ensureCdnCacheDir().catch(() => undefined);
-void ensureMediaCacheDir().catch(() => undefined);
+void ensureMediaStorageDir().catch(() => undefined);
 
 restoreAllSessions()
   .then(async () => {

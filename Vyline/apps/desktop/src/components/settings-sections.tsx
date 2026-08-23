@@ -424,16 +424,6 @@ export function SettingsSections() {
                         label="吹き出しのしっぽ"
                       />
                     </Row>
-                    <Row
-                      title="カスタムカーソル"
-                      desc="Vyline 専用のなめらかなポインターを有効にします（PC のみ）"
-                    >
-                      <Toggle
-                        checked={settings.customCursor}
-                        onChange={(v) => updateSetting("customCursor", v)}
-                        label="カスタムカーソル"
-                      />
-                    </Row>
                     <div className="py-3.5">
                       <p className="mb-2 text-sm font-medium">トークリストの並び順</p>
                       <div className="flex gap-2">

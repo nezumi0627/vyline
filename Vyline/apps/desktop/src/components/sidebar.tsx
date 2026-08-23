@@ -178,6 +178,37 @@ function SidebarBase() {
     return sortChats(list, sort, messages, customOrder);
   }, [chats, tab, query, messages, sort, customOrder, liveOrder]);
 
+  // --- チャット一覧の固定高ウィンドウリング（全件描画による DOM/listener 膨張を防ぐ） ---
+  const listRef = useRef<HTMLDivElement>(null);
+  const [rowH, setRowH] = useState(70); // ChatRow 概算: avatar48 + py-2.5×2 + mb-0.5
+  const [win, setWin] = useState({ start: 0, end: 24 });
+  const [hasMeasured, setHasMeasured] = useState(false);
+  const recomputeWin = useCallback(() => {
+    const el = listRef.current;
+    if (!el) return;
+    const start = Math.max(0, Math.floor(el.scrollTop / rowH) - 10);
+    const end = Math.min(filtered.length, Math.ceil((el.scrollTop + el.clientHeight) / rowH) + 10);
+    setWin((p) => (p.start === start && p.end === end ? p : { start, end }));
+  }, [filtered.length, rowH]);
+
+  // 実測行高で補正（フォントメトリ差分の累積ドリフト防止）
+  useEffect(() => {
+    const row = listRef.current?.querySelector<HTMLElement>("[data-vy-chat-row]");
+    const h = row?.offsetHeight ?? 0;
+    if (h > 0) {
+      if (Math.abs(h - rowH) > 1) setRowH(h);
+      if (!hasMeasured) setHasMeasured(true);
+    }
+  }, [win.start, rowH, hasMeasured]);
+
+  useEffect(() => {
+    recomputeWin();
+  }, [recomputeWin]);
+
+  // ウィンドウ範囲（filtered 縮小時の空描画防止にクランプ）
+  const winStart = Math.min(win.start, filtered.length);
+  const winEnd = Math.max(winStart, Math.min(win.end, filtered.length));
+
   useEffect(() => {
     liveOrderRef.current = liveOrder;
   }, [liveOrder]);
@@ -484,7 +515,11 @@ function SidebarBase() {
         <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
       )}
 
-      <div className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
+      <div
+        ref={listRef}
+        onScroll={recomputeWin}
+        className="vy-scroll flex-1 overflow-y-auto px-2 pb-3"
+      >
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]">
@@ -496,7 +531,8 @@ function SidebarBase() {
           </div>
         ) : (
           <>
-            {filtered.map((chat) => (
+            {hasMeasured && winStart > 0 && <div style={{ height: winStart * rowH }} aria-hidden />}
+            {filtered.slice(winStart, winEnd).map((chat) => (
               <ChatRow
                 key={chat.id}
                 chat={chat}
@@ -522,6 +558,9 @@ function SidebarBase() {
                 preview={previewMap.get(chat.id) ?? null}
               />
             ))}
+            {hasMeasured && filtered.length - winEnd > 0 && (
+              <div style={{ height: (filtered.length - winEnd) * rowH }} aria-hidden />
+            )}
           </>
         )}
       </div>

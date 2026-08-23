@@ -28,7 +28,6 @@ const map: Array<[RegExp | string, string]> = [
   [/NEZU_THEME_PRESETS/g, "VYLINE_THEME_PRESETS"],
   [/NezuThemePanel/g, "VyThemePanel"],
   [/NezuTheme/g, "VyTheme"],
-  [/NezuCursor/g, "VylineCursor"],
   [/NezuClientProfile/g, "VylineClientProfile"],
   [/NezuClientDb/g, "VylineClientDb"],
   [/NezuMem/g, "VylineMem"],
@@ -84,11 +83,6 @@ const map: Array<[RegExp | string, string]> = [
   [/\/nezu\/cache/g, "/vyline/cache"],
   [/\/nezu\/warm/g, "/vyline/warm"],
   [/\/debug\/nezu\//g, "/debug/vyline/"],
-  // CSS classes
-  [/nezu-cursor-on/g, "vyline-cursor-on"],
-  [/nezu-cursor-layer/g, "vyline-cursor-layer"],
-  [/nezu-cursor-dot/g, "vyline-cursor-dot"],
-  [/nezu-cursor-ring/g, "vyline-cursor-ring"],
   // log channels / labels
   [/childLogger\("NezuCache"\)/g, 'childLogger("VylineCache")'],
   [/childLogger\("NezuStorage"\)/g, 'childLogger("VylineStorage")'],
@@ -147,7 +141,6 @@ const map: Array<[RegExp | string, string]> = [
   [/([^@a-z])nezuline([^a-z])/g, "$1protocol$2"],
   // remaining file-path imports
   [/\.\.\/lib\/nezu-cache/g, "../lib/vyline-cache"],
-  [/"@\/components\/nezu-cursor/g, '"@/components/vyline-cursor'],
   [/"@\/components\/nezu-theme-panel/g, '"@/components/vyline-theme-panel'],
   [/nezu-cache\.js/g, "vyline-cache.js"],
   [/nezu-cache"/g, "vyline-cache"],
@@ -182,7 +175,7 @@ const all = [...tracked, ...untracked].filter((f) => {
 
 let touched = 0;
 for (const file of all) {
-  const abs = "E:/projects/Vyline/" + file;
+  const abs = `E:/projects/Vyline/${file}`;
   let content: string;
   try {
     content = readFileSync(abs, "utf8");

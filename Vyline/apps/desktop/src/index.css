@@ -259,47 +259,6 @@
   border-radius: var(--vy-message-radius, 14px);
 }
 
-/* --- VylineCursor --- */
-html.vyline-cursor-on,
-html.vyline-cursor-on * {
-  cursor: none !important;
-}
-.vyline-cursor-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-.vyline-cursor-dot {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  will-change: transform;
-  pointer-events: none;
-  transition: scale 80ms ease, opacity 120ms ease;
-  box-shadow: 0 0 8px color-mix(in oklab, var(--vy-accent) 50%, transparent);
-}
-.vyline-cursor-ring {
-  position: fixed;
-  top: 0;
-  left: 0;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in oklab, var(--vy-accent) 70%, transparent);
-  will-change: transform, width, height;
-  pointer-events: none;
-  transition:
-    width 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 160ms ease,
-    border-color 160ms ease,
-    scale 80ms ease,
-    opacity 120ms ease;
-}
-
 /* --- Typography / density / radius (settings) --- */
 :root {
   --vy-font-scale: 1;

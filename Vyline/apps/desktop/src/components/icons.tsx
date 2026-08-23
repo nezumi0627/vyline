@@ -273,12 +273,6 @@ export const IconGrip = (p: IconProps) => (
   </svg>
 );
 
-export const IconCursor = (p: IconProps) => (
-  <svg {...base(p)}>
-    <path d="M5 3l6.5 16 2-6.5 6.5-2Z" />
-  </svg>
-);
-
 export const IconArrowUp = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M12 20V5m0 0-6 6m6-6 6 6" />

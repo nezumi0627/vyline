@@ -1,10 +1,10 @@
 /**
- * storage/mediaCache.ts — メッセージ添付メディア（画像/動画/音声/ファイル）の
- * サーバー側ディスクキャッシュ。
+ * storage/mediaStorage.ts — メッセージ添付メディア（画像/動画/音声/ファイル）の
+ * サーバー側永続ストレージ。
  *
- * LINE OBS / 履歴 RPC から取得したバイト列を data/media-cache/ に保存し、
- * 以後は再取得せずディスクから返す。スマホ・端末を乗り換えても履歴の画像が
- * 消えないようにするための永続キャッシュ。E2EE で復号済みの平文を保持する。
+ * LINE OBS / 履歴 RPC から取得したバイト列を storage/saved-media/ に保存し、
+ * 以後は再取得せずディスクから返す。送信元バイト列と E2EE 復号済みの平文を
+ * 保持するため、CDN やプロフィール画像の再取得可能なキャッシュとは分離する。
  *
  * キー: accountId + chatMid + messageId（メッセージ単位）
  */
@@ -15,8 +15,9 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { VYLINE_SAVED_MEDIA_DIR } from "./vylineStorageInfo.js";
 
-const log = childLogger("media-cache");
+const log = childLogger("media-storage");
 
 async function dirSize(target: string): Promise<number> {
   if (!existsSync(target)) return 0;
@@ -44,22 +45,22 @@ async function dirSize(target: string): Promise<number> {
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ROOT = join(_dir, "../../data/media-cache");
-const CACHE_ROOT = process.env.VYLINE_MEDIA_CACHE_DIR ?? join(_dir, "../../storage/saved-media");
+const STORAGE_ROOT = VYLINE_SAVED_MEDIA_DIR;
 
 const TYPE_ROOTS = {
-  image: join(CACHE_ROOT, "images"),
-  video: join(CACHE_ROOT, "videos"),
-  audio: join(CACHE_ROOT, "audio"),
-  file: join(CACHE_ROOT, "files"),
+  image: join(STORAGE_ROOT, "images"),
+  video: join(STORAGE_ROOT, "videos"),
+  audio: join(STORAGE_ROOT, "audio"),
+  file: join(STORAGE_ROOT, "files"),
 } as const;
 
 try {
-  if (!existsSync(CACHE_ROOT) && existsSync(LEGACY_ROOT)) {
+  if (!existsSync(STORAGE_ROOT) && existsSync(LEGACY_ROOT)) {
     const { rename } = await import("node:fs/promises");
-    await mkdir(dirname(CACHE_ROOT), { recursive: true });
-    await rename(LEGACY_ROOT, CACHE_ROOT);
+    await mkdir(dirname(STORAGE_ROOT), { recursive: true });
+    await rename(LEGACY_ROOT, STORAGE_ROOT);
   }
-  await mkdir(CACHE_ROOT, { recursive: true });
+  await mkdir(STORAGE_ROOT, { recursive: true });
   for (const dir of Object.values(TYPE_ROOTS)) {
     await mkdir(dir, { recursive: true });
   }
@@ -112,7 +113,7 @@ function diskPath(accountId: string, chatMid: string, messageId: string, ct: str
   return join(root, h.slice(0, 2), `${h}${ext}`);
 }
 
-export async function readMediaCache(
+export async function readMediaStorage(
   accountId: string,
   chatMid: string,
   messageId: string,
@@ -124,7 +125,7 @@ export async function readMediaCache(
   }
   const h = key(accountId, chatMid, messageId);
 
-  const searchRoots = [CACHE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)];
+  const searchRoots = [STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)];
   for (const root of searchRoots) {
     if (root === LEGACY_ROOT && existsSync(root) === false) continue;
     const dir = join(root, h.slice(0, 2));
@@ -150,7 +151,7 @@ function remember(memKey: string, buf: Uint8Array, contentType: string): void {
   memory.set(memKey, { buf, contentType, at: Date.now() });
 }
 
-export async function writeMediaCache(
+export async function writeMediaStorage(
   accountId: string,
   chatMid: string,
   messageId: string,
@@ -163,20 +164,20 @@ export async function writeMediaCache(
     await writeFile(path, buf);
     remember(`${accountId}:${chatMid}:${messageId}`, buf, contentType);
   } catch (err) {
-    log.debug({ err, messageId }, "media cache write failed");
+    log.warn({ err, messageId }, "media storage write failed");
   }
 }
 
-export async function ensureMediaCacheDir(): Promise<void> {
-  await mkdir(CACHE_ROOT, { recursive: true });
+export async function ensureMediaStorageDir(): Promise<void> {
+  await mkdir(STORAGE_ROOT, { recursive: true });
 }
 
-export async function clearMediaCache(): Promise<number> {
+export async function clearMediaStorage(): Promise<number> {
   memory.clear();
-  return clearDir(CACHE_ROOT);
+  return clearDir(STORAGE_ROOT);
 }
 
-export async function clearMediaCacheType(
+export async function clearMediaStorageType(
   type: "image" | "video" | "audio" | "file",
 ): Promise<number> {
   const root = TYPE_ROOTS[type];
@@ -184,11 +185,11 @@ export async function clearMediaCacheType(
   return clearDir(root);
 }
 
-export async function getMediaCacheSize(): Promise<number> {
-  return dirSize(CACHE_ROOT);
+export async function getMediaStorageSize(): Promise<number> {
+  return dirSize(STORAGE_ROOT);
 }
 
-export async function getMediaCacheSizeByType(): Promise<{
+export async function getMediaStorageSizeByType(): Promise<{
   image: number;
   video: number;
   audio: number;
@@ -223,9 +224,9 @@ async function clearDir(root: string): Promise<number> {
       }
     }
     const { logger } = await import("../logger.js");
-    logger.info({ removed, root }, "media cache cleared");
+    logger.info({ removed, root }, "media storage cleared");
   } catch (err) {
-    log.debug({ err, root }, "media cache clear failed");
+    log.debug({ err, root }, "media storage clear failed");
   }
   return removed;
 }

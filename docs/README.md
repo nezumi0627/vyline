@@ -1,6 +1,6 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-22
+最終更新: 2026-08-24
 
 新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
@@ -10,6 +10,8 @@
 Desktop の設定には、全体の利用規約同意とは別に機能単位の追加同意を求める「ベータ機能」タブがあります。
 同意ログとベータ機能の処理結果は端末内で扱い、メッセージ本文や確認結果を Vyline の外部サービスへ送信しません。
 LINE との通常の通信は発生します。これは法的助言ではありません。
+
+ドキュメントの形式・更新日・廃止判断は **[DOCS_FORMAT.md](./DOCS_FORMAT.md)** に統一しています。
 
 ---
 
@@ -88,7 +90,6 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | -------------------------------------------------------------------- | ---------------------------- |
 | [tools/find-native-symbol.md](./tools/find-native-symbol.md)         | Desktop 内 RPC 名検索        |
 | [tools/desktop-delta.md](./tools/desktop-delta.md)                   | Desktop 更新時の差分調査     |
-| [tools/focus-recovered-source.md](./tools/focus-recovered-source.md) | 復元ソースのピンポイント表示 |
 
 ---
 
