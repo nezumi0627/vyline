@@ -163,7 +163,7 @@ paths:
   /accounts/{accountId}/chats:
     get:
       summary: チャット一覧取得
-      operationId: listChats
+      operationId: getMessageBoxes
       security:
         - bearerAuth: []
       parameters:
@@ -206,7 +206,7 @@ paths:
   /accounts/{accountId}/chats/{chatMid}/messages:
     get:
       summary: メッセージ履歴取得
-      operationId: getMessages
+      operationId: getPreviousMessagesV2WithRequest
       security:
         - bearerAuth: []
       parameters:
@@ -320,7 +320,7 @@ paths:
   /accounts/{accountId}/events/poll:
     get:
       summary: イベントポーリング（Talk Push バッファから取得）
-      operationId: pollEvents
+      operationId: fetchOperations
       security:
         - bearerAuth: []
       parameters:

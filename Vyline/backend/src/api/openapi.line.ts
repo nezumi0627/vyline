@@ -3,9 +3,15 @@
  *
  * Swagger UI は GET /docs および /swagger で提供される。
  * 公開 REST API (/v1) の仕様は openapi.yaml を参照（/openapi/v1.yaml で提供）。
+ *
+ * operationId は可能な限り LINE プロトコルの関数名（RPC_DICTIONARY の
+ * canonicalName、linejs 相当）を尊重する。LINE に対応 RPC が無いものは
+ * Vyline 拡張として camelCase で定義する。
  */
 
-const accountParam = {
+// ── 共通フラグメント ────────────────────────────────────────
+
+const acc = {
   name: "accountId",
   in: "path",
   required: true,
@@ -13,13 +19,22 @@ const accountParam = {
   description: "Vyline アカウント ID（例: main）",
 } as const;
 
-const chatParam = {
+const chatMid = {
   name: "chatMid",
   in: "path",
   required: true,
   schema: { type: "string" },
   description: "チャット MID (u.../c.../r...)",
 } as const;
+
+const pathParam = (name: string, description: string) =>
+  ({
+    name,
+    in: "path",
+    required: true,
+    schema: { type: "string" },
+    description,
+  }) as const;
 
 const ok = {
   type: "object",
@@ -31,6 +46,1362 @@ const error = {
   properties: { ok: { type: "boolean", enum: [false] }, error: { type: "string" } },
 } as const;
 
+const jsonRes = (description: string) => ({
+  description,
+  content: { "application/json": { schema: { type: "object" } } },
+});
+
+const okRes = () => ({
+  description: "結果",
+  content: { "application/json": { schema: ok } },
+});
+
+const body = (required: string[], properties: Record<string, unknown>, description?: string) => ({
+  required: true,
+  description,
+  content: {
+    "application/json": {
+      schema: { type: "object", required, properties },
+    },
+  },
+});
+
+// ── 操作テーブル ────────────────────────────────────────────
+// [routePath, method, tag, spec]
+// operationId は LINE 関数名準拠（Vyline 拡張は description に明記）
+
+type Method = "get" | "post" | "put" | "delete";
+interface OpSpec {
+  /** operationId — LINE 関数名（canonicalName）準拠 */
+  op: string;
+  summary: string;
+  description?: string;
+  tags: string[];
+  params?: readonly object[];
+  requestBody?: Record<string, unknown>;
+  responses?: Record<string, unknown>;
+}
+
+const routes: Array<[string, Method, OpSpec]> = [
+  // ── session ─────────────────────────────────────────────
+  [
+    "/healthz",
+    "get",
+    { op: "healthz", summary: "ヘルスチェック", tags: ["session"], responses: { "200": okRes() } },
+  ],
+  [
+    "/auth/accounts",
+    "get",
+    {
+      op: "listAccounts",
+      summary: "登録済みアカウント一覧",
+      tags: ["session"],
+      responses: { "200": jsonRes("アカウント配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/profile",
+    "get",
+    {
+      op: "getProfile",
+      summary: "自分のプロフィール取得",
+      description: "LINE: TalkService.getProfile",
+      tags: ["session"],
+      params: [acc],
+      responses: {
+        "200": jsonRes("プロフィール"),
+        "401": { description: "未ログイン", content: { "application/json": { schema: error } } },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/profile/image",
+    "post",
+    {
+      op: "updateProfileImage",
+      summary: "プロフィール画像更新",
+      description: "LINE: updateProfileAttributes + OBS uploadMediaByE2EE",
+      tags: ["session"],
+      params: [acc],
+      requestBody: body(["dataBase64"], { dataBase64: { type: "string" } }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/profile/background",
+    "post",
+    {
+      op: "updateProfileBackground",
+      summary: "プロフィール背景画像更新",
+      tags: ["session"],
+      params: [acc],
+      requestBody: body(["dataBase64"], { dataBase64: { type: "string" } }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/bootstrap",
+    "get",
+    {
+      op: "bootstrap",
+      summary: "起動時一括 hydrate（チャット + 直近メッセージ）",
+      description: "Vyline 拡張。getAllChatMids + getPreviousMessagesV2WithRequest の複合",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("BootstrapPayload") },
+    },
+  ],
+  [
+    "/line/{accountId}/events/poll",
+    "get",
+    {
+      op: "fetchOperations",
+      summary: "イベントポーリング（Talk Push バッファから取得）",
+      description: "Vyline 拡張。LINE long-polling (fetchOperations) 相当の差分取得",
+      tags: ["session"],
+      params: [acc],
+      responses: { "200": jsonRes("イベント配列") },
+    },
+  ],
+
+  // ── chats ───────────────────────────────────────────────
+  [
+    "/line/{accountId}/chats",
+    "get",
+    {
+      op: "getMessageBoxes",
+      summary: "チャット一覧取得",
+      description: "LINE: TalkService.getMessageBoxes",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("Chat 配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/create-group",
+    "post",
+    {
+      op: "createChat",
+      summary: "グループ作成",
+      description: "LINE: createChatV2",
+      tags: ["chats"],
+      params: [acc],
+      requestBody: body(
+        ["name", "memberMids"],
+        {
+          name: { type: "string" },
+          memberMids: { type: "array", items: { type: "string" } },
+          forbidUnbanOption: { type: "boolean" },
+        },
+        "forbidUnbanOption はグループ作成禁止解除オプション（自己責任）",
+      ),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}/members",
+    "get",
+    {
+      op: "getChatMembers",
+      summary: "チャットメンバー一覧取得",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("メンバー配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}/invite",
+    "post",
+    {
+      op: "inviteIntoChat",
+      summary: "グループ招待",
+      description: "LINE: inviteIntoChat / inviteIntoGroup",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["memberMids"], {
+        memberMids: { type: "array", items: { type: "string" } },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}/leave",
+    "post",
+    {
+      op: "leaveChat",
+      summary: "グループ退室",
+      description: "LINE: leaveGroup / leaveRoom",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}/picture",
+    "post",
+    {
+      op: "updateChatPicture",
+      summary: "グループ画像更新",
+      description: "LINE: updateChat (PICTURE_STATUS) + OBS アップロード",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body([], { dataBase64: { type: "string" } }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/export/{chatMid}",
+    "get",
+    {
+      op: "exportChat",
+      summary: "チャットエクスポート",
+      description: "Vyline 拡張",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("エクスポートデータ") },
+    },
+  ],
+
+  // ── messages ────────────────────────────────────────────
+  [
+    "/line/{accountId}/messages/{chatMid}",
+    "get",
+    {
+      op: "getPreviousMessagesV2WithRequest",
+      summary: "メッセージ履歴取得（local-first + サーバ同期）",
+      description: "LINE: TalkService.getPreviousMessagesV2WithRequest",
+      tags: ["messages"],
+      params: [
+        acc,
+        chatMid,
+        { name: "limit", in: "query", schema: { type: "integer", default: 30, maximum: 100 } },
+        { name: "force", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+        { name: "local", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+        { name: "beforeMessageId", in: "query", schema: { type: "string" } },
+      ],
+      responses: {
+        "200": {
+          description: "Message 配列（降順）",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  messages: {
+                    type: "array",
+                    items: { $ref: "#/components/schemas/Message" },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/messages/{chatMid}/delta",
+    "get",
+    {
+      op: "getMessageDelta",
+      summary: "メッセージ差分同期",
+      description: "Vyline 拡張。visibility change 時の手動差分同期用",
+      tags: ["messages"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("差分") },
+    },
+  ],
+  [
+    "/line/{accountId}/messages/{chatMid}/{messageId}/history",
+    "get",
+    {
+      op: "getMessageHistory",
+      summary: "単一メッセージの詳細履歴",
+      description: "Vyline 拡張",
+      tags: ["messages"],
+      params: [acc, chatMid, pathParam("messageId", "メッセージ ID")],
+      responses: { "200": jsonRes("履歴") },
+    },
+  ],
+  [
+    "/line/{accountId}/send",
+    "post",
+    {
+      op: "sendMessage",
+      summary: "テキスト送信",
+      description: "LINE: TalkService.sendMessage（メンションは contentMetadata.MENTION）",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["chatMid", "text"], {
+        chatMid: { type: "string" },
+        text: { type: "string" },
+        relatedMessageId: { type: "string" },
+        mute: { type: "boolean" },
+      }),
+      responses: { "200": jsonRes("送信結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/edit",
+    "post",
+    {
+      op: "editMessage",
+      summary: "メッセージ編集",
+      description: "Vyline 拡張",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["chatMid", "messageId", "text"], {
+        chatMid: { type: "string" },
+        messageId: { type: "string" },
+        text: { type: "string" },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/edit-notice/{chatMid}",
+    "get",
+    {
+      op: "getEditNotice",
+      summary: "編集通知取得",
+      description: "Vyline 拡張",
+      tags: ["messages"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("編集通知") },
+    },
+  ],
+  [
+    "/line/{accountId}/unsend",
+    "post",
+    {
+      op: "unsendMessage",
+      summary: "メッセージ送信取り消し",
+      description: "LINE: TalkService.unsendMessage",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["messageId"], { messageId: { type: "string" } }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/read",
+    "post",
+    {
+      op: "sendChatChecked",
+      summary: "既読送信",
+      description: "LINE: TalkService.sendChatChecked",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["chatMid", "messageId"], {
+        chatMid: { type: "string" },
+        messageId: { type: "string" },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/read-receipts/{chatMid}",
+    "get",
+    {
+      op: "getMessageReadRange",
+      summary: "既読情報取得",
+      description: "LINE: TalkService.getMessageReadRange",
+      tags: ["messages"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("既読範囲") },
+    },
+  ],
+  [
+    "/line/{accountId}/messages/{messageId}/react",
+    "post",
+    {
+      op: "reactToMessage",
+      summary: "リアクション送信",
+      description: "Vyline 拡張。UNDO で取り消し",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["reaction"], {
+        reaction: {
+          type: "string",
+          enum: ["NICE", "LOVE", "FUN", "AMAZING", "SAD", "OMG", "UNDO"],
+        },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/index",
+    "post",
+    {
+      op: "reindexMessages",
+      summary: "メッセージ索引再構築",
+      description: "Vyline 拡張",
+      tags: ["messages"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+
+  // ── media ───────────────────────────────────────────────
+  [
+    "/line/{accountId}/media/{chatMid}/{messageId}",
+    "get",
+    {
+      op: "downloadMediaByE2EE",
+      summary: "メディア取得（キャッシュ → OBS → RPC フォールバック）",
+      description: "LINE OBS: downloadMediaByE2EE",
+      tags: ["media"],
+      params: [
+        acc,
+        chatMid,
+        pathParam("messageId", "メッセージ ID"),
+        { name: "preview", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+      ],
+      responses: {
+        "200": {
+          description: "バイナリ",
+          content: { "*/*": { schema: { type: "string", format: "binary" } } },
+        },
+        "401": { description: "未ログイン" },
+        "422": { description: "取得不能（期限切れ等）" },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/send-media",
+    "post",
+    {
+      op: "sendMedia",
+      summary: "単体メディア送信",
+      description: "LINE OBS: uploadMediaByE2EE / uploadObjectForService",
+      tags: ["media"],
+      params: [acc],
+      requestBody: body(["chatMid", "dataBase64"], {
+        chatMid: { type: "string" },
+        dataBase64: { type: "string", description: "最大 ~12MB base64" },
+        mimeType: { type: "string" },
+        filename: { type: "string" },
+        mediaType: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/send-media-batch",
+    "post",
+    {
+      op: "sendMediaBatch",
+      summary: "複数メディアの一括送信",
+      description:
+        "各アイテムは個別の IMAGE メッセージとして送信される。" +
+        "plain 経路では OBS /r/talk/m/reqseq 連番アップロードにより LINE サーバ側がメッセージを生成する。",
+      tags: ["media"],
+      params: [acc],
+      requestBody: {
+        required: true,
+        content: {
+          "application/json": { schema: { $ref: "#/components/schemas/MediaBatchRequest" } },
+        },
+      },
+      responses: {
+        "200": {
+          description: "送信完了",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  ok: { type: "boolean" },
+                  count: { type: "integer", description: "送信できたアイテム数" },
+                },
+              },
+            },
+          },
+        },
+        "400": {
+          description: "chatMid/items 不備",
+          content: { "application/json": { schema: error } },
+        },
+        "413": { description: "ファイル超過", content: { "application/json": { schema: error } } },
+      },
+    },
+  ],
+
+  // ── stickers ────────────────────────────────────────────
+  [
+    "/line/{accountId}/stickers",
+    "get",
+    {
+      op: "getOwnedStickers",
+      summary: "所持スタンプ一覧",
+      tags: ["stickers"],
+      params: [acc],
+      responses: { "200": jsonRes("スタンプパック配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/send-sticker",
+    "post",
+    {
+      op: "sendSticker",
+      summary: "スタンプ送信",
+      description: "LINE: sendMessage (contentType STICKER)",
+      tags: ["stickers"],
+      params: [acc],
+      requestBody: body(["chatMid"], {
+        chatMid: { type: "string" },
+        packageId: { type: "string" },
+        stickerId: { type: "string" },
+      }),
+      responses: { "200": jsonRes("結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/send-emoji",
+    "post",
+    {
+      op: "sendEmoji",
+      summary: "LINE 絵文字送信",
+      description: "LINE: sendMessage (contentType EMOJI / productIds)",
+      tags: ["stickers"],
+      params: [acc],
+      requestBody: body(["chatMid"], {
+        chatMid: { type: "string" },
+        emoji: { type: "object", description: "productId / emojiId 等" },
+        relatedMessageId: { type: "string" },
+      }),
+      responses: { "200": jsonRes("結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/combination-stickers/can-create",
+    "post",
+    {
+      op: "canCreateCombinationSticker",
+      summary: "コンビネーションスタンプ作成可否",
+      tags: ["stickers"],
+      params: [acc],
+      responses: { "200": jsonRes("可否") },
+    },
+  ],
+  [
+    "/line/{accountId}/combination-stickers/available",
+    "post",
+    {
+      op: "getAvailableCombinationStickers",
+      summary: "利用可能スタンプ一覧",
+      tags: ["stickers"],
+      params: [acc],
+      responses: { "200": jsonRes("スタンプ配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/combination-stickers",
+    "post",
+    {
+      op: "createCombinationSticker",
+      summary: "コンビネーションスタンプ作成",
+      tags: ["stickers"],
+      params: [acc],
+      requestBody: body(["items"], { items: { type: "array", items: { type: "object" } } }),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/send-combination-sticker",
+    "post",
+    {
+      op: "sendCombinationSticker",
+      summary: "コンビネーションスタンプ送信",
+      tags: ["stickers"],
+      params: [acc],
+      requestBody: body(["chatMid", "items"], {
+        chatMid: { type: "string" },
+        items: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              packageId: { type: "string" },
+              stickerId: { type: "string" },
+              x: { type: "number" },
+              y: { type: "number" },
+              size: { type: "number" },
+            },
+          },
+        },
+      }),
+      responses: { "200": jsonRes("結果") },
+    },
+  ],
+
+  // ── contacts ────────────────────────────────────────────
+  [
+    "/line/{accountId}/contact/{targetMid}",
+    "get",
+    {
+      op: "getContact",
+      summary: "連絡先プロフィール取得",
+      description: "LINE: getContactsV3（u*）/ getChat（c*/r*）",
+      tags: ["contacts"],
+      params: [acc, pathParam("targetMid", "対象ユーザー / チャット MID")],
+      responses: { "200": jsonRes("連絡先情報") },
+    },
+  ],
+  [
+    "/line/{accountId}/common-groups/{targetMid}",
+    "get",
+    {
+      op: "getCommonGroupIds",
+      summary: "共通グループ一覧取得",
+      description: "LINE: getCommonGroupIds",
+      tags: ["contacts"],
+      params: [acc, pathParam("targetMid", "対象ユーザー MID")],
+      responses: { "200": jsonRes("グループ配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/contacts/{mid}/block",
+    "post",
+    {
+      op: "blockContact",
+      summary: "ブロック",
+      description: "LINE: blockContact",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象 MID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/contacts/{mid}/block",
+    "delete",
+    {
+      op: "unblockContact",
+      summary: "ブロック解除",
+      description: "LINE: unblockContact",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象 MID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/blocked",
+    "get",
+    {
+      op: "getBlockedContacts",
+      summary: "ブロックリスト取得",
+      description: "キャッシュ + background キュー付き（504 回避）",
+      tags: ["contacts"],
+      params: [acc],
+      responses: { "200": jsonRes("ブロック済み配列") },
+    },
+  ],
+
+  // ── notes ───────────────────────────────────────────────
+  [
+    "/line/{accountId}/notes",
+    "get",
+    {
+      op: "getNotes",
+      summary: "ノート一覧取得",
+      tags: ["notes"],
+      params: [acc],
+      responses: { "200": jsonRes("ノート配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes",
+    "post",
+    {
+      op: "createNote",
+      summary: "ノート投稿",
+      tags: ["notes"],
+      params: [acc],
+      requestBody: body(["homeId", "text"], {
+        homeId: { type: "string", description: "投稿先ホーム MID" },
+        text: { type: "string" },
+      }),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}",
+    "get",
+    {
+      op: "getNoteDetail",
+      summary: "ノート詳細取得",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID")],
+      responses: { "200": jsonRes("ノート") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}",
+    "delete",
+    {
+      op: "deleteNote",
+      summary: "ノート削除",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}/share",
+    "post",
+    {
+      op: "shareNote",
+      summary: "ノート共有",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+
+  // ── polls ───────────────────────────────────────────────
+  [
+    "/line/{accountId}/poll/create",
+    "post",
+    {
+      op: "createPoll",
+      summary: "アンケート作成",
+      tags: ["polls"],
+      params: [acc],
+      requestBody: body(["chatMid", "title", "options"], {
+        chatMid: { type: "string" },
+        title: { type: "string" },
+        options: { type: "array", items: { type: "string" } },
+        multiple: { type: "boolean" },
+        anonymous: { type: "boolean" },
+      }),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/{questionId}/vote",
+    "post",
+    {
+      op: "votePoll",
+      summary: "アンケート投票",
+      description: "LINE: votePoll",
+      tags: ["polls"],
+      params: [acc, pathParam("questionId", "質問 ID")],
+      requestBody: body(["optionIndexes"], {
+        optionIndexes: { type: "array", items: { type: "integer" } },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/{questionId}/{chatMid}",
+    "get",
+    {
+      op: "getPoll",
+      summary: "アンケート取得",
+      description: "LINE: getPollDetail",
+      tags: ["polls"],
+      params: [acc, pathParam("questionId", "質問 ID"), chatMid],
+      responses: { "200": jsonRes("アンケート") },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/list/{chatMid}",
+    "get",
+    {
+      op: "getPollList",
+      summary: "アンケート一覧取得",
+      tags: ["polls"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("アンケート配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/{questionId}/close/{chatMid}",
+    "get",
+    {
+      op: "closePoll",
+      summary: "アンケート締め切り",
+      tags: ["polls"],
+      params: [acc, pathParam("questionId", "質問 ID"), chatMid],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/{questionId}/remove/{chatMid}",
+    "get",
+    {
+      op: "removePoll",
+      summary: "アンケート削除",
+      tags: ["polls"],
+      params: [acc, pathParam("questionId", "質問 ID"), chatMid],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/{questionId}/announce",
+    "post",
+    {
+      op: "announcePoll",
+      summary: "アンケート告知",
+      tags: ["polls"],
+      params: [acc, pathParam("questionId", "質問 ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/poll/{questionId}/remind",
+    "post",
+    {
+      op: "remindPoll",
+      summary: "アンケートリマインド",
+      tags: ["polls"],
+      params: [acc, pathParam("questionId", "質問 ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+
+  // ── schedule ────────────────────────────────────────────
+  [
+    "/line/{accountId}/schedule/events",
+    "post",
+    {
+      op: "createScheduleEvent",
+      summary: "予定作成",
+      tags: ["schedule"],
+      params: [acc],
+      requestBody: body(["chatMid"], { chatMid: { type: "string" } }),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/schedule/events/{eventId}/answer",
+    "post",
+    {
+      op: "answerScheduleEvent",
+      summary: "予定出欠回答",
+      tags: ["schedule"],
+      params: [acc, pathParam("eventId", "予定 ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/schedule/events/{eventId}/share",
+    "post",
+    {
+      op: "shareScheduleEvent",
+      summary: "予定共有",
+      tags: ["schedule"],
+      params: [acc, pathParam("eventId", "予定 ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/schedule/events/{eventId}/{chatMid}",
+    "get",
+    {
+      op: "getScheduleEvent",
+      summary: "予定取得",
+      tags: ["schedule"],
+      params: [acc, pathParam("eventId", "予定 ID"), chatMid],
+      responses: { "200": jsonRes("予定") },
+    },
+  ],
+  [
+    "/line/{accountId}/schedule/groups/{chatMid}",
+    "get",
+    {
+      op: "getGroupScheduleEvents",
+      summary: "グループ予定一覧",
+      tags: ["schedule"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("予定配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/schedule/friends/{chatMid}",
+    "get",
+    {
+      op: "getFriendScheduleEvents",
+      summary: "友だち予定一覧",
+      tags: ["schedule"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("予定配列") },
+    },
+  ],
+
+  // ── announcements ───────────────────────────────────────
+  [
+    "/line/{accountId}/announcements/{chatMid}",
+    "get",
+    {
+      op: "getChatAnnouncements",
+      summary: "アナウンス一覧取得",
+      description: "LINE: getChatAnnouncementsV2",
+      tags: ["announcements"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("アナウンス配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/announcements",
+    "post",
+    {
+      op: "createChatAnnouncement",
+      summary: "アナウンス作成",
+      description: "LINE: createChatAnnouncementV2",
+      tags: ["announcements"],
+      params: [acc],
+      requestBody: body(["chatMid", "text"], {
+        chatMid: { type: "string" },
+        text: { type: "string" },
+        messageId: { type: "string" },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/announcements/{chatMid}/{seq}",
+    "delete",
+    {
+      op: "removeChatAnnouncement",
+      summary: "アナウンス削除",
+      description: "LINE: removeChatAnnouncementV2",
+      tags: ["announcements"],
+      params: [acc, chatMid, pathParam("seq", "アナウンス連番")],
+      responses: { "200": okRes() },
+    },
+  ],
+
+  // ── calls ───────────────────────────────────────────────
+  [
+    "/line/{accountId}/call/start",
+    "post",
+    {
+      op: "acquireCallRoute",
+      summary: "通話開始（ルート確保）",
+      description: "LINE: acquireCallRoute (/V4)",
+      tags: ["calls"],
+      params: [acc],
+      requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
+      responses: { "200": jsonRes("通話情報") },
+    },
+  ],
+  [
+    "/line/{accountId}/call/end",
+    "post",
+    {
+      op: "endCall",
+      summary: "通話終了",
+      tags: ["calls"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/call/status",
+    "get",
+    {
+      op: "getCallStatus",
+      summary: "通話ステータス取得",
+      description: "Vyline 拡張",
+      tags: ["calls"],
+      params: [acc],
+      responses: { "200": jsonRes("ステータス") },
+    },
+  ],
+  [
+    "/line/{accountId}/call/active",
+    "get",
+    {
+      op: "getActiveCall",
+      summary: "アクティブ通話取得",
+      description: "Vyline 拡張",
+      tags: ["calls"],
+      params: [acc],
+      responses: { "200": jsonRes("通話") },
+    },
+  ],
+  [
+    "/line/{accountId}/call/group-status",
+    "get",
+    {
+      op: "getGroupCallStatus",
+      summary: "グループ通話ステータス取得",
+      tags: ["calls"],
+      params: [acc],
+      responses: { "200": jsonRes("ステータス") },
+    },
+  ],
+  [
+    "/line/{accountId}/call/ws",
+    "get",
+    {
+      op: "connectCallWebSocket",
+      summary: "通話 PCM ブリッジ WebSocket",
+      description: "Vyline 拡張。Swagger UI からは接続不可（WebSocket 専用）",
+      tags: ["calls"],
+      params: [acc],
+      responses: { "101": { description: "WebSocket upgrade" } },
+    },
+  ],
+
+  // ── backup / storage ────────────────────────────────────
+  [
+    "/line/{accountId}/backup/chats",
+    "get",
+    {
+      op: "listBackupChats",
+      summary: "バックアップ対象チャット選択用リスト",
+      tags: ["backup"],
+      params: [acc],
+      responses: { "200": jsonRes("チャット配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/backup/create",
+    "post",
+    {
+      op: "createBackup",
+      summary: "バックアップスナップショット作成",
+      tags: ["backup"],
+      params: [acc],
+      requestBody: body([], {
+        includeMedia: { type: "boolean" },
+        chatMids: { type: "array", items: { type: "string" } },
+      }),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/backup/list",
+    "get",
+    {
+      op: "listBackups",
+      summary: "バックアップ一覧",
+      tags: ["backup"],
+      params: [acc],
+      responses: { "200": jsonRes("バックアップ配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/backup/restore",
+    "post",
+    {
+      op: "restoreBackup",
+      summary: "バックアップ復元",
+      tags: ["backup"],
+      params: [acc],
+      requestBody: body([], {
+        backupId: { type: "string" },
+        mode: { type: "string", enum: ["all", "selected"] },
+        includeMedia: { type: "boolean" },
+        chatMids: { type: "array", items: { type: "string" } },
+      }),
+      responses: { "200": jsonRes("復元結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/backup/{backupId}",
+    "delete",
+    {
+      op: "deleteBackup",
+      summary: "バックアップ削除",
+      tags: ["backup"],
+      params: [acc, pathParam("backupId", "バックアップ ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/cache",
+    "get",
+    {
+      op: "getStorageUsage",
+      summary: "ストレージ / キャッシュ使用量",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": jsonRes("使用量サマリ") },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/cache",
+    "delete",
+    {
+      op: "clearCache",
+      summary: "キャッシュ削除",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/cache/cdn",
+    "delete",
+    {
+      op: "clearCdnCache",
+      summary: "CDN キャッシュ削除",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/cache/icons",
+    "delete",
+    {
+      op: "clearIconCache",
+      summary: "アイコンキャッシュ削除",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/warm",
+    "post",
+    {
+      op: "warmCache",
+      summary: "キャッシュウォーム",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/storage",
+    "get",
+    {
+      op: "getVylineStorageInfo",
+      summary: "Vyline ストレージ情報",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": jsonRes("ストレージ情報") },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/saved-media",
+    "delete",
+    {
+      op: "clearSavedMedia",
+      summary: "保存メディア全削除",
+      tags: ["storage"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/vyline/saved-media/{type}",
+    "delete",
+    {
+      op: "clearSavedMediaByType",
+      summary: "種別指定で保存メディア削除",
+      tags: ["storage"],
+      params: [acc, pathParam("type", "mediaType (image/video/audio/file)")],
+      responses: { "200": okRes() },
+    },
+  ],
+
+  // ── misc (Vyline 拡張) ──────────────────────────────────
+  [
+    "/line/{accountId}/log",
+    "get",
+    {
+      op: "getDebugLog",
+      summary: "チャット詳細ログ閲覧",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("JSONL ログ") },
+    },
+  ],
+  [
+    "/line/{accountId}/feature-locks",
+    "get",
+    {
+      op: "getFeatureLocks",
+      summary: "機能ロック状態取得",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("ロック状態") },
+    },
+  ],
+  [
+    "/line/{accountId}/feature-locks/create-group-ban",
+    "delete",
+    {
+      op: "releaseCreateGroupBan",
+      summary: "グループ作成禁止解除",
+      description: "自己責任オプション",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/notifications",
+    "post",
+    {
+      op: "updateNotificationSettings",
+      summary: "通知設定更新",
+      tags: ["misc"],
+      params: [acc],
+      requestBody: body([], {}),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/plugins",
+    "get",
+    {
+      op: "listPlugins",
+      summary: "プラグイン一覧",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("プラグイン配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/plugins/{pluginId}/{action}",
+    "post",
+    {
+      op: "controlPlugin",
+      summary: "プラグイン操作（enable/disable/uninstall）",
+      tags: ["misc"],
+      params: [acc, pathParam("pluginId", "プラグイン ID"), pathParam("action", "操作")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/proxy",
+    "get",
+    {
+      op: "getProxySettings",
+      summary: "プロキシ設定取得",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("設定") },
+    },
+  ],
+  [
+    "/line/{accountId}/proxy",
+    "put",
+    {
+      op: "setProxySettings",
+      summary: "プロキシ設定更新",
+      tags: ["misc"],
+      params: [acc],
+      requestBody: body([], {}),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/liff/warm",
+    "post",
+    {
+      op: "warmLiff",
+      summary: "LIFF ウォームアップ",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/restore",
+    "post",
+    {
+      op: "restoreSession",
+      summary: "セッション復元",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("復元結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/desktop",
+    "post",
+    {
+      op: "restoreFromDesktop",
+      summary: "LINE Desktop からの鍵 import / 復元",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("復元結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/status",
+    "get",
+    {
+      op: "getRestoreStatus",
+      summary: "復元ステータス取得",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("ステータス") },
+    },
+  ],
+  [
+    "/line/{accountId}/ladder/members/{chatMid}",
+    "get",
+    {
+      op: "getLadderMembers",
+      summary: "階段（人数確認）メンバー取得",
+      tags: ["misc"],
+      params: [acc, chatMid],
+      responses: { "200": jsonRes("メンバー配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/ladder/generate",
+    "post",
+    {
+      op: "generateLadder",
+      summary: "階段生成",
+      tags: ["misc"],
+      params: [acc],
+      requestBody: body(["chatMid"], { chatMid: { type: "string" } }),
+      responses: { "200": jsonRes("ハッシュ") },
+    },
+  ],
+  [
+    "/line/{accountId}/ladder/result/{chatMid}/{hash}",
+    "get",
+    {
+      op: "getLadderResult",
+      summary: "階段結果取得",
+      tags: ["misc"],
+      params: [acc, chatMid, pathParam("hash", "生成ハッシュ")],
+      responses: { "200": jsonRes("結果画像") },
+    },
+  ],
+  [
+    "/line/{accountId}/ladder/message",
+    "post",
+    {
+      op: "sendLadderMessage",
+      summary: "階段メッセージ送信",
+      tags: ["misc"],
+      params: [acc],
+      requestBody: body(["chatMid"], { chatMid: { type: "string" }, hash: { type: "string" } }),
+      responses: { "200": okRes() },
+    },
+  ],
+];
+
+// paths を組み立て（同一路径の複数 method に対応）
+function buildPaths() {
+  const paths: Record<string, Record<string, unknown>> = {};
+  for (const [route, method, spec] of routes) {
+    const item = (paths[route] ??= {});
+    item[method] = {
+      tags: spec.tags,
+      operationId: spec.op,
+      summary: spec.summary,
+      ...(spec.description ? { description: spec.description } : {}),
+      ...(spec.params?.length ? { parameters: spec.params } : {}),
+      ...(spec.requestBody ? { requestBody: spec.requestBody } : {}),
+      ...(spec.responses ?? { "200": jsonRes("結果") }),
+    };
+  }
+  return paths;
+}
+
 export const lineOpenApiSpec = {
   openapi: "3.1.0",
   info: {
@@ -39,478 +1410,29 @@ export const lineOpenApiSpec = {
     license: { name: "MIT" },
     description:
       "Vyline フロントエンドが利用する内部 BFF API。セッション Cookie / ローカル実行を前提とし、" +
-      "外部公開は想定していない。安定した公開 API は /v1 (openapi.yaml) を使用すること。",
+      "外部公開は想定していない。安定した公開 API は /v1 (openapi.yaml) を使用すること。\n\n" +
+      "operationId は LINE プロトコルの関数名（sendMessage / unsendMessage / sendChatChecked など、" +
+      "RPC_DICTIONARY canonicalName 準拠）を尊重している。",
   },
   servers: [{ url: "{baseUrl}", variables: { baseUrl: { default: "http://127.0.0.1:3001" } } }],
-  // BFF はローカルセッション前提のため匿名（security 定義なしを明示）
   security: [],
   tags: [
     { name: "session", description: "セッション・プロフィール・ヘルスチェック" },
-    { name: "chats", description: "チャット一覧と起動時 hydrate" },
-    { name: "messages", description: "メッセージ取得・送信・既読" },
+    { name: "chats", description: "チャット一覧・グループ管理・起動時 hydrate" },
+    { name: "messages", description: "メッセージ取得・送信・既読・編集・リアクション" },
     { name: "media", description: "メディア送受信（複数一括含む）" },
-    { name: "stickers", description: "スタンプ・コンビネーションスタンプ" },
+    { name: "stickers", description: "スタンプ・絵文字・コンビネーションスタンプ" },
+    { name: "contacts", description: "連絡先・ブロック" },
+    { name: "notes", description: "ノート" },
+    { name: "polls", description: "アンケート" },
+    { name: "schedule", description: "予定" },
+    { name: "announcements", description: "アナウンス" },
+    { name: "calls", description: "通話" },
     { name: "backup", description: "VylineBackup の作成・復元" },
     { name: "storage", description: "キャッシュ・ストレージ管理" },
+    { name: "misc", description: "その他（プラグイン・プロキシ・復元など Vyline 拡張）" },
   ],
-  paths: {
-    "/healthz": {
-      get: {
-        tags: ["session"],
-        operationId: "healthz",
-        summary: "ヘルスチェック",
-        responses: {
-          "200": { description: "ready", content: { "application/json": { schema: ok } } },
-        },
-      },
-    },
-    "/auth/accounts": {
-      get: {
-        tags: ["session"],
-        operationId: "listAccounts",
-        summary: "登録済みアカウント一覧",
-        responses: {
-          "200": {
-            description: "アカウント配列",
-            content: {
-              "application/json": { schema: { type: "array", items: { type: "object" } } },
-            },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/profile": {
-      get: {
-        tags: ["session"],
-        operationId: "getProfile",
-        summary: "自分のプロフィール",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "プロフィール",
-            content: {
-              "application/json": {
-                schema: { type: "object", properties: { profile: { type: "object" } } },
-              },
-            },
-          },
-          "401": { description: "未ログイン", content: { "application/json": { schema: error } } },
-        },
-      },
-    },
-    "/line/{accountId}/bootstrap": {
-      get: {
-        tags: ["chats"],
-        operationId: "getBootstrap",
-        summary: "起動時一括 hydrate（チャット + 直近メッセージ）",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "BootstrapPayload",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/chats": {
-      get: {
-        tags: ["chats"],
-        operationId: "listChats",
-        summary: "チャット一覧",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "Chat 配列",
-            content: {
-              "application/json": { schema: { type: "array", items: { type: "object" } } },
-            },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/messages/{chatMid}": {
-      get: {
-        tags: ["messages"],
-        operationId: "getMessages",
-        summary: "メッセージ取得（local-first + サーバ同期）",
-        parameters: [
-          accountParam,
-          chatParam,
-          { name: "limit", in: "query", schema: { type: "integer", default: 30, maximum: 100 } },
-          {
-            name: "force",
-            in: "query",
-            schema: { type: "string", enum: ["0", "1"] },
-            description: "1 でサーバ強制取得",
-          },
-          { name: "local", in: "query", schema: { type: "string", enum: ["0", "1"] } },
-          { name: "beforeMessageId", in: "query", schema: { type: "string" } },
-        ],
-        responses: {
-          "200": {
-            description: "Message 配列（降順）",
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    messages: { type: "array", items: { $ref: "#/components/schemas/Message" } },
-                  },
-                },
-              },
-            },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/send": {
-      post: {
-        tags: ["messages"],
-        operationId: "sendMessage",
-        summary: "テキスト送信",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["chatMid", "text"],
-                properties: {
-                  chatMid: { type: "string" },
-                  text: { type: "string" },
-                  relatedMessageId: { type: "string" },
-                  mute: { type: "boolean" },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          "200": {
-            description: "送信結果",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/send-media-batch": {
-      post: {
-        tags: ["media"],
-        operationId: "sendMediaBatch",
-        summary: "複数メディアの一括送信",
-        description:
-          "各アイテムは個別の IMAGE メッセージとして送信される。" +
-          "plain 経路では OBS /r/talk/m/reqseq 連番アップロードにより LINE サーバ側がメッセージを生成する。" +
-          "UI は同一送信者の連続 IMAGE を時間窓でグルーピング表示する。",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: { $ref: "#/components/schemas/MediaBatchRequest" },
-            },
-          },
-        },
-        responses: {
-          "200": {
-            description: "送信完了",
-            content: {
-              "application/json": {
-                schema: {
-                  type: "object",
-                  properties: {
-                    ok: { type: "boolean" },
-                    count: { type: "integer", description: "送信できたアイテム数" },
-                  },
-                },
-              },
-            },
-          },
-          "400": {
-            description: "chatMid/items 不備",
-            content: { "application/json": { schema: error } },
-          },
-          "413": {
-            description: "ファイル超過",
-            content: { "application/json": { schema: error } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/send-media": {
-      post: {
-        tags: ["media"],
-        operationId: "sendMedia",
-        summary: "単体メディア送信",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["chatMid", "dataBase64"],
-                properties: {
-                  chatMid: { type: "string" },
-                  dataBase64: { type: "string", description: "最大 ~12MB base64" },
-                  mimeType: { type: "string" },
-                  filename: { type: "string" },
-                  mediaType: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          "200": { description: "送信結果", content: { "application/json": { schema: ok } } },
-        },
-      },
-    },
-    "/line/{accountId}/media/{chatMid}/{messageId}": {
-      get: {
-        tags: ["media"],
-        operationId: "getMedia",
-        summary: "メディア取得（キャッシュ → OBS → RPC フォールバック）",
-        parameters: [
-          accountParam,
-          chatParam,
-          { name: "messageId", in: "path", required: true, schema: { type: "string" } },
-          {
-            name: "preview",
-            in: "query",
-            schema: { type: "string", enum: ["0", "1"], default: "1" },
-          },
-        ],
-        responses: {
-          "200": {
-            description: "バイナリ",
-            content: { "*/*": { schema: { type: "string", format: "binary" } } },
-          },
-          "401": { description: "未ログイン" },
-          "422": { description: "取得不能（期限切れ等）" },
-        },
-      },
-    },
-    "/line/{accountId}/unsend": {
-      post: {
-        tags: ["messages"],
-        operationId: "unsendMessage",
-        summary: "メッセージ送信取り消し",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["messageId"],
-                properties: { messageId: { type: "string" } },
-              },
-            },
-          },
-        },
-        responses: {
-          "200": { description: "結果", content: { "application/json": { schema: ok } } },
-        },
-      },
-    },
-    "/line/{accountId}/read": {
-      post: {
-        tags: ["messages"],
-        operationId: "markAsRead",
-        summary: "既読送信",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["chatMid", "messageId"],
-                properties: { chatMid: { type: "string" }, messageId: { type: "string" } },
-              },
-            },
-          },
-        },
-        responses: {
-          "200": { description: "結果", content: { "application/json": { schema: ok } } },
-        },
-      },
-    },
-    "/line/{accountId}/read-receipts/{chatMid}": {
-      get: {
-        tags: ["messages"],
-        operationId: "getReadReceipts",
-        summary: "既読情報取得",
-        parameters: [accountParam, chatParam],
-        responses: {
-          "200": {
-            description: "既読範囲",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/stickers": {
-      get: {
-        tags: ["stickers"],
-        operationId: "listStickers",
-        summary: "所持スタンプ一覧",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "スタンプパック配列",
-            content: {
-              "application/json": { schema: { type: "array", items: { type: "object" } } },
-            },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/send-sticker": {
-      post: {
-        tags: ["stickers"],
-        operationId: "sendSticker",
-        summary: "スタンプ送信",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["chatMid"],
-                properties: {
-                  chatMid: { type: "string" },
-                  packageId: { type: "string" },
-                  stickerId: { type: "string" },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          "200": {
-            description: "結果",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/combination-stickers/can-create": {
-      post: {
-        tags: ["stickers"],
-        operationId: "canCreateCombinationSticker",
-        summary: "コンビネーションスタンプ作成可否",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "可否",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/send-combination-sticker": {
-      post: {
-        tags: ["stickers"],
-        operationId: "sendCombinationSticker",
-        summary: "コンビネーションスタンプ送信",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                required: ["chatMid", "items"],
-                properties: {
-                  chatMid: { type: "string" },
-                  items: {
-                    type: "array",
-                    items: {
-                      type: "object",
-                      properties: {
-                        packageId: { type: "string" },
-                        stickerId: { type: "string" },
-                        x: { type: "number" },
-                        y: { type: "number" },
-                        size: { type: "number" },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
-        },
-        responses: {
-          "200": {
-            description: "結果",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/vyline/cache": {
-      get: {
-        tags: ["storage"],
-        operationId: "getStorageUsage",
-        summary: "ストレージ / キャッシュ使用量",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "使用量サマリ",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/vyline/warm": {
-      post: {
-        tags: ["storage"],
-        operationId: "warmCache",
-        summary: "キャッシュウォーム",
-        parameters: [accountParam],
-        responses: {
-          "200": { description: "結果", content: { "application/json": { schema: ok } } },
-        },
-      },
-    },
-    "/line/{accountId}/backup": {
-      get: {
-        tags: ["backup"],
-        operationId: "listBackups",
-        summary: "バックアップ一覧 / チャット選択用リスト",
-        parameters: [accountParam],
-        responses: {
-          "200": {
-            description: "バックアップ情報",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-    "/line/{accountId}/restore": {
-      post: {
-        tags: ["backup"],
-        operationId: "restoreBackup",
-        summary: "バックアップ復元",
-        parameters: [accountParam],
-        requestBody: {
-          required: true,
-          content: { "application/json": { schema: { type: "object" } } },
-        },
-        responses: {
-          "200": {
-            description: "結果",
-            content: { "application/json": { schema: { type: "object" } } },
-          },
-        },
-      },
-    },
-  },
+  paths: buildPaths(),
   components: {
     schemas: {
       MediaBatchItem: {

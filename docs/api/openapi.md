@@ -37,3 +37,13 @@ BFF のエンドポイントを追加・変更した場合は
 型チェックは `bun run typecheck` に含まれる（spec は TypeScript オブジェクトのため）。
 
 公開 REST API (/v1) を変更した場合はルート直下の `openapi.yaml` を手動で更新する。
+
+## operationId 命名規約
+
+**LINE プロトコルの関数名を尊重する。**
+
+- 対応する LINE RPC がある場合 → canonicalName を使用
+  （例: `sendMessage`, `unsendMessage`, `sendChatChecked`, `getMessageReadRange`,
+  `getPreviousMessagesV2WithRequest`, `getProfile`, `getMessageBoxes`, `createChat`,
+  `inviteIntoChat`, `blockContact` — RPC_DICTIONARY 参照）
+- LINE に対応 RPC が無い場合（Vyline 拡張）→ camelCase、description に「Vyline 拡張」と明記
