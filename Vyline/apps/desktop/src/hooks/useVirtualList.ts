@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /**
  * 可変高さリストのウィンドウ仮想化
@@ -28,6 +28,7 @@ export function useVirtualList<T>({
   const measuredTick = useRef(0);
   const tickScheduled = useRef(false);
   const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
+  const observers = useRef(new Map<string, ResizeObserver>());
   const offsets = useMemo(() => {
     const arr: number[] = [];
     let acc = 0;
@@ -90,13 +91,41 @@ export function useVirtualList<T>({
     (key: string) => {
       let cb = refCache.current.get(key);
       if (!cb) {
-        cb = (el: HTMLElement | null) => measure(key, el);
+        cb = (el: HTMLElement | null) => {
+          observers.current.get(key)?.disconnect();
+          observers.current.delete(key);
+          if (!el) return;
+          measure(key, el);
+          if (typeof ResizeObserver === "undefined") return;
+          const observer = new ResizeObserver(() => measure(key, el));
+          observer.observe(el);
+          observers.current.set(key, observer);
+        };
         refCache.current.set(key, cb);
       }
       return cb;
     },
     [measure],
   );
+
+  useEffect(() => {
+    const keys = new Set(rows.map((row) => row.key));
+    for (const key of heights.current.keys()) {
+      if (!keys.has(key)) heights.current.delete(key);
+    }
+    for (const key of refCache.current.keys()) {
+      if (keys.has(key)) continue;
+      observers.current.get(key)?.disconnect();
+      observers.current.delete(key);
+      refCache.current.delete(key);
+    }
+  }, [rows]);
+
+  useEffect(() => {
+    return () => {
+      for (const observer of observers.current.values()) observer.disconnect();
+    };
+  }, []);
 
   // 行キー → スクロール位置（center: 可視中央に寄せる）
   const scrollToKey = useCallback(

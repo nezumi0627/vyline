@@ -515,7 +515,7 @@ function SidebarBase() {
         <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
       )}
 
-      <div className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
+      <div ref={listRef} className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]">
