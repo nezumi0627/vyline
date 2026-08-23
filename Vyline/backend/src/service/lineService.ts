@@ -5357,12 +5357,19 @@ export async function verifyFriendBlockStatus(
         : users.filter((user) => !isOfficialUser(user));
       const results = candidates.map((user): BlockVerificationResult => {
         const raw = user.raw as {
-          targetProfileDetail?: { profileName?: string };
+          targetProfileDetail?: { profileName?: string; pictureStatus?: string };
           friendDetail?: { user?: { overriddenName?: string } };
+          pictureStatus?: string;
         };
         const name =
           raw.friendDetail?.user?.overriddenName || raw.targetProfileDetail?.profileName || "";
-        const matches = giftResults.filter((result) => result.name === name);
+        const pictureUrl = pictureStatusToUrl(
+          raw.targetProfileDetail?.pictureStatus ?? raw.pictureStatus,
+        );
+        const matches = giftResults.filter(
+          (result) =>
+            result.name === name || Boolean(pictureUrl && result.pictureUrl === pictureUrl),
+        );
         if (matches.length !== 1) {
           return {
             mid: user.mid,
