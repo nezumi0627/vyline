@@ -200,7 +200,7 @@ async function liffFetch(
   }
 }
 
-type StickerFriendProfile = { name: string; token: string };
+type StickerFriendProfile = { name: string; token: string; pictureUrl?: string };
 
 function extractStickerFriendProfiles(
   value: unknown,
@@ -214,8 +214,13 @@ function extractStickerFriendProfiles(
   const record = value as Record<string, unknown>;
   const token = (record["1"] as { str?: unknown } | undefined)?.str;
   const name = (record["2"] as { str?: unknown } | undefined)?.str;
+  const pictureUrl = (record["3"] as { str?: unknown } | undefined)?.str;
   if (typeof token === "string" && token.startsWith("V1~") && typeof name === "string") {
-    out.push({ name, token });
+    out.push({
+      name,
+      token,
+      ...(typeof pictureUrl === "string" && pictureUrl ? { pictureUrl } : {}),
+    });
   }
   for (const child of Object.values(record)) extractStickerFriendProfiles(child, out);
   return out;
@@ -244,7 +249,7 @@ function stickerGiftResult(value: unknown): { giftable: boolean; code: number | 
  */
 export async function checkStickerGiftEligibility(
   accountId: string,
-): Promise<Array<{ name: string; giftable: boolean; code: number | null }>> {
+): Promise<Array<{ name: string; pictureUrl?: string; giftable: boolean; code: number | null }>> {
   const client = requireClient(accountId);
   const creds = await getCredsWithoutUserContext(client, LIFF_APPS.stickerShop);
   const baseHeaders = {
@@ -266,7 +271,12 @@ export async function checkStickerGiftEligibility(
   const unique = new Map(
     profiles.map((profile) => [`${profile.name}\u0000${profile.token}`, profile]),
   );
-  const results: Array<{ name: string; giftable: boolean; code: number | null }> = [];
+  const results: Array<{
+    name: string;
+    pictureUrl?: string;
+    giftable: boolean;
+    code: number | null;
+  }> = [];
   for (const profile of unique.values()) {
     const response = await liffFetch("https://stickershop.line.me/api/liff", creds, {
       method: "POST",
@@ -275,7 +285,11 @@ export async function checkStickerGiftEligibility(
       maxRetries: 0,
     });
     const result = stickerGiftResult(response);
-    results.push({ name: profile.name, ...result });
+    results.push({
+      name: profile.name,
+      ...(profile.pictureUrl ? { pictureUrl: profile.pictureUrl } : {}),
+      ...result,
+    });
   }
   return results;
 }
