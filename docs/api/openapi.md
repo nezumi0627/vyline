@@ -19,6 +19,14 @@ GET /openapi.yaml    公開 REST API の YAML
 GET /openapi/v1.yaml /openapi.yaml へのリダイレクト
 ```
 
+## GitHub Pages
+
+push to `main` 時に `.github/workflows/pages.yml` が静的ドキュメントを生成し、
+**https://nezumi0627.github.io/vyline/** へデプロイする。
+
+- 生成: `bun scripts/build-api-docs.ts <outdir>`（BFF spec を TS から JSON 化 + ルート `openapi.yaml` をコピー）
+- 手動実行も可（workflow_dispatch）
+
 Swagger UI は CDN からスクリプトを読み込むため、オフライン環境では `openapi.json` /
 `openapi.yaml` を直接確認すること。
 
