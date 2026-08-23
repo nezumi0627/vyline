@@ -47,7 +47,6 @@ Chrome プロファイリング（localhost:5173）で検出されたフロン�
 | `Vyline/apps/desktop/src/components/message-bubble.tsx` | 454 行目で既に `memo` 化済み → 対応不要と確認 |
 | `Vyline/apps/desktop/src/pages/VylineApp.tsx` | `useLineData()` の呼び出し元（再描画カスケードの起点） |
 | `Vyline/apps/desktop/src/App.tsx` | `/login` + catch-all のルーティングのみ |
-| `custom-cursor.tsx` / `vyline-cursor.tsx` | rAF 駆動カスタムカーソル。`CustomCursor` は非推奨エイリアス |
 
 ### スペーサー調査の主嫌疑ファイル（現在の対象）
 | ファイル | 確認ポイント |
