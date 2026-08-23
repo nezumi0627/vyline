@@ -25,6 +25,7 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v2
       - name: Build landing page
         run: bun scripts/build-landing.ts dist-landing
       - name: Setup Pages
