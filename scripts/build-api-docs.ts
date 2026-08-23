@@ -26,19 +26,25 @@ await Bun.write(
     <meta charset="utf-8" />
     <title>Vyline API Docs</title>
     <link rel="stylesheet" href="https://unpkg.com/swagger-ui-dist@5/swagger-ui.css" />
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
+    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-standalone-preset.js" crossorigin></script>
   </head>
   <body>
     <div id="swagger"></div>
-    <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js" crossorigin></script>
     <script>
-      SwaggerUIBundle({
-        urls: [
-          { name: "Public API (/v1)", url: "openapi.yaml" },
-          { name: "BFF API (/line)", url: "openapi.json" },
-        ],
-        dom_id: "#swagger",
-        deepLinking: true,
-      });
+      window.onload = () =>
+        SwaggerUIBundle({
+          urls: [
+            { name: "Public API (/v1)", url: "openapi.yaml" },
+            { name: "BFF API (/line)", url: "openapi.json" },
+          ],
+          "urls.primaryName": "Public API (/v1)",
+          dom_id: "#swagger",
+          deepLinking: true,
+          presets: [SwaggerUIBundle.presets.apis, SwaggerUIStandalonePreset],
+          plugins: [SwaggerUIBundle.plugins.DownloadUrl],
+          layout: "StandaloneLayout",
+        });
     </script>
   </body>
 </html>
