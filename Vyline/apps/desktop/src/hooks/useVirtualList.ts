@@ -26,6 +26,8 @@ export function useVirtualList<T>({
   const heights = useRef(new Map<string, number>());
   const [, setMeasuredTick] = useState(0);
   const measuredTick = useRef(0);
+  const tickScheduled = useRef(false);
+  const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const offsets = useMemo(() => {
     const arr: number[] = [];
     let acc = 0;
@@ -70,11 +72,29 @@ export function useVirtualList<T>({
     const prev = heights.current.get(key);
     if (prev !== h) {
       heights.current.set(key, h);
-      // 実測が変わるたびにオフセット再計算をトリガー
-      measuredTick.current++;
-      setMeasuredTick((t) => t + 1);
+      // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
+      if (tickScheduled.current) return;
+      tickScheduled.current = true;
+      requestAnimationFrame(() => {
+        tickScheduled.current = false;
+        measuredTick.current++;
+        setMeasuredTick((t) => t + 1);
+      });
     }
   }, []);
+
+  // 行キーごとに安定した ref を返す（毎レンダーの ref 再アタッチ → 再計測の連鎖を防ぐ）
+  const rowRef = useCallback(
+    (key: string) => {
+      let cb = refCache.current.get(key);
+      if (!cb) {
+        cb = (el: HTMLElement | null) => measure(key, el);
+        refCache.current.set(key, cb);
+      }
+      return cb;
+    },
+    [measure],
+  );
 
   // 行キー → スクロール位置（center: 可視中央に寄せる）
   const scrollToKey = useCallback(
@@ -107,6 +127,7 @@ export function useVirtualList<T>({
     topSpacer,
     bottomSpacer,
     measure,
+    rowRef,
     scrollToKey,
     scrollToBottom,
   };

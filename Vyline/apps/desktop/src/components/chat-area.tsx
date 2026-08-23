@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useCall } from "@/hooks/useCall";
@@ -72,7 +72,7 @@ function shouldGroupAdjacentImages(left: Message, right: Message): boolean {
   );
 }
 
-export function ChatArea() {
+function ChatAreaBase() {
   const activeChatId = useStore((s) => s.activeChatId);
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
@@ -240,7 +240,7 @@ export function ChatArea() {
     visibleRows,
     topSpacer,
     bottomSpacer,
-    measure,
+    rowRef,
     scrollToKey,
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
@@ -548,7 +548,7 @@ export function ChatArea() {
             {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
             {visibleRows.map(({ key, item }) =>
               item.kind === "day" ? (
-                <div key={key} ref={(el) => measure(key, el)} className="my-3 flex justify-center">
+                <div key={key} ref={rowRef(key)} className="my-3 flex justify-center">
                   <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
                     {item.label}
                   </span>
@@ -557,7 +557,7 @@ export function ChatArea() {
                 <div
                   key={key}
                   id={key}
-                  ref={(el) => measure(key, el)}
+                  ref={rowRef(key)}
                   className={cnRow(
                     item.searching,
                     item.isMatch,
@@ -617,6 +617,8 @@ export function ChatArea() {
     </div>
   );
 }
+
+export const ChatArea = memo(ChatAreaBase);
 
 function cnRow(
   searching: boolean,

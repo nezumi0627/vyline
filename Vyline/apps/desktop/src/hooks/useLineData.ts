@@ -9,7 +9,7 @@
  * useEffect が回り chats=[] になるループは禁止。
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { api } from "../api/client.js";
 import type { Chat, LineProfile, Message } from "../types/index.js";
 import { looksLikeMid, type ContactInfo } from "../lib/mappers.js";
@@ -399,13 +399,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     void loadMessages(selectedChatMid);
   }, [selectedChatMid, loadMessages]);
 
-  const avatarCache = (() => {
+  const avatarCache = useMemo(() => {
     const m = new Map<string, string>();
     for (const [mid, info] of contactCache) {
       if (info.thumbnailUrl) m.set(mid, info.thumbnailUrl);
     }
     return m;
-  })();
+  }, [contactCache]);
 
   return {
     profile,
