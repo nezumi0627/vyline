@@ -21,7 +21,7 @@ Vyline/
   packages/
     protocol/       → GIT SUBMODULE (= github.com/nezumi0627/vyline-api)
     plugin/         → GIT SUBMODULE (= github.com/nezumi0627/vyline-plugin) — sdk/ + examples/
-    themes/         → GIT SUBMODULE (= github.com/nezumi0627/vyline-thme) — VyTheme プリセット
+    themes/         → GIT SUBMODULE (= github.com/nezumi0627/vyline-theme) — VyTheme プリセット
     line-types/     Thrift 型定義（生成物に準拠）
 examples/
   plugins/          プラグインサンプル（コピーして使う）
