@@ -25,6 +25,8 @@ Operation type の分類では `25 (SEND_MESSAGE)` を受信・既読として�
 
 Thrift の `getMessageReadRange` は `{ success: TMessageReadRange[] }` のwrapperを返す場合があるため、`success` を必ずunwrapする。`TMessageReadRange.ranges` の各MID値は単一の `{ startMessageId, endMessageId }` オブジェクトの場合もあり、配列だけを想定してはいけない。
 
+本番の取得経路は raw request ではなく、debug 経路と同じ型付き `talk.getMessageReadRange({ chatIds })` を使用する。raw request に `syncReason` を手動指定すると、実装差分によって成功レスポンスを正しく復号できず、グループ既読者が空になることがある。
+
 メッセージ取得中のバックグラウンド既読更新も、更新後のメッセージをアカウント別 chatdb へ再保存する。既読者プロフィールは `fetchContactProfile` で事前解決し、Desktop の読者一覧で名前を表示できる。
 
 API の既読取得 in-flight キーには `accountId`、チャットMID、要求したメッセージID集合を含める。異なるアカウントや異なるID集合の応答を共有しない。

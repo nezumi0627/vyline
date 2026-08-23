@@ -2101,18 +2101,13 @@ export async function fetchReadRanges(
   const talk = client.base.talk;
 
   try {
+    // 型付きTalk APIを使う。raw requestへ手動で syncReason を渡すと、
+    // 実装差分によって success list を正しく復号できず空レンジになる。
     const res = await enqueueTalkRpcBackground(accountId, () =>
-      talk.client.request.request(
-        LINEStruct.getMessageReadRange_args({
-          chatIds: [chatMid],
-          syncReason: "OPERATION",
-        }),
-        "getMessageReadRange",
-        talk.protocolType,
-        true,
-        talk.requestPath,
-        {},
+      withTimeout(
+        talk.getMessageReadRange({ chatIds: [chatMid] }),
         READ_RANGE_TIMEOUT_MS,
+        "getMessageReadRange",
       ),
     );
 
