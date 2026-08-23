@@ -1,5 +1,7 @@
 # e2ee-decrypt — 調査メモ
 
+最終更新: 2026-08-24
+
 確認ポイント:
 
 - `decryptE2EEMessage` / グループ `tryRegisterE2EEGroupKey`

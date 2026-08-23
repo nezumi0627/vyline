@@ -1,5 +1,7 @@
 # e2ee-send — 調査メモ
 
+最終更新: 2026-08-24
+
 確認ポイント:
 
 - `encryptE2EEMessage` / `negotiateE2EEPublicKey`
