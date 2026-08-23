@@ -190,7 +190,6 @@ export type Settings = {
   fontScale: number;
   enterToSend: boolean;
   chatSort: ChatSort;
-  customCursor: boolean;
   bubbleTail: boolean;
   /** ヘッダーに相手のステータスメッセージを表示 */
   showStatusMessage: boolean;
