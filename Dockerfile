@@ -2,7 +2,9 @@
 # ビルド: docker build -t vyline .
 # 実行:  docker run -p 3000:3000 -v ./data:/app/data vyline
 
-FROM oven/bun:1 AS deps
+ARG BUN_VERSION=1.4.0
+ARG VYLINE_VERSION=dev
+FROM oven/bun:${BUN_VERSION} AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
 COPY Vyline/apps/desktop/package.json Vyline/apps/desktop/
@@ -15,7 +17,8 @@ COPY Vyline/packages/plugin/sdk/package.json Vyline/packages/plugin/sdk/
 COPY Vyline/packages/themes/package.json Vyline/packages/themes/
 RUN bun install --frozen-lockfile --ignore-scripts
 
-FROM oven/bun:1 AS build
+ARG BUN_VERSION=1.4.0
+FROM oven/bun:${BUN_VERSION} AS build
 WORKDIR /app
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/Vyline/apps/desktop/node_modules ./Vyline/apps/desktop/node_modules
@@ -24,13 +27,17 @@ COPY --from=deps /app/Vyline/packages ./Vyline/packages
 COPY . .
 RUN bun run build
 
-FROM oven/bun:1
+ARG BUN_VERSION=1.4.0
+ARG VYLINE_VERSION=dev
+FROM oven/bun:${BUN_VERSION}
 WORKDIR /app
 ENV NODE_ENV=production \
+    VYLINE_VERSION=${VYLINE_VERSION} \
     VYLINE_HOST=0.0.0.0 \
     PORT=3000 \
     VYLINE_DATA_DIR=/app/data \
     VYLINE_STORAGE_DIR=/app/storage
+LABEL org.opencontainers.image.title="Vyline" org.opencontainers.image.source="https://github.com/nezumi0627/Vyline" org.opencontainers.image.version="$VYLINE_VERSION"
 COPY --from=deps /app/node_modules ./node_modules
 COPY --from=deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modules
 COPY --from=build /app/Vyline/packages ./Vyline/packages
