@@ -47,13 +47,13 @@ function ChatShellBase() {
   return (
     <div
       ref={shellRef}
-      className="flex h-dvh overflow-hidden bg-[var(--vy-bg)]"
+      className="vy-chat-shell flex h-dvh overflow-hidden bg-[var(--vy-bg)]"
       style={{ ["--sb-w" as string]: `${sidebarWidth}px` }}
     >
       {/* Sidebar */}
       <div
         className={cn(
-          "h-full shrink-0 md:w-[var(--sb-w)]",
+          "vy-chat-sidebar-pane h-full shrink-0 md:w-[var(--sb-w)]",
           collapsed ? "hidden" : activeChatId ? "hidden w-full md:block" : "block w-full",
         )}
       >
@@ -79,7 +79,10 @@ function ChatShellBase() {
       )}
 
       <div
-        className={cn("relative h-full min-w-0 flex-1", activeChatId ? "flex" : "hidden md:flex")}
+        className={cn(
+          "vy-chat-pane relative h-full min-w-0 flex-1",
+          activeChatId ? "flex" : "hidden md:flex",
+        )}
       >
         {/* collapse / expand toggle */}
         <button

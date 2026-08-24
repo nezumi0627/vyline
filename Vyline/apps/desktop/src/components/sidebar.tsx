@@ -370,8 +370,8 @@ function SidebarBase() {
     : [];
 
   return (
-    <aside className="flex h-full w-full flex-col bg-[var(--vy-sidebar)] md:border-r md:border-[var(--vy-border)]">
-      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+    <aside className="vy-sidebar flex h-full w-full flex-col bg-[var(--vy-sidebar)] md:border-r md:border-[var(--vy-border)]">
+      <div className="vy-sidebar-profile flex items-center gap-3 px-4 pt-4 pb-3">
         <button
           type="button"
           onClick={() => setScreen("settings")}
@@ -414,7 +414,7 @@ function SidebarBase() {
         </button>
       </div>
 
-      <div className="flex items-center gap-2 px-4 pb-3">
+      <div className="vy-sidebar-tools flex items-center gap-2 px-4 pb-3">
         <div className="flex flex-1 items-center gap-2 rounded-xl bg-[var(--vy-surface-2)] px-3 py-2">
           <IconSearch size={17} className="text-[var(--vy-text-dim)]" />
           <input
@@ -477,7 +477,7 @@ function SidebarBase() {
         </div>
       </div>
 
-      <div className="flex gap-1 px-3 pb-2" role="tablist">
+      <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -499,7 +499,7 @@ function SidebarBase() {
       </div>
 
       {tab === "group" && (
-        <div className="px-3 pb-2">
+        <div className="vy-sidebar-create-group px-3 pb-2">
           <button
             type="button"
             onClick={() => setCreateGroupOpen(true)}
@@ -512,7 +512,7 @@ function SidebarBase() {
       )}
 
       {sort === "custom" && (
-        <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
+        <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
       )}
 
       <div
@@ -570,8 +570,10 @@ function SidebarBase() {
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
 
-      {/* account switcher */}
-      <AccountSwitcher />
+      {/* account switcher: mobile is intentionally list-first and distraction-free */}
+      <div className="vy-sidebar-account-switcher">
+        <AccountSwitcher />
+      </div>
     </aside>
   );
 }

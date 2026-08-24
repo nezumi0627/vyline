@@ -199,6 +199,34 @@
   animation: vy-scale-in 0.16s ease-out;
 }
 
+@keyframes vy-screen-in {
+  from { opacity: 0; transform: translateY(5px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.vy-screen-enter { animation: vy-screen-in 180ms ease-out both; }
+.vy-section-enter { animation: vy-screen-in 160ms ease-out both; }
+
+/* Motion modes share the same components; only CSS timing/participation changes. */
+html[data-animation-mode="feather"] .vy-screen-enter,
+html[data-animation-mode="feather"] .vy-section-enter {
+  animation-duration: 90ms;
+}
+html[data-animation-mode="feather"] .vy-pop-in,
+html[data-animation-mode="feather"] .vy-msg-enter,
+html[data-animation-mode="feather"] .vy-drawer-in,
+html[data-animation-mode="feather"] .vy-fade-in,
+html[data-animation-mode="feather"] .vy-scale-in,
+html[data-animation-mode="feather"] .vy-emoji-pop,
+html[data-animation-mode="feather"] .vy-sticker-pop {
+  animation-duration: 90ms;
+}
+html[data-animation-mode="none"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
 @keyframes vy-shake {
   0%,
   100% {
@@ -356,8 +384,92 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
   .vy-drawer-panel,
   .vy-fade-in,
   .vy-scale-in,
+  .vy-screen-enter,
+  .vy-section-enter,
   .vy-emoji-pop,
   .vy-sticker-pop {
     animation: none;
+  }
+}
+
+/* --- Responsive chat layouts ---
+   Mobile is intentionally list-first. Tablet keeps the two-pane desktop model,
+   but trims chrome so the conversation has room for touch interaction. */
+@media (max-width: 767px) {
+  .vy-sidebar-profile,
+  .vy-sidebar-tabs,
+  .vy-sidebar-create-group,
+  .vy-sidebar-sort-hint,
+  .vy-sidebar-account-switcher {
+    display: none;
+  }
+
+  .vy-sidebar-tools {
+    padding: 0.75rem;
+  }
+
+  .vy-sidebar-tools > div:first-child {
+    min-height: 2.75rem;
+  }
+
+  .vy-sidebar .vy-sidebar-row {
+    min-height: 4.25rem;
+    padding: 0.75rem 0.625rem;
+  }
+
+  .vy-chat-pane header {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .vy-chat-pane header > button:first-child {
+    flex: 0 0 auto;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .vy-chat-shell {
+    --sb-w: 19rem !important;
+  }
+
+  .vy-chat-sidebar-pane {
+    width: var(--sb-w) !important;
+  }
+
+  .vy-sidebar-profile {
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  .vy-sidebar-profile > button:nth-of-type(2) {
+    display: none;
+  }
+
+  .vy-sidebar-tools {
+    padding: 0 0.75rem 0.625rem;
+  }
+
+  .vy-sidebar-tabs {
+    overflow-x: auto;
+    padding-inline: 0.625rem;
+  }
+
+  .vy-sidebar-tabs button {
+    flex: 0 0 auto;
+    min-width: 3.5rem;
+  }
+
+  .vy-sidebar .vy-sidebar-row {
+    gap: 0.625rem;
+    padding: 0.625rem;
+  }
+
+  .vy-chat-pane header {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .vy-chat-pane header > button:not(:first-child) {
+    flex: 0 0 auto;
   }
 }
