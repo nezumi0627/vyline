@@ -37,4 +37,25 @@ describe("Agent I request contract", () => {
 
     expect(extractAgentIText(sse)).toBe("こんにちは世界");
   });
+
+  test("does not expose Agent I control event names as the answer", () => {
+    const sse = [
+      'data: {"type":"agentstate"}\n\n',
+      'data: {"type":"compositeMessage-start"}\n\n',
+      'data: {"type":"compositeMessage-delta"}\n\n',
+      'data: {"type":"attachment"}\n\n',
+      'data: {"type":"execution-end"}\n\n',
+    ].join("");
+
+    expect(extractAgentIText(sse)).toBe("");
+  });
+
+  test("extracts the current Yahoo value.message delta shape", () => {
+    const sse = [
+      'data: {"type":"compositeMessage-delta","value":{"message":"こんにちは"}}\n\n',
+      'data: {"type":"compositeMessage-delta","value":{"message":"世界"}}\n\n',
+    ].join("");
+
+    expect(extractAgentIText(sse)).toBe("こんにちは世界");
+  });
 });

@@ -18,6 +18,7 @@ import {
 } from "@/components/icons";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
 import { dismissChatMid } from "@/utils/dismissedChats";
+import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 
 type RichInfo = {
   statusMessage?: string;
@@ -41,7 +42,9 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   const setLocalName = useStore((s) => s.setLocalName);
   const accountId = useStore((s) => s.accountId);
   const blockedMids = useStore((s) => s.blockedMids);
+  const messages = useStore((s) => s.messages);
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
+  const selfBackgroundUrl = useStore((s) => s.self.backgroundUrl);
 
   const [editing, setEditing] = useState(false);
   const [nameInput, setNameInput] = useState(chat.localName ?? chat.name);
@@ -53,6 +56,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   const [verifyBusy, setVerifyBusy] = useState(false);
   const [verifyMsg, setVerifyMsg] = useState<string | null>(null);
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
+  const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
 
   // 共通グループ: VylineCache 一括読み（RPC なし）→ 失敗時は従来のローカル判定へ
   const commonGroups = useMemo(() => {
@@ -233,7 +237,8 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
   }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
   const name = displayName(chat, streamerMode);
-  const backgroundUrl = chat.backgroundUrl ?? rich.backgroundUrl;
+  const backgroundUrl =
+    chat.backgroundUrl ?? (chat.isSelf ? selfBackgroundUrl : undefined) ?? rich.backgroundUrl;
   const showBackground = Boolean(!streamerMode && settings.showBackground && backgroundUrl);
 
   const handleTalk = () => {
@@ -395,6 +400,12 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     }
   };
 
+  const conversationText = messages
+    .filter((m) => m.chatId === chat.id && m.text?.trim())
+    .slice(-120)
+    .map((m) => `${m.authorId === "me" ? "自分" : name}: ${m.text!.trim().slice(0, 800)}`)
+    .join("\n");
+
   return (
     <>
       <div
@@ -538,6 +549,21 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
             />
           </div>
 
+          {!streamerMode && settings.betaAgentI && chat.type === "friend" && !chat.isSelf && (
+            <button
+              type="button"
+              disabled={!conversationText}
+              onClick={() =>
+                setAgentPrompt(
+                  `次の「${name}」とのこれまでの会話を日本語で5行以内に要約してください。重要な決定、約束、TODOを含めてください。\n\n${conversationText}`,
+                )
+              }
+              className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm disabled:opacity-50"
+            >
+              AIでこの人との会話を要約
+            </button>
+          )}
+
           {!streamerMode &&
             settings.betaBlockCheckManual &&
             chat.type === "friend" &&
@@ -672,6 +698,13 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
           {actionMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{actionMsg}</p>}
         </div>
       </aside>
+      {agentPrompt && (
+        <AgentIActionDialog
+          title={`${name}との会話の要約`}
+          prompt={agentPrompt}
+          onClose={() => setAgentPrompt(null)}
+        />
+      )}
     </>
   );
 }

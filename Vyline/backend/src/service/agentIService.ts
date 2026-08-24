@@ -75,19 +75,18 @@ export function buildAgentIBody(prompt: string, history: AgentIHistoryItem[] = [
 
 function textFromData(data: unknown): string {
   if (typeof data === "string") return data;
+  if (Array.isArray(data)) return data.map(textFromData).filter(Boolean).join("");
   if (!data || typeof data !== "object") return "";
   const value = data as Record<string, unknown>;
-  const direct = [value.text, value.delta, value.content, value.message];
-  for (const candidate of direct) {
+  // Agent I のSSEには type/attachment/execution などの制御イベントも含まれる。
+  // 任意の値を再帰探索すると、これらのイベント名が回答本文として表示される。
+  for (const key of ["text", "delta", "content", "message", "parts", "value"]) {
+    const candidate = value[key];
     if (typeof candidate === "string") return candidate;
     if (candidate && typeof candidate === "object") {
       const nested = textFromData(candidate);
       if (nested) return nested;
     }
-  }
-  for (const candidate of Object.values(value)) {
-    const nested = textFromData(candidate);
-    if (nested) return nested;
   }
   return "";
 }
@@ -105,7 +104,10 @@ export function extractAgentIText(sse: string): string {
       const text = textFromData(JSON.parse(data));
       if (text) chunks.push(text);
     } catch {
-      if (data) chunks.push(data);
+      // JSONでない制御イベント名を回答本文へ漏らさない。
+      if (data && !/^(?:agentstate|compositeMessage|attachment|execution(?:-|$))/i.test(data)) {
+        chunks.push(data);
+      }
     }
   }
   return chunks.join("").trim();

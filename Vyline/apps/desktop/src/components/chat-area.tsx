@@ -28,6 +28,7 @@ import {
   IconMemo,
   IconPin,
 } from "@/components/icons";
+import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -81,6 +82,7 @@ function ChatAreaBase() {
   const profileOpen = useStore((s) => s.profileDrawerOpen);
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
+  const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const theme = useStore((s) => s.theme);
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
@@ -99,6 +101,7 @@ function ChatAreaBase() {
   });
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
   const [groupCallOnline, setGroupCallOnline] = useState(false);
+  const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null;
 
@@ -315,12 +318,34 @@ function ChatAreaBase() {
 
   const name = displayName(chat, streamerMode);
 
+  const todayText = chatMessages
+    .filter(
+      (m) => new Date(m.createdAt).toDateString() === new Date().toDateString() && m.text?.trim(),
+    )
+    .slice(-120)
+    .map((m) => `${m.authorId === "me" ? "自分" : name}: ${m.text!.trim().slice(0, 800)}`)
+    .join("\n");
+
   const panelItems: MenuItem[] = [
     {
       label: "メッセージを検索",
       icon: <IconSearch size={16} />,
       onClick: () => setSearch((s) => ({ ...s, open: true })),
     },
+    ...(agentEnabled
+      ? [
+          {
+            label: "今日の会話をAIで要約",
+            icon: <IconMemo size={16} />,
+            onClick: () =>
+              setAgentPrompt(
+                todayText
+                  ? `次の今日の会話を日本語で5行以内に要約してください。重要な話題、決定、TODOを含めてください。\n\n${todayText}`
+                  : "今日の会話に要約できるテキストメッセージはありません。",
+              ),
+          },
+        ]
+      : []),
     {
       label: "一番下へスクロール",
       icon: <IconArrowDown size={16} />,
@@ -598,6 +623,13 @@ function ChatAreaBase() {
           y={panel.y}
           items={panelItems}
           onClose={() => setPanel(null)}
+        />
+      )}
+      {agentPrompt && (
+        <AgentIActionDialog
+          title="今日の会話の要約"
+          prompt={agentPrompt}
+          onClose={() => setAgentPrompt(null)}
         />
       )}
       {call && (

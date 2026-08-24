@@ -141,6 +141,7 @@ export function SettingsSections() {
         avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
         mid: res.profile.mid,
         phoneticName: res.profile.phoneticName || self.phoneticName,
+        backgroundUrl: res.profile.backgroundUrl || self.backgroundUrl,
         pictureStatus: res.profile.pictureStatus || self.pictureStatus,
         profileId: res.profile.profileId || self.profileId,
         premium: res.profile.premium ?? self.premium,

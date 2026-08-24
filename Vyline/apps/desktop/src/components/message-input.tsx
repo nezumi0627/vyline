@@ -11,7 +11,9 @@ import {
   IconClose,
   IconAtSign,
   IconBellOff,
+  IconSpark,
 } from "@/components/icons";
+import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
@@ -115,6 +117,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
   const enterToSend = useStore((s) => s.settings.enterToSend);
+  const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -146,6 +149,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     }>
   >([]);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
 
   // 画像送信中かどうか（楽観メッセージの pending image を検出）
   const sendingImage = messages.some(
@@ -792,6 +796,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
             >
               <IconBellOff size={19} />
             </IconButton>
+            {agentEnabled && draft.trim() && (
+              <IconButton
+                label="AIで文章を整える"
+                active={agentOpen}
+                onClick={() => setAgentOpen(true)}
+              >
+                <IconSpark size={19} />
+              </IconButton>
+            )}
 
             <div className="relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
               {overlaySegments && (
@@ -872,6 +885,14 @@ export function MessageInput({ chatId }: { chatId: string }) {
             )}
           </div>
         </>
+      )}
+      {agentOpen && (
+        <AgentIActionDialog
+          title="AIで文章の構成・表現を整える"
+          prompt={`次のLINEメッセージを、意図を変えずに読みやすく自然な日本語へ整えてください。文章の構成、誤字脱字、敬語を必要に応じて補正し、修正後の本文だけ返してください。\n\n${draft}`}
+          onClose={() => setAgentOpen(false)}
+          onApply={(text) => setDraft(chatId, text)}
+        />
       )}
       <div className="mt-1 flex flex-wrap items-center gap-2 px-1 text-[0.65rem] text-[var(--vy-text-dim)]">
         {muteNext && (
