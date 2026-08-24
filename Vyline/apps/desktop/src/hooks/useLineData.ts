@@ -19,7 +19,6 @@ import {
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
 import { useStore } from "../lib/store.js";
-import { getRestoredChatMids, restoreDismissedChatMid } from "../utils/dismissedChats.js";
 
 interface UseLineDataOptions {
   accountId: string | null;
@@ -329,10 +328,6 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       if (restoredAccountId !== accountId) return;
       const restoredChatMids =
         (event as CustomEvent<{ chatMids?: string[] }>).detail?.chatMids ?? [];
-      for (const chatMid of restoredChatMids) {
-        restoreDismissedChatMid(accountId, chatMid);
-        useStore.getState().setHidden(chatMid, false);
-      }
       const restoreTarget = restoredChatMids[0];
       if (restoreTarget) {
         setSelectedChatMid(restoreTarget);
@@ -371,11 +366,6 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       setContactCache(new Map());
       return;
     }
-    for (const chatMid of getRestoredChatMids(accountId)) {
-      restoreDismissedChatMid(accountId, chatMid);
-      useStore.getState().setHidden(chatMid, false);
-    }
-
     // Vyline ローカルキャッシュを即 hydrate（mid 生出し回避）
     setContactCache(vylineClientToContactMap(accountId));
 
