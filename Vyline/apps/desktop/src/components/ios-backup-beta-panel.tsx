@@ -167,9 +167,29 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       </div>
 
       {session?.progress && (
-        <p className="mt-3 text-xs text-[var(--vy-text-dim)]" role="status">
-          {session.progress.message} ({session.progress.current}/{session.progress.total})
-        </p>
+        <div className="mt-3 space-y-1.5" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-xs text-[var(--vy-text-dim)]">
+            <span>{session.progress.message}</span>
+            <span className="shrink-0 font-mono">
+              {session.progress.current}/{session.progress.total}
+            </span>
+          </div>
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]"
+            role="progressbar"
+            aria-label="iOSバックアップ復元の進捗"
+            aria-valuemin={0}
+            aria-valuemax={session.progress.total}
+            aria-valuenow={session.progress.current}
+          >
+            <div
+              className="h-full rounded-full bg-[var(--vy-accent)] transition-[width] duration-300"
+              style={{
+                width: `${session.progress.total > 0 ? Math.min(100, (session.progress.current / session.progress.total) * 100) : 0}%`,
+              }}
+            />
+          </div>
+        </div>
       )}
       {session?.status === "completed" && session.result && (
         <p className="mt-3 flex items-center gap-2 text-xs text-emerald-400" role="status">

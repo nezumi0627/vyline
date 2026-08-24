@@ -165,9 +165,39 @@ async function runRestore(
         session.progress = { stage, current, total, message };
       },
     );
+    session.progress = {
+      stage: "merge",
+      current: 0,
+      total: 1,
+      message: "チャット履歴をVylineのDBへ取り込んでいます",
+    };
     const records = historyToChatDb(result.parsed, session.accountId);
     const merged = await mergeImportedChatDb(session.accountId, records);
-    const media = await restoreMediaFiles(session.accountId, result.extracted.files, result.parsed);
+    session.progress = {
+      stage: "media",
+      current: 0,
+      total: 1,
+      message: "復元したメディアをDBへ紐付けています",
+    };
+    const media = await restoreMediaFiles(
+      session.accountId,
+      result.extracted.files,
+      result.parsed,
+      (current, total) => {
+        session.progress = {
+          stage: "media",
+          current,
+          total,
+          message: "復元したメディアをDBへ紐付けています",
+        };
+      },
+    );
+    session.progress = {
+      stage: "save",
+      current: 1,
+      total: 1,
+      message: "復元結果をDBへ保存しています",
+    };
     await flushAccountChatDb(session.accountId);
     const totalMessages = Array.from(result.parsed.messages.values()).reduce(
       (sum, messages) => sum + messages.length,
@@ -204,6 +234,7 @@ async function restoreMediaFiles(
   accountId: string,
   files: ExtractedFile[],
   history: ParsedChatHistory,
+  onProgress?: (current: number, total: number) => void,
 ): Promise<{ restored: number; skipped: number }> {
   const candidates = files.filter((file) => !file.localPath.endsWith(".sqlite"));
   const byName = new Map<string, ExtractedFile>();
@@ -216,6 +247,12 @@ async function restoreMediaFiles(
 
   let restored = 0;
   let skipped = 0;
+  const mediaMessages = [...history.messages.values()]
+    .flat()
+    .filter((message) => MEDIA_CONTENT_TYPES.has(iosContentType(message.contentType)));
+  const total = mediaMessages.length;
+  let current = 0;
+  onProgress?.(0, total);
   for (const [chatMid, messages] of history.messages) {
     for (const message of messages) {
       const kind = iosContentType(message.contentType);
@@ -224,6 +261,8 @@ async function restoreMediaFiles(
       const file = findMediaFile(tokens, byName, candidates);
       if (!file) {
         skipped++;
+        current++;
+        onProgress?.(current, total);
         continue;
       }
       try {
@@ -238,6 +277,8 @@ async function restoreMediaFiles(
       } catch {
         skipped++;
       }
+      current++;
+      onProgress?.(current, total);
     }
   }
   return { restored, skipped };
