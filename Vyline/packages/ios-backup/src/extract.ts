@@ -227,8 +227,17 @@ export function getFileDecryptedCopy(
   return { size: data.length };
 }
 
-function asRecord(value: unknown): Record<string, unknown> {
-  return typeof value === "object" && value !== null ? (value as Record<string, unknown>) : {};
+interface BplistRecord extends Record<string, unknown> {
+  $top?: unknown;
+  $objects?: unknown[];
+  root?: unknown;
+  Size?: unknown;
+  EncryptionKey?: unknown;
+  ProtectionClass?: unknown;
+}
+
+function asRecord(value: unknown): BplistRecord {
+  return typeof value === "object" && value !== null ? (value as BplistRecord) : {};
 }
 
 function resolveBplistValue(value: unknown, objects: unknown[] | undefined): unknown {
