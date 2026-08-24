@@ -4,7 +4,6 @@ import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
 import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
-import { CustomCursor } from "../components/vyline-cursor.js";
 import { HubHome } from "../components/hub-home.js";
 import { ChatShell } from "../components/chat-shell.js";
 import { SettingsSections } from "../components/settings-sections.js";
@@ -66,7 +65,6 @@ export function VylineApp() {
   return (
     <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
-      <CustomCursor />
       {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
       {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
       {screen === "home" && showUpdateNote && <HubHome />}

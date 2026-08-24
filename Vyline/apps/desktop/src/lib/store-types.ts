@@ -189,7 +189,6 @@ export type Settings = {
   showReaderList: boolean;
   streamerMode: boolean;
   compactDensity: boolean;
-  customCursor: boolean;
   animationMode: AnimationMode;
   fontScale: number;
   enterToSend: boolean;
