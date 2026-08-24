@@ -78,7 +78,6 @@ const sessionOpenedChats = new Set<string>();
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
 
-const MAX_MESSAGES_PER_CHAT = 120;
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
 
@@ -1869,11 +1868,8 @@ export const useStore = create<State>()(
                 if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
               }
               const forChat = [...mergedMap.values()].sort((a, b) => a.createdAt - b.createdAt);
-              return {
-                messages: [
-                  ...st.messages.filter((m) => m.chatId !== chatId),
-                  ...forChat.slice(-MAX_MESSAGES_PER_CHAT),
-                ],
+                return {
+                  messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
                 chats: st.chats.map((c) =>
                   c.id === chatId && c.type === "group"
                     ? {
@@ -2155,7 +2151,7 @@ export const useStore = create<State>()(
             : st.messages;
           const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);
           const trimmed = merged.filter((m) => m.chatId !== chatId);
-          const forChat = merged.filter((m) => m.chatId === chatId).slice(-MAX_MESSAGES_PER_CHAT);
+          const forChat = merged.filter((m) => m.chatId === chatId);
           return {
             messages: [...trimmed, ...forChat],
             chats: st.chats.map((c) => {
