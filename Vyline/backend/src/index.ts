@@ -25,9 +25,12 @@ import { warmAccountCache } from "./storage/chatStore.js";
 import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
+import { subdeviceRouter } from "./api/subdevices.js";
+import { isSubdeviceSessionValid } from "./storage/subdeviceStore.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
-const HOST = process.env.VYLINE_HOST ?? "127.0.0.1";
+const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
+const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
 const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
@@ -35,7 +38,41 @@ const STATIC_DIR =
 
 const app = new Hono();
 
-app.use("*", cors({ origin: CORS_ORIGIN }));
+function isPublicPairingRequest(path: string, method: string) {
+  if (method === "GET") return /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+$/.test(path);
+  return method === "POST" && /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+\/complete$/.test(path);
+}
+
+app.use(
+  "*",
+  cors({
+    origin: (origin) => (LAN_ACCESS ? origin : CORS_ORIGIN),
+    credentials: true,
+  }),
+);
+
+// LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
+// QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
+app.use("/api/*", async (c, next) => {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!(await isSubdeviceSessionValid(session))) {
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  return next();
+});
+app.use("/auth/*", async (c, next) => {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!(await isSubdeviceSessionValid(session))) {
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  return next();
+});
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
 app.get("/api/v1/status", (c) =>
@@ -83,6 +120,8 @@ app.route("/cdn", cdnRouter);
 // セルフホスト用: /api プレフィックス付きでも同じルーターへ届ける
 // （フロントは dev では Vite proxy、本番では同オリジンの /api を使う）
 app.route("/api/auth", authRouter);
+app.route("/auth/subdevices", subdeviceRouter);
+app.route("/api/auth/subdevices", subdeviceRouter);
 app.route("/api/line", lineRouter);
 app.route("/api/beta/agent-i", agentIRouter);
 app.route("/api/debug", debugRouter);
@@ -168,7 +207,7 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-const SPA_PATHS = new Set(["", "/", "/chat", "/settings", "/login", "/hub"]);
+const SPA_PATHS = new Set(["", "/", "/chat", "/settings", "/login", "/hub", "/subdevice"]);
 
 async function serveStaticFile(path: string) {
   const normalized = normalize(path).replace(/\\/g, "/");
@@ -265,20 +304,34 @@ export default {
   hostname: HOST,
   /** 既読取得など LINE RPC が 10s を超えることがある */
   idleTimeout: 120,
-  fetch(req: Request, server: Bun.Server<CallWsData>) {
-    const url = new URL(req.url);
+  async fetch(req: Request, server: Bun.Server<CallWsData>) {
+    const address = server.requestIP(req)?.address ?? "";
+    const local = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+    const headers = new Headers(req.headers);
+    headers.set("x-vyline-local-request", local ? "1" : "0");
+    const request = new Request(req, { headers });
+    const url = new URL(request.url);
     const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
-    if (m && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
+    if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      if (
+        LAN_ACCESS &&
+        !local &&
+        !(await isSubdeviceSessionValid(
+          (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""),
+        ))
+      ) {
+        return new Response("subdevice authentication required", { status: 401 });
+      }
       const accountId = decodeURIComponent(m[1]!);
       const sessionId = url.searchParams.get("sessionId");
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
       }
-      const ok = server.upgrade(req, { data: { accountId, sessionId } });
+      const ok = server.upgrade(request, { data: { accountId, sessionId } });
       if (ok) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
-    return app.fetch(req, server);
+    return app.fetch(request, server);
   },
   websocket: {
     open(ws: Bun.ServerWebSocket<CallWsData>) {

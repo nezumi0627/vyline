@@ -1,10 +1,12 @@
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
+import type { AnimationMode } from "@/lib/store-types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -54,6 +56,7 @@ type Section =
   | "privacy"
   | "notifications"
   | "advanced"
+  | "subdevices"
   | "storage"
   | "info"
   | "beta";
@@ -66,6 +69,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+  { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
@@ -102,6 +106,7 @@ function Card({ children }: { children: React.ReactNode }) {
 export function SettingsSections() {
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
+  const animationMode = settings.animationMode ?? "vyline";
   const updateSetting = useStore((s) => s.updateSetting);
   const self = useStore((s) => s.self);
   const updateSelf = useStore((s) => s.updateSelf);
@@ -260,7 +265,7 @@ export function SettingsSections() {
           </div>
 
           <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            <div className="mx-auto max-w-2xl">
+            <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
                   <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
@@ -382,6 +387,36 @@ export function SettingsSections() {
               {section === "display" && (
                 <Section title="表示" desc="レイアウトの密度や入力挙動を調整します">
                   <Card>
+                    <div className="py-3.5">
+                      <p className="text-sm font-medium">アニメーション</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                        画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        {([
+                          ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
+                          ["feather", "フェザー", "低スペック端末向け"],
+                          ["none", "オフ", "アニメーションを停止"],
+                        ] as const).map(([mode, label, desc]) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => updateSetting("animationMode", mode as AnimationMode)}
+                            aria-pressed={animationMode === mode}
+                            className={cn(
+                              "rounded-xl border px-3 py-2 text-left transition-colors",
+                              animationMode === mode
+                                ? "border-transparent text-[var(--vy-accent-contrast)]"
+                                : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
+                            )}
+                            style={animationMode === mode ? { background: "var(--vy-accent)" } : undefined}
+                          >
+                            <span className="block text-xs font-semibold">{label}</span>
+                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">{desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <Row title="コンパクト表示" desc="吹き出しの余白を狭くして情報量を増やします">
                       <Toggle
                         checked={settings.compactDensity}
@@ -488,6 +523,8 @@ export function SettingsSections() {
 
               {section === "advanced" && <AdvancedSection />}
 
+              {section === "subdevices" && <SubdevicesSection />}
+
               {section === "storage" && <StorageSection />}
 
               {section === "info" && <InfoSection />}
@@ -503,6 +540,115 @@ export function SettingsSections() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SubdevicesSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [pairingUrl, setPairingUrl] = useState<string | null>(null);
+  const [devices, setDevices] = useState<
+    Awaited<ReturnType<typeof api.subdevices.list>>["devices"]
+  >([]);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    const res = await api.subdevices.list();
+    if (res.ok) setDevices(res.devices ?? []);
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const startPairing = async () => {
+    if (!accountId) return setMessage("LINEログインが必要です");
+    const res = await api.subdevices.createPairing(accountId);
+    if (!res.ok || !res.token) return setMessage(res.error ?? "QRコードを作成できませんでした");
+    setPairingUrl(`${window.location.origin}/subdevice?pairing=${encodeURIComponent(res.token)}`);
+    setMessage("スマホの標準カメラでQRコードを読み込んでください（2分間有効）");
+  };
+
+  const action = async (id: string, kind: "remove" | "block" | "unblock") => {
+    if (kind === "remove" && !window.confirm("この端末を削除しますか？再認証は可能です。")) return;
+    if (
+      kind === "block" &&
+      !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
+    )
+      return;
+    if (kind === "remove") await api.subdevices.remove(id);
+    if (kind === "block") await api.subdevices.block(id);
+    if (kind === "unblock") await api.subdevices.unblock(id);
+    await load();
+  };
+
+  return (
+    <Section title="サブデバイス" desc="PCで認証したスマホ・タブレットからVylineを利用します">
+      <div className="space-y-4">
+        <Card>
+          <Row title="新しい端末を接続" desc="QRコードは一度だけ利用でき、2分で期限切れになります">
+            <button
+              type="button"
+              onClick={() => void startPairing()}
+              className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              QRを表示
+            </button>
+          </Row>
+        </Card>
+        {pairingUrl && (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-white p-5 text-center">
+            <QRCodeSVG value={pairingUrl} size={220} includeMargin />
+            <p className="max-w-sm text-xs text-slate-600">{message}</p>
+            <button
+              type="button"
+              onClick={() => setPairingUrl(null)}
+              className="text-xs text-slate-500 underline"
+            >
+              閉じる
+            </button>
+          </div>
+        )}
+        {message && !pairingUrl && <p className="text-xs text-[var(--vy-text-dim)]">{message}</p>}
+        <Card>
+          {(devices ?? []).length === 0 && (
+            <p className="py-4 text-sm text-[var(--vy-text-dim)]">
+              接続中のサブデバイスはありません。
+            </p>
+          )}
+          {(devices ?? []).map((device) => (
+            <div key={device.id} className="flex items-center justify-between gap-3 py-3.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {device.name}
+                  {device.blocked ? "（ブロック中）" : ""}
+                </p>
+                <p className="text-xs text-[var(--vy-text-dim)]">
+                  {device.platform} ·{" "}
+                  {device.lastSeenAt
+                    ? `最終接続 ${formatRelativeTime(Date.parse(device.lastSeenAt))}`
+                    : "オフライン"}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void action(device.id, device.blocked ? "unblock" : "block")}
+                  className="rounded-lg border border-[var(--vy-border)] px-2 py-1 text-xs"
+                >
+                  {device.blocked ? "解除" : "ブロック"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void action(device.id, "remove")}
+                  className="rounded-lg border border-[var(--vy-danger)] px-2 py-1 text-xs text-[var(--vy-danger)]"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </Section>
   );
 }
 

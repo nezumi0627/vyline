@@ -59,12 +59,23 @@ function isBackendDown(err: unknown): boolean {
   );
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders?: HeadersInit,
+): Promise<T> {
   let res: Response;
+  const sessionToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers: {
+        ...(body ? { "Content-Type": "application/json" } : {}),
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        ...(extraHeaders ?? {}),
+      },
       body: body ? JSON.stringify(body) : undefined,
     });
   } catch (err) {
@@ -93,6 +104,57 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  subdevices: {
+    createPairing: (accountId: string) =>
+      request<{ ok: boolean; token?: string; expiresAt?: number; error?: string }>(
+        "POST",
+        "/auth/subdevices/pairing",
+        { accountId },
+      ),
+    list: () =>
+      request<{
+        ok: boolean;
+        devices?: Array<{
+          id: string;
+          accountId: string;
+          name: string;
+          platform: "ios" | "android" | "web" | "unknown";
+          createdAt: string;
+          lastSeenAt: string | null;
+          blocked: boolean;
+        }>;
+      }>("GET", "/auth/subdevices"),
+    remove: (id: string) =>
+      request<{ ok: boolean }>("DELETE", `/auth/subdevices/${encodeURIComponent(id)}`),
+    block: (id: string) =>
+      request<{ ok: boolean }>("POST", `/auth/subdevices/${encodeURIComponent(id)}/block`),
+    unblock: (id: string) =>
+      request<{ ok: boolean }>("DELETE", `/auth/subdevices/${encodeURIComponent(id)}/block`),
+    pairingInfo: (token: string) =>
+      request<{ ok: boolean; expiresAt?: number }>(
+        "GET",
+        `/auth/subdevices/pairing/${encodeURIComponent(token)}`,
+      ),
+    complete: (token: string, name: string, platform: "ios" | "android" | "web" | "unknown") =>
+      request<{
+        ok: boolean;
+        sessionToken?: string;
+        device?: { accountId: string };
+        error?: string;
+      }>("POST", `/auth/subdevices/pairing/${encodeURIComponent(token)}/complete`, {
+        name,
+        platform,
+      }),
+    heartbeat: (sessionToken: string) =>
+      request<{ ok: boolean; device?: { accountId: string } }>(
+        "POST",
+        "/auth/subdevices/heartbeat",
+        undefined,
+        {
+          Authorization: `Bearer ${sessionToken}`,
+        },
+      ),
+  },
   agentI: {
     chat: (accountId: string, prompt: string, history?: AgentIHistoryItem[]) =>
       request<{ ok: boolean; text?: string; error?: string }>(
