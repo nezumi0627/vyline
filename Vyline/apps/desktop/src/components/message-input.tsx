@@ -889,7 +889,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
       {agentOpen && (
         <AgentIActionDialog
           title="AIで文章の構成・表現を整える"
-          prompt={`次のLINEメッセージを、意図を変えずに読みやすく自然な日本語へ整えてください。文章の構成、誤字脱字、敬語を必要に応じて補正し、修正後の本文だけ返してください。\n\n${draft}`}
+          prompt=""
+          sourceText={draft}
           onClose={() => setAgentOpen(false)}
           onApply={(text) => setDraft(chatId, text)}
         />
