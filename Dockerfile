@@ -10,6 +10,7 @@ COPY package.json bun.lock* ./
 COPY Vyline/apps/desktop/package.json Vyline/apps/desktop/
 COPY Vyline/backend/package.json Vyline/backend/
 COPY Vyline/packages/types/package.json Vyline/packages/types/
+COPY Vyline/packages/ios-backup/package.json Vyline/packages/ios-backup/
 COPY Vyline/packages/protocol/package.json Vyline/packages/protocol/
 COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/
 COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/
