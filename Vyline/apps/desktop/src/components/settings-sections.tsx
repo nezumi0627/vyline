@@ -115,6 +115,7 @@ export function SettingsSections() {
   const self = useStore((s) => s.self);
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [section, setSection] = useState<Section>("read");
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
@@ -122,6 +123,14 @@ export function SettingsSections() {
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   const saveLineProfile = async () => {
+    if (demoMode) {
+      updateSelf({
+        name: nameDraft.trim() || "デモユーザー",
+        status: statusDraft,
+      });
+      setProfileMsg("デモプロフィールを更新しました");
+      return;
+    }
     if (!accountId) {
       setProfileMsg("ログインが必要です");
       return;
@@ -164,7 +173,12 @@ export function SettingsSections() {
   };
 
   const onPickAvatar = async (file: File | null) => {
-    if (!file || !accountId) return;
+    if (!file || (!accountId && !demoMode)) return;
+    if (demoMode) {
+      updateSelf({ avatarUrl: URL.createObjectURL(file) });
+      setProfileMsg("デモアイコンを更新しました");
+      return;
+    }
     setProfileSaving(true);
     setProfileMsg(null);
     try {
@@ -184,7 +198,12 @@ export function SettingsSections() {
   };
 
   const onPickBackground = async (file: File | null) => {
-    if (!file || !accountId) return;
+    if (!file || (!accountId && !demoMode)) return;
+    if (demoMode) {
+      updateSelf({ backgroundUrl: URL.createObjectURL(file) });
+      setProfileMsg("デモ背景を更新しました");
+      return;
+    }
     setProfileSaving(true);
     setProfileMsg(null);
     try {
@@ -558,10 +577,23 @@ export function SettingsSections() {
 
 function SubdevicesSection() {
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [pairingUrl, setPairingUrl] = useState<string | null>(null);
   const [devices, setDevices] = useState<
     Awaited<ReturnType<typeof api.subdevices.list>>["devices"]
-  >([]);
+  >(() =>
+    demoMode
+      ? [
+          {
+            id: "demo-tablet",
+            name: "デモ iPad",
+            platform: "iPadOS",
+            blocked: false,
+            lastSeenAt: new Date().toISOString(),
+          },
+        ]
+      : [],
+  );
   const [message, setMessage] = useState<string | null>(null);
 
   const load = async () => {
@@ -569,20 +601,26 @@ function SubdevicesSection() {
     if (res.ok) setDevices(res.devices ?? []);
   };
   useEffect(() => {
+    if (demoMode) return;
     void load();
-  }, []);
+  }, [demoMode]);
 
   useEffect(() => {
-    if (!pairingUrl) return;
+    if (!pairingUrl || demoMode) return;
     const timer = window.setInterval(() => {
       void api.subdevices.list().then((res) => {
         if (res.ok) setDevices(res.devices ?? []);
       });
     }, 1500);
     return () => window.clearInterval(timer);
-  }, [pairingUrl]);
+  }, [pairingUrl, demoMode]);
 
   const startPairing = async () => {
+    if (demoMode) {
+      setPairingUrl("https://vyline.invalid/demo-pairing");
+      setMessage("デモ用QRコードです。実際の端末とは接続しません（2分間有効）");
+      return;
+    }
     if (!accountId) return setMessage("LINEログインが必要です");
     const res = await api.subdevices.createPairing(accountId, window.location.origin);
     if (!res.ok || !res.token) return setMessage(res.error ?? "QRコードを作成できませんでした");
@@ -606,6 +644,23 @@ function SubdevicesSection() {
       !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
     )
       return;
+    if (demoMode) {
+      setDevices((current) =>
+        kind === "remove"
+          ? (current ?? []).filter((device) => device.id !== id)
+          : (current ?? []).map((device) =>
+              device.id === id ? { ...device, blocked: kind === "block" } : device,
+            ),
+      );
+      setMessage(
+        kind === "remove"
+          ? "デモ端末を削除しました"
+          : kind === "block"
+            ? "デモ端末をブロックしました"
+            : "デモ端末のブロックを解除しました",
+      );
+      return;
+    }
     if (kind === "remove") await api.subdevices.remove(id);
     if (kind === "block") await api.subdevices.block(id);
     if (kind === "unblock") await api.subdevices.unblock(id);
@@ -815,6 +870,7 @@ type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const activeChatId = useStore((s) => s.activeChatId);
   const pollIncoming = useStore((s) => s.pollIncoming);
   const pollMessagesDelta = useStore((s) => s.pollMessagesDelta);
@@ -826,6 +882,19 @@ function AdvancedSection() {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
   const handleRestore = async () => {
+    if (demoMode) {
+      setRestoring(true);
+      setRestoreResult(null);
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      setRestoreResult({
+        ok: true,
+        imported: 128,
+        skipped: 0,
+        hint: "撮影用データをローカルで復元しました（デモ）",
+      });
+      setRestoring(false);
+      return;
+    }
     if (!accountId) {
       setRestoreResult({ ok: false, error: "ログインが必要です" });
       return;
@@ -846,11 +915,17 @@ function AdvancedSection() {
   };
 
   const handleSync = async () => {
-    if (!accountId || syncing) return;
+    if ((!accountId && !demoMode) || syncing) return;
     setSyncing(true);
     setSyncMsg(null);
     const start = Date.now();
     try {
+      if (demoMode) {
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+        setLastSyncAt(Date.now());
+        setSyncMsg("同期完了 · 新着0件（デモ）");
+        return;
+      }
       // 差分同期: イベントポーリング + アクティブチャットのデルタ + チャット一覧更新
       await pollIncoming();
       if (activeChatId) {
@@ -880,7 +955,7 @@ function AdvancedSection() {
             <button
               type="button"
               onClick={handleSync}
-              disabled={syncing || !accountId}
+              disabled={syncing || (!accountId && !demoMode)}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {syncing ? "同期中…" : "同期"}
@@ -896,7 +971,7 @@ function AdvancedSection() {
           <button
             type="button"
             onClick={handleRestore}
-            disabled={restoring || !accountId}
+            disabled={restoring || (!accountId && !demoMode)}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {restoring ? "復元中…" : "復元"}
@@ -1068,7 +1143,7 @@ function AdvancedSection() {
         </div>
       )}
 
-      {!accountId && (
+      {!accountId && !demoMode && (
         <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
           復元には LINE ログインが必要です。
         </p>
@@ -1079,6 +1154,7 @@ function AdvancedSection() {
 
 function StorageSection() {
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [storage, setStorage] = useState<{
     ok: boolean;
     driveLetter?: string;
@@ -1094,6 +1170,28 @@ function StorageSection() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = async () => {
+    if (demoMode) {
+      setStorage({
+        ok: true,
+        driveLetter: "DEMO",
+        disk: {
+          totalBytes: 512 * 1024 ** 3,
+          freeBytes: 338 * 1024 ** 3,
+          usedBytes: 174 * 1024 ** 3,
+        },
+        vylineTotal: 476 * 1024 ** 2,
+        cacheSize: 92 * 1024 ** 2,
+        savedMediaSize: 384 * 1024 ** 2,
+        cache: { cdn: 68 * 1024 ** 2, icons: 24 * 1024 ** 2 },
+        savedMedia: {
+          image: 188 * 1024 ** 2,
+          video: 142 * 1024 ** 2,
+          audio: 18 * 1024 ** 2,
+          file: 36 * 1024 ** 2,
+        },
+      });
+      return;
+    }
     if (!accountId) return;
     setLoading(true);
     setMsg(null);
@@ -1112,8 +1210,12 @@ function StorageSection() {
     label: string,
     action: () => Promise<{ ok: boolean; removed?: number }>,
   ) => {
-    if (!accountId) return;
+    if (!accountId && !demoMode) return;
     if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
+    if (demoMode) {
+      setMsg(`${label}を削除しました（デモ）`);
+      return;
+    }
     setLoading(true);
     setMsg(null);
     try {
@@ -1133,7 +1235,7 @@ function StorageSection() {
 
   useEffect(() => {
     void load();
-  }, [accountId]);
+  }, [accountId, demoMode]);
 
   const segments = storage
     ? [
@@ -1241,7 +1343,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId!))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
         <TypeCard
@@ -1254,7 +1356,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId!))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
         <TypeCard
@@ -1269,7 +1371,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId!, "image"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#3b82f6"
         />
         <TypeCard
@@ -1284,7 +1386,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId!, "video"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#a855f7"
         />
         <TypeCard
@@ -1299,7 +1401,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId!, "audio"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#22c55e"
         />
         <TypeCard
@@ -1314,7 +1416,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId!, "file"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#6b7280"
         />
       </div>
@@ -1537,10 +1639,17 @@ function NotificationsSection() {
   const settings = useStore((s) => s.settings);
   const updateSetting = useStore((s) => s.updateSetting);
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const toggle = async () => {
+    if (demoMode) {
+      const next = !settings.notificationsEnabled;
+      updateSetting("notificationsEnabled", next);
+      setMsg(next ? "通知を有効にしました（デモ）" : "通知を無効にしました（デモ）");
+      return;
+    }
     if (!accountId) {
       setMsg("ログインが必要です");
       return;
@@ -1573,7 +1682,7 @@ function NotificationsSection() {
             checked={settings.notificationsEnabled}
             onChange={toggle}
             label="通知を有効にする"
-            disabled={saving || !accountId}
+            disabled={saving || (!accountId && !demoMode)}
           />
         </Row>
       </Card>
@@ -1586,6 +1695,7 @@ function PrivacySection() {
   const settings = useStore((s) => s.settings);
   const updateSetting = useStore((s) => s.updateSetting);
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
   const [proxyMsg, setProxyMsg] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<Array<{ mid: string; name?: string; avatarUrl?: string }>>(
@@ -1595,9 +1705,13 @@ function PrivacySection() {
   const [unblocking, setUnblocking] = useState<Set<string>>(new Set());
 
   const applyProxy = async () => {
-    if (!accountId) return;
+    if (!accountId && !demoMode) return;
     const enabled = useStore.getState().settings.proxyEnabled;
     updateSetting("proxyUrl", proxyUrl);
+    if (demoMode) {
+      setProxyMsg(enabled ? "プロキシを適用しました（デモ）" : "プロキシを無効化しました（デモ）");
+      return;
+    }
     try {
       const res = await api.line.setProxy(accountId, enabled, proxyUrl);
       setProxyMsg(
@@ -1613,8 +1727,14 @@ function PrivacySection() {
   };
 
   const loadBlocked = async () => {
-    if (!accountId) return;
+    if (!accountId && !demoMode) return;
     setBlockedLoading(true);
+    if (demoMode) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      setBlocked([{ mid: "demo-blocked-user", name: "ブロック済みデモ" }]);
+      setBlockedLoading(false);
+      return;
+    }
     try {
       const res = await api.line.blockedContacts(accountId);
       const mids = res.ok ? (res.mids ?? []) : [];
@@ -1643,8 +1763,14 @@ function PrivacySection() {
   };
 
   const handleUnblock = async (mid: string) => {
-    if (!accountId || unblocking.has(mid)) return;
+    if ((!accountId && !demoMode) || unblocking.has(mid)) return;
     setUnblocking((s) => new Set(s).add(mid));
+    if (demoMode) {
+      setBlocked((prev) => prev.filter((b) => b.mid !== mid));
+      setUnblocking(new Set());
+      setProxyMsg("ブロックを解除しました（デモ）");
+      return;
+    }
     try {
       const res = await api.line.unblockContact(accountId, mid);
       if (res.ok) {
@@ -1715,7 +1841,7 @@ function PrivacySection() {
               <p className="text-sm font-medium">ブロックリスト</p>
               <button
                 type="button"
-                disabled={!accountId || blockedLoading}
+                disabled={(!accountId && !demoMode) || blockedLoading}
                 onClick={() => void loadBlocked()}
                 className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
               >
