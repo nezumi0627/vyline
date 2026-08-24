@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
+import { markRestoredChatMids } from "@/utils/dismissedChats";
 
 type Device = NonNullable<Awaited<ReturnType<typeof api.line.listIosBackups>>["devices"]>[number];
 type Session = NonNullable<Awaited<ReturnType<typeof api.line.getIosBackupSession>>["session"]>;
@@ -53,6 +54,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
 
   useEffect(() => {
     if (session?.status !== "completed" || !accountId) return;
+    markRestoredChatMids(accountId, session.result?.restoredChatMids ?? []);
     window.dispatchEvent(
       new CustomEvent("vyline:ios-backup-restored", {
         detail: { accountId, chatMids: session.result?.restoredChatMids ?? [] },
