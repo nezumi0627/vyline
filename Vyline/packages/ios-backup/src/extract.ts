@@ -3,7 +3,7 @@ import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from "node
 import { createDecipheriv } from "node:crypto";
 import { join, dirname, basename } from "node:path";
 import { tmpdir } from "node:os";
-import { openBackup, closeBackup, BackupManifest } from "./manifest.js";
+import { openBackup, closeBackup, type BackupManifest } from "./manifest.js";
 import { parseBplist, parseContentMetadata } from "./bplist.js";
 import { unwrapKeyForClass } from "./keybag.js";
 
@@ -110,11 +110,7 @@ export async function extractBackup(options: ExtractOptions): Promise<ExtractedB
         const targetName = `${row.domain}__${safeName}`;
         const targetPath = join(outputDir, targetName);
 
-        const result = getFileDecryptedCopy(
-          backup,
-          manifestEntry,
-          targetPath,
-        );
+        const result = getFileDecryptedCopy(backup, manifestEntry, targetPath);
 
         const extracted: ExtractedFile = {
           fileID: row.fileID,
@@ -185,13 +181,13 @@ export function getFileDecryptedCopy(
 ): { size: number } {
   const parsed = parseBplist(manifestEntry.file);
   const fileData = asRecord(parsed);
-  const top = asRecord(fileData["$top"]);
-  const root = typeof top["root"] === "number" ? top["root"] : undefined;
-  const objects = Array.isArray(fileData["$objects"]) ? fileData["$objects"] : undefined;
+  const top = asRecord(fileData.$top);
+  const root = typeof top.root === "number" ? top.root : undefined;
+  const objects = Array.isArray(fileData.$objects) ? fileData.$objects : undefined;
   const fileObject = root === undefined ? undefined : asRecord(objects?.[root]);
   const entry = fileObject ?? fileData;
   const isEncrypted = "EncryptionKey" in entry;
-  const isFolder = Number(entry["Size"] ?? 0) === 0 && !isEncrypted;
+  const isFolder = Number(entry.Size ?? 0) === 0 && !isEncrypted;
 
   if (isFolder) {
     mkdirSync(targetPath, { recursive: true });
@@ -210,9 +206,9 @@ export function getFileDecryptedCopy(
   }
 
   if (isEncrypted) {
-    const wrapped = asBytes(resolveBplistValue(entry["EncryptionKey"], objects));
+    const wrapped = asBytes(resolveBplistValue(entry.EncryptionKey, objects));
     if (!wrapped || wrapped.length < 5) throw new Error("Encrypted file key is missing");
-    const protectionClass = Number(entry["ProtectionClass"]);
+    const protectionClass = Number(entry.ProtectionClass);
     if (!Number.isInteger(protectionClass)) throw new Error("Encrypted file class is missing");
     const fileKey = unwrapKeyForClass(
       backup.keybag.classKeys,
@@ -220,7 +216,7 @@ export function getFileDecryptedCopy(
       wrapped.subarray(4),
     );
     const decrypted = decryptAesCbc(readFileSync(sourcePath), fileKey);
-    const data = decrypted.subarray(0, Number(entry["Size"]));
+    const data = decrypted.subarray(0, Number(entry.Size));
     mkdirSync(dirname(targetPath), { recursive: true });
     writeFileSync(targetPath, data);
     return { size: data.length };

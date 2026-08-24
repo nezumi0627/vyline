@@ -9,11 +9,7 @@ import {
   type ParsedChatHistory,
 } from "@vyline/ios-backup";
 import type { MessageContentMeta } from "@vyline/types";
-import {
-  mergeImportedChatDb,
-  type StoredChat,
-  type StoredMessage,
-} from "../storage/chatStore.js";
+import { mergeImportedChatDb, type StoredChat, type StoredMessage } from "../storage/chatStore.js";
 import { childLogger } from "../logger.js";
 
 const log = childLogger("ios-backup");
@@ -67,7 +63,12 @@ function backupRoots(): string[] {
   if (configured) return [configured];
   const home = homedir();
   return [
-    join(process.env.APPDATA ?? join(home, "AppData", "Roaming"), "Apple Computer", "MobileSync", "Backup"),
+    join(
+      process.env.APPDATA ?? join(home, "AppData", "Roaming"),
+      "Apple Computer",
+      "MobileSync",
+      "Backup",
+    ),
     join(home, "Apple", "MobileSync", "Backup"),
     join(home, "Library", "Application Support", "MobileSync", "Backup"),
   ];
@@ -81,7 +82,10 @@ async function findBackups(): Promise<IosBackupDevice[]> {
     for (const entry of await readdir(root, { withFileTypes: true })) {
       if (!entry.isDirectory() || seen.has(entry.name)) continue;
       const backupRoot = join(root, entry.name);
-      if (!existsSync(join(backupRoot, "Manifest.plist")) || !existsSync(join(backupRoot, "Manifest.db"))) {
+      if (
+        !existsSync(join(backupRoot, "Manifest.plist")) ||
+        !existsSync(join(backupRoot, "Manifest.db"))
+      ) {
         continue;
       }
       seen.add(entry.name);
@@ -176,7 +180,10 @@ async function runRestore(
     session.status = "failed";
     session.error = error instanceof Error ? error.message : "iOSバックアップの復元に失敗しました";
     session.completedAt = Date.now();
-    log.warn({ accountId: session.accountId, deviceId: device.udid, error }, "iOS backup restore failed");
+    log.warn(
+      { accountId: session.accountId, deviceId: device.udid, error },
+      "iOS backup restore failed",
+    );
   } finally {
     await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -200,11 +207,13 @@ export function historyToChatDb(
       name: info.name || info.chatMid,
       kind: info.kind === "group" ? "group" : info.kind === "dm" ? "direct" : "unknown",
       hasMessages: mapped.length > 0,
-      ...(last ? {
-        lastMessageTime: last.createdTime,
-        lastMessageId: last.id,
-        lastMessagePreview: last.text ?? `[${last.contentType}]`,
-      } : {}),
+      ...(last
+        ? {
+            lastMessageTime: last.createdTime,
+            lastMessageId: last.id,
+            lastMessagePreview: last.text ?? `[${last.contentType}]`,
+          }
+        : {}),
       updatedAt: now,
     };
     if (mapped.length > 0) {
@@ -231,13 +240,28 @@ function mapMessage(
     contentType: iosContentType(message.contentType),
     createdTime: Number.isFinite(message.ts) ? message.ts : 0,
     isMyMessage,
-    ...(message.contentMetadata ? { contentMetadata: toContentMetadata(message.contentMetadata) } : {}),
+    ...(message.contentMetadata
+      ? { contentMetadata: toContentMetadata(message.contentMetadata) }
+      : {}),
     savedAt,
   };
 }
 
 function iosContentType(type: number): string {
-  return ({ 0: "NONE", 1: "IMAGE", 2: "VIDEO", 3: "AUDIO", 7: "STICKER", 14: "FILE", 17: "RICH", 22: "FLEX" } as Record<number, string>)[type] ?? String(type);
+  return (
+    (
+      {
+        0: "NONE",
+        1: "IMAGE",
+        2: "VIDEO",
+        3: "AUDIO",
+        7: "STICKER",
+        14: "FILE",
+        17: "RICH",
+        22: "FLEX",
+      } as Record<number, string>
+    )[type] ?? String(type)
+  );
 }
 
 function toContentMetadata(value: unknown): MessageContentMeta | null {

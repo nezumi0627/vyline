@@ -52,7 +52,12 @@ describe("mergeChatDbRecords", () => {
       },
     });
 
-    expect(result).toEqual({ importedChats: 1, skippedChats: 1, importedMessages: 2, skippedMessages: 1 });
+    expect(result).toEqual({
+      importedChats: 1,
+      skippedChats: 1,
+      importedMessages: 2,
+      skippedMessages: 1,
+    });
     expect(target.chats["u-chat"]?.name).toBe("Local name");
     expect(target.chats["u-chat"]?.lastMessageTime).toBe(700);
     expect(target.messages["u-chat"]?.["1"]?.text).toBe("local");

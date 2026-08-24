@@ -64,7 +64,8 @@ export async function extractAndParseLineHistory(
   const { parseLineDatabases, findLineDatabases, detectMyMid } = await import("./parse.js");
 
   const progressExtract = onProgress
-    ? (p: import("./extract.js").ExtractProgress) => onProgress(p.stage, p.current, p.total, p.message)
+    ? (p: import("./extract.js").ExtractProgress) =>
+        onProgress(p.stage, p.current, p.total, p.message)
     : undefined;
   const extracted = await extractBackup({
     backupRoot,
