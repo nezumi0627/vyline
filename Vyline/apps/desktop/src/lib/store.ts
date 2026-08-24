@@ -31,7 +31,7 @@ import {
   setCombinationStickerPreview,
   type CombinationStickerPlacement,
 } from "../utils/combinationStickers.js";
-import { getDismissedChatMids } from "../utils/dismissedChats.js";
+import { getDismissedChatMids, getRestoredChatMids } from "../utils/dismissedChats.js";
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
@@ -720,8 +720,9 @@ export const useStore = create<State>()(
         const accountId = get().accountId;
         const activeChatId = get().activeChatId;
         const dismissed = accountId ? getDismissedChatMids(accountId) : new Set<string>();
+        const restored = accountId ? new Set(getRestoredChatMids(accountId)) : new Set<string>();
         const mappedChats = chats
-          .filter((c) => !dismissed.has(c.mid) && !c.left)
+          .filter((c) => (!dismissed.has(c.mid) || restored.has(c.mid)) && !c.left)
           .map((c) => {
             const base = mapChat(c, hiddenMids.has(c.mid), contactCache);
             const cached = contactCache.get(c.mid);
@@ -753,7 +754,7 @@ export const useStore = create<State>()(
         });
 
         const chatId =
-          activeChatId && !dismissed.has(activeChatId)
+          activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
             ? activeChatId
             : (mappedChats[0]?.id ?? null);
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
@@ -769,7 +770,7 @@ export const useStore = create<State>()(
 
         set((st) => ({
           chats: mappedChats
-            .filter((c) => !dismissed.has(c.id))
+            .filter((c) => !dismissed.has(c.id) || restored.has(c.id))
             .map((c) => {
               const prev = st.chats.find((p) => p.id === c.id);
               const mergedName =
@@ -1669,9 +1670,10 @@ export const useStore = create<State>()(
                 .map((c) => c.id),
             );
             const dismissed = getDismissedChatMids(accountId);
+            const restored = new Set(getRestoredChatMids(accountId));
             set((st) => ({
               chats: res
-                .chats!.filter((c) => !dismissed.has(c.mid))
+                .chats!.filter((c) => !dismissed.has(c.mid) || restored.has(c.mid))
                 .map((c) => {
                   const base = mapChat(c, hidden.has(c.mid));
                   const prev = st.chats.find((p) => p.id === c.mid);
