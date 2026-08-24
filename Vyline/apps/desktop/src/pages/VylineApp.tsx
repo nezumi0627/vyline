@@ -9,6 +9,7 @@ import { ChatShell } from "../components/chat-shell.js";
 import { SettingsSections } from "../components/settings-sections.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
+import { api } from "../api/client.js";
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -25,6 +26,15 @@ export function VylineApp() {
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("vyline:subdevice-session");
+    if (!token) return;
+    const beat = () => void api.subdevices.heartbeat(token).catch(() => undefined);
+    beat();
+    const timer = window.setInterval(beat, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // 同意前は同期・通信を開始しない
   useVylineSync(initialized && accounts.length > 0 && consented);
@@ -67,9 +77,21 @@ export function VylineApp() {
       <ThemeApplier />
       {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
       {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
-      {screen === "home" && showUpdateNote && <HubHome />}
-      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && <ChatShell />}
-      {screen === "settings" && <SettingsSections />}
+      {screen === "home" && showUpdateNote && (
+        <div className="vy-screen-enter h-full">
+          <HubHome />
+        </div>
+      )}
+      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && (
+        <div className="vy-screen-enter h-full">
+          <ChatShell />
+        </div>
+      )}
+      {screen === "settings" && (
+        <div className="vy-screen-enter h-full">
+          <SettingsSections />
+        </div>
+      )}
     </main>
   );
 }
