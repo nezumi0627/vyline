@@ -1863,8 +1863,8 @@ export const useStore = create<State>()(
                 if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
               }
               const forChat = [...mergedMap.values()].sort((a, b) => a.createdAt - b.createdAt);
-                return {
-                  messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
+              return {
+                messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
                 chats: st.chats.map((c) =>
                   c.id === chatId && c.type === "group"
                     ? {
