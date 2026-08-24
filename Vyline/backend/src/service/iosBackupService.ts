@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -7,10 +7,12 @@ import {
   extractAndParseLineHistory,
   type MessageRecord,
   type ParsedChatHistory,
+  type ExtractedFile,
 } from "@vyline/ios-backup";
 import type { MessageContentMeta } from "@vyline/types";
 import { mergeImportedChatDb, type StoredChat, type StoredMessage } from "../storage/chatStore.js";
 import { childLogger } from "../logger.js";
+import { writeMediaStorage } from "../storage/mediaStorage.js";
 
 const log = childLogger("ios-backup");
 
@@ -50,6 +52,7 @@ export interface IosBackupSession {
       importedMessages: number;
       skippedMessages: number;
     };
+    media: { restored: number; skipped: number };
   } | null;
   error: string | null;
   startedAt: number;
@@ -159,6 +162,7 @@ async function runRestore(
     );
     const records = historyToChatDb(result.parsed, session.accountId);
     const merged = await mergeImportedChatDb(session.accountId, records);
+    const media = await restoreMediaFiles(session.accountId, result.extracted.files, result.parsed);
     const totalMessages = Array.from(result.parsed.messages.values()).reduce(
       (sum, messages) => sum + messages.length,
       0,
@@ -173,6 +177,7 @@ async function runRestore(
       },
       parsed: { chats: result.parsed.chats.length, totalMessages },
       merged,
+      media,
     };
     session.status = "completed";
     session.completedAt = Date.now();
@@ -187,6 +192,87 @@ async function runRestore(
   } finally {
     await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
+}
+
+async function restoreMediaFiles(
+  accountId: string,
+  files: ExtractedFile[],
+  history: ParsedChatHistory,
+): Promise<{ restored: number; skipped: number }> {
+  const candidates = files.filter((file) => !file.localPath.endsWith(".sqlite"));
+  const byName = new Map<string, ExtractedFile>();
+  for (const file of candidates) {
+    const name = file.relativePath.split(/[\\/]/).pop()?.toLowerCase();
+    if (name && !byName.has(name)) byName.set(name, file);
+    const withoutExtension = name?.replace(/\.[^.]+$/, "");
+    if (withoutExtension && !byName.has(withoutExtension)) byName.set(withoutExtension, file);
+  }
+
+  let restored = 0;
+  let skipped = 0;
+  for (const [chatMid, messages] of history.messages) {
+    for (const message of messages) {
+      const kind = iosContentType(message.contentType);
+      if (!MEDIA_CONTENT_TYPES.has(kind)) continue;
+      const tokens = [String(message.id), ...metadataTokens(message.contentMetadata)];
+      const file = findMediaFile(tokens, byName, candidates);
+      if (!file) {
+        skipped++;
+        continue;
+      }
+      try {
+        await writeMediaStorage(
+          accountId,
+          chatMid,
+          String(message.id),
+          new Uint8Array(await readFile(file.localPath)),
+          mediaMimeType(file.relativePath, kind),
+        );
+        restored++;
+      } catch {
+        skipped++;
+      }
+    }
+  }
+  return { restored, skipped };
+}
+
+function findMediaFile(
+  tokens: string[],
+  byName: Map<string, ExtractedFile>,
+  candidates: ExtractedFile[],
+): ExtractedFile | undefined {
+  const exact = tokens.map((token) => byName.get(token.toLowerCase())).find(Boolean);
+  if (exact) return exact;
+  for (const token of tokens) {
+    const normalized = token.toLowerCase();
+    if (normalized.length < 8) continue;
+    const match = candidates.find((file) => file.relativePath.toLowerCase().includes(normalized));
+    if (match) return match;
+  }
+  return undefined;
+}
+
+const MEDIA_CONTENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "STICKER"]);
+
+function metadataTokens(value: unknown): string[] {
+  if (typeof value === "string" || typeof value === "number") return [String(value)];
+  if (!value || typeof value !== "object") return [];
+  return Object.values(value as Record<string, unknown>).flatMap(metadataTokens);
+}
+
+function mediaMimeType(path: string, kind: string): string {
+  const lower = path.toLowerCase();
+  if (lower.endsWith(".png")) return "image/png";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".mp4")) return "video/mp4";
+  if (lower.endsWith(".m4a") || lower.endsWith(".aac")) return "audio/mp4";
+  if (kind === "IMAGE" || kind === "STICKER") return "image/jpeg";
+  if (kind === "VIDEO") return "video/mp4";
+  if (kind === "AUDIO") return "audio/mp4";
+  return "application/octet-stream";
 }
 
 export function historyToChatDb(

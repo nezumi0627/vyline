@@ -184,8 +184,7 @@ export function getFileDecryptedCopy(
   const top = asRecord(fileData.$top);
   const root = typeof top.root === "number" ? top.root : undefined;
   const objects = Array.isArray(fileData.$objects) ? fileData.$objects : undefined;
-  const fileObject = root === undefined ? undefined : asRecord(objects?.[root]);
-  const entry = fileObject ?? fileData;
+  const entry = findFileRecord(fileData, root, objects);
   const isEncrypted = "EncryptionKey" in entry;
   const isFolder = Number(entry.Size ?? 0) === 0 && !isEncrypted;
 
@@ -208,7 +207,7 @@ export function getFileDecryptedCopy(
   if (isEncrypted) {
     const wrapped = asBytes(resolveBplistValue(entry.EncryptionKey, objects));
     if (!wrapped || wrapped.length < 5) throw new Error("Encrypted file key is missing");
-    const protectionClass = Number(entry.ProtectionClass);
+    const protectionClass = resolveProtectionClass(entry.ProtectionClass, backup.keybag.classKeys);
     if (!Number.isInteger(protectionClass)) throw new Error("Encrypted file class is missing");
     const fileKey = unwrapKeyForClass(
       backup.keybag.classKeys,
@@ -241,11 +240,48 @@ function asRecord(value: unknown): BplistRecord {
 }
 
 function resolveBplistValue(value: unknown, objects: unknown[] | undefined): unknown {
-  if (typeof value === "number" && objects?.[value] !== undefined) return objects[value];
+  if (typeof value === "number" && objects?.[value] !== undefined) {
+    return resolveBplistValue(objects[value], objects);
+  }
   if (typeof value === "object" && value !== null && "NS.data" in value) {
-    return (value as { "NS.data"?: unknown })["NS.data"];
+    return resolveBplistValue((value as { "NS.data"?: unknown })["NS.data"], objects);
   }
   return value;
+}
+
+function findFileRecord(
+  root: BplistRecord,
+  rootIndex: number | undefined,
+  objects: unknown[] | undefined,
+): BplistRecord {
+  const candidates = [
+    rootIndex === undefined ? undefined : objects?.[rootIndex],
+    root,
+    ...(objects ?? []),
+  ];
+  return (
+    candidates
+      .map(asRecord)
+      .find((candidate) => "EncryptionKey" in candidate && "ProtectionClass" in candidate) ?? root
+  );
+}
+
+function resolveProtectionClass(value: unknown, classKeys: Map<number, unknown>): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(numeric)) throw new Error("Encrypted file class is missing");
+  if (classKeys.has(numeric)) return numeric;
+
+  // iOS Manifest.db stores ProtectionClass as a 32-bit little-endian integer
+  // in some Apple Devices/iTunes backup versions.
+  const bytes = [
+    (numeric >>> 24) & 0xff,
+    (numeric >>> 16) & 0xff,
+    (numeric >>> 8) & 0xff,
+    numeric & 0xff,
+  ];
+  const littleEndian = bytes[0]! | (bytes[1]! << 8) | (bytes[2]! << 16) | (bytes[3]! << 24);
+  if (classKeys.has(littleEndian)) return littleEndian;
+  throw new Error(`No key for protection class ${numeric}`);
 }
 
 function asBytes(value: unknown): Uint8Array | null {

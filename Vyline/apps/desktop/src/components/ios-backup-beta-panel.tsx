@@ -170,6 +170,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
           <IconCheck size={14} />
           復元完了：{session.result.parsed.chats} チャット /{" "}
           {session.result.parsed.totalMessages.toLocaleString()} メッセージ
+          {" · "}メディア {session.result.media.restored.toLocaleString()} 件
         </p>
       )}
       {session?.status === "failed" && (

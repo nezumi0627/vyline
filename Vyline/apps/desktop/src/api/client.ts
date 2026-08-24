@@ -814,6 +814,7 @@ export const api = {
             restoredAt: string;
             extracted: { lineFiles: number; databases: number };
             parsed: { chats: number; totalMessages: number };
+            media: { restored: number; skipped: number };
           } | null;
           error: string | null;
           startedAt: number;
