@@ -281,16 +281,11 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "0.6.0-beta",
-  title: "Vyline 0.6.0-beta — Backup & ログ & セルフホスト",
+  version: "0.6.1-beta",
+  title: "Vyline 0.6.1-beta — 重大な型チェック再帰バグ修正",
   items: [
-    "VylineBackup: トーク履歴・メディアのスナップショット作成/復元/削除",
-    "チャット詳細ログ（JSONL）を追加（設定 > 詳細・復元 > デバッグログ）",
-    "セルフホスト対応（Docker Compose）+ メディアのサーバー側永続保存",
-    "複数画像の同時送信とグルーピング表示、FILE メッセージ描画",
-    "Keepメモ、プロフィール背景表示、通話中バッジ、リアクションキャッシュ高速化",
-    "リブランディング: @vyline/protocol（旧 @vyline/nezuline）、Nezu* → Vyline*",
-    "利用規約・免責同意ゲートをログイン直後に追加",
+    "重大修正: typecheck 実行時に Bun プロセスが再帰増殖する問題を修正",
+    "protocol / backend / desktop / ios-backup の TypeScript 起動を安定化",
   ],
 };
 
