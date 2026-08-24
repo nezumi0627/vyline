@@ -200,11 +200,21 @@
 }
 
 @keyframes vy-screen-in {
-  from { opacity: 0; transform: translateY(5px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
-.vy-screen-enter { animation: vy-screen-in 180ms ease-out both; }
-.vy-section-enter { animation: vy-screen-in 160ms ease-out both; }
+.vy-screen-enter {
+  animation: vy-screen-in 180ms ease-out both;
+}
+.vy-section-enter {
+  animation: vy-screen-in 160ms ease-out both;
+}
 
 /* Motion modes share the same components; only CSS timing/participation changes. */
 html[data-animation-mode="feather"] .vy-screen-enter,
