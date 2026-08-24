@@ -50,14 +50,18 @@ export function SubdevicePage() {
 
   const complete = async () => {
     if (!pairingToken) return;
-    const res = await api.subdevices.complete(pairingToken, name, platform);
-    if (!res.ok || !res.sessionToken || !res.device) {
-      setMessage(res.error ?? "登録に失敗しました");
-      return;
+    try {
+      const res = await api.subdevices.complete(pairingToken, name, platform);
+      if (!res.ok || !res.sessionToken || !res.device) {
+        setMessage(res.error ?? "登録に失敗しました");
+        return;
+      }
+      localStorage.setItem(STORAGE_KEY, res.sessionToken);
+      setAccountId(res.device.accountId);
+      navigate("/", { replace: true });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "登録APIに接続できませんでした");
     }
-    localStorage.setItem(STORAGE_KEY, res.sessionToken);
-    setAccountId(res.device.accountId);
-    navigate("/", { replace: true });
   };
 
   return (

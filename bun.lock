@@ -39,6 +39,7 @@
       "name": "@vyline/backend",
       "version": "0.1.0",
       "dependencies": {
+        "@vyline/ios-backup": "workspace:*",
         "@vyline/plugin-sdk": "workspace:*",
         "@vyline/protocol": "workspace:*",
         "@vyline/types": "workspace:*",

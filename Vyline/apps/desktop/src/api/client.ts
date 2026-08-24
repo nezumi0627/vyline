@@ -105,12 +105,15 @@ async function request<T>(
 
 export const api = {
   subdevices: {
-    createPairing: (accountId: string) =>
-      request<{ ok: boolean; token?: string; expiresAt?: number; error?: string }>(
-        "POST",
-        "/auth/subdevices/pairing",
-        { accountId },
-      ),
+    createPairing: (accountId: string, origin?: string) =>
+      request<{
+        ok: boolean;
+        token?: string;
+        expiresAt?: number;
+        pairingUrl?: string;
+        lanAccessRequired?: boolean;
+        error?: string;
+      }>("POST", "/auth/subdevices/pairing", { accountId, origin }),
     list: () =>
       request<{
         ok: boolean;
@@ -806,8 +809,12 @@ export const api = {
             file?: string;
           } | null;
           result: {
+            deviceId: string;
+            backupDate: string;
+            restoredAt: string;
             extracted: { lineFiles: number; databases: number };
             parsed: { chats: number; totalMessages: number };
+            media: { restored: number; skipped: number };
           } | null;
           error: string | null;
           startedAt: number;

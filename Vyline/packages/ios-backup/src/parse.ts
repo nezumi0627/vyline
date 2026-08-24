@@ -48,11 +48,10 @@ export interface ParseProgress {
   chatMid?: string;
 }
 
-const JST_OFFSET = 9 * 60 * 60 * 1000;
-
-function toIso(ms: number): string | null {
+export function iosTimestampToIso(ms: number): string | null {
+  if (!Number.isFinite(ms)) return null;
   try {
-    return new Date(ms + JST_OFFSET).toISOString().replace("Z", "+09:00");
+    return new Date(ms).toISOString();
   } catch {
     return null;
   }
@@ -169,7 +168,7 @@ export async function parseLineDatabases(options: ParseOptions): Promise<ParsedC
         const record: MessageRecord = {
           id: m.ZID,
           ts: m.ZTIMESTAMP,
-          iso: toIso(m.ZTIMESTAMP),
+          iso: iosTimestampToIso(m.ZTIMESTAMP),
           contentType: m.ZCONTENTTYPE,
           sendStatus: m.ZSENDSTATUS,
           fromMid,
@@ -191,8 +190,8 @@ export async function parseLineDatabases(options: ParseOptions): Promise<ParsedC
         kind: chat.kind as "group" | "dm",
         name: chat.name,
         count: chatMessages.length,
-        firstIso: firstTs ? toIso(firstTs) : null,
-        lastIso: lastTs ? toIso(lastTs) : null,
+        firstIso: firstTs ? iosTimestampToIso(firstTs) : null,
+        lastIso: lastTs ? iosTimestampToIso(lastTs) : null,
         file: `${chat.chatMid}.jsonl`,
       });
     }

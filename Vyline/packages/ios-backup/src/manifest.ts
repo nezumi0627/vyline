@@ -79,6 +79,15 @@ function readUInt32BE(buf: Uint8Array, offset: number): number {
   );
 }
 
+function resolveClassNumber(buf: Uint8Array, classKeys: Map<number, unknown>): number {
+  const bigEndian = readUInt32BE(buf, 0);
+  if (classKeys.has(bigEndian)) return bigEndian;
+  const littleEndian =
+    (buf[0] ?? 0) | ((buf[1] ?? 0) << 8) | ((buf[2] ?? 0) << 16) | ((buf[3] ?? 0) << 24);
+  if (classKeys.has(littleEndian)) return littleEndian;
+  throw new Error(`No key for protection class ${bigEndian}`);
+}
+
 function aesDecryptCBC(
   data: Uint8Array,
   key: Uint8Array,
@@ -144,7 +153,7 @@ async function decryptManifestDb(
     if (!manifest.ManifestKey) {
       throw new Error("ManifestKey missing from Manifest.plist");
     }
-    const manifestClass = readUInt32BE(manifest.ManifestKey, 0);
+    const manifestClass = resolveClassNumber(manifest.ManifestKey, keybag.classKeys);
     const manifestKey = manifest.ManifestKey.slice(4);
     const key = unwrapKeyForClass(keybag.classKeys, manifestClass, manifestKey);
     decryptedData = aesDecryptCBC(encryptedDb, key);

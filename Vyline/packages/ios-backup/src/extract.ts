@@ -1,9 +1,11 @@
 import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync, existsSync, rmSync, readFileSync } from "node:fs";
+import { createDecipheriv } from "node:crypto";
 import { join, dirname, basename } from "node:path";
 import { tmpdir } from "node:os";
-import { openBackup, closeBackup, BackupManifest } from "./manifest.js";
+import { openBackup, closeBackup, type BackupManifest } from "./manifest.js";
 import { parseBplist, parseContentMetadata } from "./bplist.js";
+import { unwrapKeyForClass } from "./keybag.js";
 
 export interface FileManifestEntry {
   fileID: string;
@@ -108,12 +110,7 @@ export async function extractBackup(options: ExtractOptions): Promise<ExtractedB
         const targetName = `${row.domain}__${safeName}`;
         const targetPath = join(outputDir, targetName);
 
-        const result = getFileDecryptedCopy(
-          backup.backupRoot,
-          backup.udid,
-          manifestEntry,
-          targetPath,
-        );
+        const result = getFileDecryptedCopy(backup, manifestEntry, targetPath);
 
         const extracted: ExtractedFile = {
           fileID: row.fileID,
@@ -178,48 +175,125 @@ export function getFileManifestDBEntry(manifestDbPath: string, fileID: string): 
 }
 
 export function getFileDecryptedCopy(
-  backupRoot: string,
-  udid: string,
+  backup: BackupManifest,
   manifestEntry: FileManifestEntry,
   targetPath: string,
 ): { size: number } {
-  const manifest = parseBplist(manifestEntry.file);
-
-  const fileData = manifest as {
-    $objects?: unknown[];
-    $top?: { root: number };
-    Size?: number;
-    EncryptionKey?: unknown;
-  };
-  const root = fileData.$top?.root;
-  const fileObject =
-    root === undefined
-      ? undefined
-      : (fileData.$objects?.[root] as Record<string, unknown> | undefined);
-  const entry = fileObject ?? fileData;
+  const parsed = parseBplist(manifestEntry.file);
+  const fileData = asRecord(parsed);
+  const top = asRecord(fileData.$top);
+  const root = typeof top.root === "number" ? top.root : undefined;
+  const objects = Array.isArray(fileData.$objects) ? fileData.$objects : undefined;
+  const entry = findFileRecord(fileData, root, objects);
   const isEncrypted = "EncryptionKey" in entry;
-  const isFolder = entry.Size === 0 && !isEncrypted;
+  const isFolder = Number(entry.Size ?? 0) === 0 && !isEncrypted;
 
   if (isFolder) {
     mkdirSync(targetPath, { recursive: true });
     return { size: 0 };
   }
 
-  const sourcePath = join(backupRoot, udid, manifestEntry.fileID.slice(0, 2), manifestEntry.fileID);
+  const sourcePath = join(
+    backup.backupRoot,
+    backup.udid,
+    manifestEntry.fileID.slice(0, 2),
+    manifestEntry.fileID,
+  );
 
   if (!existsSync(sourcePath)) {
     throw new Error(`Source file not found: ${sourcePath}`);
   }
 
   if (isEncrypted) {
-    throw new Error(
-      "Encrypted file extraction not implemented in this helper - use full backup context",
+    const wrapped = asBytes(resolveBplistValue(entry.EncryptionKey, objects));
+    if (!wrapped || wrapped.length < 5) throw new Error("Encrypted file key is missing");
+    const protectionClass = resolveProtectionClass(entry.ProtectionClass, backup.keybag.classKeys);
+    if (!Number.isInteger(protectionClass)) throw new Error("Encrypted file class is missing");
+    const fileKey = unwrapKeyForClass(
+      backup.keybag.classKeys,
+      protectionClass,
+      wrapped.subarray(4),
     );
+    const decrypted = decryptAesCbc(readFileSync(sourcePath), fileKey);
+    const data = decrypted.subarray(0, Number(entry.Size));
+    mkdirSync(dirname(targetPath), { recursive: true });
+    writeFileSync(targetPath, data);
+    return { size: data.length };
   }
   const data = readFileSync(sourcePath);
   mkdirSync(dirname(targetPath), { recursive: true });
   writeFileSync(targetPath, data);
   return { size: data.length };
+}
+
+interface BplistRecord extends Record<string, unknown> {
+  $top?: unknown;
+  $objects?: unknown[];
+  root?: unknown;
+  Size?: unknown;
+  EncryptionKey?: unknown;
+  ProtectionClass?: unknown;
+}
+
+function asRecord(value: unknown): BplistRecord {
+  return typeof value === "object" && value !== null ? (value as BplistRecord) : {};
+}
+
+function resolveBplistValue(value: unknown, objects: unknown[] | undefined): unknown {
+  if (typeof value === "number" && objects?.[value] !== undefined) {
+    return resolveBplistValue(objects[value], objects);
+  }
+  if (typeof value === "object" && value !== null && "NS.data" in value) {
+    return resolveBplistValue((value as { "NS.data"?: unknown })["NS.data"], objects);
+  }
+  return value;
+}
+
+function findFileRecord(
+  root: BplistRecord,
+  rootIndex: number | undefined,
+  objects: unknown[] | undefined,
+): BplistRecord {
+  const candidates = [
+    rootIndex === undefined ? undefined : objects?.[rootIndex],
+    root,
+    ...(objects ?? []),
+  ];
+  return (
+    candidates
+      .map(asRecord)
+      .find((candidate) => "EncryptionKey" in candidate && "ProtectionClass" in candidate) ?? root
+  );
+}
+
+function resolveProtectionClass(value: unknown, classKeys: Map<number, unknown>): number {
+  const numeric = typeof value === "number" ? value : Number(value);
+  if (!Number.isInteger(numeric)) throw new Error("Encrypted file class is missing");
+  if (classKeys.has(numeric)) return numeric;
+
+  // iOS Manifest.db stores ProtectionClass as a 32-bit little-endian integer
+  // in some Apple Devices/iTunes backup versions.
+  const bytes = [
+    (numeric >>> 24) & 0xff,
+    (numeric >>> 16) & 0xff,
+    (numeric >>> 8) & 0xff,
+    numeric & 0xff,
+  ];
+  const littleEndian = bytes[0]! | (bytes[1]! << 8) | (bytes[2]! << 16) | (bytes[3]! << 24);
+  if (classKeys.has(littleEndian)) return littleEndian;
+  throw new Error(`No key for protection class ${numeric}`);
+}
+
+function asBytes(value: unknown): Uint8Array | null {
+  if (value instanceof Uint8Array) return value;
+  if (value instanceof ArrayBuffer) return new Uint8Array(value);
+  return null;
+}
+
+function decryptAesCbc(data: Uint8Array, key: Uint8Array): Uint8Array {
+  const decipher = createDecipheriv("aes-256-cbc", key, new Uint8Array(16));
+  decipher.setAutoPadding(false);
+  return new Uint8Array(Buffer.concat([decipher.update(data), decipher.final()]));
 }
 
 function readUInt64BE(buf: Uint8Array, offset: number): number {
