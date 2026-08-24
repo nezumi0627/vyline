@@ -45,6 +45,7 @@ export interface IosBackupSession {
   result: {
     deviceId: string;
     backupDate: string;
+    restoredAt: string;
     extracted: { lineFiles: number; databases: number };
     parsed: { chats: number; totalMessages: number };
     merged: {
@@ -161,6 +162,7 @@ async function runRestore(
     session.result = {
       deviceId: device.udid,
       backupDate: device.modifiedAt,
+      restoredAt: new Date().toISOString(),
       extracted: {
         lineFiles: result.extracted.lineFiles.length,
         databases: result.extracted.databases.length,

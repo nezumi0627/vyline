@@ -119,6 +119,15 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
                 <span className="mt-1 block truncate font-mono text-[0.65rem] text-[var(--vy-text-dim)]">
                   {device.udid}
                 </span>
+                {session?.status === "completed" && session.result?.deviceId === device.udid && (
+                  <span className="mt-1 block text-xs text-[var(--vy-text-dim)]">
+                    {new Intl.DateTimeFormat("ja-JP", {
+                      year: "numeric",
+                      month: "2-digit",
+                      day: "2-digit",
+                    }).format(new Date(session.result.restoredAt))}にデータを復元済み
+                  </span>
+                )}
               </button>
             ))}
             <div className="flex gap-2">

@@ -63,12 +63,15 @@ export async function extractAndParseLineHistory(
   const { extractBackup } = await import("./extract.js");
   const { parseLineDatabases, findLineDatabases, detectMyMid } = await import("./parse.js");
 
+  const progressExtract = onProgress
+    ? (p: import("./extract.js").ExtractProgress) => onProgress(p.stage, p.current, p.total, p.message)
+    : undefined;
   const extracted = await extractBackup({
     backupRoot,
     udid,
     password,
     outputDir,
-    onProgress: onProgress ? (p) => onProgress(p.stage, p.current, p.total, p.message) : undefined,
+    ...(progressExtract ? { onProgress: progressExtract } : {}),
   });
 
   const dbs = findLineDatabases(outputDir);
@@ -78,12 +81,15 @@ export async function extractAndParseLineHistory(
 
   const myMid = detectMyMid(dbs.lineDb);
 
+  const progressParse = onProgress
+    ? (p: import("./parse.js").ParseProgress) => onProgress(p.stage, p.current, p.total, p.message)
+    : undefined;
   const parsed = await parseLineDatabases({
     lineDbPath: dbs.lineDb,
     unifiedGroupDbPath: dbs.unifiedGroupDb,
     outputDir: join(outputDir, "dump"),
     myMid,
-    onProgress: onProgress ? (p) => onProgress(p.stage, p.current, p.total, p.message) : undefined,
+    ...(progressParse ? { onProgress: progressParse } : {}),
   });
 
   return { extracted, parsed };

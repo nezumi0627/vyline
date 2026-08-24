@@ -808,6 +808,9 @@ export const api = {
             file?: string;
           } | null;
           result: {
+            deviceId: string;
+            backupDate: string;
+            restoredAt: string;
             extracted: { lineFiles: number; databases: number };
             parsed: { chats: number; totalMessages: number };
           } | null;
