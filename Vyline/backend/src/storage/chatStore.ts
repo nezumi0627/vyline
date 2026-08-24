@@ -595,7 +595,9 @@ export function mergeChatDbRecords(
     const ids = Object.keys(targetMessages);
     if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
       const drop = ids
-        .sort((a, b) => (targetMessages[a]?.createdTime ?? 0) - (targetMessages[b]?.createdTime ?? 0))
+        .sort(
+          (a, b) => (targetMessages[a]?.createdTime ?? 0) - (targetMessages[b]?.createdTime ?? 0),
+        )
         .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
       for (const id of drop) delete targetMessages[id];
     }
