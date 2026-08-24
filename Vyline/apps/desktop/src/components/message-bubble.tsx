@@ -1167,19 +1167,20 @@ export const MessageBubble = memo(
                 className="group relative block overflow-hidden rounded-xl text-left"
                 onClick={(e) => {
                   e.stopPropagation();
+                  if (target.kind === "video") return;
                   setLightbox(true);
                 }}
                 aria-label={target.kind === "video" ? "動画を拡大" : "画像を拡大"}
               >
                 {target.kind === "video" ? (
                   <div className="relative">
-                    <img
-                      src={target.imageSrc}
-                      alt="動画サムネイル"
-                      onError={hideBrokenMedia}
+                    <video
+                      src={target.imageSrc.replace(/preview=1/, "preview=0")}
+                      controls
+                      preload="metadata"
                       className="h-auto w-[260px] max-w-full object-cover"
                     />
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
                       <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
                         <IconPlay size={22} />
                       </span>
@@ -1561,6 +1562,7 @@ export const MessageBubble = memo(
                     className="group relative block overflow-hidden rounded-xl text-left"
                     onClick={(e) => {
                       e.stopPropagation();
+                      if (message.kind === "video") return;
                       setLightboxMedia(message);
                       setLightbox(true);
                     }}
@@ -1568,13 +1570,13 @@ export const MessageBubble = memo(
                   >
                     {message.kind === "video" ? (
                       <div className="relative">
-                        <img
-                          src={message.imageSrc}
-                          alt="動画サムネイル"
-                          onError={hideBrokenMedia}
+                        <video
+                          src={message.imageSrc.replace(/preview=1/, "preview=0")}
+                          controls
+                          preload="metadata"
                           className="h-auto w-[260px] max-w-full object-cover"
                         />
-                        <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
                           <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
                             <IconPlay size={22} />
                           </span>
