@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  compareMessagesNewestFirst,
   mergeChatDbRecords,
   type ChatDbRecords,
   type StoredChat,
@@ -32,6 +33,11 @@ function message(id: string, chatMid: string, text: string): StoredMessage {
 }
 
 describe("mergeChatDbRecords", () => {
+  test("uses message ID as a stable tie-breaker for equal timestamps", () => {
+    const sameTime = [message("10", "u-chat", "later"), message("9", "u-chat", "earlier")];
+    expect(sameTime.sort(compareMessagesNewestFirst).map((item) => item.id)).toEqual(["10", "9"]);
+  });
+
   test("adds missing iOS records without overwriting existing records", () => {
     const target: ChatDbRecords = {
       chats: { "u-chat": chat("u-chat", "Local name", 500) },
@@ -59,7 +65,7 @@ describe("mergeChatDbRecords", () => {
       skippedMessages: 1,
     });
     expect(target.chats["u-chat"]?.name).toBe("Local name");
-    expect(target.chats["u-chat"]?.lastMessageTime).toBe(700);
+    expect(target.chats["u-chat"]?.lastMessageTime).toBe(100);
     expect(target.messages["u-chat"]?.["1"]?.text).toBe("local");
     expect(target.messages["u-chat"]?.["2"]?.text).toBe("imported");
   });
@@ -83,5 +89,24 @@ describe("mergeChatDbRecords", () => {
       importedMessages: 0,
       skippedMessages: 1,
     });
+  });
+
+  test("keeps local fields while filling missing text from the backup on an ID conflict", () => {
+    const local = message("1", "u-chat", "");
+    local.text = null;
+    local.contentType = "NONE";
+    const imported = message("1", "u-chat", "restored text");
+    imported.contentType = "IMAGE";
+    imported.contentMetadata = { FILE_NAME: "photo.jpg" };
+    const target: ChatDbRecords = {
+      chats: { "u-chat": chat("u-chat", "Local") },
+      messages: { "u-chat": { "1": local } },
+    };
+
+    mergeChatDbRecords(target, { chats: {}, messages: { "u-chat": { "1": imported } } });
+
+    expect(target.messages["u-chat"]?.["1"]?.text).toBe("restored text");
+    expect(target.messages["u-chat"]?.["1"]?.contentType).toBe("IMAGE");
+    expect(target.messages["u-chat"]?.["1"]?.contentMetadata?.FILE_NAME).toBe("photo.jpg");
   });
 });

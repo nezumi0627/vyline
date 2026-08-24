@@ -25,6 +25,7 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import { rebuildAccountChatDb } from "../storage/chatStore.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
@@ -402,6 +403,17 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
     ) {
       return c.json({ ok: true, messages: [], hasMore: false, timedOut: true });
     }
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/chatdb/rebuild ────
+// 既存DBを退避して、復元・同期混在後の時系列と最新チャット要約を正規化する。
+lineRouter.post("/:accountId/chatdb/rebuild", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    return c.json({ ok: true, ...(await rebuildAccountChatDb(accountId)) });
+  } catch (err) {
     return handleError(err, c);
   }
 });

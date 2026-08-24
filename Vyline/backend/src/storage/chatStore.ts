@@ -92,6 +92,47 @@ export interface ChatDbMergeResult {
   skippedMessages: number;
 }
 
+type MessageCursor = Pick<StoredMessage, "id" | "createdTime">;
+
+function compareMessageIdsAscending(left: string, right: string): number {
+  if (left === right) return 0;
+  try {
+    return BigInt(left) < BigInt(right) ? -1 : 1;
+  } catch {
+    return left.localeCompare(right);
+  }
+}
+
+/** 全経路で共通に使う複合順序: 新しい時刻、同時刻なら大きいメッセージIDが先。 */
+export function compareMessagesNewestFirst(left: MessageCursor, right: MessageCursor): number {
+  const byTime = right.createdTime - left.createdTime;
+  return byTime || -compareMessageIdsAscending(left.id, right.id);
+}
+
+export function compareMessagesOldestFirst(left: MessageCursor, right: MessageCursor): number {
+  const byTime = left.createdTime - right.createdTime;
+  return byTime || compareMessageIdsAscending(left.id, right.id);
+}
+
+function previewForMessage(message: StoredMessage): string {
+  const text = message.text?.trim();
+  if (text) return text.slice(0, 120);
+  switch (message.contentType.toUpperCase()) {
+    case "IMAGE":
+      return "画像";
+    case "VIDEO":
+      return "動画";
+    case "AUDIO":
+      return "音声";
+    case "FILE":
+      return "ファイル";
+    case "STICKER":
+      return "スタンプ";
+    default:
+      return message.contentType || "メッセージ";
+  }
+}
+
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -368,7 +409,7 @@ export async function getMessages(
         return false;
       }
     })
-    .sort((a, b) => b.createdTime - a.createdTime)
+    .sort(compareMessagesNewestFirst)
     .slice(0, limit);
 }
 
@@ -555,6 +596,7 @@ export async function importChatDb(
   for (const [chatMid, iso] of Object.entries(data.meta?.messagesSyncedAt ?? {})) {
     db.meta.messagesSyncedAt[chatMid] = iso;
   }
+  rebuildChatDbRecords(db);
   scheduleSave(accountId);
   return { chats: chatCount, messages: messageCount };
 }
@@ -596,7 +638,27 @@ export function mergeChatDbRecords(
   for (const [chatMid, incomingMessages] of Object.entries(incoming.messages ?? {})) {
     const targetMessages = target.messages[chatMid] ?? {};
     for (const [id, incomingMessage] of Object.entries(incomingMessages)) {
-      if (targetMessages[id]) {
+      const existing = targetMessages[id];
+      if (existing) {
+        // 通常同期を優先しつつ、iOS側にしかない本文・メディア情報は欠損補完する。
+        targetMessages[id] = {
+          ...incomingMessage,
+          ...existing,
+          text: existing.text ?? incomingMessage.text,
+          contentType:
+            existing.contentType && existing.contentType !== "NONE"
+              ? existing.contentType
+              : incomingMessage.contentType,
+          contentMetadata: {
+            ...(incomingMessage.contentMetadata ?? {}),
+            ...(existing.contentMetadata ?? {}),
+          },
+          createdTime:
+            Number.isFinite(existing.createdTime) && existing.createdTime > 0
+              ? existing.createdTime
+              : incomingMessage.createdTime,
+          savedAt: existing.savedAt || incomingMessage.savedAt,
+        };
         skippedMessages++;
         continue;
       }
@@ -607,7 +669,39 @@ export function mergeChatDbRecords(
     target.messages[chatMid] = targetMessages;
   }
 
+  rebuildChatDbRecords(target);
   return { importedChats, skippedChats, importedMessages, skippedMessages };
+}
+
+/**
+ * iOS復元・通常同期で混在したレコードを、複合時刻順と実メッセージの最新値で正規化する。
+ * レコードは削除せず、同一IDは既存の正本を保持する。
+ */
+export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; messages: number } {
+  let messages = 0;
+  const allMids = new Set([...Object.keys(target.chats), ...Object.keys(target.messages)]);
+  for (const chatMid of allMids) {
+    const ordered = Object.values(target.messages[chatMid] ?? {}).sort(compareMessagesOldestFirst);
+    target.messages[chatMid] = Object.fromEntries(ordered.map((message) => [message.id, message]));
+    messages += ordered.length;
+    const latest = ordered.at(-1);
+    if (!latest) continue;
+    const existing = target.chats[chatMid];
+    target.chats[chatMid] = {
+      mid: chatMid,
+      name: existing?.name || chatMid,
+      kind: existing?.kind ?? "direct",
+      hasMessages: true,
+      lastMessageTime: latest.createdTime,
+      lastMessageId: latest.id,
+      lastMessagePreview: previewForMessage(latest),
+      ...(existing?.thumbnailUrl ? { thumbnailUrl: existing.thumbnailUrl } : {}),
+      ...(existing?.unreadCount != null ? { unreadCount: existing.unreadCount } : {}),
+      ...(existing?.isOfficial != null ? { isOfficial: existing.isOfficial } : {}),
+      updatedAt: existing?.updatedAt ?? latest.savedAt,
+    };
+  }
+  return { chats: Object.keys(target.chats).length, messages };
 }
 
 /** iOS / 外部履歴復元用の永続マージ。 */
@@ -619,6 +713,21 @@ export async function mergeImportedChatDb(
   const result = mergeChatDbRecords(db, incoming);
   if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
   return result;
+}
+
+/** 現在のアカウントDBを退避してから、順序とチャット要約を再構築する。 */
+export async function rebuildAccountChatDb(
+  accountId: string,
+): Promise<{ chats: number; messages: number; backupFile: string }> {
+  const db = await getDb(accountId);
+  await flushDb(accountId);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupFile = `chatdb.before-rebuild-${stamp}.json`;
+  await writeFile(accountFile(accountId, backupFile), JSON.stringify(db), "utf8");
+  const result = rebuildChatDbRecords(db);
+  scheduleSave(accountId);
+  await flushDb(accountId);
+  return { ...result, backupFile };
 }
 
 /** 復元完了時に、遅延保存を待たずにDBへ確実に書き出す。 */

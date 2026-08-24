@@ -75,6 +75,7 @@ import {
   messageSyncAgeMs,
   upsertChats,
   upsertMessages,
+  compareMessagesNewestFirst,
   markMessageRevoked,
   restoreRevokedMessage,
   getMessageHistory,
@@ -3418,10 +3419,13 @@ export async function fetchMessages(
   const isSpecial = opts?.lite || opts?.delta;
 
   if (opts?.localOnly) {
-    return getStoredMessages(accountId, chatMid, limit, {
-      beforeMessageId: opts.beforeMessageId,
-      beforeDeliveredTime: opts.beforeDeliveredTime,
-    });
+    const localOptions = {
+      ...(opts.beforeMessageId ? { beforeMessageId: opts.beforeMessageId } : {}),
+      ...(opts.beforeDeliveredTime != null
+        ? { beforeDeliveredTime: opts.beforeDeliveredTime }
+        : {}),
+    };
+    return getStoredMessages(accountId, chatMid, limit, localOptions);
   }
 
   if (!opts?.force && !isPagination && !isSpecial) {
@@ -3723,7 +3727,7 @@ async function fetchMessagesInner(
     }
     byId.set(m.id, combined);
   }
-  const out = [...byId.values()].sort((a, b) => b.createdTime - a.createdTime).slice(0, limit);
+  const out = [...byId.values()].sort(compareMessagesNewestFirst).slice(0, limit);
 
   log.debug(
     {
