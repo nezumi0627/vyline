@@ -11,7 +11,7 @@ export default defineConfig({
     },
   },
   server: {
-    host: "127.0.0.1",
+    host: process.env.VYLINE_LAN_ACCESS === "true" ? "0.0.0.0" : "127.0.0.1",
     // preview_start (autoPort) は PORT 環境変数で空きポートを渡す。未設定なら通常どおり 5173
     port: process.env.PORT ? Number(process.env.PORT) : 5173,
     proxy: {
