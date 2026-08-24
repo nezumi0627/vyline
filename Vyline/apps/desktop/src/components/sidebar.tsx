@@ -512,7 +512,9 @@ function SidebarBase() {
       )}
 
       {sort === "custom" && (
-        <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
+        <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
+          ドラッグして並び替え
+        </p>
       )}
 
       <div

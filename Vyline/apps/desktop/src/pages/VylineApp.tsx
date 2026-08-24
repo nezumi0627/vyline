@@ -77,9 +77,21 @@ export function VylineApp() {
       <ThemeApplier />
       {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
       {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
-      {screen === "home" && showUpdateNote && <div className="vy-screen-enter h-full"><HubHome /></div>}
-      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && <div className="vy-screen-enter h-full"><ChatShell /></div>}
-      {screen === "settings" && <div className="vy-screen-enter h-full"><SettingsSections /></div>}
+      {screen === "home" && showUpdateNote && (
+        <div className="vy-screen-enter h-full">
+          <HubHome />
+        </div>
+      )}
+      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && (
+        <div className="vy-screen-enter h-full">
+          <ChatShell />
+        </div>
+      )}
+      {screen === "settings" && (
+        <div className="vy-screen-enter h-full">
+          <SettingsSections />
+        </div>
+      )}
     </main>
   );
 }

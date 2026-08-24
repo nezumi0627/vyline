@@ -10,10 +10,13 @@ import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
-  if (diff < 60_000) return "たった今";
+  if (diff < 10_000) return "数秒前";
+  if (diff < 60_000) return `${Math.floor(diff / 1_000)}秒前`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
-  return `${Math.floor(diff / 86_400_000)}日前`;
+  if (diff < 31 * 86_400_000) return `${Math.floor(diff / 86_400_000)}日前`;
+  if (diff < 365 * 86_400_000) return `${Math.floor(diff / (31 * 86_400_000))}か月前`;
+  return `${Math.floor(diff / (365 * 86_400_000))}年前`;
 }
 
 function formatBytes(bytes: number): string {
@@ -393,11 +396,13 @@ export function SettingsSections() {
                         画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。
                       </p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        {([
-                          ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
-                          ["feather", "フェザー", "低スペック端末向け"],
-                          ["none", "オフ", "アニメーションを停止"],
-                        ] as const).map(([mode, label, desc]) => (
+                        {(
+                          [
+                            ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
+                            ["feather", "フェザー", "低スペック端末向け"],
+                            ["none", "オフ", "アニメーションを停止"],
+                          ] as const
+                        ).map(([mode, label, desc]) => (
                           <button
                             key={mode}
                             type="button"
@@ -409,10 +414,16 @@ export function SettingsSections() {
                                 ? "border-transparent text-[var(--vy-accent-contrast)]"
                                 : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
                             )}
-                            style={animationMode === mode ? { background: "var(--vy-accent)" } : undefined}
+                            style={
+                              animationMode === mode
+                                ? { background: "var(--vy-accent)" }
+                                : undefined
+                            }
                           >
                             <span className="block text-xs font-semibold">{label}</span>
-                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">{desc}</span>
+                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">
+                              {desc}
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -624,7 +635,9 @@ function SubdevicesSection() {
                 <p className="text-xs text-[var(--vy-text-dim)]">
                   {device.platform} ·{" "}
                   {device.lastSeenAt
-                    ? `最終接続 ${formatRelativeTime(Date.parse(device.lastSeenAt))}`
+                    ? Date.now() - Date.parse(device.lastSeenAt) < 90_000
+                      ? "オンライン"
+                      : `オフライン · 最終接続 ${formatRelativeTime(Date.parse(device.lastSeenAt))}`
                     : "オフライン"}
                 </p>
               </div>

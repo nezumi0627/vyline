@@ -182,11 +182,14 @@ export type Chat = {
 
 export type ChatSort = "recent" | "unread" | "custom";
 
+export type AnimationMode = "vyline" | "feather" | "none";
+
 export type Settings = {
   readReceipts: boolean;
   showReaderList: boolean;
   streamerMode: boolean;
   compactDensity: boolean;
+  animationMode: AnimationMode;
   fontScale: number;
   enterToSend: boolean;
   chatSort: ChatSort;

@@ -212,8 +212,6 @@ docker compose up -d
 
 ### Linux単体版
 
-GitHub Releases から `Vyline-linux-x64-<version>.tar.gz` を取得し、展開したディレクトリで実行します。
-
 ```bash
 tar -xzf Vyline-linux-x64-<version>.tar.gz
 cd Vyline-linux-x64-<version>
@@ -221,10 +219,7 @@ cd Vyline-linux-x64-<version>
 ~/.local/bin/vyline
 ```
 
-ユーザーデータは `${XDG_DATA_HOME:-~/.local/share}/Vyline/` に保存されます。
-
 設定方法と Cloudflare Access を利用した外部公開については、[セルフホストガイド](docs/selfhosting.md) を参照してください。
-同一LANのスマホをPCのVylineに安全に接続する場合は、[サブデバイス接続ガイド](docs/subdevices.md) を参照してください。
 
 ### 既定のプロトコルプロファイル
 

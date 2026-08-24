@@ -95,16 +95,33 @@ async function getCredsWithoutUserContext(
   client: VylineClient,
   liffId: string,
 ): Promise<LiffCreds> {
-  const key = `without-context:${liffId}`;
+  const key = `sticker-shop-user-context:${liffId}`;
   const cached = credsCache.get(key);
   if (cached && Date.now() - cached.at < CREDS_TTL_MS) return cached.creds;
   const inflight = credsInflight.get(key);
   if (inflight) return inflight;
   const job = (async (): Promise<LiffCreds> => {
-    const view = await client.base.liff.getLiffViewWithoutUserContext({ request: { liffId } });
-    const creds = { accessToken: view.accessToken, idToken: view.idToken };
-    credsCache.set(key, { creds, at: Date.now() });
-    return creds;
+    try {
+      // The sticker shop's getFriendProfiles requires the logged-in LIFF
+      // context.  This is the same token shape observed in the supplied HAR.
+      const view = await client.liff.issueView({
+        liffId,
+        ...(client.base.profile?.mid ? { chatMid: client.base.profile.mid } : {}),
+        lang: "ja_JP",
+      });
+      const creds = { accessToken: view.accessToken, idToken: view.idToken };
+      credsCache.set(key, { creds, at: Date.now() });
+      return creds;
+    } catch (error) {
+      log.warn(
+        { liffId, err: error instanceof Error ? error.message : String(error) },
+        "issueLiffView failed; trying without-user-context LIFF token",
+      );
+      const view = await client.base.liff.getLiffViewWithoutUserContext({ request: { liffId } });
+      const creds = { accessToken: view.accessToken, idToken: view.idToken };
+      credsCache.set(key, { creds, at: Date.now() });
+      return creds;
+    }
   })();
   credsInflight.set(key, job);
   try {
@@ -206,6 +223,15 @@ function extractStickerFriendProfiles(
   value: unknown,
   out: StickerFriendProfile[] = [],
 ): StickerFriendProfile[] {
+  // Some LIFF/Thrift adapters return the TJSON payload as a JSON string.
+  // Normalize that form before walking the response tree.
+  if (typeof value === "string") {
+    try {
+      return extractStickerFriendProfiles(JSON.parse(value), out);
+    } catch {
+      return out;
+    }
+  }
   if (Array.isArray(value)) {
     for (const item of value) extractStickerFriendProfiles(item, out);
     return out;
@@ -256,6 +282,7 @@ export async function checkStickerGiftEligibility(
     Authorization: `Bearer ${creds.accessToken}`,
     "X-Line-Shop-Credential-Type": "access_token",
     "X-LAL": "ja_JP",
+    Accept: "application/x-thrift, application/vnd.apache.thrift.json; charset=utf-8",
     "Content-Type": "application/x-thrift, application/vnd.apache.thrift.json; charset=utf-8",
     Origin: "https://stickershop.line.me",
     Referer: "https://stickershop.line.me/",
