@@ -24,6 +24,7 @@ import {
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
+import { restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
 
@@ -45,6 +46,12 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
+
+function restorePluginsForSession(accountId: string): void {
+  void restoreEnabledPlugins(accountId).catch((err) =>
+    log.warn({ accountId, err }, "enabled plugins could not be restored"),
+  );
+}
 
 /** アカウントごとの fetchOps カーソル（revision ベース） */
 const opsRevision = new Map<
@@ -438,6 +445,7 @@ export async function loginWithEmail(
     pincode: null,
     loggedInAt: Date.now(),
   });
+  restorePluginsForSession(accountId);
   log.info({ accountId }, "email login success");
   return client;
 }
@@ -502,6 +510,7 @@ export async function loginWithQRCode(
     managed.pincode = null;
     managed.loggedInAt = Date.now();
     watchAuthToken(client, accountId);
+    restorePluginsForSession(accountId);
     void warmLineCache(accountId).catch(() => undefined);
     log.info({ accountId }, "QR login success");
     return client;
@@ -539,6 +548,7 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
     pincode: null,
     loggedInAt: Date.now(),
   });
+  restorePluginsForSession(accountId);
   log.info({ accountId }, "token login success");
   return client;
 }
@@ -570,6 +580,7 @@ export async function loginWithAuthToken(
     pincode: null,
     loggedInAt: Date.now(),
   });
+  restorePluginsForSession(accountId);
   log.info({ accountId }, "authToken login success");
   return client;
 }

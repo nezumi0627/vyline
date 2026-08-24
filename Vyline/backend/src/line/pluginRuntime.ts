@@ -32,6 +32,8 @@ interface ActivePlugin {
   pluginId: string;
   permissions: Set<string>;
   messageHandlers: Set<(m: PluginMessageSnapshot) => void>;
+  plugin: VylinePlugin;
+  context: PluginContext;
 }
 
 const active = new Map<string, ActivePlugin>();
@@ -99,6 +101,7 @@ export async function activatePlugin(
   pluginDirName: string,
   permissions: string[],
   loaded?: VylinePlugin,
+  manifestMain?: string,
 ): Promise<boolean> {
   const k = key(accountId, pluginId);
   if (active.has(k)) return true;
@@ -106,11 +109,8 @@ export async function activatePlugin(
   let plugin: VylinePlugin | undefined = loaded;
   try {
     if (!plugin) {
-      // resolvePluginEntry と同じ候補で動的 import（Bun は .ts を直接実行できる）
-      const candidates = ["index.ts", "index.js"].map((f) => join(PLUGIN_DIR, pluginDirName, f));
-      let entry: string | null = null;
-      for (const c of candidates) if (existsSync(c)) entry = c;
-      if (!entry) throw new Error("no entry file (index.ts / index.js)");
+      const entry = resolvePluginEntry(pluginDirName, manifestMain);
+      if (!entry) throw new Error("no loadable entry file");
       const mod = (await import(entry)) as { default?: VylinePlugin };
       plugin = mod.default;
     }
@@ -163,7 +163,14 @@ export async function activatePlugin(
         throw err;
       });
 
-    active.set(k, { accountId, pluginId, permissions: perms, messageHandlers: handlers });
+    active.set(k, {
+      accountId,
+      pluginId,
+      permissions: perms,
+      messageHandlers: handlers,
+      plugin,
+      context: ctx,
+    });
     logger.info(`activated (${[...perms].join(",") || "no permissions"})`);
     return true;
   } catch (err) {
@@ -182,11 +189,9 @@ export async function deactivatePlugin(accountId: string, pluginId: string): Pro
   if (!entry) return;
   active.delete(k);
   try {
-    // deactivate 用に最小コンテキストを再構築（logger だけ必要）
-    const logger = await makeLogger(pluginId);
-    logger.info("deactivated");
-  } catch {
-    /* noop */
+    await entry.plugin.deactivate?.(entry.context);
+  } catch (err) {
+    log.warn({ accountId, pluginId, err }, "plugin deactivation failed (isolated)");
   }
 }
 
