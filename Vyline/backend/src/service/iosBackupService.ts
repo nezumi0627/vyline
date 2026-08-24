@@ -154,6 +154,12 @@ async function runRestore(
   password: string,
 ): Promise<void> {
   session.status = "running";
+  session.progress = {
+    stage: "starting",
+    current: 0,
+    total: 1,
+    message: "バックアップを準備しています",
+  };
   const outputDir = await mkdtemp(join(tmpdir(), `vyline-ios-${session.id}-`));
   try {
     const result = await extractAndParseLineHistory(
