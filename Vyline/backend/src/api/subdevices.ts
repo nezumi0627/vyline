@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { networkInterfaces } from "node:os";
 import {
   authenticateSubdevice,
   completePairing,
@@ -12,16 +13,56 @@ import {
 
 export const subdeviceRouter = new Hono();
 
+const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function getLanHost(): string | null {
+  const configured = process.env.VYLINE_PUBLIC_HOST?.trim();
+  if (configured) return configured;
+
+  for (const addresses of Object.values(networkInterfaces())) {
+    const address = addresses?.find((entry) => entry.family === "IPv4" && !entry.internal);
+    if (address?.address) return address.address;
+  }
+  return null;
+}
+
+/** localhost で開いたPC画面からでも、LAN上で開けるQR URLを作る。 */
+export function buildPairingUrl(origin: string | undefined, token: string): string | undefined {
+  if (!origin) return undefined;
+
+  try {
+    const url = new URL(origin);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
+    if (LOOPBACK_HOSTS.has(url.hostname)) {
+      const lanHost = getLanHost();
+      if (!lanHost) return undefined;
+      url.hostname = lanHost;
+    }
+    url.pathname = "/subdevice";
+    url.search = `?pairing=${encodeURIComponent(token)}`;
+    url.hash = "";
+    return url.toString();
+  } catch {
+    return undefined;
+  }
+}
+
 function bearer(c: { req: { header(name: string): string | undefined } }) {
   const value = c.req.header("authorization") ?? "";
   return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
 }
 
 subdeviceRouter.post("/pairing", async (c) => {
-  const body = await c.req.json<{ accountId?: string }>().catch((): { accountId?: string } => ({}));
+  const body = await c.req
+    .json<{ accountId?: string; origin?: string }>()
+    .catch((): { accountId?: string; origin?: string } => ({}));
   if (!body.accountId) return c.json({ ok: false, error: "accountId required" }, 400);
   const pairing = await createPairing(body.accountId);
-  return c.json({ ok: true, ...pairing });
+  return c.json({
+    ok: true,
+    ...pairing,
+    pairingUrl: buildPairingUrl(body.origin, pairing.token),
+  });
 });
 
 subdeviceRouter.get("/pairing/:token", async (c) => {

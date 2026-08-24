@@ -572,9 +572,12 @@ function SubdevicesSection() {
 
   const startPairing = async () => {
     if (!accountId) return setMessage("LINEログインが必要です");
-    const res = await api.subdevices.createPairing(accountId);
+    const res = await api.subdevices.createPairing(accountId, window.location.origin);
     if (!res.ok || !res.token) return setMessage(res.error ?? "QRコードを作成できませんでした");
-    setPairingUrl(`${window.location.origin}/subdevice?pairing=${encodeURIComponent(res.token)}`);
+    setPairingUrl(
+      res.pairingUrl ??
+        `${window.location.origin}/subdevice?pairing=${encodeURIComponent(res.token)}`,
+    );
     setMessage("スマホの標準カメラでQRコードを読み込んでください（2分間有効）");
   };
 

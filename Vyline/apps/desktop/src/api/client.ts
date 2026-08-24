@@ -105,12 +105,14 @@ async function request<T>(
 
 export const api = {
   subdevices: {
-    createPairing: (accountId: string) =>
-      request<{ ok: boolean; token?: string; expiresAt?: number; error?: string }>(
-        "POST",
-        "/auth/subdevices/pairing",
-        { accountId },
-      ),
+    createPairing: (accountId: string, origin?: string) =>
+      request<{
+        ok: boolean;
+        token?: string;
+        expiresAt?: number;
+        pairingUrl?: string;
+        error?: string;
+      }>("POST", "/auth/subdevices/pairing", { accountId, origin }),
     list: () =>
       request<{
         ok: boolean;
