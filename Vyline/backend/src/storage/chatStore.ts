@@ -551,6 +551,7 @@ export async function importChatDb(
 export function mergeChatDbRecords(
   target: ChatDbRecords,
   incoming: ChatDbRecords,
+  opts?: { preserveHistory?: boolean },
 ): ChatDbMergeResult {
   let importedChats = 0;
   let skippedChats = 0;
@@ -593,7 +594,7 @@ export function mergeChatDbRecords(
     }
 
     const ids = Object.keys(targetMessages);
-    if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
+    if (!opts?.preserveHistory && ids.length > MAX_MESSAGES_PER_CHAT_DB) {
       const drop = ids
         .sort(
           (a, b) => (targetMessages[a]?.createdTime ?? 0) - (targetMessages[b]?.createdTime ?? 0),
@@ -613,9 +614,14 @@ export async function mergeImportedChatDb(
   incoming: ChatDbRecords,
 ): Promise<ChatDbMergeResult> {
   const db = await getDb(accountId);
-  const result = mergeChatDbRecords(db, incoming);
+  const result = mergeChatDbRecords(db, incoming, { preserveHistory: true });
   if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
   return result;
+}
+
+/** 復元完了時に、遅延保存を待たずにDBへ確実に書き出す。 */
+export async function flushAccountChatDb(accountId: string): Promise<void> {
+  await flushDb(accountId);
 }
 
 /** VylineBackup: チャット一覧とメッセージ件数（選択 UI 用） */

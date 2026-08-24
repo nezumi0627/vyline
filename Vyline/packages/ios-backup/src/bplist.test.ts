@@ -63,7 +63,12 @@ function concat(parts: Uint8Array[]): Uint8Array {
 
 describe("parseBplist", () => {
   test("parses iOS manifest marker types, dates, and extended lengths", () => {
-    const parsed = parseBplist(makeFixture()) as Record<string, unknown>;
+    const parsed = parseBplist(makeFixture()) as {
+      BackupKeyBag: Uint8Array;
+      Date: Date;
+      Flag: boolean;
+      Long: string;
+    };
 
     expect(parsed.BackupKeyBag).toEqual(new Uint8Array([0xaa]));
     expect(parsed.Date).toEqual(new Date("2001-01-01T00:00:00.000Z"));

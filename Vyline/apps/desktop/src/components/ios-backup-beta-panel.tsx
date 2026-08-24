@@ -46,6 +46,11 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
     return () => window.clearInterval(timer);
   }, [accountId, session]);
 
+  useEffect(() => {
+    if (session?.status !== "completed" || !accountId) return;
+    window.dispatchEvent(new CustomEvent("vyline:ios-backup-restored", { detail: { accountId } }));
+  }, [accountId, session?.status]);
+
   const start = async () => {
     if (!accountId || !selected || !password) return;
     setLoading(true);
@@ -78,8 +83,9 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
         <div className="min-w-0 flex-1">
           <h3 className="font-semibold">iTunes / Apple Devices の復元</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            暗号化された iPhone ローカルバックアップを解析し、トーク履歴を Vyline
-            用の検証データへ展開します。元のバックアップは変更しません。
+            暗号化された iPhone ローカルバックアップを復号し、トーク・チャット情報と
+            復元できるメディアを Vyline
+            のアカウントDBへ自動で追加します。既存データは上書きせず、元のバックアップも変更しません。
           </p>
         </div>
         <button

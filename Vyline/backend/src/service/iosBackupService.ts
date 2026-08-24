@@ -10,7 +10,12 @@ import {
   type ExtractedFile,
 } from "@vyline/ios-backup";
 import type { MessageContentMeta } from "@vyline/types";
-import { mergeImportedChatDb, type StoredChat, type StoredMessage } from "../storage/chatStore.js";
+import {
+  flushAccountChatDb,
+  mergeImportedChatDb,
+  type StoredChat,
+  type StoredMessage,
+} from "../storage/chatStore.js";
 import { childLogger } from "../logger.js";
 import { writeMediaStorage } from "../storage/mediaStorage.js";
 
@@ -163,6 +168,7 @@ async function runRestore(
     const records = historyToChatDb(result.parsed, session.accountId);
     const merged = await mergeImportedChatDb(session.accountId, records);
     const media = await restoreMediaFiles(session.accountId, result.extracted.files, result.parsed);
+    await flushAccountChatDb(session.accountId);
     const totalMessages = Array.from(result.parsed.messages.values()).reduce(
       (sum, messages) => sum + messages.length,
       0,

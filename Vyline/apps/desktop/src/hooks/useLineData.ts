@@ -320,6 +320,30 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     }
   }, [accountId, applyChatsToContactCache]);
 
+  // iOS復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
+  useEffect(() => {
+    if (!accountId || typeof window === "undefined") return;
+    const onRestore = (event: Event) => {
+      const restoredAccountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+      if (restoredAccountId !== accountId) return;
+      void (async () => {
+        await loadBootstrap();
+        const chatMid = selectedChatMidRef.current;
+        if (!chatMid) return;
+        const res = await api.line.messages(accountId, chatMid, PAGE_SIZE, { local: true });
+        if (res.ok && res.messages) {
+          const messages = [...res.messages].reverse();
+          setMessages(messages);
+          setHasMoreMessages(res.hasMore ?? res.messages.length >= PAGE_SIZE);
+          setFromLocalCache(true);
+          resolveMessageAuthors(messages);
+        }
+      })();
+    };
+    window.addEventListener("vyline:ios-backup-restored", onRestore);
+    return () => window.removeEventListener("vyline:ios-backup-restored", onRestore);
+  }, [accountId, loadBootstrap, resolveMessageAuthors]);
+
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
     messagesGen.current += 1;
