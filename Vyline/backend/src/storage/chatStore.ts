@@ -26,8 +26,6 @@ const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
-/** チャットあたりの保持上限。無制限保存はメモリ・ディスク・全体書き込みを肥大させるため抑止 */
-const MAX_MESSAGES_PER_CHAT_DB = Number(process.env.VYLINE_CHATDB_MAX_MSGS_PER_CHAT ?? 500);
 
 export interface StoredChat {
   mid: string;
@@ -254,14 +252,6 @@ export async function upsertMessages(
     byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
-  // 上限を超えたら古いものから落とす（全ファイル書き換えコストの抑止）
-  const ids = Object.keys(byChat);
-  if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
-    const drop = ids
-      .sort((a, b) => (byChat[a]?.createdTime ?? 0) - (byChat[b]?.createdTime ?? 0))
-      .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
-    for (const id of drop) delete byChat[id];
-  }
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
   scheduleSave(accountId);
@@ -551,7 +541,6 @@ export async function importChatDb(
 export function mergeChatDbRecords(
   target: ChatDbRecords,
   incoming: ChatDbRecords,
-  opts?: { preserveHistory?: boolean },
 ): ChatDbMergeResult {
   let importedChats = 0;
   let skippedChats = 0;
@@ -593,15 +582,6 @@ export function mergeChatDbRecords(
       importedMessages++;
     }
 
-    const ids = Object.keys(targetMessages);
-    if (!opts?.preserveHistory && ids.length > MAX_MESSAGES_PER_CHAT_DB) {
-      const drop = ids
-        .sort(
-          (a, b) => (targetMessages[a]?.createdTime ?? 0) - (targetMessages[b]?.createdTime ?? 0),
-        )
-        .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
-      for (const id of drop) delete targetMessages[id];
-    }
     target.messages[chatMid] = targetMessages;
   }
 
@@ -614,7 +594,7 @@ export async function mergeImportedChatDb(
   incoming: ChatDbRecords,
 ): Promise<ChatDbMergeResult> {
   const db = await getDb(accountId);
-  const result = mergeChatDbRecords(db, incoming, { preserveHistory: true });
+  const result = mergeChatDbRecords(db, incoming);
   if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
   return result;
 }
