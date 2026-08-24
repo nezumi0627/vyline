@@ -130,6 +130,7 @@ function SidebarBase() {
   const toggleHide = useStore((s) => s.toggleHide);
   const toggleMute = useStore((s) => s.toggleMute);
   const markChatRead = useStore((s) => s.markChatRead);
+  const markAllChatsRead = useStore((s) => s.markAllChatsRead);
   const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
   const readDisabledMids = useStore((s) => s.readDisabledMids);
 
@@ -471,6 +472,18 @@ function SidebarBase() {
                     {sort === s && <IconCheck size={15} style={{ color: "var(--vy-accent)" }} />}
                   </button>
                 ))}
+                <div className="my-1 border-t border-[var(--vy-border)]" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void markAllChatsRead();
+                    setSortOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+                >
+                  <IconCheck size={15} />
+                  すべて既読にする
+                </button>
               </div>
             </>
           )}

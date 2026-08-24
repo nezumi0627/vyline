@@ -307,6 +307,8 @@ type State = {
   draftMentions: Record<string, MentionDraft[]>;
   replyToId: string | null;
   highlightMessageId: string | null;
+  /** チャットを開くときの初期位置。未読の先頭、なければ末尾。 */
+  initialChatScrollMessageId: string | null;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -404,6 +406,7 @@ type State = {
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markChatRead: (id: string) => Promise<void>;
+  markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
     chatId: string,
@@ -495,6 +498,7 @@ export const useStore = create<State>()(
       draftMentions: {},
       replyToId: null,
       highlightMessageId: null,
+      initialChatScrollMessageId: null,
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -535,6 +539,7 @@ export const useStore = create<State>()(
             chats: [],
             messages: [],
             activeChatId: null,
+            initialChatScrollMessageId: null,
             memberProfile: null,
             readWatermarks: {},
             announcements: {},
@@ -557,6 +562,7 @@ export const useStore = create<State>()(
           draftMentions: {},
           replyToId: null,
           highlightMessageId: null,
+          initialChatScrollMessageId: null,
           customOrder: [],
           readDisabledMids: {},
           blockedMids: [],
@@ -593,9 +599,23 @@ export const useStore = create<State>()(
 
       _activateChat: (id, opts) => {
         const opts2 = opts ?? {};
+        const firstUnread = get()
+          .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
+          .sort((a, b) => {
+            const byTime = a.createdAt - b.createdAt;
+            if (byTime) return byTime;
+            try {
+              const left = BigInt(a.id);
+              const right = BigInt(b.id);
+              return left === right ? 0 : left < right ? -1 : 1;
+            } catch {
+              return a.id.localeCompare(b.id);
+            }
+          })[0];
         set((st) => ({
           screen: "chat",
           activeChatId: id,
+          initialChatScrollMessageId: firstUnread?.id ?? null,
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
@@ -621,7 +641,8 @@ export const useStore = create<State>()(
         }
       },
 
-      closeChat: () => set({ activeChatId: null, profileDrawerOpen: false }),
+      closeChat: () =>
+        set({ activeChatId: null, initialChatScrollMessageId: null, profileDrawerOpen: false }),
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
@@ -1506,45 +1527,65 @@ export const useStore = create<State>()(
         }
       },
 
-      markRead: async (id) => {
-        const { accountId, activeChatId } = get();
-        if (!accountId || !activeChatId) return;
-        await api.line.markAsRead(accountId, activeChatId, id).catch(() => {});
-        set((st) => ({
-          messages: st.messages.map((m) =>
-            m.id === id ? { ...m, read: true, status: "read" } : m,
-          ),
-        }));
+      markRead: async (_id) => {
+        const { activeChatId } = get();
+        if (!activeChatId) return;
+        // 古い個別ID（または自分の送信ID）を送らず、そのチャットの安定した最終地点を使う。
+        await get().markChatRead(activeChatId);
       },
 
       markChatRead: async (id) => {
         const { accountId, messages, settings, readDisabledMids } = get();
+        const received = messages
+          .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
+          .sort((a, b) => {
+            const byTime = b.createdAt - a.createdAt;
+            if (byTime) return byTime;
+            try {
+              const left = BigInt(a.id);
+              const right = BigInt(b.id);
+              return left === right ? 0 : right > left ? 1 : -1;
+            } catch {
+              return b.id.localeCompare(a.id);
+            }
+          });
+        const last = received[0];
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
           messages: st.messages.map((m) => {
             // 自分の送信メッセージの read は相手側の既読状態。
             // チャットを開いただけで自分の最新送信まで既読にしてはいけない。
-            if (m.chatId !== id || m.authorId === "me") return m;
+            if (m.chatId !== id || m.authorId === "me" || !last) return m;
+            try {
+              if (BigInt(m.id) > BigInt(last.id)) return m;
+            } catch {
+              return m;
+            }
             return { ...m, read: true, status: "read" };
           }),
         }));
         // 全体無効（設定）または個別無効（右クリック）なら送信しない
         if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
-        const last = [...messages]
-          .reverse()
-          .find(
-            (m) => m.chatId === id && m.authorId !== "me" && m.id && !m.id.startsWith("pending_"),
-          );
-        if (!last?.id) return;
+        // ローカルに未取得の履歴だけでもバックエンドがDB/サーバの最終地点を解決する。
+        const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (prev === last.id) return;
-        readReceiptSent.set(receiptKey, last.id);
+        if (lastId && prev === lastId) return;
+        if (lastId) readReceiptSent.set(receiptKey, lastId);
         try {
-          await api.line.markAsRead(accountId, id, last.id);
+          await api.line.markAsRead(accountId, id, lastId);
         } catch {
-          readReceiptSent.delete(receiptKey);
+          if (lastId) readReceiptSent.delete(receiptKey);
+        }
+      },
+
+      markAllChatsRead: async () => {
+        const unreadChatIds = get()
+          .chats.filter((chat) => chat.unread > 0)
+          .map((chat) => chat.id);
+        for (const chatId of unreadChatIds) {
+          await get().markChatRead(chatId);
         }
       },
 
