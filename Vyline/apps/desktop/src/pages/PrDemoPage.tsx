@@ -20,7 +20,7 @@ export function PrDemoPage() {
       chats: demoChats,
       messages: demoMessages,
       self: demoSelf,
-      settings: demoSettings,
+      settings: { ...demoSettings, streamerMode: false },
       showUpdateNote: false,
       profileDrawerOpen: false,
       drafts: {},

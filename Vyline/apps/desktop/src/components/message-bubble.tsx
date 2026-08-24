@@ -637,7 +637,7 @@ export const MessageBubble = memo(
       }
       // 削除も同じタイプを送ってサーバ側でトグル（"UNDO" はサーバが ILLEGAL_ARGUMENT で拒否する）
       void api.line
-        .react(accountId, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
+        .react(accountId!, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
         .then((res) => {
           if (!res.ok) {
             window.alert(res.error ?? "リアクションに失敗しました");
@@ -655,7 +655,7 @@ export const MessageBubble = memo(
       const chatId = chat.id;
       if (state.demoMode) {
         state.addAnnouncement(chatId, {
-          announcementSeq: Date.now(),
+          announcementSeq: String(Date.now()),
           text,
           link: `line://nv/chatMsg?chatId=${chatId}&messageId=${message.id}`,
           creatorMid: state.self?.mid ?? "demo-self",

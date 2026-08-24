@@ -92,7 +92,19 @@ async function main() {
       await context.close();
       if (video) await video.saveAs(webmPath);
       const ffmpeg = Bun.spawn(
-        ["ffmpeg", "-y", "-i", webmPath, "-vf", `subtitles=recordings/demo-clips/vyline-demo-${id}.srt`, "-c:v", "libx264", "-pix_fmt", "yuv420p", mp4Path],
+        [
+          "ffmpeg",
+          "-y",
+          "-i",
+          webmPath,
+          "-vf",
+          `subtitles=recordings/demo-clips/vyline-demo-${id}.srt`,
+          "-c:v",
+          "libx264",
+          "-pix_fmt",
+          "yuv420p",
+          mp4Path,
+        ],
         { cwd: root, stdout: "ignore", stderr: "ignore" },
       );
       await ffmpeg.exited;
@@ -100,7 +112,10 @@ async function main() {
     }
   } finally {
     await browser?.close();
-    const killer = Bun.spawn(["taskkill", "/PID", String(server.pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+    const killer = Bun.spawn(["taskkill", "/PID", String(server.pid), "/T", "/F"], {
+      stdout: "ignore",
+      stderr: "ignore",
+    });
     await killer.exited;
   }
 }

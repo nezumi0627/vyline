@@ -304,6 +304,8 @@ type State = {
   draftMentions: Record<string, MentionDraft[]>;
   replyToId: string | null;
   highlightMessageId: string | null;
+  /** チャットを開くときの初期位置。未読の先頭、なければ末尾。 */
+  initialChatScrollMessageId: string | null;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -401,6 +403,7 @@ type State = {
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
   markChatRead: (id: string) => Promise<void>;
+  markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
     chatId: string,
@@ -493,6 +496,7 @@ export const useStore = create<State>()(
       draftMentions: {},
       replyToId: null,
       highlightMessageId: null,
+      initialChatScrollMessageId: null,
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -533,6 +537,7 @@ export const useStore = create<State>()(
             chats: [],
             messages: [],
             activeChatId: null,
+            initialChatScrollMessageId: null,
             memberProfile: null,
             readWatermarks: {},
             announcements: {},
@@ -555,6 +560,7 @@ export const useStore = create<State>()(
           draftMentions: {},
           replyToId: null,
           highlightMessageId: null,
+          initialChatScrollMessageId: null,
           customOrder: [],
           readDisabledMids: {},
           blockedMids: [],
@@ -592,9 +598,23 @@ export const useStore = create<State>()(
 
       _activateChat: (id, opts) => {
         const opts2 = opts ?? {};
+        const firstUnread = get()
+          .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
+          .sort((a, b) => {
+            const byTime = a.createdAt - b.createdAt;
+            if (byTime) return byTime;
+            try {
+              const left = BigInt(a.id);
+              const right = BigInt(b.id);
+              return left === right ? 0 : left < right ? -1 : 1;
+            } catch {
+              return a.id.localeCompare(b.id);
+            }
+          })[0];
         set((st) => ({
           screen: "chat",
           activeChatId: id,
+          initialChatScrollMessageId: firstUnread?.id ?? null,
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
@@ -621,7 +641,8 @@ export const useStore = create<State>()(
         }
       },
 
-      closeChat: () => set({ activeChatId: null, profileDrawerOpen: false }),
+      closeChat: () =>
+        set({ activeChatId: null, initialChatScrollMessageId: null, profileDrawerOpen: false }),
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
@@ -1478,7 +1499,7 @@ export const useStore = create<State>()(
           get().showNotice("メッセージをデモ取り消ししました");
           return;
         }
-        const res = await api.line.unsend(accountId, id);
+        const res = await api.line.unsend(accountId!, id);
         if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
         else if (!res.ok) {
           const errText = res.error ?? "";
@@ -1528,7 +1549,7 @@ export const useStore = create<State>()(
         }
 
         try {
-          const res = await api.line.editMessage(accountId, msg.chatId, id, newText);
+          const res = await api.line.editMessage(accountId!, msg.chatId, id, newText);
           if (res.ok) {
             get().showNotice("メッセージを編集しました");
             if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
@@ -1698,6 +1719,15 @@ export const useStore = create<State>()(
           await api.line.markAsRead(accountId, id, lastId);
         } catch {
           if (lastId) readReceiptSent.delete(receiptKey);
+        }
+      },
+
+      markAllChatsRead: async () => {
+        const unreadChatIds = get()
+          .chats.filter((chat) => chat.unread > 0)
+          .map((chat) => chat.id);
+        for (const chatId of unreadChatIds) {
+          await get().markChatRead(chatId);
         }
       },
 
@@ -2446,7 +2476,7 @@ export const useStore = create<State>()(
           return;
         }
         try {
-          await api.line.restoreRevokedMessage(accountId, _chatId, messageId);
+          await api.line.restoreRevokedMessage(accountId!, _chatId, messageId);
         } catch {
           /* local update already applied */
         }

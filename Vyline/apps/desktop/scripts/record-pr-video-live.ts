@@ -20,12 +20,14 @@ const subtitles = [
 ];
 
 function makeSrt(): string {
-  return subtitles.map((text, index) => {
-    const start = index * 6;
-    const end = start + 5.5;
-    const stamp = (seconds: number) => `00:00:${String(seconds).padStart(2, "0")},000`;
-    return `${index + 1}\n${stamp(start)} --> ${stamp(end)}\n${text}\n`;
-  }).join("\n");
+  return subtitles
+    .map((text, index) => {
+      const start = index * 6;
+      const end = start + 5.5;
+      const stamp = (seconds: number) => `00:00:${String(seconds).padStart(2, "0")},000`;
+      return `${index + 1}\n${stamp(start)} --> ${stamp(end)}\n${text}\n`;
+    })
+    .join("\n");
 }
 
 async function waitForServer(url: string): Promise<void> {
@@ -42,7 +44,10 @@ async function waitForServer(url: string): Promise<void> {
 
 async function stopProcessTree(pid: number | undefined): Promise<void> {
   if (!pid) return;
-  const killer = Bun.spawn(["taskkill", "/PID", String(pid), "/T", "/F"], { stdout: "ignore", stderr: "ignore" });
+  const killer = Bun.spawn(["taskkill", "/PID", String(pid), "/T", "/F"], {
+    stdout: "ignore",
+    stderr: "ignore",
+  });
   await killer.exited;
 }
 
@@ -94,7 +99,9 @@ async function main() {
     } else if (sendEnabled) {
       throw new Error(`Safe send target not found: ${targetName}`);
     } else {
-      console.log(`[pr-live] target ${targetName} not found; opening the first real chat without sending`);
+      console.log(
+        `[pr-live] target ${targetName} not found; opening the first real chat without sending`,
+      );
       await rows.first().click();
     }
     await page.waitForTimeout(2_500);
@@ -107,15 +114,20 @@ async function main() {
       await page.getByRole("button", { name: "送信" }).click();
       console.log("[pr-live] sent a real message through the Vyline UI");
     } else {
-      console.log("[pr-live] preview only; set VYLINE_PR_SEND=1 to send to the approved test target");
+      console.log(
+        "[pr-live] preview only; set VYLINE_PR_SEND=1 to send to the approved test target",
+      );
       await input.fill("");
     }
     await page.waitForTimeout(2_000);
 
     await page.getByRole("button", { name: "スタンプ・絵文字" }).click();
-    await page.getByRole("button", { name: "スタンプ", exact: true }).click().catch(() => undefined);
+    await page
+      .getByRole("button", { name: "スタンプ", exact: true })
+      .click()
+      .catch(() => undefined);
     const sticker = page.locator(".vy-scale-in button:has(img)").first();
-    if (await sticker.count() && await sticker.isVisible().catch(() => false)) {
+    if ((await sticker.count()) && (await sticker.isVisible().catch(() => false))) {
       if (sendEnabled) {
         await sticker.click();
         console.log("[pr-live] selected a real sticker through the Vyline UI");
@@ -138,8 +150,23 @@ async function main() {
     await stopProcessTree(server.pid);
   }
 
-  const ffmpeg = Bun.spawn(["ffmpeg", "-y", "-i", videoPath, "-vf", "subtitles=recordings/vyline-pr-live.srt", "-c:v", "libx264", "-pix_fmt", "yuv420p", mp4Path], { cwd: root, stdout: "ignore", stderr: "inherit" });
-  if (await ffmpeg.exited === 0) console.log(`Created ${mp4Path}`);
+  const ffmpeg = Bun.spawn(
+    [
+      "ffmpeg",
+      "-y",
+      "-i",
+      videoPath,
+      "-vf",
+      "subtitles=recordings/vyline-pr-live.srt",
+      "-c:v",
+      "libx264",
+      "-pix_fmt",
+      "yuv420p",
+      mp4Path,
+    ],
+    { cwd: root, stdout: "ignore", stderr: "inherit" },
+  );
+  if ((await ffmpeg.exited) === 0) console.log(`Created ${mp4Path}`);
 }
 
 await main();

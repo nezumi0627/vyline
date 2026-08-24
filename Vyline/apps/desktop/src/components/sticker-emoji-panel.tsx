@@ -219,7 +219,9 @@ export function StickerEmojiPanel({
 
   useEffect(() => {
     if (demoMode) {
-      setAvailability(Object.fromEntries((catalog?.stickerPacks ?? []).map((p) => [p.packageId, true])));
+      setAvailability(
+        Object.fromEntries((catalog?.stickerPacks ?? []).map((p) => [p.packageId, true])),
+      );
       return;
     }
     if (!accountId || !catalog) return;

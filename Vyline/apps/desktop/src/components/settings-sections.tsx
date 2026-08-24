@@ -183,7 +183,7 @@ export function SettingsSections() {
     setProfileMsg(null);
     try {
       const buf = await file.arrayBuffer();
-      const res = await api.line.updateProfileImage(accountId, buf, file.type || "image/jpeg");
+      const res = await api.line.updateProfileImage(accountId!, buf, file.type || "image/jpeg");
       if (res.ok && res.profile?.thumbnailUrl) {
         updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
         setProfileMsg("アイコンを更新しました");
@@ -208,7 +208,11 @@ export function SettingsSections() {
     setProfileMsg(null);
     try {
       const buf = await file.arrayBuffer();
-      const res = await api.line.updateProfileBackground(accountId, buf, file.type || "image/jpeg");
+      const res = await api.line.updateProfileBackground(
+        accountId!,
+        buf,
+        file.type || "image/jpeg",
+      );
       if (res.ok) {
         setProfileMsg("背景画像をアップロードしました");
         // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
@@ -586,8 +590,10 @@ function SubdevicesSection() {
       ? [
           {
             id: "demo-tablet",
+            accountId: "demo",
             name: "デモ iPad",
-            platform: "iPadOS",
+            platform: "ios",
+            createdAt: new Date().toISOString(),
             blocked: false,
             lastSeenAt: new Date().toISOString(),
           },
@@ -1723,7 +1729,7 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.setProxy(accountId, enabled, proxyUrl);
+      const res = await api.line.setProxy(accountId!, enabled, proxyUrl);
       setProxyMsg(
         res.ok
           ? enabled
@@ -1746,13 +1752,13 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.blockedContacts(accountId);
+      const res = await api.line.blockedContacts(accountId!);
       const mids = res.ok ? (res.mids ?? []) : [];
       // プロフィール取得
       const withProfiles = await Promise.all(
         mids.map(async (mid) => {
           try {
-            const prof = await api.line.contactProfile(accountId, mid);
+            const prof = await api.line.contactProfile(accountId!, mid);
             if (!prof.ok) return { mid };
             return {
               mid,
@@ -1782,7 +1788,7 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.unblockContact(accountId, mid);
+      const res = await api.line.unblockContact(accountId!, mid);
       if (res.ok) {
         setBlocked((prev) => prev.filter((b) => b.mid !== mid));
         useStore.setState((st) => ({
