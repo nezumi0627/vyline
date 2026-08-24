@@ -82,6 +82,18 @@ interface ChatDb {
   messages: Record<string, Record<string, StoredMessage>>;
 }
 
+export interface ChatDbRecords {
+  chats: Record<string, StoredChat>;
+  messages: Record<string, Record<string, StoredMessage>>;
+}
+
+export interface ChatDbMergeResult {
+  importedChats: number;
+  skippedChats: number;
+  importedMessages: number;
+  skippedMessages: number;
+}
+
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -533,6 +545,75 @@ export async function importChatDb(
   }
   scheduleSave(accountId);
   return { chats: chatCount, messages: messageCount };
+}
+
+/** 外部履歴を追加専用でマージする。既存メッセージは上書きしないため再実行できる。 */
+export function mergeChatDbRecords(
+  target: ChatDbRecords,
+  incoming: ChatDbRecords,
+): ChatDbMergeResult {
+  let importedChats = 0;
+  let skippedChats = 0;
+  let importedMessages = 0;
+  let skippedMessages = 0;
+
+  for (const [mid, incomingChat] of Object.entries(incoming.chats ?? {})) {
+    const existing = target.chats[mid];
+    if (!existing) {
+      target.chats[mid] = incomingChat;
+      importedChats++;
+      continue;
+    }
+
+    skippedChats++;
+    const incomingIsNewer = (incomingChat.lastMessageTime ?? 0) > (existing.lastMessageTime ?? 0);
+    target.chats[mid] = {
+      ...existing,
+      hasMessages: existing.hasMessages || incomingChat.hasMessages,
+      lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
+      ...(incomingIsNewer && incomingChat.lastMessageId
+        ? { lastMessageId: incomingChat.lastMessageId }
+        : {}),
+      ...(incomingIsNewer && incomingChat.lastMessagePreview
+        ? { lastMessagePreview: incomingChat.lastMessagePreview }
+        : {}),
+      ...(existing.name === existing.mid && incomingChat.name ? { name: incomingChat.name } : {}),
+    };
+  }
+
+  for (const [chatMid, incomingMessages] of Object.entries(incoming.messages ?? {})) {
+    const targetMessages = target.messages[chatMid] ?? {};
+    for (const [id, incomingMessage] of Object.entries(incomingMessages)) {
+      if (targetMessages[id]) {
+        skippedMessages++;
+        continue;
+      }
+      targetMessages[id] = incomingMessage;
+      importedMessages++;
+    }
+
+    const ids = Object.keys(targetMessages);
+    if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
+      const drop = ids
+        .sort((a, b) => (targetMessages[a]?.createdTime ?? 0) - (targetMessages[b]?.createdTime ?? 0))
+        .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
+      for (const id of drop) delete targetMessages[id];
+    }
+    target.messages[chatMid] = targetMessages;
+  }
+
+  return { importedChats, skippedChats, importedMessages, skippedMessages };
+}
+
+/** iOS / 外部履歴復元用の永続マージ。 */
+export async function mergeImportedChatDb(
+  accountId: string,
+  incoming: ChatDbRecords,
+): Promise<ChatDbMergeResult> {
+  const db = await getDb(accountId);
+  const result = mergeChatDbRecords(db, incoming);
+  if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
+  return result;
 }
 
 /** VylineBackup: チャット一覧とメッセージ件数（選択 UI 用） */

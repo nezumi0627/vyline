@@ -29,6 +29,7 @@ export {
   parseLineDatabases,
   findLineDatabases,
   detectMyMid,
+  iosTimestampToIso,
   type ParsedChatHistory,
   type ChatInfo,
   type MessageRecord,
