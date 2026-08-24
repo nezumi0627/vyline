@@ -19,6 +19,7 @@ import {
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
 import { useStore } from "../lib/store.js";
+import { restoreDismissedChatMid } from "../utils/dismissedChats.js";
 
 interface UseLineDataOptions {
   accountId: string | null;
@@ -326,6 +327,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     const onRestore = (event: Event) => {
       const restoredAccountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
       if (restoredAccountId !== accountId) return;
+      const restoredChatMids =
+        (event as CustomEvent<{ chatMids?: string[] }>).detail?.chatMids ?? [];
+      for (const chatMid of restoredChatMids) restoreDismissedChatMid(accountId, chatMid);
       void (async () => {
         await loadBootstrap();
         const chatMid = selectedChatMidRef.current;

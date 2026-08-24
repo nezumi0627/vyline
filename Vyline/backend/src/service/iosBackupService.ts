@@ -51,6 +51,7 @@ export interface IosBackupSession {
     restoredAt: string;
     extracted: { lineFiles: number; databases: number };
     parsed: { chats: number; totalMessages: number };
+    restoredChatMids: string[];
     merged: {
       importedChats: number;
       skippedChats: number;
@@ -218,6 +219,7 @@ async function runRestore(
         databases: result.extracted.databases.length,
       },
       parsed: { chats: result.parsed.chats.length, totalMessages },
+      restoredChatMids: records.chats ? Object.keys(records.chats) : [],
       merged,
       media,
     };

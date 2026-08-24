@@ -53,7 +53,11 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
 
   useEffect(() => {
     if (session?.status !== "completed" || !accountId) return;
-    window.dispatchEvent(new CustomEvent("vyline:ios-backup-restored", { detail: { accountId } }));
+    window.dispatchEvent(
+      new CustomEvent("vyline:ios-backup-restored", {
+        detail: { accountId, chatMids: session.result?.restoredChatMids ?? [] },
+      }),
+    );
   }, [accountId, session?.status]);
 
   const start = async () => {

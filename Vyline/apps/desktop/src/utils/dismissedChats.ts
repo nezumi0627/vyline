@@ -30,6 +30,15 @@ export function dismissChatMid(accountId: string, chatMid: string): void {
   save(data);
 }
 
+export function restoreDismissedChatMid(accountId: string, chatMid: string): void {
+  const data = load();
+  const next = (data[accountId] ?? []).filter((mid) => mid !== chatMid);
+  if (next.length === (data[accountId] ?? []).length) return;
+  if (next.length > 0) data[accountId] = next;
+  else delete data[accountId];
+  save(data);
+}
+
 export function isChatDismissed(accountId: string, chatMid: string): boolean {
   return getDismissedChatMids(accountId).has(chatMid);
 }
