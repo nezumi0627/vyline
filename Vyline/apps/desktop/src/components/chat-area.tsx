@@ -99,6 +99,7 @@ function ChatAreaBase() {
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
+  const initialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
   const accountId = useStore((s) => s.accountId);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
@@ -313,37 +314,21 @@ function ChatAreaBase() {
     return () => window.removeEventListener("vyline:older-messages-state", onOlderState);
   }, [activeChatId]);
 
-  const prevLen = useRef(chatMessages.length);
-  const prevChat = useRef(activeChatId);
-  const justSwitched = useRef(true);
+  const openedChatRef = useRef<string | null>(null);
 
-  // チャット切替時は必ず一番下へ（メッセージ描画後に再スクロール）
+  // 開いた瞬間だけ位置を決める。未読があればその先頭、なければ末尾に置き、
+  // 以後の受信・画像の高さ確定・ページ追加では利用者のスクロール位置を動かさない。
   useEffect(() => {
-    justSwitched.current = true;
-    prevLen.current = chatMessages.length;
-    prevChat.current = activeChatId;
-    const t1 = setTimeout(() => scrollToBottom("auto"), 0);
-    const t2 = setTimeout(() => scrollToBottom("auto"), 150);
-    const t3 = setTimeout(() => scrollToBottom("auto"), 400);
-    return () => {
-      clearTimeout(t1);
-      clearTimeout(t2);
-      clearTimeout(t3);
-    };
-  }, [activeChatId, scrollToBottom]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 同一チャットの新着: 切替直後 or 下部に居るときだけ自動スクロール
-  useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const grew = chatMessages.length > prevLen.current;
-    prevLen.current = chatMessages.length;
-    if (!grew) return;
-    const force = justSwitched.current;
-    justSwitched.current = false;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 160;
-    if (force || nearBottom) scrollToBottom("auto");
-  }, [chatMessages.length, scrollToBottom, containerRef]);
+    if (!activeChatId || openedChatRef.current === activeChatId) return;
+    const key = initialChatScrollMessageId ? `msg-${initialChatScrollMessageId}` : null;
+    if (key && !rows.some((row) => row.key === key)) return;
+    openedChatRef.current = activeChatId;
+    const frame = requestAnimationFrame(() => {
+      if (key) scrollToKey(key, { behavior: "auto", center: true });
+      else scrollToBottom("auto");
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeChatId, initialChatScrollMessageId, rows, scrollToBottom, scrollToKey]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
