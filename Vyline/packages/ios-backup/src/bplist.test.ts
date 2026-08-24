@@ -65,9 +65,9 @@ describe("parseBplist", () => {
   test("parses iOS manifest marker types, dates, and extended lengths", () => {
     const parsed = parseBplist(makeFixture()) as Record<string, unknown>;
 
-    expect(parsed.BackupKeyBag).toEqual(new Uint8Array([0xaa]));
-    expect(parsed.Date).toEqual(new Date("2001-01-01T00:00:00.000Z"));
-    expect(parsed.Flag).toBe(false);
-    expect(parsed.Long).toBe("0123456789abcdef");
+    expect(parsed["BackupKeyBag"]).toEqual(new Uint8Array([0xaa]));
+    expect(parsed["Date"]).toEqual(new Date("2001-01-01T00:00:00.000Z"));
+    expect(parsed["Flag"]).toBe(false);
+    expect(parsed["Long"]).toBe("0123456789abcdef");
   });
 });
