@@ -5297,8 +5297,8 @@ function isOfficialUser(user: { raw?: unknown }): boolean {
 }
 
 /**
- * Beta-only local verification. It uses only authoritative friend/block lists;
- * it never sends a message or probes a contact with a sticker.
+ * Beta-only local verification. The sticker-shop check is a read-only gift
+ * eligibility request; it never sends or purchases a sticker.
  */
 export async function verifyFriendBlockStatus(
   accountId: string,
@@ -5332,6 +5332,9 @@ export async function verifyFriendBlockStatus(
       const users = await client.fetchUsers();
       const giftResults = await checkStickerGiftEligibility(accountId);
       const friend = users.find((user) => user.mid === targetMid);
+      const storedChatByMid = new Map(
+        (await getStoredChats(accountId)).map((chat) => [chat.mid, chat]),
+      );
 
       if (targetMid && !friend) {
         return [
@@ -5361,14 +5364,24 @@ export async function verifyFriendBlockStatus(
           friendDetail?: { user?: { overriddenName?: string } };
           pictureStatus?: string;
         };
-        const name =
-          raw.friendDetail?.user?.overriddenName || raw.targetProfileDetail?.profileName || "";
-        const pictureUrl = pictureStatusToUrl(
-          raw.targetProfileDetail?.pictureStatus ?? raw.pictureStatus,
+        const storedChat = storedChatByMid.get(user.mid);
+        const names = new Set(
+          [
+            storedChat?.name,
+            raw.friendDetail?.user?.overriddenName,
+            raw.targetProfileDetail?.profileName,
+          ].filter((name): name is string => Boolean(name)),
+        );
+        const pictureUrls = new Set(
+          [
+            storedChat?.thumbnailUrl,
+            pictureStatusToUrl(raw.targetProfileDetail?.pictureStatus ?? raw.pictureStatus),
+          ].filter((url): url is string => Boolean(url)),
         );
         const matches = giftResults.filter(
           (result) =>
-            result.name === name || Boolean(pictureUrl && result.pictureUrl === pictureUrl),
+            names.has(result.name) ||
+            Boolean(result.pictureUrl && pictureUrls.has(result.pictureUrl)),
         );
         if (matches.length !== 1) {
           return {
@@ -5376,7 +5389,7 @@ export async function verifyFriendBlockStatus(
             status: "unknown",
             reason:
               matches.length === 0
-                ? "ギフト可否の対象プロフィールを特定できません"
+                ? `ギフト可否の対象プロフィールを特定できません（ショップ取得件数: ${giftResults.length}）`
                 : "表示名が重複しているため特定できません",
             official: false,
           };
