@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useCallback, type UIEvent } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useCall } from "@/hooks/useCall";
@@ -73,6 +73,18 @@ function shouldGroupAdjacentImages(left: Message, right: Message): boolean {
   );
 }
 
+function compareMessagesOldestFirst(left: Message, right: Message): number {
+  const byTime = left.createdAt - right.createdAt;
+  if (byTime) return byTime;
+  try {
+    const leftId = BigInt(left.id);
+    const rightId = BigInt(right.id);
+    return leftId === rightId ? 0 : leftId < rightId ? -1 : 1;
+  } catch {
+    return left.id.localeCompare(right.id);
+  }
+}
+
 function ChatAreaBase() {
   const activeChatId = useStore((s) => s.activeChatId);
   const chats = useStore((s) => s.chats);
@@ -102,6 +114,7 @@ function ChatAreaBase() {
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
   const [groupCallOnline, setGroupCallOnline] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
+  const [olderState, setOlderState] = useState({ hasMore: true, loading: false });
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null;
 
@@ -160,8 +173,7 @@ function ChatAreaBase() {
   }, [endCall]);
 
   const chatMessages = useMemo(
-    () =>
-      messages.filter((m) => m.chatId === activeChatId).sort((a, b) => a.createdAt - b.createdAt),
+    () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
     [messages, activeChatId],
   );
 
@@ -247,6 +259,59 @@ function ChatAreaBase() {
     scrollToKey,
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
+
+  // 先頭に居続けているときは、ページ追加後も次のローカル履歴を連続して取得する。
+  useEffect(() => {
+    const onOlderLoaded = (event: Event) => {
+      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
+      if (chatMid !== activeChatId) return;
+      const container = containerRef.current;
+      if (!container || container.scrollTop > 160) return;
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(
+          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+        );
+      });
+    };
+    window.addEventListener("vyline:older-messages-loaded", onOlderLoaded);
+    return () => window.removeEventListener("vyline:older-messages-loaded", onOlderLoaded);
+  }, [activeChatId, containerRef]);
+
+  const handleMessageScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      onScroll(event);
+      if (event.currentTarget.scrollTop <= 160 && activeChatId) {
+        window.dispatchEvent(
+          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+        );
+      }
+    },
+    [activeChatId, onScroll],
+  );
+
+  const requestOlderMessages = useCallback(() => {
+    if (!activeChatId || olderState.loading || !olderState.hasMore) return;
+    window.dispatchEvent(
+      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+    );
+  }, [activeChatId, olderState]);
+
+  useEffect(() => {
+    setOlderState({ hasMore: true, loading: false });
+    const onOlderState = (event: Event) => {
+      const detail = (
+        event as CustomEvent<{
+          chatMid?: string;
+          hasMore?: boolean;
+          loading?: boolean;
+        }>
+      ).detail;
+      if (detail?.chatMid !== activeChatId) return;
+      setOlderState({ hasMore: detail.hasMore ?? false, loading: detail.loading ?? false });
+    };
+    window.addEventListener("vyline:older-messages-state", onOlderState);
+    return () => window.removeEventListener("vyline:older-messages-state", onOlderState);
+  }, [activeChatId]);
 
   const prevLen = useRef(chatMessages.length);
   const prevChat = useRef(activeChatId);
@@ -553,7 +618,7 @@ function ChatAreaBase() {
         {/* messages */}
         <div
           ref={containerRef}
-          onScroll={onScroll}
+          onScroll={handleMessageScroll}
           onContextMenu={(e) => {
             e.preventDefault();
             setPanel({ x: e.clientX, y: e.clientY });
@@ -564,11 +629,24 @@ function ChatAreaBase() {
         >
           <div className="mx-auto flex w-full max-w-3xl flex-col">
             <div className="mb-4 flex justify-center">
-              <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                {chat.type === "group"
-                  ? "▲ ここがトークの一番上です"
-                  : "▲ ここから会話が始まります"}
-              </span>
+              {olderState.hasMore ? (
+                <button
+                  type="button"
+                  onClick={requestOlderMessages}
+                  disabled={olderState.loading}
+                  className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] disabled:cursor-wait disabled:opacity-70"
+                >
+                  {olderState.loading
+                    ? "過去のメッセージを読み込み中…"
+                    : "↑ 過去のメッセージを読み込む"}
+                </button>
+              ) : (
+                <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                  {chat.type === "group"
+                    ? "▲ ここがトークの一番上です"
+                    : "▲ ここから会話が始まります"}
+                </span>
+              )}
             </div>
             {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
             {visibleRows.map(({ key, item }) =>

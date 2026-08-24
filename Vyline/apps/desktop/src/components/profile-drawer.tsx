@@ -402,7 +402,6 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
 
   const conversationText = messages
     .filter((m) => m.chatId === chat.id && m.text?.trim())
-    .slice(-120)
     .map((m) => `${m.authorId === "me" ? "自分" : name}: ${m.text!.trim().slice(0, 800)}`)
     .join("\n");
 

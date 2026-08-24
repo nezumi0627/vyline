@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
+import { markRestoredChatMids } from "@/utils/dismissedChats";
 
 type Device = NonNullable<Awaited<ReturnType<typeof api.line.listIosBackups>>["devices"]>[number];
 type Session = NonNullable<Awaited<ReturnType<typeof api.line.getIosBackupSession>>["session"]>;
@@ -37,7 +38,12 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
   }, [accountId]);
 
   useEffect(() => {
-    if (!session || !accountId || (session.status !== "pending" && session.status !== "running"))
+    if (
+      !session ||
+      !session.id ||
+      !accountId ||
+      (session.status !== "pending" && session.status !== "running")
+    )
       return;
     const timer = window.setInterval(async () => {
       const response = await api.line.getIosBackupSession(accountId, session.id);
@@ -48,13 +54,32 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
 
   useEffect(() => {
     if (session?.status !== "completed" || !accountId) return;
-    window.dispatchEvent(new CustomEvent("vyline:ios-backup-restored", { detail: { accountId } }));
+    markRestoredChatMids(accountId, session.result?.restoredChatMids ?? []);
+    window.dispatchEvent(
+      new CustomEvent("vyline:ios-backup-restored", {
+        detail: { accountId, chatMids: session.result?.restoredChatMids ?? [] },
+      }),
+    );
   }, [accountId, session?.status]);
 
   const start = async () => {
     if (!accountId || !selected || !password) return;
     setLoading(true);
     setMessage(null);
+    setSession({
+      id: "",
+      status: "pending",
+      progress: {
+        stage: "starting",
+        current: 0,
+        total: 1,
+        message: "復元処理を開始しています",
+      },
+      result: null,
+      error: null,
+      startedAt: Date.now(),
+      completedAt: null,
+    });
     try {
       const response = await api.line.startIosBackupRestore(accountId, selected.udid, password);
       if (!response.ok || !response.sessionId)
@@ -62,7 +87,12 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       setSession({
         id: response.sessionId,
         status: "pending",
-        progress: null,
+        progress: {
+          stage: "starting",
+          current: 0,
+          total: 1,
+          message: "バックアップを準備しています",
+        },
         result: null,
         error: null,
         startedAt: Date.now(),
@@ -70,6 +100,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       });
       setPassword("");
     } catch (error) {
+      setSession(null);
       setMessage(error instanceof Error ? error.message : "復元を開始できませんでした");
     } finally {
       setLoading(false);
@@ -167,9 +198,29 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       </div>
 
       {session?.progress && (
-        <p className="mt-3 text-xs text-[var(--vy-text-dim)]" role="status">
-          {session.progress.message} ({session.progress.current}/{session.progress.total})
-        </p>
+        <div className="mt-3 space-y-1.5" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-xs text-[var(--vy-text-dim)]">
+            <span>{session.progress.message}</span>
+            <span className="shrink-0 font-mono">
+              {session.progress.current}/{session.progress.total}
+            </span>
+          </div>
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]"
+            role="progressbar"
+            aria-label="iOSバックアップ復元の進捗"
+            aria-valuemin={0}
+            aria-valuemax={session.progress.total}
+            aria-valuenow={session.progress.current}
+          >
+            <div
+              className="h-full rounded-full bg-[var(--vy-accent)] transition-[width] duration-300"
+              style={{
+                width: `${session.progress.total > 0 ? Math.min(100, (session.progress.current / session.progress.total) * 100) : 0}%`,
+              }}
+            />
+          </div>
+        </div>
       )}
       {session?.status === "completed" && session.result && (
         <p className="mt-3 flex items-center gap-2 text-xs text-emerald-400" role="status">

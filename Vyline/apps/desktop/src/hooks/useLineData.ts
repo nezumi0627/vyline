@@ -24,7 +24,7 @@ interface UseLineDataOptions {
   accountId: string | null;
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
 export function useLineData({ accountId }: UseLineDataOptions) {
   const [profile, setProfile] = useState<LineProfile | null>(null);
@@ -263,12 +263,14 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       if (!oldest) return;
 
       const gen = messagesGen.current;
+      let shouldContinue = false;
       olderInFlight.current = true;
       setLoadingOlder(true);
       try {
         const res = await api.line.messages(accountId, chatMid, PAGE_SIZE, {
           beforeMessageId: oldest.id,
           beforeDeliveredTime: oldest.createdTime,
+          local: true,
         });
         if (gen !== messagesGen.current) return;
         if (selectedChatMidRef.current !== chatMid) return;
@@ -284,15 +286,44 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           return;
         }
         setMessages((prev) => [...fresh, ...prev]);
-        setHasMoreMessages(res.hasMore ?? res.messages.length >= PAGE_SIZE);
+        shouldContinue = res.hasMore ?? res.messages.length >= PAGE_SIZE;
+        setHasMoreMessages(shouldContinue);
         resolveMessageAuthors(fresh);
       } finally {
         olderInFlight.current = false;
         if (gen === messagesGen.current) setLoadingOlder(false);
       }
+      if (shouldContinue && gen === messagesGen.current && selectedChatMidRef.current === chatMid) {
+        window.requestAnimationFrame(() => {
+          window.dispatchEvent(
+            new CustomEvent("vyline:older-messages-loaded", { detail: { chatMid } }),
+          );
+        });
+      }
     },
     [accountId, hasMoreMessages, resolveMessageAuthors],
   );
+
+  // ChatArea の仮想スクロールが先頭に到達したら、古い履歴を追加取得する。
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLoadOlder = (event: Event) => {
+      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
+      if (chatMid) void loadOlderMessages(chatMid);
+    };
+    window.addEventListener("vyline:load-older-messages", onLoadOlder);
+    return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
+  }, [loadOlderMessages]);
+
+  // 先頭のUIは残件・読み込み中を正しく表示する。
+  useEffect(() => {
+    if (!selectedChatMid || typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("vyline:older-messages-state", {
+        detail: { chatMid: selectedChatMid, hasMore: hasMoreMessages, loading: loadingOlder },
+      }),
+    );
+  }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
     if (!accountId || inFlight.current.bootstrap) return;
@@ -326,9 +357,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     const onRestore = (event: Event) => {
       const restoredAccountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
       if (restoredAccountId !== accountId) return;
+      const restoredChatMids =
+        (event as CustomEvent<{ chatMids?: string[] }>).detail?.chatMids ?? [];
+      const restoreTarget = restoredChatMids[0];
+      if (restoreTarget) {
+        setSelectedChatMid(restoreTarget);
+        useStore.setState({ activeChatId: restoreTarget, screen: "chat" });
+      }
       void (async () => {
         await loadBootstrap();
-        const chatMid = selectedChatMidRef.current;
+        const chatMid = restoreTarget ?? selectedChatMidRef.current;
         if (!chatMid) return;
         const res = await api.line.messages(accountId, chatMid, PAGE_SIZE, { local: true });
         if (res.ok && res.messages) {
@@ -359,7 +397,6 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       setContactCache(new Map());
       return;
     }
-
     // Vyline ローカルキャッシュを即 hydrate（mid 生出し回避）
     setContactCache(vylineClientToContactMap(accountId));
 
