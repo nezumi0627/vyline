@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
+import type { AnimationMode } from "@/lib/store-types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
@@ -102,6 +103,7 @@ function Card({ children }: { children: React.ReactNode }) {
 export function SettingsSections() {
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
+  const animationMode = settings.animationMode ?? "vyline";
   const updateSetting = useStore((s) => s.updateSetting);
   const self = useStore((s) => s.self);
   const updateSelf = useStore((s) => s.updateSelf);
@@ -260,7 +262,7 @@ export function SettingsSections() {
           </div>
 
           <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            <div className="mx-auto max-w-2xl">
+            <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
                   <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
@@ -382,6 +384,36 @@ export function SettingsSections() {
               {section === "display" && (
                 <Section title="表示" desc="レイアウトの密度や入力挙動を調整します">
                   <Card>
+                    <div className="py-3.5">
+                      <p className="text-sm font-medium">アニメーション</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                        画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        {([
+                          ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
+                          ["feather", "フェザー", "低スペック端末向け"],
+                          ["none", "オフ", "アニメーションを停止"],
+                        ] as const).map(([mode, label, desc]) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => updateSetting("animationMode", mode as AnimationMode)}
+                            aria-pressed={animationMode === mode}
+                            className={cn(
+                              "rounded-xl border px-3 py-2 text-left transition-colors",
+                              animationMode === mode
+                                ? "border-transparent text-[var(--vy-accent-contrast)]"
+                                : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
+                            )}
+                            style={animationMode === mode ? { background: "var(--vy-accent)" } : undefined}
+                          >
+                            <span className="block text-xs font-semibold">{label}</span>
+                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">{desc}</span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <Row title="コンパクト表示" desc="吹き出しの余白を狭くして情報量を増やします">
                       <Toggle
                         checked={settings.compactDensity}

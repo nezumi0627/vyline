@@ -6,6 +6,7 @@ export function ThemeApplier() {
   const theme = useStore((s) => s.theme);
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
+  const animationMode = useStore((s) => s.settings.animationMode);
 
   useLayoutEffect(() => {
     const r = document.documentElement;
@@ -50,6 +51,10 @@ export function ThemeApplier() {
     document.documentElement.classList.toggle("vy-compact", compact);
     document.documentElement.dataset.compact = compact ? "1" : "0";
   }, [compact]);
+
+  useLayoutEffect(() => {
+    document.documentElement.dataset.animationMode = animationMode ?? "vyline";
+  }, [animationMode]);
 
   return null;
 }
