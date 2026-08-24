@@ -58,6 +58,8 @@ HTTP/2 の `/PUSH/1/subs` エンドポイントでサーバーから即座にイ
 
 重要: `25` は `SEND_MESSAGE` であり、新着メッセージや既読通知ではない。受信メッセージは `26`、既読通知は `55` / `28` / `91` 系として分類する。`25` を既読・受信分岐へ含めると、送信操作を誤処理して既読通知を取りこぼす。
 
+既読者取得では `getMessageReadRange` の `success` wrapper と、`ranges` 内の単一rangeオブジェクトを正規化してからMID別ウォーターマークへ変換する。
+
 ## 4. Desktop 差分
 
 - `bun run vyline:delta` (`reportDesktopDelta.ts`) で Desktop LINE の更新を検出

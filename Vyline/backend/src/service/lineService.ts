@@ -2101,30 +2101,17 @@ export async function fetchReadRanges(
   const talk = client.base.talk;
 
   try {
+    // 型付きTalk APIを使う。raw requestへ手動で syncReason を渡すと、
+    // 実装差分によって success list を正しく復号できず空レンジになる。
     const res = await enqueueTalkRpcBackground(accountId, () =>
-      talk.client.request.request(
-        LINEStruct.getMessageReadRange_args({
-          chatIds: [chatMid],
-          syncReason: "OPERATION",
-        }),
-        "getMessageReadRange",
-        talk.protocolType,
-        true,
-        talk.requestPath,
-        {},
+      withTimeout(
+        talk.getMessageReadRange({ chatIds: [chatMid] }),
         READ_RANGE_TIMEOUT_MS,
+        "getMessageReadRange",
       ),
     );
 
-    let ranges: Array<{ chatId?: string; ranges?: unknown }> = [];
-    if (Array.isArray(res)) {
-      ranges = res as Array<{ chatId?: string; ranges?: unknown }>;
-    } else {
-      const wrapped = res as { messageReadRanges?: unknown[] };
-      if (Array.isArray(wrapped.messageReadRanges)) {
-        ranges = wrapped.messageReadRanges as Array<{ chatId?: string; ranges?: unknown }>;
-      }
-    }
+    const ranges = normalizeMessageReadRanges(res);
 
     cacheDict[chatMid] = { at: now, ranges, failStreak: 0 };
     void readRangeStorage.replace(accountId, cacheDict);
@@ -2144,6 +2131,19 @@ export async function fetchReadRanges(
   }
 }
 
+/** getMessageReadRange の生レスポンスを、実装内で扱う配列へ正規化する。 */
+export function normalizeMessageReadRanges(
+  res: unknown,
+): Array<{ chatId?: string; ranges?: unknown }> {
+  if (Array.isArray(res)) return res as Array<{ chatId?: string; ranges?: unknown }>;
+  if (!res || typeof res !== "object") return [];
+  const wrapped = res as { success?: unknown; messageReadRanges?: unknown };
+  const candidate = wrapped.success ?? wrapped.messageReadRanges;
+  return Array.isArray(candidate)
+    ? (candidate as Array<{ chatId?: string; ranges?: unknown }>)
+    : [];
+}
+
 type ReadRangeRow = Record<string, unknown>;
 
 /** Thrift 復号後: 配列または { "0": row } のどちらも来る */
@@ -2152,6 +2152,10 @@ function asReadRangeRows(value: unknown): ReadRangeRow[] {
     return value.filter((v): v is ReadRangeRow => v != null && typeof v === "object");
   }
   if (value && typeof value === "object") {
+    const row = value as ReadRangeRow;
+    if (row.endMessageId != null || row.lastMessageId != null || row.startMessageId != null) {
+      return [row];
+    }
     return Object.values(value as Record<string, unknown>).filter(
       (v): v is ReadRangeRow => v != null && typeof v === "object",
     );
@@ -2355,6 +2359,7 @@ export async function getReadReceiptsForChat(
   accountId: string,
   chatMid: string,
   messageIds: string[],
+  opts?: { force?: boolean },
 ): Promise<ReadReceiptsResult> {
   try {
     // Refresh token before making read receipt requests
@@ -2363,7 +2368,7 @@ export async function getReadReceiptsForChat(
 
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
-    const ranges = await fetchReadRanges(accountId, chatMid);
+    const ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
     const out: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }> = {};
 
     if (chatMid.startsWith("u")) {

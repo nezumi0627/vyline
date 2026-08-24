@@ -653,10 +653,15 @@ export const api = {
       }),
 
     /** 自分の送信メッセージの既読状態（軽量） */
-    readReceipts: (accountId: string, chatMid: string, messageIds: string[]) =>
+    readReceipts: (
+      accountId: string,
+      chatMid: string,
+      messageIds: string[],
+      opts?: { force?: boolean },
+    ) =>
       request<ReadReceiptsResponse>(
         "GET",
-        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}`,
+        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}${opts?.force ? "&force=1" : ""}`,
       ),
 
     /** Talk Push バッファから新着取得 */
