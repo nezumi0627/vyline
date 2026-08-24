@@ -269,6 +269,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         const res = await api.line.messages(accountId, chatMid, PAGE_SIZE, {
           beforeMessageId: oldest.id,
           beforeDeliveredTime: oldest.createdTime,
+          local: true,
         });
         if (gen !== messagesGen.current) return;
         if (selectedChatMidRef.current !== chatMid) return;
@@ -293,6 +294,17 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     },
     [accountId, hasMoreMessages, resolveMessageAuthors],
   );
+
+  // ChatArea の仮想スクロールが先頭に到達したら、古い履歴を追加取得する。
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLoadOlder = (event: Event) => {
+      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
+      if (chatMid) void loadOlderMessages(chatMid);
+    };
+    window.addEventListener("vyline:load-older-messages", onLoadOlder);
+    return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
+  }, [loadOlderMessages]);
 
   const loadBootstrap = useCallback(async () => {
     if (!accountId || inFlight.current.bootstrap) return;
