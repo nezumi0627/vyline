@@ -39,7 +39,7 @@ export function parseBplist(data: Uint8Array): unknown {
 function readUInt64BE(buf: Uint8Array, offset: number): number {
   let result = 0;
   for (let i = 0; i < 8; i++) {
-    result = (result << 8) | (buf[offset + i] ?? 0);
+    result = result * 256 + (buf[offset + i] ?? 0);
   }
   return result;
 }
@@ -47,7 +47,7 @@ function readUInt64BE(buf: Uint8Array, offset: number): number {
 function readUIntBE(buf: Uint8Array, offset: number, size: number): number {
   let result = 0;
   for (let i = 0; i < size; i++) {
-    result = (result << 8) | (buf[offset + i] ?? 0);
+    result = result * 256 + (buf[offset + i] ?? 0);
   }
   return result;
 }
@@ -117,7 +117,11 @@ function readFloat(data: Uint8Array, offset: number, size: number): number {
 }
 
 function readDate(data: Uint8Array, offset: number, size: number): Date {
-  if (size !== 8) throw new Error("Date must be 8 bytes");
+  if (size !== 8) {
+    throw new Error(
+      `Date must be 8 bytes (offset=${offset - 1}, marker=0x${(data[offset - 1] ?? 0).toString(16)})`,
+    );
+  }
   const view = new DataView(data.buffer, data.byteOffset + offset, 8);
   const timestamp = view.getFloat64(0, false);
   const APPLE_2001_EPOCH = 978307200;
