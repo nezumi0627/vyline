@@ -15,7 +15,7 @@ docker compose up -d --build
 ```
 
 ブラウザで `http://localhost:3001` を開くと Vyline が起動します。
-**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。外部や同一LANからアクセスする場合は、リバースプロキシ（Nginx / Cloudflare Tunnel 等）を経由させてください。直接 `3001` ポートを公開すると、認証なしで誰でもアクセスできてしまいます。
+**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。同一LANのスマホ等から使う場合は、[サブデバイス接続ガイド](./subdevices.md) のQRペアリングを使用してください。`VYLINE_LAN_ACCESS=true` なしでLAN公開しないでください。
 
 ### 永続化されるデータ
 
@@ -49,6 +49,7 @@ tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 | -------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
 | `PORT`               | `3001`（Docker Compose では `3000`） | listen ポート                                                          |
 | `VYLINE_HOST`        | `127.0.0.1`             | bind アドレス。Docker では `0.0.0.0`                                   |
+| `VYLINE_LAN_ACCESS`  | `false`                 | `true` のときだけ同一LANからアクセス可能。未認証APIは拒否される           |
 | `VYLINE_DATA_DIR`    | `backend/data/`         | トークン / 履歴などのデータ場所                                         |
 | `VYLINE_STORAGE_DIR` | `backend/storage/`     | 永続ストレージ（保存メディア、プロフィール等）の場所                    |
 | `VYLINE_CORS_ORIGIN` | `http://localhost:5173` | 許可するブラウザオリジン。**同一オリジンでアクセスする場合は設定不要** |

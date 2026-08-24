@@ -6,13 +6,17 @@ import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
-  if (diff < 60_000) return "たった今";
+  if (diff < 10_000) return "数秒前";
+  if (diff < 60_000) return `${Math.floor(diff / 1_000)}秒前`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
-  return `${Math.floor(diff / 86_400_000)}日前`;
+  if (diff < 31 * 86_400_000) return `${Math.floor(diff / 86_400_000)}日前`;
+  if (diff < 365 * 86_400_000) return `${Math.floor(diff / (31 * 86_400_000))}か月前`;
+  return `${Math.floor(diff / (365 * 86_400_000))}年前`;
 }
 
 function formatBytes(bytes: number): string {
@@ -55,6 +59,7 @@ type Section =
   | "privacy"
   | "notifications"
   | "advanced"
+  | "subdevices"
   | "storage"
   | "info"
   | "beta";
@@ -67,6 +72,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+  { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
@@ -390,11 +396,13 @@ export function SettingsSections() {
                         画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。
                       </p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
-                        {([
-                          ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
-                          ["feather", "フェザー", "低スペック端末向け"],
-                          ["none", "オフ", "アニメーションを停止"],
-                        ] as const).map(([mode, label, desc]) => (
+                        {(
+                          [
+                            ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
+                            ["feather", "フェザー", "低スペック端末向け"],
+                            ["none", "オフ", "アニメーションを停止"],
+                          ] as const
+                        ).map(([mode, label, desc]) => (
                           <button
                             key={mode}
                             type="button"
@@ -406,10 +414,16 @@ export function SettingsSections() {
                                 ? "border-transparent text-[var(--vy-accent-contrast)]"
                                 : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
                             )}
-                            style={animationMode === mode ? { background: "var(--vy-accent)" } : undefined}
+                            style={
+                              animationMode === mode
+                                ? { background: "var(--vy-accent)" }
+                                : undefined
+                            }
                           >
                             <span className="block text-xs font-semibold">{label}</span>
-                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">{desc}</span>
+                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">
+                              {desc}
+                            </span>
                           </button>
                         ))}
                       </div>
@@ -520,6 +534,8 @@ export function SettingsSections() {
 
               {section === "advanced" && <AdvancedSection />}
 
+              {section === "subdevices" && <SubdevicesSection />}
+
               {section === "storage" && <StorageSection />}
 
               {section === "info" && <InfoSection />}
@@ -535,6 +551,117 @@ export function SettingsSections() {
         </div>
       </div>
     </div>
+  );
+}
+
+function SubdevicesSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [pairingUrl, setPairingUrl] = useState<string | null>(null);
+  const [devices, setDevices] = useState<
+    Awaited<ReturnType<typeof api.subdevices.list>>["devices"]
+  >([]);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    const res = await api.subdevices.list();
+    if (res.ok) setDevices(res.devices ?? []);
+  };
+  useEffect(() => {
+    void load();
+  }, []);
+
+  const startPairing = async () => {
+    if (!accountId) return setMessage("LINEログインが必要です");
+    const res = await api.subdevices.createPairing(accountId);
+    if (!res.ok || !res.token) return setMessage(res.error ?? "QRコードを作成できませんでした");
+    setPairingUrl(`${window.location.origin}/subdevice?pairing=${encodeURIComponent(res.token)}`);
+    setMessage("スマホの標準カメラでQRコードを読み込んでください（2分間有効）");
+  };
+
+  const action = async (id: string, kind: "remove" | "block" | "unblock") => {
+    if (kind === "remove" && !window.confirm("この端末を削除しますか？再認証は可能です。")) return;
+    if (
+      kind === "block" &&
+      !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
+    )
+      return;
+    if (kind === "remove") await api.subdevices.remove(id);
+    if (kind === "block") await api.subdevices.block(id);
+    if (kind === "unblock") await api.subdevices.unblock(id);
+    await load();
+  };
+
+  return (
+    <Section title="サブデバイス" desc="PCで認証したスマホ・タブレットからVylineを利用します">
+      <div className="space-y-4">
+        <Card>
+          <Row title="新しい端末を接続" desc="QRコードは一度だけ利用でき、2分で期限切れになります">
+            <button
+              type="button"
+              onClick={() => void startPairing()}
+              className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              QRを表示
+            </button>
+          </Row>
+        </Card>
+        {pairingUrl && (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-white p-5 text-center">
+            <QRCodeSVG value={pairingUrl} size={220} includeMargin />
+            <p className="max-w-sm text-xs text-slate-600">{message}</p>
+            <button
+              type="button"
+              onClick={() => setPairingUrl(null)}
+              className="text-xs text-slate-500 underline"
+            >
+              閉じる
+            </button>
+          </div>
+        )}
+        {message && !pairingUrl && <p className="text-xs text-[var(--vy-text-dim)]">{message}</p>}
+        <Card>
+          {(devices ?? []).length === 0 && (
+            <p className="py-4 text-sm text-[var(--vy-text-dim)]">
+              接続中のサブデバイスはありません。
+            </p>
+          )}
+          {(devices ?? []).map((device) => (
+            <div key={device.id} className="flex items-center justify-between gap-3 py-3.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {device.name}
+                  {device.blocked ? "（ブロック中）" : ""}
+                </p>
+                <p className="text-xs text-[var(--vy-text-dim)]">
+                  {device.platform} ·{" "}
+                  {device.lastSeenAt
+                    ? Date.now() - Date.parse(device.lastSeenAt) < 90_000
+                      ? "オンライン"
+                      : `オフライン · 最終接続 ${formatRelativeTime(Date.parse(device.lastSeenAt))}`
+                    : "オフライン"}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void action(device.id, device.blocked ? "unblock" : "block")}
+                  className="rounded-lg border border-[var(--vy-border)] px-2 py-1 text-xs"
+                >
+                  {device.blocked ? "解除" : "ブロック"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void action(device.id, "remove")}
+                  className="rounded-lg border border-[var(--vy-danger)] px-2 py-1 text-xs text-[var(--vy-danger)]"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </Section>
   );
 }
 

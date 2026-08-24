@@ -129,10 +129,11 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 | --- | --- | --- |
 | 開発・動作確認 | Bun + ソースコード | フロントエンドとバックエンドを個別に確認できます |
 | 自宅サーバー・複数端末 | Docker Compose | データをボリュームに保存して Web ブラウザから利用できます |
-| Windows の単体アプリ | 準備中 | Vyline Desktop のインストーラーは今後提供予定です |
+| Windows の単体アプリ | Beta 対応 | GitHub Releases の `VylineSetup-<version>.exe` を使用します |
+| Linux の単体アプリ | Beta 対応 | GitHub Releases の `Vyline-linux-x64-<version>.tar.gz` を使用します |
 
 > [!NOTE]
-> 現在、一般ユーザー向けの公式インストーラーはありません。まずは Bun または Docker を使用してください。
+> Windows版・Linux版は GitHub Releases から導入できます。サーバー用途では Docker Compose を使用してください。
 
 ### ソースコードからインストール（Bun）
 
@@ -199,13 +200,24 @@ docker compose up -d --build
 ### Docker環境の更新
 
 ```bash
-git pull --ff-only
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
+
+ソースコードからイメージを作り直す場合は、`git pull --ff-only && docker compose up -d --build` を使用します。
 
 `docker compose up -d --build` が既存コンテナを再作成しても、ホスト側の `./data/` ディレクトリは維持されます。**`data/` にはセッションや鍵が含まれるため、削除しないでください。**
 
 トーク履歴、画像、セッションなどは `./data/` へ永続化され、同じ LINE セッションを複数の Web ブラウザから利用できます。
+
+### Linux単体版
+
+```bash
+tar -xzf Vyline-linux-x64-<version>.tar.gz
+cd Vyline-linux-x64-<version>
+./install.sh
+~/.local/bin/vyline
+```
 
 設定方法と Cloudflare Access を利用した外部公開については、[セルフホストガイド](docs/selfhosting.md) を参照してください。
 
