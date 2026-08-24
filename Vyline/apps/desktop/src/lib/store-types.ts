@@ -183,8 +183,6 @@ export type Chat = {
 export type ChatSort = "recent" | "unread" | "custom";
 export type AnimationMode = "vyline" | "feather" | "none";
 
-export type AnimationMode = "vyline" | "feather" | "none";
-
 export type Settings = {
   /** UIモーションの強さ（通信・同期設定とは独立） */
   animationMode: AnimationMode;
@@ -192,7 +190,6 @@ export type Settings = {
   showReaderList: boolean;
   streamerMode: boolean;
   compactDensity: boolean;
-  animationMode: AnimationMode;
   fontScale: number;
   enterToSend: boolean;
   chatSort: ChatSort;
