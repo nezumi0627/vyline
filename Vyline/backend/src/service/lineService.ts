@@ -75,6 +75,7 @@ import {
   messageSyncAgeMs,
   upsertChats,
   upsertMessages,
+  markStoredMessagesReadThrough,
   compareMessagesNewestFirst,
   markMessageRevoked,
   restoreRevokedMessage,
@@ -2063,6 +2064,7 @@ export async function markAsRead(
       lastMessageId: messageId,
       sessionId: 0,
     });
+    await markStoredMessagesReadThrough(accountId, chatMid, messageId);
     log.info({ accountId, chatMid, lastMessageId: messageId }, "chat marked as read");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);

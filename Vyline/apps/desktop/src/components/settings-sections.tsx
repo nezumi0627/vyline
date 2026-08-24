@@ -615,6 +615,16 @@ function SubdevicesSection() {
     return () => window.clearInterval(timer);
   }, [pairingUrl, demoMode]);
 
+  useEffect(() => {
+    if (!pairingUrl) return;
+    const timer = window.setInterval(() => {
+      void api.subdevices.list().then((res) => {
+        if (res.ok) setDevices(res.devices ?? []);
+      });
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [pairingUrl]);
+
   const startPairing = async () => {
     if (demoMode) {
       setPairingUrl("https://vyline.invalid/demo-pairing");
