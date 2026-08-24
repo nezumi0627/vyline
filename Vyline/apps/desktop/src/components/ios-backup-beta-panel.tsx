@@ -125,7 +125,8 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
                       year: "numeric",
                       month: "2-digit",
                       day: "2-digit",
-                    }).format(new Date(session.result.restoredAt))}にデータを復元済み
+                    }).format(new Date(session.result.restoredAt))}
+                    にデータを復元済み
                   </span>
                 )}
               </button>
