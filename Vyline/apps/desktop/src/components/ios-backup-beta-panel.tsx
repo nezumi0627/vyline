@@ -37,7 +37,12 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
   }, [accountId]);
 
   useEffect(() => {
-    if (!session || !accountId || (session.status !== "pending" && session.status !== "running"))
+    if (
+      !session ||
+      !session.id ||
+      !accountId ||
+      (session.status !== "pending" && session.status !== "running")
+    )
       return;
     const timer = window.setInterval(async () => {
       const response = await api.line.getIosBackupSession(accountId, session.id);
@@ -55,6 +60,20 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
     if (!accountId || !selected || !password) return;
     setLoading(true);
     setMessage(null);
+    setSession({
+      id: "",
+      status: "pending",
+      progress: {
+        stage: "starting",
+        current: 0,
+        total: 1,
+        message: "復元処理を開始しています",
+      },
+      result: null,
+      error: null,
+      startedAt: Date.now(),
+      completedAt: null,
+    });
     try {
       const response = await api.line.startIosBackupRestore(accountId, selected.udid, password);
       if (!response.ok || !response.sessionId)
@@ -62,7 +81,12 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       setSession({
         id: response.sessionId,
         status: "pending",
-        progress: null,
+        progress: {
+          stage: "starting",
+          current: 0,
+          total: 1,
+          message: "バックアップを準備しています",
+        },
         result: null,
         error: null,
         startedAt: Date.now(),
@@ -70,6 +94,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       });
       setPassword("");
     } catch (error) {
+      setSession(null);
       setMessage(error instanceof Error ? error.message : "復元を開始できませんでした");
     } finally {
       setLoading(false);
