@@ -260,6 +260,23 @@ function ChatAreaBase() {
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
 
+  // 先頭に居続けているときは、ページ追加後も次のローカル履歴を連続して取得する。
+  useEffect(() => {
+    const onOlderLoaded = (event: Event) => {
+      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
+      if (chatMid !== activeChatId) return;
+      const container = containerRef.current;
+      if (!container || container.scrollTop > 160) return;
+      window.requestAnimationFrame(() => {
+        window.dispatchEvent(
+          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+        );
+      });
+    };
+    window.addEventListener("vyline:older-messages-loaded", onOlderLoaded);
+    return () => window.removeEventListener("vyline:older-messages-loaded", onOlderLoaded);
+  }, [activeChatId, containerRef]);
+
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       onScroll(event);

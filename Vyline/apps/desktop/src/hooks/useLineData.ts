@@ -24,7 +24,7 @@ interface UseLineDataOptions {
   accountId: string | null;
 }
 
-const PAGE_SIZE = 50;
+const PAGE_SIZE = 100;
 
 export function useLineData({ accountId }: UseLineDataOptions) {
   const [profile, setProfile] = useState<LineProfile | null>(null);
@@ -263,6 +263,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       if (!oldest) return;
 
       const gen = messagesGen.current;
+      let shouldContinue = false;
       olderInFlight.current = true;
       setLoadingOlder(true);
       try {
@@ -285,11 +286,19 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           return;
         }
         setMessages((prev) => [...fresh, ...prev]);
-        setHasMoreMessages(res.hasMore ?? res.messages.length >= PAGE_SIZE);
+        shouldContinue = res.hasMore ?? res.messages.length >= PAGE_SIZE;
+        setHasMoreMessages(shouldContinue);
         resolveMessageAuthors(fresh);
       } finally {
         olderInFlight.current = false;
         if (gen === messagesGen.current) setLoadingOlder(false);
+      }
+      if (shouldContinue && gen === messagesGen.current && selectedChatMidRef.current === chatMid) {
+        window.requestAnimationFrame(() => {
+          window.dispatchEvent(
+            new CustomEvent("vyline:older-messages-loaded", { detail: { chatMid } }),
+          );
+        });
       }
     },
     [accountId, hasMoreMessages, resolveMessageAuthors],
