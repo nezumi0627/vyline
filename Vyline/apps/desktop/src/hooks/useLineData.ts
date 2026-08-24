@@ -306,6 +306,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
   }, [loadOlderMessages]);
 
+  // 先頭のUIは残件・読み込み中を正しく表示する。
+  useEffect(() => {
+    if (!selectedChatMid || typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("vyline:older-messages-state", {
+        detail: { chatMid: selectedChatMid, hasMore: hasMoreMessages, loading: loadingOlder },
+      }),
+    );
+  }, [hasMoreMessages, loadingOlder, selectedChatMid]);
+
   const loadBootstrap = useCallback(async () => {
     if (!accountId || inFlight.current.bootstrap) return;
     inFlight.current.bootstrap = true;
