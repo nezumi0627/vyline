@@ -1,6 +1,8 @@
 services:
   vyline:
+    image: ${VYLINE_IMAGE:-ghcr.io/nezumi0627/vyline:latest}
     build: .
+    pull_policy: missing
     ports:
       - "3000:3000"
     volumes:

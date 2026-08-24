@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
 import { authRouter } from "./api/auth.js";
 import { lineRouter } from "./api/line.js";
+import { agentIRouter } from "./api/agentI.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
 import { publicRouter } from "./api/public.js";
@@ -75,6 +76,7 @@ app.get("/metrics", (c) => {
 });
 app.route("/auth", authRouter);
 app.route("/line", lineRouter);
+app.route("/beta/agent-i", agentIRouter);
 app.route("/debug", debugRouter);
 app.route("/cdn", cdnRouter);
 
@@ -82,6 +84,7 @@ app.route("/cdn", cdnRouter);
 // （フロントは dev では Vite proxy、本番では同オリジンの /api を使う）
 app.route("/api/auth", authRouter);
 app.route("/api/line", lineRouter);
+app.route("/api/beta/agent-i", agentIRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/cdn", cdnRouter);
 
@@ -96,7 +99,9 @@ app.route("/api/v1", publicRouter);
 // /docs, /swagger    — Swagger UI（CDN）
 app.get("/openapi.yaml", async (c) => {
   try {
-    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../../openapi.yaml");
+    const yamlPath =
+      process.env.VYLINE_OPENAPI_PATH ??
+      join(dirname(fileURLToPath(import.meta.url)), "../../../openapi.yaml");
     const yaml = await readFile(yamlPath, "utf8");
     return new Response(yaml, {
       status: 200,

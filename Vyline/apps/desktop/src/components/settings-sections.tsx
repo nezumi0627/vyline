@@ -4,6 +4,7 @@ import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
+import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -490,7 +491,12 @@ export function SettingsSections() {
 
               {section === "info" && <InfoSection />}
 
-              {section === "beta" && <BetaSection />}
+              {section === "beta" && (
+                <>
+                  <BetaSection />
+                  {settings.betaAgentI && <AgentIBetaPanel />}
+                </>
+              )}
             </div>
           </div>
         </div>
@@ -1250,12 +1256,12 @@ function InfoSection() {
           </p>
           {updateInfo?.hasUpdate && (
             <a
-              href={updateInfo.url ?? "#"}
+              href={updateInfo.downloadUrl ?? updateInfo.url ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
             >
-              更新あり: v{updateInfo.latestVersion}
+              更新あり: v{updateInfo.latestVersion}（インストーラー）
             </a>
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}

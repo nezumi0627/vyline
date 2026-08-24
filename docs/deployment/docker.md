@@ -5,7 +5,8 @@
 ## ビルドと起動
 
 ```bash
-docker compose up -d --build
+docker compose pull
+docker compose up -d
 ```
 
 - アプリは `http://localhost:3000` で起動する（フロントエンド同梱）。

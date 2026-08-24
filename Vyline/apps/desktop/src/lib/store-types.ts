@@ -208,6 +208,8 @@ export type Settings = {
   betaBlockCheckAuto: boolean;
   /** ベータ: u* MID を直接指定してプロフィールを検索 */
   betaMidSearch: boolean;
+  /** ベータ: Agent I AIアシスタント */
+  betaAgentI: boolean;
 };
 
 export type SelfProfile = {
