@@ -42,6 +42,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   }, [close]);
 
   const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
+  const memberId = member?.id;
   const commonGroups = useMemo(
     () => apiCommonGroups ?? (member ? commonGroupsWith(chats, member.id, chat.id) : []),
     [apiCommonGroups, chats, member, chat.id],
@@ -53,10 +54,10 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   useEffect(() => {
     setApiCommonGroups(null);
     setRich({});
-    if (!accountId || !member || streamerMode) return;
+    if (!accountId || !memberId || streamerMode) return;
     let cancelled = false;
     void api.line
-      .contactProfile(accountId, member.id)
+      .contactProfile(accountId, memberId)
       .then((res) => {
         if (cancelled || !res.ok || !res.profile) return;
         setRich({
@@ -88,7 +89,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       })
       .catch(() => undefined);
     void api.line
-      .commonGroups(accountId, member.id, chat.id)
+      .commonGroups(accountId, memberId, chat.id)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
         const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));
@@ -114,7 +115,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     return () => {
       cancelled = true;
     };
-  }, [accountId, member?.id, chat.id, streamerMode]);
+  }, [accountId, memberId, chat.id, streamerMode]);
 
   if (!member) return null;
 
