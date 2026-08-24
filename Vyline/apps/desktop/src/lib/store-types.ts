@@ -1,26 +1,6 @@
 export type Screen = "lock" | "home" | "chat" | "settings" | "login";
 
-export type VyTheme = {
-  id: string;
-  name: string;
-  accent: string;
-  accentContrast: string;
-  bg: string;
-  surface: string;
-  surface2: string;
-  sidebar: string;
-  text: string;
-  textDim: string;
-  border: string;
-  msgIn: string;
-  msgOut: string;
-  msgInText: string;
-  msgOutText: string;
-  radius: number;
-  chatBg: string;
-  chatImage?: string;
-  pattern: 0 | 1;
-};
+export type { VyTheme } from "@vyline/themes";
 
 export type MessageReaction = {
   fromMid: string;
@@ -202,15 +182,18 @@ export type Chat = {
 
 export type ChatSort = "recent" | "unread" | "custom";
 
+export type AnimationMode = "vyline" | "feather" | "none";
+
 export type Settings = {
   readReceipts: boolean;
   showReaderList: boolean;
   streamerMode: boolean;
   compactDensity: boolean;
+  customCursor: boolean;
+  animationMode: AnimationMode;
   fontScale: number;
   enterToSend: boolean;
   chatSort: ChatSort;
-  customCursor: boolean;
   bubbleTail: boolean;
   /** ヘッダーに相手のステータスメッセージを表示 */
   showStatusMessage: boolean;
@@ -223,6 +206,14 @@ export type Settings = {
   proxyUrl: string;
   /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
   notificationsEnabled: boolean;
+  /** ベータ: プロフィールにブロック確認導線を表示 */
+  betaBlockCheckManual: boolean;
+  /** ベータ: 友だち全員のブロック状態を自動確認 */
+  betaBlockCheckAuto: boolean;
+  /** ベータ: u* MID を直接指定してプロフィールを検索 */
+  betaMidSearch: boolean;
+  /** ベータ: Agent I AIアシスタント */
+  betaAgentI: boolean;
 };
 
 export type SelfProfile = {

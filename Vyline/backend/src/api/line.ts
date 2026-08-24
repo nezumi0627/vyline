@@ -1859,6 +1859,40 @@ lineRouter.delete("/:accountId/announcements/:chatMid/:seq", async (c) => {
 
 // ─── VylineBackup: スナップショット作成 / 一覧 / 復元 ───
 
+lineRouter.get("/:accountId/ios-backups", async (c) => {
+  try {
+    const { listIosBackups } = await import("../service/iosBackupService.js");
+    const devices = await listIosBackups();
+    return c.json({
+      ok: true,
+      devices: devices.map(({ backupRoot: _backupRoot, ...device }) => device),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/ios-backup", async (c) => {
+  try {
+    const body = await c.req.json<{ udid?: string; password?: string }>();
+    if (!body.udid || !body.password)
+      return c.json({ ok: false, error: "udid と password が必要です" }, 400);
+    const { startIosBackupRestore } = await import("../service/iosBackupService.js");
+    const session = await startIosBackupRestore(body.udid, body.password);
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/restore/ios-backup/:sessionId", async (c) => {
+  const { getIosBackupSession } = await import("../service/iosBackupService.js");
+  const session = getIosBackupSession(c.req.param("sessionId"));
+  return session
+    ? c.json({ ok: true, session })
+    : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);
+});
+
 lineRouter.get("/:accountId/backup/chats", async (c) => {
   const accountId = c.req.param("accountId");
   const { getBackupChatList } = await import("../service/backupService.js");

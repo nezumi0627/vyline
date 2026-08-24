@@ -42,6 +42,11 @@ export interface Announcement {
   createdTime: number;
 }
 
+export interface AgentIHistoryItem {
+  role: "user" | "assistant";
+  text: string;
+}
+
 const BASE = "/api";
 
 /** バックエンド未起動時は TypeError(ECONNREFUSED) が飛ぶ → 静かに失敗 */
@@ -88,6 +93,16 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  agentI: {
+    chat: (accountId: string, prompt: string, history?: AgentIHistoryItem[]) =>
+      request<{ ok: boolean; text?: string; error?: string }>(
+        "POST",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/chat`,
+        { prompt, history },
+      ),
+    reset: (accountId: string) =>
+      request<{ ok: boolean }>("DELETE", `/beta/agent-i/${encodeURIComponent(accountId)}/session`),
+  },
   auth: {
     loginEmail: (params: { accountId: string; email: string; password: string }) =>
       request<LoginResult>("POST", "/auth/login/email", params),
@@ -626,7 +641,12 @@ export const api = {
       }),
 
     /** 自分の送信メッセージの既読状態（軽量） */
-    readReceipts: (accountId: string, chatMid: string, messageIds: string[]) =>
+    readReceipts: (
+      accountId: string,
+      chatMid: string,
+      messageIds: string[],
+      _options?: { force?: boolean },
+    ) =>
       request<ReadReceiptsResponse>(
         "GET",
         `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}`,
@@ -673,6 +693,44 @@ export const api = {
         localMatchedServerKeys?: number;
         error?: string;
       }>("GET", `/line/${accountId}/restore/status`),
+
+    listIosBackups: (accountId: string) =>
+      request<{
+        ok: boolean;
+        devices?: Array<{
+          udid: string;
+          name: string;
+          iOSVersion: string;
+          deviceType: string;
+          encrypted: boolean;
+          passcodeSet: boolean;
+          modifiedAt: string;
+        }>;
+        error?: string;
+      }>("GET", `/line/${accountId}/ios-backups`),
+
+    startIosBackupRestore: (accountId: string, udid: string, password: string) =>
+      request<{ ok: boolean; sessionId?: string; error?: string }>(
+        "POST",
+        `/line/${accountId}/restore/ios-backup`,
+        { udid, password },
+      ),
+
+    getIosBackupSession: (accountId: string, sessionId: string) =>
+      request<{
+        ok: boolean;
+        session?: {
+          id: string;
+          status: "pending" | "running" | "completed" | "failed";
+          progress: { stage: string; current: number; total: number; message: string } | null;
+          result: {
+            extracted: { lineFiles: number; databases: number };
+            parsed: { chats: number; totalMessages: number };
+          } | null;
+          error: string | null;
+        };
+        error?: string;
+      }>("GET", `/line/${accountId}/restore/ios-backup/${encodeURIComponent(sessionId)}`),
 
     /** VylineBackup: チャット一覧 + メッセージ件数（選択 UI 用） */
     backupChats: (accountId: string) =>

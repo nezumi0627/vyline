@@ -3,6 +3,9 @@ import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
+import { BetaSection } from "@/components/beta-consent";
+import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -53,7 +56,8 @@ type Section =
   | "notifications"
   | "advanced"
   | "storage"
-  | "info";
+  | "info"
+  | "beta";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
@@ -65,6 +69,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
+  { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
 ];
 
 function Row({
@@ -496,6 +501,17 @@ export function SettingsSections() {
               {section === "storage" && <StorageSection />}
 
               {section === "info" && <InfoSection />}
+
+              {section === "beta" && (
+                <Section
+                  title="ベータ機能"
+                  desc="試験的な機能です。挙動や仕様は変更される場合があります。"
+                >
+                  <BetaSection />
+                  {settings.betaAgentI && <AgentIBetaPanel />}
+                  <IosBackupBetaPanel accountId={accountId} />
+                </Section>
+              )}
             </div>
           </div>
         </div>

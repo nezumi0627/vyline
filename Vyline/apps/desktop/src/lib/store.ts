@@ -2,7 +2,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type Announcement } from "../api/client.js";
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
-import { THEME_PRESETS } from "./theme-presets.js";
+import { THEME_PRESETS } from "@vyline/themes";
 import type {
   Chat,
   ChatSort,
@@ -75,6 +75,8 @@ const backfillInflight = new Map<string, Promise<void>>();
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
+
+const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
 
 const MAX_MESSAGES_PER_CHAT = 120;
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
@@ -223,7 +225,7 @@ function applyReadWatermarkLocal(
       const prevReadBy = m.readBy ?? [];
       const prevReadCount = m.readCount ?? 0;
       // 既知の既読者より少なくならない範囲で補完（force 時は上書き）
-      const nextReadBy = force || readBy.length >= prevReadBy.length ? readBy : prevReadBy;
+      const nextReadBy = [...new Set([...prevReadBy, ...readBy])];
       if (force || readCount > prevReadCount || (readBy.length > 0 && prevReadBy.length === 0)) {
         patches.set(m.id, {
           read: true,
@@ -284,7 +286,7 @@ export const UPDATE_NOTES = {
   items: [
     "VylineBackup: トーク履歴・メディアのスナップショット作成/復元/削除",
     "チャット詳細ログ（JSONL）を追加（設定 > 詳細・復元 > デバッグログ）",
-    "セルフホスト対応（Docker Compose）+ メディアのサーバー側キャッシュ",
+    "セルフホスト対応（Docker Compose）+ メディアのサーバー側永続保存",
     "複数画像の同時送信とグルーピング表示、FILE メッセージ描画",
     "Keepメモ、プロフィール背景表示、通話中バッジ、リアクションキャッシュ高速化",
     "リブランディング: @vyline/protocol（旧 @vyline/nezuline）、Nezu* → Vyline*",
@@ -471,10 +473,11 @@ export const useStore = create<State>()(
         showReaderList: true,
         streamerMode: false,
         compactDensity: false,
+        customCursor: false,
+        animationMode: "vyline",
         fontScale: 1,
         enterToSend: true,
         chatSort: "recent",
-        customCursor: false,
         bubbleTail: true,
         showStatusMessage: true,
         showBackground: true,
@@ -482,6 +485,10 @@ export const useStore = create<State>()(
         proxyEnabled: false,
         proxyUrl: "",
         notificationsEnabled: true,
+        betaBlockCheckManual: false,
+        betaBlockCheckAuto: false,
+        betaMidSearch: false,
+        betaAgentI: false,
       },
       chats: [],
       messages: [],
@@ -516,10 +523,28 @@ export const useStore = create<State>()(
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
+          myMessageIdsByChat.clear();
+          backfillInflight.clear();
+          lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
-        set({ accountId: id });
+        if (id !== get().accountId) {
+          // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
+          // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
+          set({
+            accountId: id,
+            chats: [],
+            messages: [],
+            activeChatId: null,
+            memberProfile: null,
+            readWatermarks: {},
+            announcements: {},
+            blockedMids: [],
+          });
+        } else {
+          set({ accountId: id });
+        }
       },
 
       resetAccountData: () =>
@@ -651,10 +676,11 @@ export const useStore = create<State>()(
             showReaderList: true,
             streamerMode: false,
             compactDensity: false,
+            customCursor: false,
+            animationMode: "vyline",
             fontScale: 1,
             enterToSend: true,
             chatSort: "recent",
-            customCursor: false,
             bubbleTail: true,
             showStatusMessage: true,
             showBackground: true,
@@ -662,6 +688,10 @@ export const useStore = create<State>()(
             proxyEnabled: false,
             proxyUrl: "",
             notificationsEnabled: true,
+            betaBlockCheckManual: false,
+            betaBlockCheckAuto: false,
+            betaMidSearch: false,
+            betaAgentI: false,
           },
           sidebarWidth: 360,
           customOrder: [],
@@ -1494,7 +1524,9 @@ export const useStore = create<State>()(
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
           messages: st.messages.map((m) => {
-            if (m.chatId !== id) return m;
+            // 自分の送信メッセージの read は相手側の既読状態。
+            // チャットを開いただけで自分の最新送信まで既読にしてはいけない。
+            if (m.chatId !== id || m.authorId === "me") return m;
             return { ...m, read: true, status: "read" };
           }),
         }));
@@ -1502,16 +1534,19 @@ export const useStore = create<State>()(
         if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
         const last = [...messages]
           .reverse()
-          .find((m) => m.chatId === id && m.id && !m.id.startsWith("pending_"));
+          .find(
+            (m) => m.chatId === id && m.authorId !== "me" && m.id && !m.id.startsWith("pending_"),
+          );
         if (!last?.id) return;
         // 同じ最終メッセージへの既読は再送しない
-        const prev = readReceiptSent.get(id);
+        const receiptKey = accountChatKey(accountId, id);
+        const prev = readReceiptSent.get(receiptKey);
         if (prev === last.id) return;
-        readReceiptSent.set(id, last.id);
+        readReceiptSent.set(receiptKey, last.id);
         try {
           await api.line.markAsRead(accountId, id, last.id);
         } catch {
-          readReceiptSent.delete(id);
+          readReceiptSent.delete(receiptKey);
         }
       },
 
@@ -1880,13 +1915,15 @@ export const useStore = create<State>()(
       },
 
       refreshReadReceipts: async (chatId, opts) => {
-        const inflight = readReceiptInflight.get(chatId);
+        const accountId = get().accountId;
+        if (!accountId) return;
+        const chatKey = accountChatKey(accountId, chatId);
+        const inflight = readReceiptInflight.get(chatKey);
         if (inflight) return inflight;
 
         let task!: Promise<void>;
         task = (async () => {
-          const { accountId, messages } = get();
-          if (!accountId) return;
+          const { messages } = get();
 
           const myIds = messages
             .filter(
@@ -1899,7 +1936,7 @@ export const useStore = create<State>()(
             )
             .map((m) => m.id)
             .slice(-50);
-          myMessageIdsByChat.set(chatId, myIds);
+          myMessageIdsByChat.set(chatKey, myIds);
           if (myIds.length === 0) return;
 
           // 既読済みでも直近 15 分のメッセージは既読者一覧を追い続ける
@@ -1913,7 +1950,7 @@ export const useStore = create<State>()(
 
           // キャッシュ済みウォーターマークがあれば先にローカル適用（読み込み高速化）
           // needsPoll に関係なく適用する（古いチャットを開き直したときも既読状態を即反映）
-          const cached = get().readWatermarks[chatId];
+          const cached = get().readWatermarks[chatKey];
           if (cached) {
             const patched = applyReadWatermarkLocal(
               messages.filter((m) => m.chatId === chatId),
@@ -1933,14 +1970,16 @@ export const useStore = create<State>()(
 
           if (!needsPoll) return;
 
-          const res = await api.line.readReceipts(accountId, chatId, myIds);
+          const res = await api.line.readReceipts(accountId, chatId, myIds, {
+            force: opts?.force === true,
+          });
           if (!res.ok || !res.receipts) return;
 
           // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
           set((st) => ({
             readWatermarks: {
               ...st.readWatermarks,
-              [chatId]: {
+              [chatKey]: {
                 peerReadUpTo: res.peerReadUpTo,
                 memberWatermarks: res.memberReadWatermarks,
                 at: Date.now(),
@@ -1958,9 +1997,10 @@ export const useStore = create<State>()(
           const memberMidSet = new Set(res.memberMids ?? []);
           const readersNeedFetch: string[] = [];
           for (const mid of allReaderMids) {
-            if (contactFetched.has(mid)) continue;
+            const contactKey = accountChatKey(accountId, mid);
+            if (contactFetched.has(contactKey)) continue;
             if (memberMidSet.has(mid)) continue;
-            contactFetched.add(mid);
+            contactFetched.add(contactKey);
             readersNeedFetch.push(mid);
           }
           if (readersNeedFetch.length > 0) {
@@ -2018,10 +2058,10 @@ export const useStore = create<State>()(
           }));
         })();
 
-        readReceiptInflight.set(chatId, task);
+        readReceiptInflight.set(chatKey, task);
         void task.finally(() => {
-          if (readReceiptInflight.get(chatId) === task) {
-            readReceiptInflight.delete(chatId);
+          if (readReceiptInflight.get(chatKey) === task) {
+            readReceiptInflight.delete(chatKey);
           }
         });
         return task;
@@ -2058,7 +2098,9 @@ export const useStore = create<State>()(
         if (fresh.length === 0 && !hasUpdates) return;
 
         // キャッシュ済み既読ウォーターマークを新着にも即適用（RPC なしで既読化）
-        const cachedWm = get().readWatermarks[chatId];
+        const cachedWm = accountId
+          ? get().readWatermarks[accountChatKey(accountId, chatId)]
+          : undefined;
         if (cachedWm) {
           const patched = applyReadWatermarkLocal(mapped, cachedWm, false);
           if (patched) {
@@ -2137,12 +2179,13 @@ export const useStore = create<State>()(
         if (activeChatId === chatId && !silent && sessionOpenedChats.has(chatId)) {
           if (get().settings.readReceipts) void get().markChatRead(chatId);
           for (const m of fresh) {
-            if (m.authorId !== "me" && !contactFetched.has(m.authorId)) {
+            const contactKey = accountChatKey(accountId, m.authorId);
+            if (m.authorId !== "me" && !contactFetched.has(contactKey)) {
               if (contactFetched.size >= 5000) {
                 const iter = contactFetched.values();
                 for (let i = 0; i < 500; i++) contactFetched.delete(iter.next().value!);
               }
-              contactFetched.add(m.authorId);
+              contactFetched.add(contactKey);
               void api.line.contactProfile(accountId, m.authorId).then((res) => {
                 if (!res.ok || !res.profile) return;
                 set((st) => ({
@@ -2289,7 +2332,8 @@ export const useStore = create<State>()(
       backfillChat: async (chatId) => {
         const accountId = get().accountId;
         if (!accountId || !chatId) return;
-        const inflight = backfillInflight.get(chatId);
+        const chatKey = accountChatKey(accountId, chatId);
+        const inflight = backfillInflight.get(chatKey);
         if (inflight) return inflight;
 
         let task!: Promise<void>;
@@ -2303,9 +2347,9 @@ export const useStore = create<State>()(
             /* silent */
           }
         })();
-        backfillInflight.set(chatId, task);
+        backfillInflight.set(chatKey, task);
         void task.finally(() => {
-          if (backfillInflight.get(chatId) === task) backfillInflight.delete(chatId);
+          if (backfillInflight.get(chatKey) === task) backfillInflight.delete(chatKey);
         });
         return task;
       },
@@ -2314,7 +2358,8 @@ export const useStore = create<State>()(
         const { accountId, messages } = get();
         if (!accountId || !chatId) return;
         const now = Date.now();
-        const lastAt = lastDeltaPollAt.get(chatId) ?? 0;
+        const chatKey = accountChatKey(accountId, chatId);
+        const lastAt = lastDeltaPollAt.get(chatKey) ?? 0;
         if (now - lastAt < DELTA_POLL_MIN_MS) return;
 
         const chatMsgs = messages.filter(
@@ -2323,7 +2368,7 @@ export const useStore = create<State>()(
         const lastId = chatMsgs.length > 0 ? chatMsgs[chatMsgs.length - 1]!.id : undefined;
         // 非 pending メッセージが無い（全送信中/初回）場合は通常取得にフォールバックして足場を作る
         if (!lastId) {
-          lastDeltaPollAt.set(chatId, Date.now());
+          lastDeltaPollAt.set(chatKey, Date.now());
           await get()
             .refreshMessages(chatId, { force: true })
             .catch(() => undefined);
@@ -2333,7 +2378,7 @@ export const useStore = create<State>()(
         try {
           const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
           // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
-          lastDeltaPollAt.set(chatId, Date.now());
+          lastDeltaPollAt.set(chatKey, Date.now());
           if (res.ok && res.messages?.length) {
             get().mergeIncomingMessages(chatId, res.messages);
           }
@@ -2342,7 +2387,7 @@ export const useStore = create<State>()(
         }
         // 遅い RPC の後は次回を遅らせて RPC キューを空ける（重い E2EE グループ対策）
         if (Date.now() - started > 6_000) {
-          lastDeltaPollAt.set(chatId, Date.now());
+          lastDeltaPollAt.set(chatKey, Date.now());
         }
       },
 
@@ -2388,7 +2433,7 @@ export const useStore = create<State>()(
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;
                     if (active === ev.chatMid) {
-                      lastDeltaPollAt.delete(ev.chatMid);
+                      lastDeltaPollAt.delete(accountChatKey(accountId, ev.chatMid));
                       void get()
                         .pollMessagesDelta(ev.chatMid)
                         .catch(() => undefined);
