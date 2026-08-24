@@ -3418,7 +3418,10 @@ export async function fetchMessages(
   const isSpecial = opts?.lite || opts?.delta;
 
   if (opts?.localOnly) {
-    return getStoredMessages(accountId, chatMid, limit);
+    return getStoredMessages(accountId, chatMid, limit, {
+      beforeMessageId: opts.beforeMessageId,
+      beforeDeliveredTime: opts.beforeDeliveredTime,
+    });
   }
 
   if (!opts?.force && !isPagination && !isSpecial) {

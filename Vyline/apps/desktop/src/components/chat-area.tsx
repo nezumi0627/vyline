@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState, useCallback } from "react";
+import { memo, useEffect, useMemo, useRef, useState, useCallback, type UIEvent } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useCall } from "@/hooks/useCall";
@@ -247,6 +247,18 @@ function ChatAreaBase() {
     scrollToKey,
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
+
+  const handleMessageScroll = useCallback(
+    (event: UIEvent<HTMLDivElement>) => {
+      onScroll(event);
+      if (event.currentTarget.scrollTop <= 160 && activeChatId) {
+        window.dispatchEvent(
+          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+        );
+      }
+    },
+    [activeChatId, onScroll],
+  );
 
   const prevLen = useRef(chatMessages.length);
   const prevChat = useRef(activeChatId);
@@ -553,7 +565,7 @@ function ChatAreaBase() {
         {/* messages */}
         <div
           ref={containerRef}
-          onScroll={onScroll}
+          onScroll={handleMessageScroll}
           onContextMenu={(e) => {
             e.preventDefault();
             setPanel({ x: e.clientX, y: e.clientY });

@@ -342,11 +342,32 @@ export async function getMessages(
   accountId: string,
   chatMid: string,
   limit: number,
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number },
 ): Promise<StoredMessage[]> {
   const db = await getDb(accountId);
   const byChat = db.messages[chatMid];
   if (!byChat) return [];
+  const beforeTime = opts?.beforeDeliveredTime;
+  const beforeIdBigInt = opts?.beforeMessageId
+    ? (() => {
+        try {
+          return BigInt(opts.beforeMessageId);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
   return Object.values(byChat)
+    .filter((message) => {
+      if (beforeTime == null) return true;
+      if (message.createdTime < beforeTime) return true;
+      if (message.createdTime > beforeTime || beforeIdBigInt == null) return false;
+      try {
+        return BigInt(message.id) < beforeIdBigInt;
+      } catch {
+        return false;
+      }
+    })
     .sort((a, b) => b.createdTime - a.createdTime)
     .slice(0, limit);
 }
@@ -435,8 +456,9 @@ export async function getStoredMessages(
   accountId: string,
   chatMid: string,
   limit: number,
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number },
 ): Promise<Message[]> {
-  const stored = await getMessages(accountId, chatMid, limit);
+  const stored = await getMessages(accountId, chatMid, limit, opts);
   return stored.map(storedMessageToMessage);
 }
 
