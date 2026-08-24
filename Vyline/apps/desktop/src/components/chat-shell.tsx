@@ -89,7 +89,7 @@ function ChatShellBase() {
           type="button"
           onClick={toggleSidebar}
           aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
-          className="absolute left-2 top-3 z-20 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)]/80 text-[var(--vy-text-dim)] backdrop-blur transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
+          className="absolute left-2 top-3 z-20 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
         >
           <IconPanelLeft size={17} />
         </button>

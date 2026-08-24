@@ -6,6 +6,7 @@ import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
@@ -544,6 +545,7 @@ export function SettingsSections() {
                 <>
                   <BetaSection />
                   {settings.betaAgentI && <AgentIBetaPanel />}
+                  <IosBackupBetaPanel accountId={accountId} />
                 </>
               )}
             </div>
