@@ -15,6 +15,10 @@ export const subdeviceRouter = new Hono();
 
 const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
+function isLanAccessEnabled() {
+  return process.env.VYLINE_LAN_ACCESS === "true";
+}
+
 function getLanHost(): string | null {
   const configured = process.env.VYLINE_PUBLIC_HOST?.trim();
   if (configured) return configured;
@@ -34,6 +38,9 @@ export function buildPairingUrl(origin: string | undefined, token: string): stri
     const url = new URL(origin);
     if (url.protocol !== "http:" && url.protocol !== "https:") return undefined;
     if (LOOPBACK_HOSTS.has(url.hostname)) {
+      // Vite/backend が loopback 待受のままでは、LAN IP の QR を発行しても
+      // スマホからページ/APIへ到達できない。壊れたQRを返さずUI側で案内する。
+      if (!isLanAccessEnabled()) return undefined;
       const lanHost = getLanHost();
       if (!lanHost) return undefined;
       url.hostname = lanHost;
@@ -58,10 +65,20 @@ subdeviceRouter.post("/pairing", async (c) => {
     .catch((): { accountId?: string; origin?: string } => ({}));
   if (!body.accountId) return c.json({ ok: false, error: "accountId required" }, 400);
   const pairing = await createPairing(body.accountId);
+  const pairingUrl = buildPairingUrl(body.origin, pairing.token);
   return c.json({
     ok: true,
     ...pairing,
-    pairingUrl: buildPairingUrl(body.origin, pairing.token),
+    pairingUrl,
+    lanAccessRequired:
+      Boolean(body.origin) &&
+      (() => {
+        try {
+          return LOOPBACK_HOSTS.has(new URL(body.origin!).hostname) && !isLanAccessEnabled();
+        } catch {
+          return false;
+        }
+      })(),
   });
 });
 

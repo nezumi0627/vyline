@@ -572,14 +572,30 @@ function SubdevicesSection() {
     void load();
   }, []);
 
+  useEffect(() => {
+    if (!pairingUrl) return;
+    const timer = window.setInterval(() => {
+      void api.subdevices.list().then((res) => {
+        if (res.ok) setDevices(res.devices ?? []);
+      });
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [pairingUrl]);
+
   const startPairing = async () => {
     if (!accountId) return setMessage("LINEログインが必要です");
     const res = await api.subdevices.createPairing(accountId, window.location.origin);
     if (!res.ok || !res.token) return setMessage(res.error ?? "QRコードを作成できませんでした");
-    setPairingUrl(
-      res.pairingUrl ??
-        `${window.location.origin}/subdevice?pairing=${encodeURIComponent(res.token)}`,
-    );
+    if (!res.pairingUrl) {
+      setPairingUrl(null);
+      setMessage(
+        res.lanAccessRequired
+          ? "LAN接続が無効です。VYLINE_LAN_ACCESS=true で再起動してからQRを表示してください"
+          : "スマホから到達できるURLを作成できませんでした。PCとスマホが同じLANに接続されているか確認してください",
+      );
+      return;
+    }
+    setPairingUrl(res.pairingUrl);
     setMessage("スマホの標準カメラでQRコードを読み込んでください（2分間有効）");
   };
 

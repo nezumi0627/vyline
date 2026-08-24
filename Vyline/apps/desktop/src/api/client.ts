@@ -111,6 +111,7 @@ export const api = {
         token?: string;
         expiresAt?: number;
         pairingUrl?: string;
+        lanAccessRequired?: boolean;
         error?: string;
       }>("POST", "/auth/subdevices/pairing", { accountId, origin }),
     list: () =>
