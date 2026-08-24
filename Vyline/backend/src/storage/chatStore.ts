@@ -72,6 +72,8 @@ interface ChatDbMeta {
   chatsSyncedAt?: string;
   /** chatMid → ISO */
   messagesSyncedAt?: Record<string, string>;
+  /** 自分が受信メッセージを既読にした最終位置（復元DBにも適用する）。 */
+  localReadUpTo?: Record<string, { messageId: string; at: string }>;
 }
 
 interface ChatDb {
@@ -293,8 +295,57 @@ export async function upsertMessages(
     byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
+  applyLocalReadWatermark(byChat, db.meta.localReadUpTo?.[chatMid]?.messageId);
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
+  scheduleSave(accountId);
+}
+
+/**
+ * 自分が送った既読位置を、受信メッセージだけへ単調に反映する。
+ * 相手が読んだ自分のメッセージの既読状態とは別の情報である。
+ */
+export function applyLocalReadWatermark(
+  messages: Record<string, StoredMessage>,
+  upToMessageId: string | undefined,
+): void {
+  if (!upToMessageId) return;
+  let upTo: bigint;
+  try {
+    upTo = BigInt(upToMessageId);
+  } catch {
+    return;
+  }
+  for (const message of Object.values(messages)) {
+    if (message.isMyMessage) continue;
+    try {
+      if (BigInt(message.id) <= upTo) message.seen = true;
+    } catch {
+      /* non-numeric local IDs cannot be part of a server read range */
+    }
+  }
+}
+
+/** 既読リクエスト成功後、同じ地点以前の受信メッセージをDBへ単調に保存する。 */
+export async function markStoredMessagesReadThrough(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<void> {
+  const db = await getDb(accountId);
+  const current = db.meta.localReadUpTo?.[chatMid]?.messageId;
+  try {
+    if (current && BigInt(current) > BigInt(messageId)) return;
+  } catch {
+    /* replace malformed legacy cursor */
+  }
+  db.meta.localReadUpTo = {
+    ...db.meta.localReadUpTo,
+    [chatMid]: { messageId, at: new Date().toISOString() },
+  };
+  applyLocalReadWatermark(db.messages[chatMid] ?? {}, messageId);
+  const chat = db.chats[chatMid];
+  if (chat) chat.unreadCount = 0;
   scheduleSave(accountId);
 }
 
@@ -590,6 +641,9 @@ export async function importChatDb(
     }
     db.messages[chatMid] = target;
   }
+  for (const [chatMid, messages] of Object.entries(db.messages)) {
+    applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
+  }
   if (data.meta?.boxOrder) db.meta.boxOrder = data.meta.boxOrder;
   if (data.meta?.chatsSyncedAt) db.meta.chatsSyncedAt = data.meta.chatsSyncedAt;
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
@@ -711,6 +765,9 @@ export async function mergeImportedChatDb(
 ): Promise<ChatDbMergeResult> {
   const db = await getDb(accountId);
   const result = mergeChatDbRecords(db, incoming);
+  for (const [chatMid, messages] of Object.entries(db.messages)) {
+    applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
+  }
   if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
   return result;
 }
