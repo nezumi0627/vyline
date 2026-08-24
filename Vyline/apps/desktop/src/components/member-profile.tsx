@@ -91,7 +91,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       .commonGroups(accountId, member.id, chat.id)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
-        const byId = new Map(chats.map((c) => [c.id, c]));
+        const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));
         setApiCommonGroups(
           res.groups.map((g) => {
             const local = byId.get(g.chatMid);
@@ -114,7 +114,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     return () => {
       cancelled = true;
     };
-  }, [accountId, member?.id, chat.id, streamerMode, chats]);
+  }, [accountId, member?.id, chat.id, streamerMode]);
 
   if (!member) return null;
 
