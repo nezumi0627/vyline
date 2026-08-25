@@ -38,6 +38,8 @@
     "test:api": "bun scripts/apiSmokeTest.ts",
     "update": "git submodule update --init --recursive && git pull --ff-only && bun install && bun run build",
     "bump": "bun scripts/bump-version.ts",
+    "docs:readme": "bun scripts/generate-readmes.ts",
+    "docs:readme:check": "bun scripts/generate-readmes.ts --check",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
