@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.6.1-beta] — 2026-08-24 — 重大な型チェック再帰バグ修正
+
+### 修正
+
+- **重大修正** — `typecheck` 実行時に Bun の Windows shim が同じ typecheck コマンドを再帰起動し、Bun プロセスが大量増殖する問題を修正
+- protocol / backend / desktop / ios-backup の TypeScript 起動を Bun shim から Node に変更し、再帰起動経路を排除
+
 ## [0.5.1-beta] — 2026-08-21 — メッセージ編集UI + プッシュ通知切替 + PIN/パスワードデュアルモード
 
 ### 新機能

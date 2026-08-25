@@ -280,21 +280,18 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "0.6.0-beta",
-  title: "Vyline 0.6.0-beta — Backup & ログ & セルフホスト",
+  version: "0.6.1-beta",
+  title: "Vyline 0.6.1-beta — 重大な型チェック再帰バグ修正",
   items: [
-    "VylineBackup: トーク履歴・メディアのスナップショット作成/復元/削除",
-    "チャット詳細ログ（JSONL）を追加（設定 > 詳細・復元 > デバッグログ）",
-    "セルフホスト対応（Docker Compose）+ メディアのサーバー側永続保存",
-    "複数画像の同時送信とグルーピング表示、FILE メッセージ描画",
-    "Keepメモ、プロフィール背景表示、通話中バッジ、リアクションキャッシュ高速化",
-    "リブランディング: @vyline/protocol（旧 @vyline/nezuline）、Nezu* → Vyline*",
-    "利用規約・免責同意ゲートをログイン直後に追加",
+    "重大修正: typecheck 実行時に Bun プロセスが再帰増殖する問題を修正",
+    "protocol / backend / desktop / ios-backup の TypeScript 起動を安定化",
   ],
 };
 
 type State = {
   screen: Screen;
+  /** PRデモ用。true の間は実アカウント・外部APIを使用しない。 */
+  demoMode: boolean;
   accountId: string | null;
   activeChatId: string | null;
   theme: VyTheme;
@@ -467,6 +464,7 @@ export const useStore = create<State>()(
   persist(
     (set, get) => ({
       screen: "home",
+      demoMode: false,
       accountId: null,
       activeChatId: null,
       theme: THEME_PRESETS[0]!,
@@ -578,7 +576,8 @@ export const useStore = create<State>()(
       },
 
       syncBlockedMids: async () => {
-        const { accountId } = get();
+        const { accountId, demoMode } = get();
+        if (demoMode) return;
         if (!accountId) return;
         try {
           const res = await api.line.blockedContacts(accountId);
@@ -619,7 +618,8 @@ export const useStore = create<State>()(
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
-        const { accountId, settings, chats } = get();
+        const { accountId, settings, chats, demoMode } = get();
+        if (demoMode) return;
         if (accountId && settings.readReceipts) {
           void get().markChatRead(id);
         }
@@ -885,7 +885,30 @@ export const useStore = create<State>()(
       },
 
       sendMessage: async (chatId, text, opts) => {
-        const { accountId, replyToId, blockedMids } = get();
+        const { accountId, demoMode, replyToId, blockedMids } = get();
+        if (demoMode) {
+          const trimmed = text;
+          if (!trimmed.trim() && !trimmed.includes("\uFFFC")) return;
+          const message: Message = {
+            id: `demo_${Date.now()}`,
+            chatId,
+            authorId: "me",
+            kind: "text",
+            text: trimmed,
+            createdAt: Date.now(),
+            status: "read",
+            read: true,
+            messageState: "normal",
+            replyToId: replyToId ?? undefined,
+          };
+          set((st) => ({
+            messages: [...st.messages, message],
+            drafts: { ...st.drafts, [chatId]: "" },
+            replyToId: null,
+          }));
+          get().showNotice("デモ送信（外部通信なし）");
+          return;
+        }
         if (!accountId || (!text.trim() && !text.includes("\uFFFC"))) return;
         // ブロック中の友だちには送信しない（DM の chatId は相手 MID）
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
@@ -987,7 +1010,30 @@ export const useStore = create<State>()(
       },
 
       sendSticker: async (chatId, packageId, stickerId, isPremium?: boolean) => {
-        const { accountId, blockedMids } = get();
+        const { accountId, demoMode, blockedMids } = get();
+        if (demoMode) {
+          if (!packageId || !stickerId) return;
+          set((st) => ({
+            messages: [
+              ...st.messages,
+              {
+                id: `demo_sticker_${Date.now()}`,
+                chatId,
+                authorId: "me",
+                kind: "sticker",
+                sticker: `/demo/sticker-${stickerId}.svg`,
+                altText: "デモスタンプ",
+                createdAt: Date.now(),
+                status: "read",
+                read: true,
+                messageState: "normal",
+                retry: { kind: "sticker", packageId, stickerId, isPremium },
+              },
+            ],
+          }));
+          get().showNotice("デモスタンプ送信（外部通信なし）");
+          return;
+        }
         if (!accountId || !packageId || !stickerId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const tempId = `pending_stk_${Date.now()}`;
@@ -1066,7 +1112,29 @@ export const useStore = create<State>()(
       },
 
       sendCombinationSticker: async (chatId, items) => {
-        const { accountId, blockedMids } = get();
+        const { accountId, demoMode, blockedMids } = get();
+        if (demoMode) {
+          if (!items.length) return;
+          set((st) => ({
+            messages: [
+              ...st.messages,
+              {
+                id: `demo_combo_${Date.now()}`,
+                chatId,
+                authorId: "me",
+                kind: "sticker",
+                sticker: "/demo/sticker-ok.svg",
+                altText: "組み合わせスタンプ",
+                createdAt: Date.now(),
+                status: "read",
+                read: true,
+                messageState: "normal",
+              },
+            ],
+          }));
+          get().showNotice("組み合わせスタンプをデモ送信しました");
+          return;
+        }
         if (!accountId || !items.length) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const placements = combinationPlacementsFromItems(items);
@@ -1159,7 +1227,28 @@ export const useStore = create<State>()(
       },
 
       sendLineEmoji: async (chatId, packageId, sticonId) => {
-        const { accountId, blockedMids } = get();
+        const { accountId, demoMode, blockedMids } = get();
+        if (demoMode) {
+          if (!packageId || !sticonId) return;
+          set((st) => ({
+            messages: [
+              ...st.messages,
+              {
+                id: `demo_emoji_${Date.now()}`,
+                chatId,
+                authorId: "me",
+                kind: "emoji",
+                text: sticonId === "smile" ? "😊" : "✨",
+                createdAt: Date.now(),
+                status: "read",
+                read: true,
+                messageState: "normal",
+              },
+            ],
+          }));
+          get().showNotice("LINE絵文字をデモ送信しました");
+          return;
+        }
         if (!accountId || !packageId || !sticonId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
 
@@ -1222,7 +1311,29 @@ export const useStore = create<State>()(
       },
 
       sendImageFile: async (chatId, file) => {
-        const { accountId, blockedMids } = get();
+        const { accountId, demoMode, blockedMids } = get();
+        if (demoMode) {
+          const isVideo = file.type.startsWith("video/");
+          const localUrl = URL.createObjectURL(file);
+          set((st) => ({
+            messages: [
+              ...st.messages,
+              {
+                id: `demo_media_${Date.now()}`,
+                chatId,
+                authorId: "me",
+                kind: isVideo ? "video" : "image",
+                imageSrc: localUrl,
+                createdAt: Date.now(),
+                status: "read",
+                read: true,
+                messageState: "normal",
+              },
+            ],
+          }));
+          get().showNotice(`${isVideo ? "動画" : "画像"}をデモ送信しました`);
+          return;
+        }
         if (!accountId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const isVideo = file.type.startsWith("video/");
@@ -1290,7 +1401,29 @@ export const useStore = create<State>()(
       },
 
       sendAudio: async (chatId, seconds, blob) => {
-        const { accountId, blockedMids } = get();
+        const { accountId, demoMode, blockedMids } = get();
+        if (demoMode) {
+          const localUrl = URL.createObjectURL(blob);
+          set((st) => ({
+            messages: [
+              ...st.messages,
+              {
+                id: `demo_audio_${Date.now()}`,
+                chatId,
+                authorId: "me",
+                kind: "audio",
+                audioSrc: localUrl,
+                audioSeconds: Math.max(1, seconds),
+                createdAt: Date.now(),
+                status: "read",
+                read: true,
+                messageState: "normal",
+              },
+            ],
+          }));
+          get().showNotice("音声メッセージをデモ送信しました");
+          return;
+        }
         if (!accountId || !blob || blob.size === 0) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         void (async () => {
@@ -1330,8 +1463,8 @@ export const useStore = create<State>()(
       },
 
       revokeMessage: async (id) => {
-        const { accountId, activeChatId } = get();
-        if (!accountId) return;
+        const { accountId, activeChatId, demoMode } = get();
+        if (!accountId && !demoMode) return;
         const msg = get().messages.find((m) => m.id === id);
         // 送信中の楽観メッセージはサーバ未確定のため取り消せない
         if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
@@ -1362,7 +1495,11 @@ export const useStore = create<State>()(
               : m,
           ),
         }));
-        const res = await api.line.unsend(accountId, id);
+        if (demoMode) {
+          get().showNotice("メッセージをデモ取り消ししました");
+          return;
+        }
+        const res = await api.line.unsend(accountId!, id);
         if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
         else if (!res.ok) {
           const errText = res.error ?? "";
@@ -1379,8 +1516,8 @@ export const useStore = create<State>()(
       },
 
       editMessage: async (id, newText) => {
-        const { accountId, activeChatId } = get();
-        if (!accountId) return;
+        const { accountId, activeChatId, demoMode } = get();
+        if (!accountId && !demoMode) return;
         // 送信中の楽観メッセージは編集できない
         const msg = get().messages.find((m) => m.id === id);
         if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
@@ -1406,8 +1543,13 @@ export const useStore = create<State>()(
           ),
         }));
 
+        if (demoMode) {
+          get().showNotice("メッセージをデモ編集しました");
+          return;
+        }
+
         try {
-          const res = await api.line.editMessage(accountId, msg.chatId, id, newText);
+          const res = await api.line.editMessage(accountId!, msg.chatId, id, newText);
           if (res.ok) {
             get().showNotice("メッセージを編集しました");
             if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
@@ -1535,7 +1677,7 @@ export const useStore = create<State>()(
       },
 
       markChatRead: async (id) => {
-        const { accountId, messages, settings, readDisabledMids } = get();
+        const { accountId, messages, settings, readDisabledMids, demoMode } = get();
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
           .sort((a, b) => {
@@ -1564,9 +1706,9 @@ export const useStore = create<State>()(
             return { ...m, read: true, status: "read" };
           }),
         }));
+        if (demoMode) return;
         // 全体無効（設定）または個別無効（右クリック）なら送信しない
         if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
-        // ローカルに未取得の履歴だけでもバックエンドがDB/サーバの最終地点を解決する。
         const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
@@ -2281,7 +2423,10 @@ export const useStore = create<State>()(
       },
 
       fetchMessageHistory: async (chatId, messageId) => {
-        const accountId = get().accountId;
+        const { accountId, demoMode } = get();
+        if (demoMode) {
+          return get().messages.find((message) => message.id === messageId)?.history ?? [];
+        }
         if (!accountId) return [];
         const res = await api.line.messageHistory(accountId, chatId, messageId);
         if (res.ok) return res.history ?? [];
@@ -2289,8 +2434,8 @@ export const useStore = create<State>()(
       },
 
       restoreRevokedMessage: async (_chatId, messageId) => {
-        const accountId = get().accountId;
-        if (!accountId) return;
+        const { accountId, demoMode } = get();
+        if (!accountId && !demoMode) return;
         const msg = get().messages.find((m) => m.id === messageId);
         if (!msg || msg.messageState !== "revoked-by-self") return;
         const snapshot = msg.revokedSnapshot;
@@ -2326,8 +2471,12 @@ export const useStore = create<State>()(
               : m,
           ),
         }));
+        if (demoMode) {
+          get().showNotice("取り消したメッセージをデモ復元しました");
+          return;
+        }
         try {
-          await api.line.restoreRevokedMessage(accountId, _chatId, messageId);
+          await api.line.restoreRevokedMessage(accountId!, _chatId, messageId);
         } catch {
           /* local update already applied */
         }

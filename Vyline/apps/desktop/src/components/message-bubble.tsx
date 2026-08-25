@@ -341,7 +341,11 @@ function stickerAnimationUrl(url?: string): string {
 
 function isStickerImageSrc(src?: string): boolean {
   return Boolean(
-    src && (src.startsWith("http") || src.startsWith("/api/") || src.startsWith("data:")),
+    src &&
+      (src.startsWith("http") ||
+        src.startsWith("/api/") ||
+        src.startsWith("/demo/") ||
+        src.startsWith("data:")),
   );
 }
 
@@ -602,8 +606,9 @@ export const MessageBubble = memo(
     };
 
     const react = (type: number, mine: boolean) => {
-      const accountId = useStore.getState().accountId;
-      if (!accountId || message.id.startsWith("pending_")) return;
+      const state = useStore.getState();
+      const accountId = state.accountId;
+      if ((!accountId && !state.demoMode) || message.id.startsWith("pending_")) return;
       // 公式アカウント（BOT）はリアクション不可
       if (chat.isOfficial) {
         window.alert("公式アカウントにはリアクションできません");
@@ -626,9 +631,13 @@ export const MessageBubble = memo(
       const store = useStore.getState();
       const myMid = store.self?.mid ?? "";
       store.setMessageReaction(message.id, mine ? "UNDO" : name, myMid);
+      if (store.demoMode) {
+        store.showNotice(mine ? "リアクションを外しました" : "リアクションを追加しました");
+        return;
+      }
       // 削除も同じタイプを送ってサーバ側でトグル（"UNDO" はサーバが ILLEGAL_ARGUMENT で拒否する）
       void api.line
-        .react(accountId, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
+        .react(accountId!, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
         .then((res) => {
           if (!res.ok) {
             window.alert(res.error ?? "リアクションに失敗しました");
@@ -638,13 +647,25 @@ export const MessageBubble = memo(
     };
 
     const handleAnnounce = () => {
-      const accountId = useStore.getState().accountId;
-      if (!accountId) return;
+      const state = useStore.getState();
+      const accountId = state.accountId;
+      if (!accountId && !state.demoMode) return;
       const text = message.text ?? message.altText ?? "";
       if (!text) return;
       const chatId = chat.id;
+      if (state.demoMode) {
+        state.addAnnouncement(chatId, {
+          announcementSeq: String(Date.now()),
+          text,
+          link: `line://nv/chatMsg?chatId=${chatId}&messageId=${message.id}`,
+          creatorMid: state.self?.mid ?? "demo-self",
+          createdTime: Date.now(),
+        });
+        state.showNotice("アナウンスに追加しました");
+        return;
+      }
       void api.line.announce
-        .create(accountId, chatId, text, message.id)
+        .create(accountId!, chatId, text, message.id)
         .then((res) => {
           if (res.ok && res.data) {
             useStore.getState().addAnnouncement(chatId, {

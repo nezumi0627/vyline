@@ -49,6 +49,34 @@ const COMBO_LIMIT = 6;
 const COMBO_SIZE = COMBO_EDITOR_SIZE;
 const COMBO_ITEM_SIZE = 80;
 const LONG_PRESS_MS = 300;
+const DEMO_STICKER_CATALOG: Catalog = {
+  premium: { active: false },
+  stickerPacks: [
+    {
+      packageId: "demo-pack",
+      name: "Vyline Demo",
+      type: "sticker",
+      tabUrl: "/demo/sticker-tab.svg",
+      items: [
+        { id: "sun", url: "/demo/sticker-sun.svg", alt: "サンプル太陽" },
+        { id: "heart", url: "/demo/sticker-heart.svg", alt: "サンプルハート" },
+        { id: "ok", url: "/demo/sticker-ok.svg", alt: "サンプルOK" },
+      ],
+    },
+  ],
+  emojiPacks: [
+    {
+      packageId: "demo-emoji",
+      name: "Unicode Emoji",
+      type: "emoji",
+      tabUrl: "/demo/emoji-tab.svg",
+      items: [
+        { id: "sparkle", url: "/demo/emoji-sparkle.svg", alt: "✨" },
+        { id: "smile", url: "/demo/emoji-smile.svg", alt: "😊" },
+      ],
+    },
+  ],
+};
 
 function assetUrl(url: string): string {
   return url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(url)}` : url;
@@ -91,20 +119,22 @@ export function StickerEmojiPanel({
     items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>,
   ) => Promise<void> | void;
 }) {
+  const demoMode = typeof window !== "undefined" && window.location.pathname === "/pr-demo";
   const [tab, setTab] = useState<Tab>("sticker");
   const [favorites, setFavorites] = useState<StickerFavorite[]>(() =>
-    accountId ? loadStickerFavorites(accountId) : [],
+    accountId && !demoMode ? loadStickerFavorites(accountId) : [],
   );
   const [menu, setMenu] = useState<MenuState>(null);
   const [catalog, setCatalog] = useState<Catalog | null>(() =>
-    accountId ? getCachedStickersCatalog(accountId) : null,
+    demoMode ? DEMO_STICKER_CATALOG : accountId ? getCachedStickersCatalog(accountId) : null,
   );
   const [loading, setLoading] = useState(() =>
-    accountId ? !getCachedStickersCatalog(accountId) : false,
+    demoMode ? false : accountId ? !getCachedStickersCatalog(accountId) : false,
   );
   const [error, setError] = useState<string | null>(null);
   const [availability, setAvailability] = useState<Record<string, boolean> | null>(null);
   const [packId, setPackId] = useState<string | null>(() => {
+    if (demoMode) return DEMO_STICKER_CATALOG.stickerPacks[0]?.packageId ?? null;
     const cached = accountId ? getCachedStickersCatalog(accountId) : null;
     return cached?.stickerPacks[0]?.packageId ?? cached?.emojiPacks[0]?.packageId ?? null;
   });
@@ -120,7 +150,7 @@ export function StickerEmojiPanel({
   const longPressTriggeredRef = useRef(false);
 
   useEffect(() => {
-    if (!accountId) return;
+    if (demoMode || !accountId) return;
     let cancelled = false;
     const cached = getCachedStickersCatalog(accountId);
     if (cached) {
@@ -172,10 +202,10 @@ export function StickerEmojiPanel({
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [accountId, demoMode]);
 
   useEffect(() => {
-    if (!catalog || !accountId) return;
+    if (!catalog || (!accountId && !demoMode)) return;
     const tabIcons = [
       ...catalog.stickerPacks.map((p) => p.tabUrl),
       ...catalog.emojiPacks.map((p) => p.tabUrl),
@@ -185,9 +215,15 @@ export function StickerEmojiPanel({
       catalog.emojiPacks.find((p) => p.packageId === packId);
     const items = active ? active.items.map((i) => i.url) : [];
     prefetchImgs([...tabIcons, ...items]);
-  }, [catalog, packId, accountId]);
+  }, [catalog, packId, accountId, demoMode]);
 
   useEffect(() => {
+    if (demoMode) {
+      setAvailability(
+        Object.fromEntries((catalog?.stickerPacks ?? []).map((p) => [p.packageId, true])),
+      );
+      return;
+    }
     if (!accountId || !catalog) return;
     let cancelled = false;
     const packageIds = catalog.stickerPacks.map((p) => p.packageId);
@@ -212,7 +248,7 @@ export function StickerEmojiPanel({
     return () => {
       cancelled = true;
     };
-  }, [accountId, catalog]);
+  }, [accountId, catalog, demoMode]);
 
   const packs = useMemo(() => {
     if (!catalog) return [];

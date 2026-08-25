@@ -1,3 +1,8 @@
+<!-- GENERATED FILE. Edit README.src.md, then run bun run docs:readme. -->
+<!-- Language: ja -->
+
+[English](README.en.md)
+
 <h1 align="center">Vyline <sup>Beta</sup></h1>
 
 <p align="center">
@@ -6,14 +11,13 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.6.0--beta-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.6.1--beta-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" />
   <img alt="frontend" src="https://img.shields.io/badge/frontend-React%20%2B%20Vite-38bdf8?style=flat-square" />
   <img alt="PRs" src="https://img.shields.io/badge/PRs-welcome-22c55e?style=flat-square" />
 </p>
-
 
 <p align="center">このさんさんとした太陽の下、Vyline を選んでくださるユーザーに出会えたことに感謝します。</p>
 

@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+.pr-demo-stage {
+  padding: 18px;
+  background: radial-gradient(
+      circle at 18% 12%,
+      color-mix(in oklab, var(--vy-accent) 34%, transparent),
+      transparent 34%
+    ), radial-gradient(circle at 86% 88%, rgba(34, 197, 94, 0.2), transparent 30%),
+    linear-gradient(145deg, #111827, #0f172a 52%, #172554);
+}
+
+.pr-demo-shell > * {
+  height: 100%;
+  min-height: 0;
+}
+
 /*
   VyTheme (Telegram Night default). ThemeApplier が実行時に上書き。
   Tailwind v3 — @tailwind base/components/utilities
@@ -399,6 +414,77 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
   .vy-emoji-pop,
   .vy-sticker-pop {
     animation: none;
+  }
+}
+
+/* Temporary PR demo stage: deterministic backdrop and restrained motion for recording. */
+.pr-demo {
+  position: relative;
+  isolation: isolate;
+  background: radial-gradient(circle at 72% 40%, rgba(42, 171, 238, 0.22), transparent 30%), #09111c;
+}
+.pr-demo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.18;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
+}
+.pr-demo-orbit {
+  position: absolute;
+  z-index: -1;
+  width: 36rem;
+  height: 36rem;
+  border: 1px solid rgba(42, 171, 238, 0.14);
+  border-radius: 50%;
+  animation: pr-demo-float 12s ease-in-out infinite;
+}
+.pr-demo-orbit-one {
+  right: -14rem;
+  top: 10%;
+}
+.pr-demo-orbit-two {
+  left: -20rem;
+  bottom: -18rem;
+  animation-delay: -5s;
+}
+.pr-demo-copy {
+  animation: pr-demo-copy-in .55s ease both;
+}
+.pr-demo-device {
+  animation: pr-demo-device-in .7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes pr-demo-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pr-demo-device-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes pr-demo-float {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(12px, -18px) rotate(6deg);
   }
 }
 
