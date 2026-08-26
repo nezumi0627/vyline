@@ -193,7 +193,6 @@ function ChatAreaBase() {
   const {
     containerRef,
     onScroll,
-    hasMeasured,
     visibleRows,
     topSpacer,
     bottomSpacer,
@@ -272,7 +271,6 @@ function ChatAreaBase() {
         : undefined;
     const targetId = initialChatScrollMessageId ?? fallbackUnread;
     if (chatMessages.length === 0) return;
-    if (!hasMeasured) return;
     const targetRow = targetId
       ? rows.find(
           (row) =>
@@ -281,12 +279,23 @@ function ChatAreaBase() {
               row.item.mediaGroup?.some((message) => message.id === targetId)),
         )
       : undefined;
-    if (initialChatScrollMode === "unread" && !targetRow) return;
+    if (initialChatScrollMode === "unread" && targetId && !targetRow) {
+      // 未読がまだ読み込まれていない（履歴の奥にある）→ 過去を読み込みつつ上端で待機
+      window.dispatchEvent(
+        new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+      );
+      return;
+    }
     const frame = requestAnimationFrame(() => {
       openedChatRef.current = activeChatId;
-      if (targetId) {
-        scrollToMessagePosition(targetId, { behavior: "auto", center: true }, targetRow?.key);
-      } else scrollToBottom("auto");
+      if (targetId && targetRow) {
+        scrollToMessagePosition(targetId, { behavior: "auto", center: true }, targetRow.key);
+      } else if (targetId && !targetRow) {
+        // フォールバック: 見つからなければ末尾
+        scrollToBottom("auto");
+      } else {
+        scrollToBottom("auto");
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [
@@ -294,7 +303,6 @@ function ChatAreaBase() {
     chatMessages,
     initialChatScrollMessageId,
     initialChatScrollMode,
-    hasMeasured,
     rows,
     scrollToBottom,
     scrollToMessagePosition,
