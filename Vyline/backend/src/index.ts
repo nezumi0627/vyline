@@ -41,6 +41,10 @@ const STATIC_DIR =
 
 const app = new Hono();
 
+function subdeviceInstallationId(c: Context) {
+  return c.req.header("x-vyline-installation-id");
+}
+
 function isPublicPairingRequest(path: string, method: string) {
   if (method === "GET") return /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+$/.test(path);
   return method === "POST" && /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+\/complete$/.test(path);
@@ -61,7 +65,7 @@ app.use("/api/*", async (c, next) => {
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
   const auth = c.req.header("authorization") ?? "";
   const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session))) {
+  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c)))) {
     return c.json({ ok: false, error: "subdevice authentication required" }, 401);
   }
   return next();
@@ -71,7 +75,7 @@ app.use("/auth/*", async (c, next) => {
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
   const auth = c.req.header("authorization") ?? "";
   const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session))) {
+  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c)))) {
     return c.json({ ok: false, error: "subdevice authentication required" }, 401);
   }
   return next();
@@ -324,6 +328,7 @@ export default {
         !local &&
         !(await isSubdeviceSessionValid(
           (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""),
+          request.headers.get("x-vyline-installation-id") ?? undefined,
         ))
       ) {
         return new Response("subdevice authentication required", { status: 401 });

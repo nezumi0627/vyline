@@ -18,15 +18,18 @@ afterAll(async () => {
 
 describe("subdevice pairing", () => {
   test("consumes a pairing token and blocks the resulting session", async () => {
+    const installationId = crypto.randomUUID();
     const pairing = await store.createPairing("account-1");
     expect(await store.getPairing(pairing.token)).not.toBeNull();
 
-    const completed = await store.completePairing(pairing.token, "iPhone", "ios");
+    const completed = await store.completePairing(pairing.token, "iPhone", "ios", installationId);
     expect(completed?.device.accountId).toBe("account-1");
     expect(await store.getPairing(pairing.token)).toBeNull();
-    expect(await store.isSubdeviceSessionValid(completed!.sessionToken)).toBe(true);
+    expect(await store.isSubdeviceSessionValid(completed!.sessionToken, installationId)).toBe(true);
 
     await store.setSubdeviceBlocked(completed!.device.id, true);
-    expect(await store.isSubdeviceSessionValid(completed!.sessionToken)).toBe(false);
+    expect(await store.isSubdeviceSessionValid(completed!.sessionToken, installationId)).toBe(
+      false,
+    );
   });
 });
