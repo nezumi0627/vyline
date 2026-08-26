@@ -2065,6 +2065,7 @@ export async function markAsRead(
       sessionId: 0,
     });
     await markStoredMessagesReadThrough(accountId, chatMid, messageId);
+    // サーバ側未読を即時0にするためキャッシュを無効化（次の getMessageBoxes / getChats で新鮮な unreadCount を取得）
     try {
       invalidateMessageBoxesCache(accountId);
       chatsCache.delete(accountId);

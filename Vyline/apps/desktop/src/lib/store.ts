@@ -76,6 +76,9 @@ const backfillInflight = new Map<string, Promise<void>>();
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
+/** 最近既読にした chat の時刻（サーバ反映前の未読上書き抑止） */
+const recentlyReadAt = new Map<string, number>();
+const RECENTLY_READ_WINDOW_MS = 60_000;
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
 
@@ -288,6 +291,16 @@ export const UPDATE_NOTES = {
     "protocol / backend / desktop / ios-backup の TypeScript 起動を安定化",
   ],
 };
+
+/** 起動時に開くチャットを、現在の選択と取得済み一覧から安全に決める。 */
+export function resolveChatToOpen(
+  _accountId: string | null,
+  activeChatId: string | null,
+  availableChatIds: readonly string[],
+): string | null {
+  if (activeChatId && availableChatIds.includes(activeChatId)) return activeChatId;
+  return availableChatIds[0] ?? null;
+}
 
 type State = {
   screen: Screen;
@@ -1696,6 +1709,8 @@ export const useStore = create<State>()(
           ? received.find((message) => message.id === requestedMessageId)
           : undefined;
         const last = requested ?? received[0];
+        const localKey = accountId ? accountChatKey(accountId, id) : null;
+        if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
           messages: st.messages.map((m) => {
@@ -1723,6 +1738,7 @@ export const useStore = create<State>()(
           await api.line.markAsRead(accountId, id, lastId);
         } catch {
           if (lastId) readReceiptSent.delete(receiptKey);
+          if (localKey) recentlyReadAt.delete(localKey);
         }
       },
 
@@ -1733,6 +1749,9 @@ export const useStore = create<State>()(
           .chats.filter((chat) => chat.unread > 0 && !readDisabledMids[chat.id])
           .map((chat) => chat.id);
         if (unreadChatIds.length === 0) return;
+        for (const chatId of unreadChatIds) {
+          recentlyReadAt.set(accountChatKey(accountId, chatId), Date.now());
+        }
         // バックエンドの bulk API で一括既読（個別ループより高速）
         try {
           await api.line.markAllAsRead(accountId, unreadChatIds);
@@ -1891,6 +1910,16 @@ export const useStore = create<State>()(
                       : prev?.name && !looksLikeMid(prev.name)
                         ? prev.name
                         : base.name;
+                  const recentlyKey = accountChatKey(accountId, c.mid);
+                  const recentAt = recentlyReadAt.get(recentlyKey);
+                  const isRecentlyRead =
+                    recentAt != null && Date.now() - recentAt < RECENTLY_READ_WINDOW_MS;
+                  const serverUnread = c.unreadCount ?? prev?.unread ?? 0;
+                  // 最近既読にしたチャットはサーバ反映前でも未読0を維持（新着があれば poll で上書きされる）
+                  const nextUnread =
+                    isRecentlyRead && serverUnread > 0 && st.activeChatId !== c.mid
+                      ? 0
+                      : serverUnread;
                   return prev
                     ? {
                         ...base,
@@ -1902,7 +1931,7 @@ export const useStore = create<State>()(
                         hidden: prev.hidden,
                         localName: prev.localName,
                         members: prev.members,
-                        unread: st.activeChatId === c.mid ? 0 : (c.unreadCount ?? prev.unread),
+                        unread: st.activeChatId === c.mid ? 0 : nextUnread,
                         lastMessagePreview:
                           c.lastMessagePreview && c.lastMessagePreview !== "暗号化メッセージ"
                             ? c.lastMessagePreview
