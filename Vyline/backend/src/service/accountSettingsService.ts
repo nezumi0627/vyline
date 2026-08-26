@@ -54,18 +54,30 @@ export async function loadAccountSettings(mid: string): Promise<AccountSettings>
   }
 }
 
-export async function saveAccountSettings(mid: string, patch: Partial<AccountSettings>): Promise<AccountSettings> {
+export async function saveAccountSettings(
+  mid: string,
+  patch: Partial<AccountSettings>,
+): Promise<AccountSettings> {
   const next = migrate({ ...(await loadAccountSettings(mid)), ...patch });
   await writeJsonAtomic(pathFor(mid), next);
   return next;
 }
 
-export async function updateSetup(mid: string, step: number, patch: Partial<AccountSettings>): Promise<AccountSettings> {
+export async function updateSetup(
+  mid: string,
+  step: number,
+  patch: Partial<AccountSettings>,
+): Promise<AccountSettings> {
   const current = await loadAccountSettings(mid);
   const completed = step >= 3;
   return saveAccountSettings(mid, {
     ...patch,
-    setup: { ...current.setup, step: Math.max(0, Math.min(step, 3)), completed, ...(completed ? { completedAt: new Date().toISOString() } : {}) },
+    setup: {
+      ...current.setup,
+      step: Math.max(0, Math.min(step, 3)),
+      completed,
+      ...(completed ? { completedAt: new Date().toISOString() } : {}),
+    },
   });
 }
 

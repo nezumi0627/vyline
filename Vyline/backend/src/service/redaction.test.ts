@@ -3,7 +3,9 @@ import { anonymousId, redactForDiagnostics } from "./redaction.js";
 
 describe("diagnostic redaction", () => {
   test("removes credentials and PII by field name", () => {
-    expect(redactForDiagnostics({ authToken: "secret", mid: "u123", text: "hello", count: 2 })).toEqual({
+    expect(
+      redactForDiagnostics({ authToken: "secret", mid: "u123", text: "hello", count: 2 }),
+    ).toEqual({
       authToken: "[REDACTED_SECRET]",
       mid: "[REDACTED_PII]",
       text: "[REDACTED_PII]",

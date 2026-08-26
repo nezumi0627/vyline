@@ -12,7 +12,11 @@ export function redactForDiagnostics(input: unknown, key = ""): unknown {
   if (PII_KEY.test(key)) return "[REDACTED_PII]";
   if (Array.isArray(input)) return input.slice(0, 100).map((value) => redactForDiagnostics(value));
   if (input && typeof input === "object") {
-    return Object.fromEntries(Object.entries(input).slice(0, 200).map(([childKey, value]) => [childKey, redactForDiagnostics(value, childKey)]));
+    return Object.fromEntries(
+      Object.entries(input)
+        .slice(0, 200)
+        .map(([childKey, value]) => [childKey, redactForDiagnostics(value, childKey)]),
+    );
   }
   if (typeof input === "string" && input.length > 512) return `${input.slice(0, 512)}…`;
   return input;
