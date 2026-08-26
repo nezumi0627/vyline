@@ -392,9 +392,9 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "LINE: TalkService.sendChatChecked",
       tags: ["messages"],
       params: [acc],
-      requestBody: body(["chatMid", "messageId"], {
+      requestBody: body(["chatMid", "lastMessageId"], {
         chatMid: { type: "string" },
-        messageId: { type: "string" },
+        lastMessageId: { type: "string" },
       }),
       responses: { "200": okRes() },
     },
@@ -409,6 +409,46 @@ const routes: Array<[string, Method, OpSpec]> = [
       tags: ["messages"],
       params: [acc, chatMid],
       responses: { "200": jsonRes("既読範囲") },
+    },
+  ],
+  [
+    "/line/{accountId}/read-batch",
+    "post",
+    {
+      op: "sendChatCheckedBatch",
+      summary: "複数チャットを既読",
+      description: "通常トーク用の既読送信をチャットごとに順次実行",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["targets"], {
+        targets: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["chatMid", "lastMessageId"],
+            properties: {
+              chatMid: { type: "string" },
+              lastMessageId: { type: "string" },
+            },
+          },
+        },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/read-all",
+    "post",
+    {
+      op: "sendChatCheckedAll",
+      summary: "全チャットを既読",
+      description: "getMessageBoxesで未読チャットを取得し、通常トークの既読APIを順次実行",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body([], {
+        chatMids: { type: "array", items: { type: "string" } },
+      }),
+      responses: { "200": okRes() },
     },
   ],
   [
