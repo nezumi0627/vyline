@@ -63,7 +63,8 @@ type Section =
   | "subdevices"
   | "storage"
   | "info"
-  | "beta";
+  | "beta"
+  | "handoff";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
@@ -77,6 +78,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
+  { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
 ];
 
 function Row({
@@ -564,6 +566,8 @@ export function SettingsSections() {
 
               {section === "info" && <InfoSection />}
 
+              {section === "handoff" && <HandoffSection />}
+
               {section === "beta" && (
                 <>
                   <BetaSection />
@@ -576,6 +580,151 @@ export function SettingsSections() {
         </div>
       </div>
     </div>
+  );
+}
+
+function HandoffSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [message, setMessage] = useState<string | null>(null);
+  const [entries, setEntries] = useState<unknown[]>([]);
+  const download = (name: string, content: BlobPart, type: string) => {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportHandoff = async () => {
+    if (!accountId) return setMessage("ログインが必要です");
+    const result = await api.handoff.export(accountId);
+    const bytes = Uint8Array.from(atob(result.archiveBase64), (char) => char.charCodeAt(0));
+    download(result.filename, bytes, "application/zip");
+    setMessage("引継ぎZIPを作成しました");
+  };
+  const importHandoff = () => {
+    if (!accountId) return setMessage("ログインが必要です");
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".zip";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
+      const result = await api.handoff.import(accountId, data, "overwrite");
+      setMessage(
+        result.ok ? "引継ぎを適用しました。必要なら再起動してください" : "引継ぎに失敗しました",
+      );
+    };
+    input.click();
+  };
+  const exportLogs = async () => {
+    if (!accountId) return setMessage("ログインが必要です");
+    const result = await api.diagnostics.export(accountId);
+    download("vyline-diagnostics.json", result.content, "application/json");
+    setMessage("サニタイズ済みログを出力しました");
+  };
+  const loadLogs = async () => {
+    if (!accountId) return setMessage("ログインが必要です");
+    const result = await api.diagnostics.list(accountId);
+    setEntries(result.entries);
+    setMessage(`${result.entries.length}件のログを読み込みました`);
+  };
+  const reportIssue = async () => {
+    if (!accountId) return setMessage("ログインが必要です");
+    const result = await api.diagnostics.export(accountId);
+    const body = [
+      "## 問題の概要",
+      "",
+      "（ここに問題を記入してください）",
+      "",
+      "## Vyline診断情報",
+      "",
+      "```json",
+      result.content.slice(0, 12000),
+      "```",
+      "",
+    ].join("\n");
+    const url = `https://github.com/nezumi0627/vyline/issues/new?title=${encodeURIComponent("Vyline issue")}&body=${encodeURIComponent(body)}`;
+    window.open(url, "_blank", "noopener,noreferrer");
+  };
+  return (
+    <>
+      <Section
+        title="引継ぎ"
+        desc="設定だけを安全に別のVylineへ移行します。認証情報やトークンは含みません。"
+      >
+        <Card>
+          <Row title="引継ぎZIPを作成" desc="manifestと改ざん検知用ハッシュを含めます">
+            <button
+              type="button"
+              onClick={() => void exportHandoff()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              エクスポート
+            </button>
+          </Row>
+          <Row title="引継ぎZIPを適用" desc="適用前に既存設定をバックアップします">
+            <button
+              type="button"
+              onClick={importHandoff}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              インポート
+            </button>
+          </Row>
+        </Card>
+      </Section>
+      <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
+        <Card>
+          <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
+            <button
+              type="button"
+              onClick={() => void exportLogs()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              出力
+            </button>
+          </Row>
+          <Row title="ログ一覧" desc="共有前にサニタイズ済みの内容を確認します">
+            <button
+              type="button"
+              onClick={() => void loadLogs()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              確認
+            </button>
+          </Row>
+          <Row title="GitHubで問題を報告" desc="ログを自動添付したIssue作成画面を開きます">
+            <button
+              type="button"
+              onClick={() => void reportIssue()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              Issue作成
+            </button>
+          </Row>
+          <Row title="ログを削除" desc="保存済みの診断ログを削除します">
+            <button
+              type="button"
+              onClick={() =>
+                accountId &&
+                void api.diagnostics.clear(accountId).then(() => setMessage("ログを削除しました"))
+              }
+              className="rounded-lg border border-red-400/50 px-3 py-1.5 text-xs text-red-300"
+            >
+              削除
+            </button>
+          </Row>
+        </Card>
+        {entries.length > 0 && (
+          <pre className="mt-3 max-h-56 overflow-auto rounded-xl bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
+            {JSON.stringify(entries, null, 2)}
+          </pre>
+        )}
+      </Section>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
+    </>
   );
 }
 

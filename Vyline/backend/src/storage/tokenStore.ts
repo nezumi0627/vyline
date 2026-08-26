@@ -23,6 +23,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { protectSecret, unprotectSecret } from "./secureStore.js";
 
 const log = childLogger("tokenStore");
 
@@ -32,6 +33,7 @@ const TOKENS_FILE = join(DATA_DIR, "tokens.json");
 
 export interface TokenEntry {
   authToken: string;
+  authTokenProtected?: string;
   /** VylineFileStorage のパス */
   storageFile: string;
   savedAt: string;
@@ -49,6 +51,16 @@ export interface TokenEntry {
 }
 
 export type TokenMap = Record<string, TokenEntry>;
+
+async function persistTokens(tokens: TokenMap): Promise<void> {
+  const persisted = Object.fromEntries(
+    Object.entries(tokens).map(([id, entry]) => {
+      const { authToken: _plain, ...safeEntry } = entry;
+      return [id, entry.authTokenProtected ? safeEntry : entry];
+    }),
+  );
+  await writeFile(TOKENS_FILE, JSON.stringify(persisted, null, 2), "utf-8");
+}
 
 export type SessionMeta = {
   mid?: string;
@@ -80,7 +92,10 @@ export async function loadTokens(): Promise<TokenMap> {
     // 空トークンのゴミを除外
     const cleaned: TokenMap = {};
     for (const [id, entry] of Object.entries(parsed)) {
-      if (entry?.authToken && typeof entry.authToken === "string") {
+      if (entry?.authTokenProtected && typeof entry.authTokenProtected === "string") {
+        const token = await unprotectSecret(entry.authTokenProtected);
+        cleaned[id] = { ...entry, authToken: token };
+      } else if (entry?.authToken && typeof entry.authToken === "string") {
         cleaned[id] = entry;
       }
     }
@@ -123,6 +138,13 @@ export async function saveToken(
     storageFile: existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
     savedAt: new Date().toISOString(),
   };
+  try {
+    entry.authTokenProtected = await protectSecret(token);
+  } catch (error) {
+    if (process.platform === "win32") throw error;
+    entry.authToken = token;
+    log.warn("OS secure storage unavailable; token is stored only for local development");
+  }
   const mid = meta?.mid ?? existing?.mid;
   const displayName = meta?.displayName ?? existing?.displayName;
   const picturePath = meta?.picturePath ?? existing?.picturePath;
@@ -135,7 +157,7 @@ export async function saveToken(
   if (premium) entry.premium = premium;
   tokens[accountId] = entry;
 
-  await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  await persistTokens(tokens);
   log.info({ accountId, displayName: entry.displayName, mid: entry.mid }, "token saved");
 }
 
@@ -150,13 +172,13 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
   tokens[accountId] = existing;
-  await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  await persistTokens(tokens);
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
   const tokens = await loadTokens();
   delete tokens[accountId];
-  await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  await persistTokens(tokens);
   log.info({ accountId }, "token deleted");
 }
 
@@ -192,7 +214,7 @@ export async function listSavedSessions(): Promise<
       } = {
         accountId,
         savedAt: entry.savedAt,
-        hasToken: Boolean(entry.authToken),
+        hasToken: Boolean(entry.authToken || entry.authTokenProtected),
       };
       if (entry.mid) row.mid = entry.mid;
       if (entry.displayName) row.displayName = entry.displayName;

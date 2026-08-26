@@ -11,8 +11,9 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { writeJsonAtomic } from "./safeFile.js";
 
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
 const ACCOUNTS_ROOT = join(DATA_DIR, "accounts");
@@ -59,7 +60,7 @@ export function ensureAccount(accountId: string): void {
         dirName: safeId(accountId),
         registeredAt: new Date().toISOString(),
       });
-      require("node:fs").writeFileSync(REGISTRY_PATH, JSON.stringify(reg, null, 2), "utf8");
+      void writeJsonAtomic(REGISTRY_PATH, reg);
     }
   } catch {
     /* レジストリ失敗はデータ分離に影響させない */
@@ -88,7 +89,7 @@ export async function readAccountJson<T>(
     try {
       const parsed = JSON.parse(await readFile(legacyPath, "utf8")) as T;
       await mkdir(dirname(newPath), { recursive: true });
-      await writeFile(newPath, JSON.stringify(parsed), "utf8");
+      await writeJsonAtomic(newPath, parsed);
       return parsed;
     } catch {
       return null;
