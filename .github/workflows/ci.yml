@@ -7,6 +7,16 @@ on:
     branches: [main, master]
 
 jobs:
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun run docs:readme:check
+
   typecheck:
     name: TypeScript
     runs-on: ubuntu-latest
