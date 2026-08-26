@@ -80,6 +80,23 @@ const recentlyReadAt = new Map<string, number>();
 const RECENTLY_READ_WINDOW_MS = 60_000;
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
+const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
+
+function readLastOpenedChat(accountId: string): string | null {
+  try {
+    return localStorage.getItem(lastOpenedChatStorageKey(accountId));
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastOpenedChat(accountId: string, chatId: string): void {
+  try {
+    localStorage.setItem(lastOpenedChatStorageKey(accountId), chatId);
+  } catch {
+    /* localStorage may be unavailable in restricted browser contexts */
+  }
+}
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
@@ -522,7 +539,10 @@ export const useStore = create<State>()(
       },
 
       setAccountId: (id) => {
-        if (id !== get().accountId) {
+        const currentAccountId = get().accountId;
+        const accountChanged = id !== currentAccountId;
+        const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
+        if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
@@ -532,14 +552,14 @@ export const useStore = create<State>()(
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
-        if (id !== get().accountId) {
+        if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
             accountId: id,
             chats: [],
             messages: [],
-            activeChatId: null,
+            activeChatId: lastOpenedChatId,
             initialChatScrollMessageId: null,
             memberProfile: null,
             readWatermarks: {},
@@ -547,7 +567,10 @@ export const useStore = create<State>()(
             blockedMids: [],
           });
         } else {
-          set({ accountId: id });
+          set({
+            accountId: id,
+            ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
+          });
         }
       },
 
@@ -555,7 +578,6 @@ export const useStore = create<State>()(
         set({
           chats: [],
           messages: [],
-          activeChatId: null,
           profileDrawerOpen: false,
           announcements: {},
           drafts: {},
@@ -596,6 +618,8 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
+        const { accountId } = get();
+        if (accountId) rememberLastOpenedChat(accountId, id);
         get()._activateChat(id, { history: true });
       },
 
