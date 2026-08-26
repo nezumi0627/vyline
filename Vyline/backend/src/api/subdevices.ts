@@ -5,6 +5,7 @@ import {
   completePairing,
   createPairing,
   getPairing,
+  isValidInstallationId,
   listSubdevices,
   removeSubdevice,
   setSubdeviceBlocked,
@@ -59,6 +60,10 @@ function bearer(c: { req: { header(name: string): string | undefined } }) {
   return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
 }
 
+function installationId(c: { req: { header(name: string): string | undefined } }) {
+  return c.req.header("x-vyline-installation-id");
+}
+
 subdeviceRouter.post("/pairing", async (c) => {
   const body = await c.req
     .json<{ accountId?: string; origin?: string }>()
@@ -96,7 +101,11 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
   const platform = ["ios", "android", "web", "unknown"].includes(body.platform ?? "")
     ? body.platform!
     : "unknown";
-  const result = await completePairing(c.req.param("token"), body.name ?? "", platform);
+  const deviceId = installationId(c);
+  if (!isValidInstallationId(deviceId)) {
+    return c.json({ ok: false, error: "valid device installation ID required" }, 400);
+  }
+  const result = await completePairing(c.req.param("token"), body.name ?? "", platform, deviceId);
   return result
     ? c.json({ ok: true, ...result })
     : c.json({ ok: false, error: "pairing expired or already used" }, 410);
@@ -105,7 +114,7 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
 subdeviceRouter.get("/", async (c) => c.json({ ok: true, devices: await listSubdevices() }));
 
 subdeviceRouter.post("/heartbeat", async (c) => {
-  const device = await authenticateSubdevice(bearer(c));
+  const device = await authenticateSubdevice(bearer(c), installationId(c));
   return device ? c.json({ ok: true, device }) : c.json({ ok: false, error: "unauthorized" }, 401);
 });
 

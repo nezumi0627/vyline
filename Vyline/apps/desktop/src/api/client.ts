@@ -49,6 +49,17 @@ export interface AgentIHistoryItem {
 }
 
 const BASE = "/api";
+const SUBDEVICE_INSTALLATION_ID_KEY = "vyline:subdevice-installation-id";
+const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function getSubdeviceInstallationId(): string | null {
+  if (typeof localStorage === "undefined" || typeof crypto?.randomUUID !== "function") return null;
+  const existing = localStorage.getItem(SUBDEVICE_INSTALLATION_ID_KEY);
+  if (existing && INSTALLATION_ID_RE.test(existing)) return existing;
+  const created = crypto.randomUUID();
+  localStorage.setItem(SUBDEVICE_INSTALLATION_ID_KEY, created);
+  return created;
+}
 
 /** バックエンド未起動時は TypeError(ECONNREFUSED) が飛ぶ → 静かに失敗 */
 function isBackendDown(err: unknown): boolean {
@@ -69,12 +80,14 @@ async function request<T>(
   let res: Response;
   const sessionToken =
     typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
+  const installationId = getSubdeviceInstallationId();
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
         ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
         ...(extraHeaders ?? {}),
       },
       body: body ? JSON.stringify(body) : undefined,
