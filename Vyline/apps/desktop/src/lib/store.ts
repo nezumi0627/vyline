@@ -77,6 +77,23 @@ const contactFetched = new Set<string>();
 const sessionOpenedChats = new Set<string>();
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
+const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
+
+function readLastOpenedChat(accountId: string): string | null {
+  try {
+    return localStorage.getItem(lastOpenedChatStorageKey(accountId));
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastOpenedChat(accountId: string, chatId: string): void {
+  try {
+    localStorage.setItem(lastOpenedChatStorageKey(accountId), chatId);
+  } catch {
+    /* localStorage may be unavailable in restricted browser contexts */
+  }
+}
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
@@ -521,6 +538,7 @@ export const useStore = create<State>()(
       setAccountId: (id) => {
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
+        const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
         if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
@@ -538,7 +556,7 @@ export const useStore = create<State>()(
             accountId: id,
             chats: [],
             messages: [],
-            activeChatId: null,
+            activeChatId: lastOpenedChatId,
             initialChatScrollMessageId: null,
             memberProfile: null,
             readWatermarks: {},
@@ -546,7 +564,10 @@ export const useStore = create<State>()(
             blockedMids: [],
           });
         } else {
-          set({ accountId: id });
+          set({
+            accountId: id,
+            ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
+          });
         }
       },
 
@@ -594,6 +615,8 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
+        const { accountId } = get();
+        if (accountId) rememberLastOpenedChat(accountId, id);
         get()._activateChat(id, { history: true });
       },
 
