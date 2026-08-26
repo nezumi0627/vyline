@@ -75,41 +75,8 @@ const backfillInflight = new Map<string, Promise<void>>();
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
-/** 最近既読にした chat の時刻（サーバ反映前の未読上書き抑止） */
-const recentlyReadAt = new Map<string, number>();
-const RECENTLY_READ_WINDOW_MS = 60_000;
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
-const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
-
-function readLastOpenedChat(accountId: string): string | null {
-  try {
-    return localStorage.getItem(lastOpenedChatStorageKey(accountId));
-  } catch {
-    return null;
-  }
-}
-
-function rememberLastOpenedChat(accountId: string, chatId: string): void {
-  try {
-    localStorage.setItem(lastOpenedChatStorageKey(accountId), chatId);
-  } catch {
-    /* localStorage may be unavailable in restricted browser contexts */
-  }
-}
-
-/** 起動時の選択候補は、明示保存したチャットを常に優先する。 */
-export function resolveChatToOpen(
-  accountId: string | null,
-  activeChatId: string | null,
-  availableChatIds: readonly string[],
-): string | null {
-  const rememberedChatId = accountId ? readLastOpenedChat(accountId) : null;
-  for (const chatId of [rememberedChatId, activeChatId]) {
-    if (chatId && availableChatIds.includes(chatId)) return chatId;
-  }
-  return availableChatIds[0] ?? null;
-}
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
@@ -552,10 +519,7 @@ export const useStore = create<State>()(
       },
 
       setAccountId: (id) => {
-        const currentAccountId = get().accountId;
-        const accountChanged = id !== currentAccountId;
-        const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
-        if (accountChanged) {
+        if (id !== get().accountId) {
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
@@ -565,14 +529,14 @@ export const useStore = create<State>()(
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
-        if (accountChanged && currentAccountId !== null) {
+        if (id !== get().accountId) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
             accountId: id,
             chats: [],
             messages: [],
-            activeChatId: lastOpenedChatId,
+            activeChatId: null,
             initialChatScrollMessageId: null,
             memberProfile: null,
             readWatermarks: {},
@@ -580,10 +544,7 @@ export const useStore = create<State>()(
             blockedMids: [],
           });
         } else {
-          set({
-            accountId: id,
-            ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
-          });
+          set({ accountId: id });
         }
       },
 
@@ -591,6 +552,7 @@ export const useStore = create<State>()(
         set({
           chats: [],
           messages: [],
+          activeChatId: null,
           profileDrawerOpen: false,
           announcements: {},
           drafts: {},
@@ -635,10 +597,6 @@ export const useStore = create<State>()(
       },
 
       _activateChat: (id, opts) => {
-        if (!id) {
-          get().closeChat();
-          return;
-        }
         const opts2 = opts ?? {};
         const firstUnread = get()
           .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
@@ -661,7 +619,6 @@ export const useStore = create<State>()(
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
         const { accountId, settings, chats, demoMode } = get();
-        if (accountId) rememberLastOpenedChat(accountId, id);
         if (demoMode) return;
         if (accountId && settings.readReceipts) {
           void get().markChatRead(id);
@@ -817,10 +774,10 @@ export const useStore = create<State>()(
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
-        const visibleChatIds = mappedChats
-          .filter((chat) => !dismissed.has(chat.id) || restored.has(chat.id))
-          .map((chat) => chat.id);
-        const chatId = resolveChatToOpen(accountId, activeChatId, visibleChatIds);
+        const chatId =
+          activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
+            ? activeChatId
+            : (mappedChats[0]?.id ?? null);
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
         const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
         const mappedMessages =
@@ -879,7 +836,7 @@ export const useStore = create<State>()(
             const keep = pending.filter((p) => !ids.has(p.id));
             return [...mappedMessages, ...keep];
           })(),
-          activeChatId: chatId,
+          activeChatId: st.activeChatId ?? chatId,
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
           self: profile
             ? {
@@ -1737,8 +1694,6 @@ export const useStore = create<State>()(
           ? received.find((message) => message.id === requestedMessageId)
           : undefined;
         const last = requested ?? received[0];
-        const localKey = accountId ? accountChatKey(accountId, id) : null;
-        if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
           messages: st.messages.map((m) => {
@@ -1764,12 +1719,8 @@ export const useStore = create<State>()(
         if (lastId) readReceiptSent.set(receiptKey, lastId);
         try {
           await api.line.markAsRead(accountId, id, lastId);
-          void get()
-            .refreshChatsSilently()
-            .catch(() => undefined);
         } catch {
           if (lastId) readReceiptSent.delete(receiptKey);
-          if (localKey) recentlyReadAt.delete(localKey);
         }
       },
 
@@ -1780,9 +1731,6 @@ export const useStore = create<State>()(
           .chats.filter((chat) => chat.unread > 0 && !readDisabledMids[chat.id])
           .map((chat) => chat.id);
         if (unreadChatIds.length === 0) return;
-        for (const chatId of unreadChatIds) {
-          recentlyReadAt.set(accountChatKey(accountId, chatId), Date.now());
-        }
         // バックエンドの bulk API で一括既読（個別ループより高速）
         try {
           await api.line.markAllAsRead(accountId, unreadChatIds);
@@ -1804,9 +1752,6 @@ export const useStore = create<State>()(
               : message,
           ),
         }));
-        void get()
-          .refreshChatsSilently()
-          .catch(() => undefined);
       },
 
       setDraft: (chatId, text) => set((st) => ({ drafts: { ...st.drafts, [chatId]: text } })),
@@ -1835,7 +1780,6 @@ export const useStore = create<State>()(
           activeChatId: memberMid,
         });
         const { accountId, settings } = get();
-        if (accountId) rememberLastOpenedChat(accountId, memberMid);
         if (accountId && settings.readReceipts) {
           void get().markChatRead(memberMid);
         }
@@ -1945,15 +1889,6 @@ export const useStore = create<State>()(
                       : prev?.name && !looksLikeMid(prev.name)
                         ? prev.name
                         : base.name;
-                  const recentlyKey = accountChatKey(accountId, c.mid);
-                  const recentAt = recentlyReadAt.get(recentlyKey);
-                  const isRecentlyRead =
-                    recentAt != null && Date.now() - recentAt < RECENTLY_READ_WINDOW_MS;
-                  const serverUnread = c.unreadCount ?? prev?.unread ?? 0;
-                  const nextUnread =
-                    isRecentlyRead && serverUnread > 0 && st.activeChatId !== c.mid
-                      ? 0
-                      : serverUnread;
                   return prev
                     ? {
                         ...base,
@@ -1965,7 +1900,7 @@ export const useStore = create<State>()(
                         hidden: prev.hidden,
                         localName: prev.localName,
                         members: prev.members,
-                        unread: st.activeChatId === c.mid ? 0 : nextUnread,
+                        unread: st.activeChatId === c.mid ? 0 : (c.unreadCount ?? prev.unread),
                         lastMessagePreview:
                           c.lastMessagePreview && c.lastMessagePreview !== "暗号化メッセージ"
                             ? c.lastMessagePreview
@@ -2699,7 +2634,9 @@ export const useStore = create<State>()(
                   } else if (ev.kind === "read") {
                     // 外部クライアントで既読された場合もローカル未読を即時クリア
                     set((st) => ({
-                      chats: st.chats.map((c) => (c.id === ev.chatMid ? { ...c, unread: 0 } : c)),
+                      chats: st.chats.map((c) =>
+                        c.id === ev.chatMid ? { ...c, unread: 0 } : c,
+                      ),
                       messages: st.messages.map((m) =>
                         m.chatId === ev.chatMid && m.authorId !== "me"
                           ? { ...m, read: true, status: "read" }
@@ -2712,9 +2649,7 @@ export const useStore = create<State>()(
                         .catch(() => undefined);
                     }
                     // 未読カウントのサーバ側整合も早めに取り直す
-                    void get()
-                      .refreshChatsSilently()
-                      .catch(() => undefined);
+                    void get().refreshChatsSilently().catch(() => undefined);
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;
