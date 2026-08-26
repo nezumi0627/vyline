@@ -67,11 +67,14 @@ store = store.replace(
 write(storePath, store);
 
 // 3. README badge (shields.io は `-` を `--` にエスケープ)
-const readmePath = "README.md";
+const readmePath = "README.src.md";
 write(
   readmePath,
   read(readmePath).replace(/badge\/version-[\w.-]+-a78bfa/, `badge/version-${next.replaceAll("-", "--")}-a78bfa`),
 );
+
+const readmeGenerator = Bun.spawnSync(["bun", "scripts/generate-readmes.ts"]);
+if (readmeGenerator.exitCode !== 0) throw new Error("README の再生成に失敗しました。");
 
 console.log(`バージョンを ${current} → ${next} に更新しました。`);
 console.log("次の手動作業:");
