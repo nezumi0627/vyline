@@ -1136,4 +1136,33 @@ export const api = {
         { step, settings },
       ),
   },
+  handoff: {
+    export: (mid: string) =>
+      request<{ ok: boolean; filename: string; archiveBase64: string; manifest: unknown }>(
+        "POST",
+        `/handoff/${encodeURIComponent(mid)}/export`,
+        {},
+        { "x-vyline-platform": "desktop" },
+      ),
+    import: (mid: string, archiveBase64: string, mode: "overwrite" | "merge" | "cancel") =>
+      request<{ ok: boolean; imported: string[]; manifest: unknown }>(
+        "POST",
+        `/handoff/${encodeURIComponent(mid)}/import`,
+        { archiveBase64, mode },
+      ),
+  },
+  diagnostics: {
+    list: (mid: string) =>
+      request<{ ok: boolean; entries: unknown[] }>(
+        "GET",
+        `/diagnostics/${encodeURIComponent(mid)}`,
+      ),
+    clear: (mid: string) =>
+      request<{ ok: boolean }>("DELETE", `/diagnostics/${encodeURIComponent(mid)}`),
+    export: (mid: string) =>
+      request<{ ok: boolean; content: string }>(
+        "GET",
+        `/diagnostics/${encodeURIComponent(mid)}/export`,
+      ),
+  },
 };

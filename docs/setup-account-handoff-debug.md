@@ -16,10 +16,9 @@
 VylineData/
 ├─ accounts/{safe-mid}/settings.json
 ├─ accounts/{safe-mid}/preferences.json
-├─ accounts/{safe-mid}/debug/
-├─ accounts/{safe-mid}/handoff/
+├─ accounts/{safe-mid}/handoff.json
 ├─ global/app-settings.json
-└─ logs/
+└─ logs/diagnostics-{safe-mid}.jsonl
 ```
 
 認証token、Cookie、パスワード、E2EE鍵、秘密鍵、トーク本文は設定・引継ぎ・共有ログから除外します。旧flat形式は新形式へコピーして移行し、移行失敗時は元データを削除しません。
@@ -30,4 +29,12 @@ VylineData/
 
 ## 実装ステータス
 
-現在のPRでは共通型、MID単位設定API、Setup進捗、原子的保存、診断マスキングを実装します。引継ぎZIP・OS credential store・診断ログUI・GitHub Issueフォームは同じ契約上に段階追加します。
+実装済みのAPIは以下です。
+
+- `POST /api/handoff/:mid/export`: manifest・ファイルSHA-256付きの実ZIPを生成
+- `POST /api/handoff/:mid/import`: ZIP、manifest、対応version、各ファイルのハッシュを検証して適用
+- `GET /api/diagnostics/:mid`: MID単位の診断ログ一覧
+- `GET /api/diagnostics/:mid/export`: サニタイズ済みログを取得
+- `DELETE /api/diagnostics/:mid`: 診断ログを削除
+
+Windowsでは認証tokenをDPAPI(CurrentUser)で保護します。Desktop設定画面には引継ぎ、ログ一覧、ログ出力、ログ削除、GitHub Issue作成画面への導線を追加しています。Issue作成はGitHub APIへtokenを渡さず、サニタイズ済みログを本文にしたIssue作成URLを開きます。
