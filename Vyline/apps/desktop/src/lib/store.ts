@@ -37,6 +37,7 @@ import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
+import { findFirstUnreadMessage } from "./chatScroll.js";
 
 export type {
   Chat,
@@ -96,19 +97,6 @@ function rememberLastOpenedChat(accountId: string, chatId: string): void {
   } catch {
     /* localStorage may be unavailable in restricted browser contexts */
   }
-}
-
-/** 起動時の選択候補は、明示保存したチャットを常に優先する。 */
-export function resolveChatToOpen(
-  accountId: string | null,
-  activeChatId: string | null,
-  availableChatIds: readonly string[],
-): string | null {
-  const rememberedChatId = accountId ? readLastOpenedChat(accountId) : null;
-  for (const chatId of [rememberedChatId, activeChatId]) {
-    if (chatId && availableChatIds.includes(chatId)) return chatId;
-  }
-  return availableChatIds[0] ?? null;
 }
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
@@ -321,6 +309,15 @@ export const UPDATE_NOTES = {
   ],
 };
 
+export function resolveChatToOpen(
+  _accountId: string | null,
+  activeChatId: string | null,
+  availableChatIds: readonly string[],
+): string | null {
+  if (activeChatId && availableChatIds.includes(activeChatId)) return activeChatId;
+  return availableChatIds[0] ?? null;
+}
+
 type State = {
   screen: Screen;
   /** PRデモ用。true の間は実アカウント・外部APIを使用しない。 */
@@ -339,6 +336,7 @@ type State = {
   highlightMessageId: string | null;
   /** チャットを開くときの初期位置。未読の先頭、なければ末尾。 */
   initialChatScrollMessageId: string | null;
+  initialChatScrollMode: "unread" | "bottom" | null;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -530,6 +528,7 @@ export const useStore = create<State>()(
       replyToId: null,
       highlightMessageId: null,
       initialChatScrollMessageId: null,
+      initialChatScrollMode: null,
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -574,6 +573,7 @@ export const useStore = create<State>()(
             messages: [],
             activeChatId: lastOpenedChatId,
             initialChatScrollMessageId: null,
+            initialChatScrollMode: null,
             memberProfile: null,
             readWatermarks: {},
             announcements: {},
@@ -599,6 +599,7 @@ export const useStore = create<State>()(
           replyToId: null,
           highlightMessageId: null,
           initialChatScrollMessageId: null,
+          initialChatScrollMode: null,
           customOrder: [],
           readDisabledMids: {},
           blockedMids: [],
@@ -631,39 +632,30 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
+        const { accountId } = get();
+        if (accountId) rememberLastOpenedChat(accountId, id);
         get()._activateChat(id, { history: true });
       },
 
       _activateChat: (id, opts) => {
-        if (!id) {
-          get().closeChat();
-          return;
-        }
         const opts2 = opts ?? {};
-        const firstUnread = get()
-          .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
-          .sort((a, b) => {
-            const byTime = a.createdAt - b.createdAt;
-            if (byTime) return byTime;
-            try {
-              const left = BigInt(a.id);
-              const right = BigInt(b.id);
-              return left === right ? 0 : left < right ? -1 : 1;
-            } catch {
-              return a.id.localeCompare(b.id);
-            }
-          })[0];
+        const state = get();
+        const chat = state.chats.find((item) => item.id === id);
+        const firstUnread = findFirstUnreadMessage(
+          state.messages.filter((message) => message.chatId === id),
+        );
+        const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread);
         set((st) => ({
           screen: "chat",
           activeChatId: id,
           initialChatScrollMessageId: firstUnread?.id ?? null,
+          initialChatScrollMode: hasUnread ? "unread" : "bottom",
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
-        const { accountId, settings, chats, demoMode } = get();
-        if (accountId) rememberLastOpenedChat(accountId, id);
+        const { accountId, settings, chats, demoMode, readDisabledMids } = get();
         if (demoMode) return;
-        if (accountId && settings.readReceipts) {
+        if (accountId && settings.readReceipts && !readDisabledMids[id]) {
           void get().markChatRead(id);
         }
         if (accountId) {
@@ -685,7 +677,12 @@ export const useStore = create<State>()(
       },
 
       closeChat: () =>
-        set({ activeChatId: null, initialChatScrollMessageId: null, profileDrawerOpen: false }),
+        set({
+          activeChatId: null,
+          initialChatScrollMessageId: null,
+          initialChatScrollMode: null,
+          profileDrawerOpen: false,
+        }),
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
@@ -817,10 +814,10 @@ export const useStore = create<State>()(
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
-        const visibleChatIds = mappedChats
-          .filter((chat) => !dismissed.has(chat.id) || restored.has(chat.id))
-          .map((chat) => chat.id);
-        const chatId = resolveChatToOpen(accountId, activeChatId, visibleChatIds);
+        const chatId =
+          activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
+            ? activeChatId
+            : (mappedChats[0]?.id ?? null);
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
         const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
         const mappedMessages =
@@ -879,7 +876,7 @@ export const useStore = create<State>()(
             const keep = pending.filter((p) => !ids.has(p.id));
             return [...mappedMessages, ...keep];
           })(),
-          activeChatId: chatId,
+          activeChatId: st.activeChatId ?? chatId,
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
           self: profile
             ? {
@@ -1835,7 +1832,6 @@ export const useStore = create<State>()(
           activeChatId: memberMid,
         });
         const { accountId, settings } = get();
-        if (accountId) rememberLastOpenedChat(accountId, memberMid);
         if (accountId && settings.readReceipts) {
           void get().markChatRead(memberMid);
         }
