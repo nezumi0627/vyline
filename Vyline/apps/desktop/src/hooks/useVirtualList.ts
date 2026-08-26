@@ -141,10 +141,43 @@ export function useVirtualList<T>({
     [rows, offsets],
   );
 
+  // メッセージ行の位置へ移動する共通ヘルパー。
+  const scrollToMessagePosition = useCallback(
+    (
+      messageId: string,
+      opts: { behavior?: ScrollBehavior; center?: boolean } = {},
+      rowKey?: string,
+    ) => {
+      const key = rowKey ?? `msg-${messageId}`;
+      scrollToKey(key, opts);
+
+      const correctToRenderedRow = () => {
+        const el = containerRef.current;
+        const row = document.getElementById(key);
+        if (!el || !row) return;
+        const rowTop = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
+        const top = Math.max(0, el.scrollTop + rowTop - (opts.center ? el.clientHeight / 2 : 0));
+        el.scrollTo({ top, behavior: opts.behavior ?? "smooth" });
+      };
+
+      // 推定値で対象行を仮想ウィンドウ内へ出し、描画後の実座標で補正する。
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => requestAnimationFrame(correctToRenderedRow)),
+      );
+    },
+    [containerRef, scrollToKey],
+  );
+
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = containerRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    const scroll = () => {
+      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      el.scrollTo({ top: maxScrollTop, behavior });
+    };
+    scroll();
+    // 仮想ウィンドウの切り替えや遅延画像で高さが変わった後にも末尾を保証する。
+    requestAnimationFrame(() => requestAnimationFrame(scroll));
   }, []);
 
   const visibleRows = useMemo(() => rows.slice(visible.startIdx, visible.endIdx), [rows, visible]);
@@ -156,12 +189,14 @@ export function useVirtualList<T>({
   return {
     containerRef,
     onScroll,
+    hasMeasured,
     visibleRows,
     topSpacer,
     bottomSpacer,
     measure,
     rowRef,
     scrollToKey,
+    scrollToMessagePosition,
     scrollToBottom,
   };
 }
