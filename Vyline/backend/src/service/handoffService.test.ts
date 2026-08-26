@@ -16,7 +16,8 @@ describe("handoff archive", () => {
       imported: ["settings.json"],
     });
     const tampered = Buffer.from(exported.archiveBase64, "base64");
-    tampered[tampered.length - 1] ^= 1;
+    const last = tampered.length - 1;
+    tampered[last] = (tampered[last] ?? 0) ^ 1;
     await expect(importHandoff(mid, tampered.toString("base64"), "overwrite")).rejects.toThrow();
     await rm(dataDir, { recursive: true, force: true });
   });
