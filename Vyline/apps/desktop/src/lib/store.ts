@@ -402,7 +402,7 @@ type State = {
   toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
-  markChatRead: (id: string) => Promise<void>;
+  markChatRead: (id: string, lastMessageId?: string) => Promise<void>;
   markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
@@ -1669,14 +1669,13 @@ export const useStore = create<State>()(
         }
       },
 
-      markRead: async (_id) => {
+      markRead: async (messageId) => {
         const { activeChatId } = get();
         if (!activeChatId) return;
-        // 古い個別ID（または自分の送信ID）を送らず、そのチャットの安定した最終地点を使う。
-        await get().markChatRead(activeChatId);
+        await get().markChatRead(activeChatId, messageId);
       },
 
-      markChatRead: async (id) => {
+      markChatRead: async (id, requestedMessageId) => {
         const { accountId, messages, settings, readDisabledMids, demoMode } = get();
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
@@ -1691,7 +1690,10 @@ export const useStore = create<State>()(
               return b.id.localeCompare(a.id);
             }
           });
-        const last = received[0];
+        const requested = requestedMessageId
+          ? received.find((message) => message.id === requestedMessageId)
+          : undefined;
+        const last = requested ?? received[0];
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
           messages: st.messages.map((m) => {
@@ -1723,12 +1725,33 @@ export const useStore = create<State>()(
       },
 
       markAllChatsRead: async () => {
+        const { accountId, settings, readDisabledMids, demoMode } = get();
+        if (demoMode || !accountId || !settings.readReceipts) return;
         const unreadChatIds = get()
-          .chats.filter((chat) => chat.unread > 0)
+          .chats.filter((chat) => chat.unread > 0 && !readDisabledMids[chat.id])
           .map((chat) => chat.id);
-        for (const chatId of unreadChatIds) {
-          await get().markChatRead(chatId);
+        if (unreadChatIds.length === 0) return;
+        // バックエンドの bulk API で一括既読（個別ループより高速）
+        try {
+          await api.line.markAllAsRead(accountId, unreadChatIds);
+        } catch {
+          // フォールバック: 個別既読を試す
+          for (const chatId of unreadChatIds) {
+            try {
+              await api.line.markAsRead(accountId, chatId);
+            } catch {}
+          }
         }
+        set((st) => ({
+          chats: st.chats.map((chat) =>
+            unreadChatIds.includes(chat.id) ? { ...chat, unread: 0 } : chat,
+          ),
+          messages: st.messages.map((message) =>
+            unreadChatIds.includes(message.chatId) && message.authorId !== "me"
+              ? { ...message, read: true, status: "read" }
+              : message,
+          ),
+        }));
       },
 
       setDraft: (chatId, text) => set((st) => ({ drafts: { ...st.drafts, [chatId]: text } })),
@@ -2609,12 +2632,24 @@ export const useStore = create<State>()(
                   } else if (ev.kind === "revoke") {
                     get().applyRevoked(ev.chatMid, ev.messageId);
                   } else if (ev.kind === "read") {
+                    // 外部クライアントで既読された場合もローカル未読を即時クリア
+                    set((st) => ({
+                      chats: st.chats.map((c) =>
+                        c.id === ev.chatMid ? { ...c, unread: 0 } : c,
+                      ),
+                      messages: st.messages.map((m) =>
+                        m.chatId === ev.chatMid && m.authorId !== "me"
+                          ? { ...m, read: true, status: "read" }
+                          : m,
+                      ),
+                    }));
                     if (get().settings.readReceipts) {
-                      // 既読イベントは実既読地点が変わった可能性 → force で実値取得
                       void get()
                         .refreshReadReceipts(ev.chatMid, { force: true })
                         .catch(() => undefined);
                     }
+                    // 未読カウントのサーバ側整合も早めに取り直す
+                    void get().refreshChatsSilently().catch(() => undefined);
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;
