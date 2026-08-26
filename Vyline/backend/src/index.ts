@@ -27,6 +27,7 @@ import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
 import { subdeviceRouter } from "./api/subdevices.js";
 import { isSubdeviceSessionValid } from "./storage/subdeviceStore.js";
+import { accountSettingsRouter } from "./api/accountSettings.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
@@ -126,6 +127,7 @@ app.route("/api/line", lineRouter);
 app.route("/api/beta/agent-i", agentIRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/cdn", cdnRouter);
+app.route("/api/settings/accounts", accountSettingsRouter);
 
 // 公開 REST API（Bearer トークン認証）
 app.route("/v1", publicRouter);

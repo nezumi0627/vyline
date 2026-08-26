@@ -29,6 +29,7 @@ import type {
   CallActiveResponse,
   CallType,
   Message,
+  AccountSettings,
 } from "@vyline/types";
 
 // re-export for convenience
@@ -1115,5 +1116,24 @@ export const api = {
     health: () => request<{ ok: boolean; uptime: number }>("GET", "/debug/health"),
 
     tokens: () => request<{ ok: boolean; tokens: Record<string, unknown> }>("GET", "/debug/tokens"),
+  },
+  settings: {
+    account: (mid: string) =>
+      request<{ ok: boolean; settings: AccountSettings }>(
+        "GET",
+        `/settings/accounts/${encodeURIComponent(mid)}`,
+      ),
+    saveAccount: (mid: string, settings: Partial<AccountSettings>) =>
+      request<{ ok: boolean; settings: AccountSettings }>(
+        "PUT",
+        `/settings/accounts/${encodeURIComponent(mid)}`,
+        settings,
+      ),
+    saveSetup: (mid: string, step: number, settings: Partial<AccountSettings>) =>
+      request<{ ok: boolean; settings: AccountSettings }>(
+        "PATCH",
+        `/settings/accounts/${encodeURIComponent(mid)}/setup`,
+        { step, settings },
+      ),
   },
 };

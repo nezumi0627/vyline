@@ -10,6 +10,7 @@ import { SettingsSections } from "../components/settings-sections.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 import { api } from "../api/client.js";
+import { VylineSetup } from "../components/vyline-setup.js";
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -21,7 +22,9 @@ export function VylineApp() {
   const showUpdateNote = useStore((s) => s.showUpdateNote);
   const indexing = useStore((s) => s.indexing);
   const notice = useStore((s) => s.notice);
+  const mid = useStore((s) => s.self.mid);
   const [consented, setConsented] = useState(() => hasTosConsent());
+  const [setupDone, setSetupDone] = useState(false);
 
   useEffect(() => {
     void bootstrap();
@@ -70,6 +73,10 @@ export function VylineApp() {
         <TosConsentGate onConsent={() => setConsented(true)} />
       </main>
     );
+  }
+
+  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
+    return <VylineSetup mid={mid} onComplete={() => setSetupDone(true)} />;
   }
 
   return (

@@ -66,6 +66,8 @@ export interface VylineCachedGroup {
   updatedAt: number;
 }
 
+export * from "./accountFeatures.js";
+
 // ─── Chat ─────────────────────────────────────
 
 export type ChatKind = "group" | "room" | "direct" | "unknown";
