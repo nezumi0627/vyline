@@ -37,6 +37,7 @@ import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
+import { findFirstUnreadMessage } from "./chatScroll.js";
 
 export type {
   Chat,
@@ -306,6 +307,7 @@ type State = {
   highlightMessageId: string | null;
   /** チャットを開くときの初期位置。未読の先頭、なければ末尾。 */
   initialChatScrollMessageId: string | null;
+  initialChatScrollMode: "unread" | "bottom" | null;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -497,6 +499,7 @@ export const useStore = create<State>()(
       replyToId: null,
       highlightMessageId: null,
       initialChatScrollMessageId: null,
+      initialChatScrollMode: null,
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -598,29 +601,23 @@ export const useStore = create<State>()(
 
       _activateChat: (id, opts) => {
         const opts2 = opts ?? {};
-        const firstUnread = get()
-          .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
-          .sort((a, b) => {
-            const byTime = a.createdAt - b.createdAt;
-            if (byTime) return byTime;
-            try {
-              const left = BigInt(a.id);
-              const right = BigInt(b.id);
-              return left === right ? 0 : left < right ? -1 : 1;
-            } catch {
-              return a.id.localeCompare(b.id);
-            }
-          })[0];
+        const state = get();
+        const chat = state.chats.find((item) => item.id === id);
+        const firstUnread = findFirstUnreadMessage(
+          state.messages.filter((message) => message.chatId === id),
+        );
+        const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread);
         set((st) => ({
           screen: "chat",
           activeChatId: id,
           initialChatScrollMessageId: firstUnread?.id ?? null,
+          initialChatScrollMode: hasUnread ? "unread" : "bottom",
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
-        const { accountId, settings, chats, demoMode } = get();
+        const { accountId, settings, chats, demoMode, readDisabledMids } = get();
         if (demoMode) return;
-        if (accountId && settings.readReceipts) {
+        if (accountId && settings.readReceipts && !readDisabledMids[id]) {
           void get().markChatRead(id);
         }
         if (accountId) {
@@ -642,7 +639,12 @@ export const useStore = create<State>()(
       },
 
       closeChat: () =>
-        set({ activeChatId: null, initialChatScrollMessageId: null, profileDrawerOpen: false }),
+        set({
+          activeChatId: null,
+          initialChatScrollMessageId: null,
+          initialChatScrollMode: null,
+          profileDrawerOpen: false,
+        }),
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
@@ -2634,9 +2636,7 @@ export const useStore = create<State>()(
                   } else if (ev.kind === "read") {
                     // 外部クライアントで既読された場合もローカル未読を即時クリア
                     set((st) => ({
-                      chats: st.chats.map((c) =>
-                        c.id === ev.chatMid ? { ...c, unread: 0 } : c,
-                      ),
+                      chats: st.chats.map((c) => (c.id === ev.chatMid ? { ...c, unread: 0 } : c)),
                       messages: st.messages.map((m) =>
                         m.chatId === ev.chatMid && m.authorId !== "me"
                           ? { ...m, read: true, status: "read" }
@@ -2649,7 +2649,9 @@ export const useStore = create<State>()(
                         .catch(() => undefined);
                     }
                     // 未読カウントのサーバ側整合も早めに取り直す
-                    void get().refreshChatsSilently().catch(() => undefined);
+                    void get()
+                      .refreshChatsSilently()
+                      .catch(() => undefined);
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;

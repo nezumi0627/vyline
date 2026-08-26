@@ -24,35 +24,11 @@ export function useVirtualList<T>({
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const heights = useRef(new Map<string, number>());
-  const [measuredVersion, setMeasuredVersion] = useState(0);
+  const [, setMeasuredTick] = useState(0);
+  const measuredTick = useRef(0);
   const tickScheduled = useRef(false);
   const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const observers = useRef(new Map<string, ResizeObserver>());
-  const anchorRef = useRef<{ key: string; center: boolean } | null>(null);
-  const keepBottomRef = useRef(false);
-
-  const preserveInitialPosition = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-
-    if (keepBottomRef.current) {
-      el.scrollTo({ top: Math.max(0, el.scrollHeight - el.clientHeight), behavior: "auto" });
-      return;
-    }
-
-    const anchor = anchorRef.current;
-    if (!anchor) return;
-    const row = document.getElementById(anchor.key);
-    if (!row) return;
-
-    const rowTop = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
-    const desiredTop = anchor.center ? el.clientHeight / 2 : 0;
-    const nextTop = Math.max(0, el.scrollTop + rowTop - desiredTop);
-    if (Math.abs(nextTop - el.scrollTop) > 0.5) {
-      el.scrollTo({ top: nextTop, behavior: "auto" });
-    }
-  }, []);
-
   const offsets = useMemo(() => {
     const arr: number[] = [];
     let acc = 0;
@@ -61,20 +37,12 @@ export function useVirtualList<T>({
       acc += heights.current.get(r.key) ?? estimateHeight(r.item);
     }
     return { offsets: arr, total: acc };
-  }, [rows, estimateHeight, measuredVersion]);
+  }, [rows, estimateHeight, measuredTick.current]);
+
+  const hasMeasured = measuredTick.current > 0;
 
   const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    const el = e.currentTarget;
-    // 自動で最下部を維持している最中でも、利用者が上へ動かしたら即座に解除する。
-    // wheel/pointer イベントだけではスクロールバー操作を取りこぼすため、位置差分でも判定する。
-    if (keepBottomRef.current) {
-      const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
-      if (el.scrollTop < maxScrollTop - 2) {
-        anchorRef.current = null;
-        keepBottomRef.current = false;
-      }
-    }
-    setScrollTop(el.scrollTop);
+    setScrollTop(e.currentTarget.scrollTop);
   }, []);
 
   // 可視ウィンドウを二分探索で算出
@@ -101,25 +69,22 @@ export function useVirtualList<T>({
     return { startIdx, endIdx };
   }, [scrollTop, offsets, overscan]);
 
-  const measure = useCallback(
-    (key: string, el: HTMLElement | null) => {
-      if (!el) return;
-      const h = el.offsetHeight;
-      const prev = heights.current.get(key);
-      if (prev !== h) {
-        heights.current.set(key, h);
-        // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
-        if (tickScheduled.current) return;
-        tickScheduled.current = true;
-        requestAnimationFrame(() => {
-          tickScheduled.current = false;
-          setMeasuredVersion((version) => version + 1);
-          requestAnimationFrame(preserveInitialPosition);
-        });
-      }
-    },
-    [preserveInitialPosition],
-  );
+  const measure = useCallback((key: string, el: HTMLElement | null) => {
+    if (!el) return;
+    const h = el.offsetHeight;
+    const prev = heights.current.get(key);
+    if (prev !== h) {
+      heights.current.set(key, h);
+      // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
+      if (tickScheduled.current) return;
+      tickScheduled.current = true;
+      requestAnimationFrame(() => {
+        tickScheduled.current = false;
+        measuredTick.current++;
+        setMeasuredTick((t) => t + 1);
+      });
+    }
+  }, []);
 
   // 行キーごとに安定した ref を返す（毎レンダーの ref 再アタッチ → 再計測の連鎖を防ぐ）
   const rowRef = useCallback(
@@ -157,23 +122,6 @@ export function useVirtualList<T>({
   }, [rows]);
 
   useEffect(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const cancelAutoPosition = () => {
-      anchorRef.current = null;
-      keepBottomRef.current = false;
-    };
-    el.addEventListener("wheel", cancelAutoPosition, { passive: true });
-    el.addEventListener("touchstart", cancelAutoPosition, { passive: true });
-    el.addEventListener("pointerdown", cancelAutoPosition, { passive: true });
-    return () => {
-      el.removeEventListener("wheel", cancelAutoPosition);
-      el.removeEventListener("touchstart", cancelAutoPosition);
-      el.removeEventListener("pointerdown", cancelAutoPosition);
-    };
-  }, []);
-
-  useEffect(() => {
     return () => {
       for (const observer of observers.current.values()) observer.disconnect();
     };
@@ -193,61 +141,55 @@ export function useVirtualList<T>({
     [rows, offsets],
   );
 
+  // メッセージ行の位置へ移動する共通ヘルパー。
   const scrollToMessagePosition = useCallback(
     (
       messageId: string,
       opts: { behavior?: ScrollBehavior; center?: boolean } = {},
-      rowKey = `msg-${messageId}`,
+      rowKey?: string,
     ) => {
-      anchorRef.current = { key: rowKey, center: opts.center === true };
-      keepBottomRef.current = false;
-      scrollToKey(rowKey, opts);
+      const key = rowKey ?? `msg-${messageId}`;
+      scrollToKey(key, opts);
 
       const correctToRenderedRow = () => {
         const el = containerRef.current;
-        const row = document.getElementById(rowKey);
+        const row = document.getElementById(key);
         if (!el || !row) return;
         const rowTop = row.getBoundingClientRect().top - el.getBoundingClientRect().top;
-        const desiredTop = opts.center ? el.clientHeight / 2 : 0;
-        el.scrollTo({
-          top: Math.max(0, el.scrollTop + rowTop - desiredTop),
-          behavior: opts.behavior ?? "smooth",
-        });
-        preserveInitialPosition();
+        const top = Math.max(0, el.scrollTop + rowTop - (opts.center ? el.clientHeight / 2 : 0));
+        el.scrollTo({ top, behavior: opts.behavior ?? "smooth" });
       };
 
-      requestAnimationFrame(() => {
-        requestAnimationFrame(() => {
-          requestAnimationFrame(correctToRenderedRow);
-        });
-      });
+      // 推定値で対象行を仮想ウィンドウ内へ出し、描画後の実座標で補正する。
+      requestAnimationFrame(() =>
+        requestAnimationFrame(() => requestAnimationFrame(correctToRenderedRow)),
+      );
     },
-    [preserveInitialPosition, scrollToKey],
+    [containerRef, scrollToKey],
   );
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = containerRef.current;
     if (!el) return;
-    anchorRef.current = null;
-    keepBottomRef.current = true;
     const scroll = () => {
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
       el.scrollTo({ top: maxScrollTop, behavior });
     };
     scroll();
+    // 仮想ウィンドウの切り替えや遅延画像で高さが変わった後にも末尾を保証する。
     requestAnimationFrame(() => requestAnimationFrame(scroll));
   }, []);
 
   const visibleRows = useMemo(() => rows.slice(visible.startIdx, visible.endIdx), [rows, visible]);
-  const topSpacer = offsets.offsets[visible.startIdx] ?? 0;
-  const bottomSpacer = Math.max(
-    0,
-    offsets.total - (offsets.offsets[visible.endIdx] ?? offsets.total),
-  );
+  const topSpacer = hasMeasured ? (offsets.offsets[visible.startIdx] ?? 0) : 0;
+  const bottomSpacer = hasMeasured
+    ? offsets.total - (offsets.offsets[visible.endIdx] ?? offsets.total)
+    : 0;
 
   return {
     containerRef,
     onScroll,
+    hasMeasured,
     visibleRows,
     topSpacer,
     bottomSpacer,
