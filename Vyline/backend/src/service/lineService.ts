@@ -2065,6 +2065,11 @@ export async function markAsRead(
       sessionId: 0,
     });
     await markStoredMessagesReadThrough(accountId, chatMid, messageId);
+    try {
+      invalidateMessageBoxesCache(accountId);
+      chatsCache.delete(accountId);
+      invalidateBoxCursorCache(accountId, chatMid);
+    } catch {}
     log.info({ accountId, chatMid, lastMessageId: messageId }, "chat marked as read");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -2076,6 +2081,52 @@ export async function markAsRead(
     log.warn({ accountId, chatMid, err }, "markAsRead failed");
     throw err;
   }
+}
+
+export type ReadTarget = { chatMid: string; lastMessageId: string };
+
+/** getMessageBoxes の結果から通常トークの既読送信対象を抽出する。 */
+export function readTargetsFromMessageBoxes(
+  boxes: ReadonlyArray<{
+    id: string;
+    unreadCount?: string | number | bigint;
+    lastDeliveredMessageId?: { messageId?: string | number | bigint };
+  }>,
+  chatMids?: ReadonlySet<string>,
+): ReadTarget[] {
+  return boxes.flatMap((box) => {
+    if (chatMids && !chatMids.has(box.id)) return [];
+    if (Number(box.unreadCount ?? 0) <= 0) return [];
+    const messageId = String(box.lastDeliveredMessageId?.messageId ?? "").trim();
+    return messageId ? [{ chatMid: box.id, lastMessageId: messageId }] : [];
+  });
+}
+
+/** 複数チャットを既読にする。LINE側に通常トーク用bulk APIはないため順次送信する。 */
+export async function markAsReadBatch(
+  accountId: string,
+  targets: readonly ReadTarget[],
+): Promise<number> {
+  let count = 0;
+  for (const target of targets) {
+    await markAsRead(accountId, target.chatMid, target.lastMessageId);
+    count++;
+  }
+  return count;
+}
+
+/** 未読の通常トークを全て既読にする。Squareのbulk APIは通常トークには使えない。 */
+export async function markAllAsRead(
+  accountId: string,
+  chatMids?: readonly string[],
+): Promise<number> {
+  const client = requireClient(accountId);
+  const boxesResult = await withRetryOnReset(
+    () => client.base.talk.getMessageBoxes({ messageBoxListRequest: {} }),
+    "markAllAsRead.getMessageBoxes",
+  );
+  const allowed = chatMids ? new Set(chatMids) : undefined;
+  return markAsReadBatch(accountId, readTargetsFromMessageBoxes(boxesResult.messageBoxes, allowed));
 }
 
 /**
