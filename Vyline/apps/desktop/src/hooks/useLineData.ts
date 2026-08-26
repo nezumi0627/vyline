@@ -18,7 +18,7 @@ import {
   vylineClientPutMany,
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
-import { useStore } from "../lib/store.js";
+import { resolveChatToOpen, useStore } from "../lib/store.js";
 
 interface UseLineDataOptions {
   accountId: string | null;
@@ -166,7 +166,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
           setChats(res.chats);
-          setSelectedChatMid((prev) => prev || res.chats?.[0]?.mid || "");
+          const initialChatMid = resolveChatToOpen(
+            accountId,
+            useStore.getState().activeChatId,
+            res.chats.map((chat) => chat.mid),
+          );
+          setSelectedChatMid((prev) => prev || initialChatMid || "");
           applyChatsToContactCache(res.chats);
           setFromLocalCache(Boolean(res.fromCache));
           const warmTargets = res.chats
@@ -342,7 +347,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         setChats(res.chats);
         setFromLocalCache(true);
         applyChatsToContactCache(res.chats);
-        setSelectedChatMid((prev) => prev || res.chats[0]?.mid || "");
+        const initialChatMid = resolveChatToOpen(
+          accountId,
+          useStore.getState().activeChatId,
+          res.chats.map((chat) => chat.mid),
+        );
+        setSelectedChatMid((prev) => prev || initialChatMid || "");
       }
     } catch {
       /* bootstrap optional */
@@ -362,7 +372,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       const restoreTarget = restoredChatMids[0];
       if (restoreTarget) {
         setSelectedChatMid(restoreTarget);
-        useStore.setState({ activeChatId: restoreTarget, screen: "chat" });
+        useStore.getState()._activateChat(restoreTarget);
       }
       void (async () => {
         await loadBootstrap();

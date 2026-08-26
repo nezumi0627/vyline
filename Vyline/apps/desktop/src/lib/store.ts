@@ -98,6 +98,19 @@ function rememberLastOpenedChat(accountId: string, chatId: string): void {
   }
 }
 
+/** 起動時の選択候補は、明示保存したチャットを常に優先する。 */
+export function resolveChatToOpen(
+  accountId: string | null,
+  activeChatId: string | null,
+  availableChatIds: readonly string[],
+): string | null {
+  const rememberedChatId = accountId ? readLastOpenedChat(accountId) : null;
+  for (const chatId of [rememberedChatId, activeChatId]) {
+    if (chatId && availableChatIds.includes(chatId)) return chatId;
+  }
+  return availableChatIds[0] ?? null;
+}
+
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
 
@@ -618,12 +631,14 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
-        const { accountId } = get();
-        if (accountId) rememberLastOpenedChat(accountId, id);
         get()._activateChat(id, { history: true });
       },
 
       _activateChat: (id, opts) => {
+        if (!id) {
+          get().closeChat();
+          return;
+        }
         const opts2 = opts ?? {};
         const firstUnread = get()
           .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
@@ -646,6 +661,7 @@ export const useStore = create<State>()(
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
         const { accountId, settings, chats, demoMode } = get();
+        if (accountId) rememberLastOpenedChat(accountId, id);
         if (demoMode) return;
         if (accountId && settings.readReceipts) {
           void get().markChatRead(id);
@@ -801,10 +817,10 @@ export const useStore = create<State>()(
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
-        const chatId =
-          activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
-            ? activeChatId
-            : (mappedChats[0]?.id ?? null);
+        const visibleChatIds = mappedChats
+          .filter((chat) => !dismissed.has(chat.id) || restored.has(chat.id))
+          .map((chat) => chat.id);
+        const chatId = resolveChatToOpen(accountId, activeChatId, visibleChatIds);
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
         const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
         const mappedMessages =
@@ -863,7 +879,7 @@ export const useStore = create<State>()(
             const keep = pending.filter((p) => !ids.has(p.id));
             return [...mappedMessages, ...keep];
           })(),
-          activeChatId: st.activeChatId ?? chatId,
+          activeChatId: chatId,
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
           self: profile
             ? {
@@ -1819,6 +1835,7 @@ export const useStore = create<State>()(
           activeChatId: memberMid,
         });
         const { accountId, settings } = get();
+        if (accountId) rememberLastOpenedChat(accountId, memberMid);
         if (accountId && settings.readReceipts) {
           void get().markChatRead(memberMid);
         }
