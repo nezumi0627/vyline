@@ -519,7 +519,9 @@ export const useStore = create<State>()(
       },
 
       setAccountId: (id) => {
-        if (id !== get().accountId) {
+        const currentAccountId = get().accountId;
+        const accountChanged = id !== currentAccountId;
+        if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
@@ -529,7 +531,7 @@ export const useStore = create<State>()(
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
-        if (id !== get().accountId) {
+        if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
