@@ -365,6 +365,9 @@ header,
   font-size: calc(0.95rem * var(--vy-font-scale, 1)) !important;
   line-height: 1.45;
 }
+.vy-msg-text {
+  overflow-wrap: anywhere;
+}
 .vy-chat-header-title {
   font-size: calc(1.15rem * var(--vy-font-scale, 1)) !important;
   line-height: 1.35;
