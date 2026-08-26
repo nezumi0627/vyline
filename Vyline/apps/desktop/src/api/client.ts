@@ -717,6 +717,19 @@ export const api = {
         lastMessageId,
       }),
 
+    markAllAsRead: (accountId: string, chatMids?: string[]) =>
+      request<{ ok: boolean; count?: number }>("POST", `/line/${accountId}/read-all`, {
+        chatMids,
+      }),
+
+    markReadBatch: (
+      accountId: string,
+      targets: Array<{ chatMid: string; lastMessageId: string }>,
+    ) =>
+      request<{ ok: boolean; count?: number }>("POST", `/line/${accountId}/read-batch`, {
+        targets,
+      }),
+
     /** 自分の送信メッセージの既読状態（軽量） */
     readReceipts: (
       accountId: string,

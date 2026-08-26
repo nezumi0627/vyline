@@ -41,6 +41,8 @@ import {
   fetchProfile,
   fetchContactProfile,
   markAsRead,
+  markAllAsRead,
+  markAsReadBatch,
   fetchChats,
   fetchBootstrap,
   fetchMessages,
@@ -948,6 +950,34 @@ lineRouter.post("/:accountId/read", async (c) => {
   try {
     await markAsRead(accountId, body.chatMid, body.lastMessageId);
     return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/read-batch", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    targets?: Array<{ chatMid?: string; lastMessageId?: string }>;
+  }>();
+  const targets = (body.targets ?? [])
+    .filter((target) => target.chatMid && target.lastMessageId)
+    .map((target) => ({ chatMid: target.chatMid!, lastMessageId: target.lastMessageId! }));
+  if (targets.length === 0) return c.json({ ok: false, error: "targets required" }, 400);
+  try {
+    return c.json({ ok: true, count: await markAsReadBatch(accountId, targets) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/read-all", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req
+    .json<{ chatMids?: string[] }>()
+    .catch(() => ({}) as { chatMids?: string[] });
+  try {
+    return c.json({ ok: true, count: await markAllAsRead(accountId, body.chatMids) });
   } catch (err) {
     return handleError(err, c);
   }
