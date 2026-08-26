@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useStore,
   displayName,
@@ -794,6 +795,7 @@ const ChatRow = memo(function ChatRow({
 });
 
 function AccountSwitcher() {
+  const navigate = useNavigate();
   const accountId = useStore((s) => s.accountId);
   const accounts = useAuthStore((s) => s.accounts);
   const sessions = useAuthStore((s) => s.sessions);
@@ -813,6 +815,7 @@ function AccountSwitcher() {
     // 別アカウントへの切替はログイン画面を経由する（戻るで元のチャットへ）
     openLogin("manual", id);
     setScreen("login");
+    navigate("/login");
   };
 
   const handleLogout = async () => {
@@ -823,6 +826,7 @@ function AccountSwitcher() {
     setOpen(false);
     openLogin("manual", null);
     setScreen("login");
+    navigate("/login");
   };
 
   return (
@@ -890,6 +894,7 @@ function AccountSwitcher() {
               setOpen(false);
               openLogin("manual", null);
               setScreen("login");
+              navigate("/login");
             }}
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">
