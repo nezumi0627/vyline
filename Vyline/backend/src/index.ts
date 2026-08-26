@@ -36,7 +36,18 @@ const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
+if (!existsSync(STATIC_DIR)) {
+  logger.warn(
+    { staticDir: STATIC_DIR },
+    "STATIC_DIR not found — run `bun run build` before packaging; dev mode uses Vite on :5173",
+  );
+}
+
 const app = new Hono();
+
+function isLoopbackAddress(address: string): boolean {
+  return address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+}
 
 function isPublicPairingRequest(path: string, method: string) {
   if (method === "GET") return /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+$/.test(path);
@@ -306,8 +317,13 @@ export default {
   idleTimeout: 120,
   async fetch(req: Request, server: Bun.Server<CallWsData>) {
     const address = server.requestIP(req)?.address ?? "";
-    const local = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
     const headers = new Headers(req.headers);
+    // Vite terminates the browser connection, so requestIP() otherwise sees
+    // only Vite's loopback socket. Trust the forwarded peer only from that
+    // local proxy; direct LAN clients cannot turn themselves into local ones.
+    const proxyClientAddress = headers.get("x-vyline-proxy-client-address") ?? "";
+    const local =
+      isLoopbackAddress(address) && (!proxyClientAddress || isLoopbackAddress(proxyClientAddress));
     headers.set("x-vyline-local-request", local ? "1" : "0");
     const request = new Request(req, { headers });
     const url = new URL(request.url);
