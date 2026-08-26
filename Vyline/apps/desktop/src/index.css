@@ -495,11 +495,9 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
    Mobile is intentionally list-first. Tablet keeps the two-pane desktop model,
    but trims chrome so the conversation has room for touch interaction. */
 @media (max-width: 767px) {
-  .vy-sidebar-profile,
   .vy-sidebar-tabs,
   .vy-sidebar-create-group,
-  .vy-sidebar-sort-hint,
-  .vy-sidebar-account-switcher {
+  .vy-sidebar-sort-hint {
     display: none;
   }
 

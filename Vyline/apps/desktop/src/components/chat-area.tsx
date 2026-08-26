@@ -100,6 +100,7 @@ function ChatAreaBase() {
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
   const initialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
+  const loadingMessages = useStore((s) => s.loadingMessages);
   const accountId = useStore((s) => s.accountId);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
@@ -176,6 +177,11 @@ function ChatAreaBase() {
   const chatMessages = useMemo(
     () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
     [messages, activeChatId],
+  );
+
+  const firstUnreadMessageId = useMemo(
+    () => chatMessages.find((message) => message.authorId !== "me" && !message.read)?.id ?? null,
+    [chatMessages],
   );
 
   const matches = useMemo(() => {
@@ -257,7 +263,7 @@ function ChatAreaBase() {
     topSpacer,
     bottomSpacer,
     rowRef,
-    scrollToKey,
+    scrollToMessagePosition,
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
 
@@ -316,32 +322,51 @@ function ChatAreaBase() {
 
   const openedChatRef = useRef<string | null>(null);
 
-  // 開いた瞬間だけ位置を決める。未読があればその先頭、なければ末尾に置き、
-  // 以後の受信・画像の高さ確定・ページ追加では利用者のスクロール位置を動かさない。
+  // 開いた瞬間の基準位置を決める。未読があればその先頭、なければ末尾に置き、
+  // 高さ確定中はその基準を維持する（利用者が操作した後は補正しない）。
   useEffect(() => {
-    if (!activeChatId || openedChatRef.current === activeChatId) return;
-    const key = initialChatScrollMessageId ? `msg-${initialChatScrollMessageId}` : null;
-    if (key && !rows.some((row) => row.key === key)) return;
+    if (!activeChatId) {
+      openedChatRef.current = null;
+      return;
+    }
+    // リロード直後はチャットIDだけ復元され、メッセージが後から hydrate される。
+    // 空の状態で初期位置を確定すると、メッセージ到着後に再実行されなくなる。
+    if (!rows.length || openedChatRef.current === activeChatId) return;
+    const targetMessageId = firstUnreadMessageId ?? initialChatScrollMessageId;
+    const key = targetMessageId ? `msg-${targetMessageId}` : null;
+    if (key && !rows.some((row) => row.key === key)) {
+      // 初回取得中は、未読位置が分かるまでスクロール位置を確定しない。
+      if (loadingMessages) return;
+    }
     openedChatRef.current = activeChatId;
     const frame = requestAnimationFrame(() => {
-      if (key) scrollToKey(key, { behavior: "auto", center: true });
-      else scrollToBottom("auto");
+      if (targetMessageId) {
+        scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true });
+      } else scrollToBottom("auto");
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeChatId, initialChatScrollMessageId, rows, scrollToBottom, scrollToKey]);
+  }, [
+    activeChatId,
+    firstUnreadMessageId,
+    initialChatScrollMessageId,
+    loadingMessages,
+    rows,
+    scrollToBottom,
+    scrollToMessagePosition,
+  ]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
     if (!highlightMessageId) return;
-    requestAnimationFrame(() => scrollToKey(`msg-${highlightMessageId}`, { center: true }));
-  }, [highlightMessageId, scrollToKey]);
+    requestAnimationFrame(() => scrollToMessagePosition(highlightMessageId, { center: true }));
+  }, [highlightMessageId, scrollToMessagePosition]);
 
   // 検索ヒットへジャンプ
   useEffect(() => {
     if (!matches.length) return;
     const id = matches[search.index % matches.length];
-    scrollToKey(`msg-${id}`, { center: true });
-  }, [search.index, matches, scrollToKey]);
+    scrollToMessagePosition(id, { center: true });
+  }, [search.index, matches, scrollToMessagePosition]);
 
   if (!chat) {
     return (

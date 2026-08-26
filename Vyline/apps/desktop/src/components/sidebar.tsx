@@ -586,7 +586,7 @@ function SidebarBase() {
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
 
-      {/* account switcher: mobile is intentionally list-first and distraction-free */}
+      {/* Keep the account switcher available on mobile as well. */}
       <div className="vy-sidebar-account-switcher">
         <AccountSwitcher />
       </div>
