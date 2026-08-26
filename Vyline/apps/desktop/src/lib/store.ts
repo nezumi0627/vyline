@@ -1724,6 +1724,9 @@ export const useStore = create<State>()(
         if (lastId) readReceiptSent.set(receiptKey, lastId);
         try {
           await api.line.markAsRead(accountId, id, lastId);
+          void get()
+            .refreshChatsSilently()
+            .catch(() => undefined);
         } catch {
           if (lastId) readReceiptSent.delete(receiptKey);
           if (localKey) recentlyReadAt.delete(localKey);
@@ -1761,6 +1764,9 @@ export const useStore = create<State>()(
               : message,
           ),
         }));
+        void get()
+          .refreshChatsSilently()
+          .catch(() => undefined);
       },
 
       setDraft: (chatId, text) => set((st) => ({ drafts: { ...st.drafts, [chatId]: text } })),
