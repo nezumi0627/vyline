@@ -584,7 +584,7 @@ export function SettingsSections() {
 }
 
 function HandoffSection() {
-  const accountId = useStore((s) => s.accountId);
+  const mid = useStore((s) => s.self.mid);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
   const download = (name: string, content: BlobPart, type: string) => {
@@ -596,14 +596,18 @@ function HandoffSection() {
     URL.revokeObjectURL(url);
   };
   const exportHandoff = async () => {
-    if (!accountId) return setMessage("ログインが必要です");
-    const result = await api.handoff.export(accountId);
-    const bytes = Uint8Array.from(atob(result.archiveBase64), (char) => char.charCodeAt(0));
-    download(result.filename, bytes, "application/zip");
-    setMessage("引継ぎZIPを作成しました");
+    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.handoff.export(mid);
+      const bytes = Uint8Array.from(atob(result.archiveBase64), (char) => char.charCodeAt(0));
+      download(result.filename, bytes, "application/zip");
+      setMessage("引継ぎZIPを作成しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "引継ぎZIPの作成に失敗しました");
+    }
   };
   const importHandoff = () => {
-    if (!accountId) return setMessage("ログインが必要です");
+    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".zip";
@@ -611,42 +615,58 @@ function HandoffSection() {
       const file = input.files?.[0];
       if (!file) return;
       const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
-      const result = await api.handoff.import(accountId, data, "overwrite");
-      setMessage(
-        result.ok ? "引継ぎを適用しました。必要なら再起動してください" : "引継ぎに失敗しました",
-      );
+      try {
+        const result = await api.handoff.import(mid, data, "overwrite");
+        setMessage(
+          result.ok ? "引継ぎを適用しました。必要なら再起動してください" : "引継ぎに失敗しました",
+        );
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "引継ぎに失敗しました");
+      }
     };
     input.click();
   };
   const exportLogs = async () => {
-    if (!accountId) return setMessage("ログインが必要です");
-    const result = await api.diagnostics.export(accountId);
-    download("vyline-diagnostics.json", result.content, "application/json");
-    setMessage("サニタイズ済みログを出力しました");
+    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.diagnostics.export(mid);
+      download("vyline-diagnostics.json", result.content, "application/json");
+      setMessage("サニタイズ済みログを出力しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ログ出力に失敗しました");
+    }
   };
   const loadLogs = async () => {
-    if (!accountId) return setMessage("ログインが必要です");
-    const result = await api.diagnostics.list(accountId);
-    setEntries(result.entries);
-    setMessage(`${result.entries.length}件のログを読み込みました`);
+    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.diagnostics.list(mid);
+      setEntries(result.entries);
+      setMessage(`${result.entries.length}件のログを読み込みました`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ログ一覧の取得に失敗しました");
+    }
   };
   const reportIssue = async () => {
-    if (!accountId) return setMessage("ログインが必要です");
-    const result = await api.diagnostics.export(accountId);
-    const body = [
-      "## 問題の概要",
-      "",
-      "（ここに問題を記入してください）",
-      "",
-      "## Vyline診断情報",
-      "",
-      "```json",
-      result.content.slice(0, 12000),
-      "```",
-      "",
-    ].join("\n");
-    const url = `https://github.com/nezumi0627/vyline/issues/new?title=${encodeURIComponent("Vyline issue")}&body=${encodeURIComponent(body)}`;
-    window.open(url, "_blank", "noopener,noreferrer");
+    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.diagnostics.export(mid);
+      const body = [
+        "## 問題の概要",
+        "",
+        "（ここに問題を記入してください）",
+        "",
+        "## Vyline診断情報",
+        "",
+        "```json",
+        result.content.slice(0, 12000),
+        "```",
+        "",
+      ].join("\n");
+      const url = `https://github.com/nezumi0627/vyline/issues/new?title=${encodeURIComponent("Vyline issue")}&body=${encodeURIComponent(body)}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Issue作成情報の生成に失敗しました");
+    }
   };
   return (
     <>
@@ -708,8 +728,13 @@ function HandoffSection() {
             <button
               type="button"
               onClick={() =>
-                accountId &&
-                void api.diagnostics.clear(accountId).then(() => setMessage("ログを削除しました"))
+                mid &&
+                void api.diagnostics
+                  .clear(mid)
+                  .then(() => setMessage("ログを削除しました"))
+                  .catch((error) =>
+                    setMessage(error instanceof Error ? error.message : "ログ削除に失敗しました"),
+                  )
               }
               className="rounded-lg border border-red-400/50 px-3 py-1.5 text-xs text-red-300"
             >
