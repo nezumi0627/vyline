@@ -552,7 +552,6 @@ export const useStore = create<State>()(
         set({
           chats: [],
           messages: [],
-          activeChatId: null,
           profileDrawerOpen: false,
           announcements: {},
           drafts: {},
