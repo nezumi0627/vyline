@@ -21,7 +21,7 @@
 > Vyline is an unofficial and unauthorised LINE third-party client. It is not affiliated with LINE Corporation or LY Corporation. Use it at your own risk after understanding the risks, including possible terms-of-service violations and account suspension.
 
 > [!NOTE]
-> Vyline is currently Beta 0.7.0. Beta software may introduce breaking changes, bugs, or data loss.
+> Vyline is currently Beta 0.8.0. Beta software may introduce breaking changes, bugs, or data loss.
 
 ---
 
@@ -36,7 +36,7 @@ It communicates with LINE servers through the independently implemented **@vylin
 | Audience | Custom UI users, developers, and self-hosters |
 | Highlights | Own protocol stack, VyTheme, public API, local-first data |
 | Technology | React + Vite / Hono on Bun / TypeScript / Thrift |
-| Status | Beta 0.7.0 |
+| Status | Beta 0.8.0 |
 | License | MIT |
 
 ## Features
@@ -56,6 +56,8 @@ It communicates with LINE servers through the independently implemented **@vylin
 | Plugins | ZIP installation, permissions, and ES Module extensions |
 | Search | Cross-chat search over local message history |
 | VylineBackup | Snapshot, restore, and delete chat history and media |
+| Setup & handoff | Three-step Vyline Setup, per-MID settings, and integrity-checked ZIP settings handoff |
+| Diagnostics & safety | Redacted diagnostic logs, Windows DPAPI session protection, and installation-bound subdevice sessions |
 | Developer tools | Bearer-token public API, OpenAPI 3.1, and JSONL diagnostics |
 
 ---

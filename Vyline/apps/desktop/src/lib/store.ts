@@ -301,11 +301,12 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "0.6.1-beta",
-  title: "Vyline 0.6.1-beta — 重大な型チェック再帰バグ修正",
+  version: "0.8.0-beta",
+  title: "Vyline 0.8.0-beta — 設定・引継ぎ・同期安定化",
   items: [
-    "重大修正: typecheck 実行時に Bun プロセスが再帰増殖する問題を修正",
-    "protocol / backend / desktop / ios-backup の TypeScript 起動を安定化",
+    "Vyline Setup、アカウントごとの設定、改ざん検知付き設定引継ぎ、診断ログを追加",
+    "Windows のセッション保護と、端末ごとに結び付くサブデバイス認証を強化",
+    "未読位置・既読状態・仮想リストの同期を安定化し、開いたチャットの位置を復元",
   ],
 };
 
