@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { AccountSettings } from "@vyline/types";
 import { api } from "../api/client.js";
 
@@ -7,32 +7,68 @@ const TOTAL_STEPS = 3;
 export function VylineSetup({ mid, onComplete }: { mid: string; onComplete: () => void }) {
   const [step, setStep] = useState(0);
   const [settings, setSettings] = useState<AccountSettings | null>(null);
+  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  useEffect(() => {
-    void api.settings.account(mid).then((result) => {
-      if (!result.ok) return;
+  const load = useCallback(async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const result = await api.settings.account(mid);
+      if (!result.ok) throw new Error("セットアップ設定を読み込めませんでした");
       setSettings(result.settings);
       setStep(Math.min(result.settings.setup.step, TOTAL_STEPS));
       if (result.settings.setup.completed) onComplete();
-    });
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "セットアップ設定を読み込めませんでした");
+    } finally {
+      setLoading(false);
+    }
   }, [mid, onComplete]);
 
-  if (!settings)
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  if (!settings) {
     return (
       <main className="flex min-h-dvh items-center justify-center bg-[var(--vy-bg)] text-[var(--vy-text)]">
-        セットアップを読み込んでいます…
+        <section className="w-full max-w-md space-y-4 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-8 text-center shadow-xl">
+          <h1 className="text-lg font-semibold">Vyline Setup を準備しています</h1>
+          <p className="text-sm text-[var(--vy-text-dim)]">
+            {loading
+              ? "アカウント設定を読み込んでいます…"
+              : (error ?? "設定を読み込めませんでした")}
+          </p>
+          {!loading && (
+            <button
+              type="button"
+              onClick={() => void load()}
+              className="rounded-lg bg-[var(--vy-accent)] px-4 py-2 text-sm font-medium text-white"
+            >
+              再試行
+            </button>
+          )}
+        </section>
       </main>
     );
+  }
 
   const next = async () => {
     setSaving(true);
-    const result = await api.settings.saveSetup(mid, Math.min(step + 1, TOTAL_STEPS), settings);
-    setSaving(false);
-    if (!result.ok) return;
-    setSettings(result.settings);
-    setStep(result.settings.setup.step);
-    if (result.settings.setup.completed) onComplete();
+    setError(null);
+    try {
+      const result = await api.settings.saveSetup(mid, Math.min(step + 1, TOTAL_STEPS), settings);
+      if (!result.ok) throw new Error("セットアップ設定を保存できませんでした");
+      setSettings(result.settings);
+      setStep(result.settings.setup.step);
+      if (result.settings.setup.completed) onComplete();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "セットアップ設定を保存できませんでした");
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -103,6 +139,7 @@ export function VylineSetup({ mid, onComplete }: { mid: string; onComplete: () =
             </div>
           )}
         </div>
+        {error && <p className="mt-4 text-sm text-red-300">{error}</p>}
         <button
           type="button"
           className="mt-8 w-full rounded-lg bg-[var(--vy-accent)] px-4 py-3 font-medium text-white disabled:opacity-50"

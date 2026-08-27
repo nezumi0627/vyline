@@ -15,10 +15,10 @@ export default defineConfig({
     // preview_start (autoPort) は PORT 環境変数で空きポートを渡す。未設定なら通常どおり 5173
     port: process.env.PORT ? Number(process.env.PORT) : 5173,
     proxy: {
-      // backend へのプロキシ (CORS 回避)
+      // backend へのプロキシ (CORS 回避)。backend は /api 付きの BFF ルートを
+      // 正本として公開するため、ここで prefix を削ると設定・引継ぎ・診断 API が 404 になる。
       "/api": {
-        target: "http://127.0.0.1:3001",
-        rewrite: (path) => path.replace(/^\/api/, ""),
+        target: process.env.VYLINE_BACKEND_URL ?? "http://127.0.0.1:3001",
         timeout: 60_000,
       },
     },
