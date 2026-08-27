@@ -40,6 +40,38 @@ function toSafeDevice({
   return device;
 }
 
+function legacyDeviceKey(device: Subdevice): string {
+  return `${device.accountId}|${device.platform}|${device.name.trim().toLocaleLowerCase("ja-JP")}`;
+}
+
+function mergeDuplicateDevices(devices: Subdevice[]): Subdevice[] {
+  const result: Subdevice[] = [];
+  const byInstallation = new Map<string, Subdevice>();
+  const byLegacy = new Map<string, Subdevice>();
+  for (const device of devices) {
+    const key = device.installationIdHash ?? legacyDeviceKey(device);
+    const map = device.installationIdHash ? byInstallation : byLegacy;
+    const previous = map.get(key);
+    if (!previous) {
+      map.set(key, device);
+      result.push(device);
+      continue;
+    }
+    // 旧形式で同じ端末が複数登録された場合は最新レコードへ統合する。
+    const keep =
+      (previous.lastSeenAt ?? previous.createdAt) >= (device.lastSeenAt ?? device.createdAt)
+        ? previous
+        : device;
+    const drop = keep === previous ? device : previous;
+    keep.blocked ||= drop.blocked;
+    keep.lastSeenAt = keep.lastSeenAt ?? drop.lastSeenAt;
+    const index = result.indexOf(previous);
+    if (index >= 0) result[index] = keep;
+    map.set(key, keep);
+  }
+  return result;
+}
+
 async function load(): Promise<State> {
   if (cache) return cache;
   if (!existsSync(FILE)) return (cache = { devices: [], pairings: [] });
@@ -95,7 +127,15 @@ export async function completePairing(
   state.pairings.splice(index, 1);
   const rawSession = token("vys");
   const installationIdHash = hash(installationId);
-  const existing = state.devices.find((device) => device.installationIdHash === installationIdHash);
+  const normalizedName = name.trim().toLocaleLowerCase("ja-JP");
+  const existing = state.devices.find(
+    (device) =>
+      device.installationIdHash === installationIdHash ||
+      (!device.installationIdHash &&
+        device.accountId === accountId &&
+        device.platform === platform &&
+        device.name.trim().toLocaleLowerCase("ja-JP") === normalizedName),
+  );
   if (existing) {
     if (existing.blocked) {
       await save(state);
@@ -127,7 +167,12 @@ export async function completePairing(
 
 export async function listSubdevices() {
   const state = await load();
-  return state.devices.map(toSafeDevice);
+  const devices = mergeDuplicateDevices(state.devices);
+  if (devices.length !== state.devices.length) {
+    state.devices = devices;
+    await save(state);
+  }
+  return devices.map(toSafeDevice);
 }
 
 export async function authenticateSubdevice(raw: string, installationId?: string) {

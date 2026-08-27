@@ -95,6 +95,10 @@ import {
   NotLoggedInError,
   restoreRevokedMessage,
   getMessageHistory,
+  loadLockedChats,
+  setChatLocked,
+  assertChatUnlocked,
+  ChatLockedError,
 } from "../service/lineService.js";
 import {
   LiffNotLoggedInError,
@@ -201,6 +205,27 @@ lineRouter.post("/:accountId/notes/:postId/share", async (c) => {
     return handleError(err, c);
   }
 });
+
+// ─── Chat safety locks ─────────────────────────
+
+lineRouter.get("/:accountId/chat-locks", async (c) => {
+  return c.json({ ok: true, chatMids: await loadLockedChats(c.req.param("accountId")) });
+});
+
+lineRouter.put("/:accountId/chat-locks/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const body = await c.req.json<{ locked?: boolean }>();
+  if (typeof body.locked !== "boolean") {
+    return c.json({ ok: false, error: "locked must be boolean" }, 400);
+  }
+  try {
+    const chatMids = await setChatLocked(accountId, chatMid, body.locked);
+    return c.json({ ok: true, locked: body.locked, chatMids });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
 // ─── plugins（基盤: マニフェスト一覧と有効/無効の永続化。コード実行は未対応） ───
 lineRouter.get("/:accountId/plugins", async (c) => {
   const accountId = c.req.param("accountId");
@@ -246,6 +271,9 @@ function handleError(err: unknown, c: Context<any, any, any>) {
   }
   if (err instanceof CallNotAllowedError) {
     return c.json({ ok: false, error: err.message }, 403);
+  }
+  if (err instanceof ChatLockedError) {
+    return c.json({ ok: false, error: err.message, code: "CHAT_LOCKED" }, 423);
   }
   const message = err instanceof Error ? err.message : String(err);
   const code =

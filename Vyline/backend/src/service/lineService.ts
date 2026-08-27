@@ -91,9 +91,25 @@ import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 import { writeMediaStorage } from "../storage/mediaStorage.js";
 import { dispatchPluginMessage } from "../line/pluginRuntime.js";
+import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
+
+export class ChatLockedError extends Error {
+  readonly code = "CHAT_LOCKED";
+
+  constructor() {
+    super("このチャットはロック中のため操作できません");
+    this.name = "ChatLockedError";
+  }
+}
+
+export async function assertChatUnlocked(accountId: string, chatMid: string): Promise<void> {
+  if (await isChatLocked(accountId, chatMid)) throw new ChatLockedError();
+}
+
+export { loadLockedChats, setChatLocked };
 
 const log = childLogger("service:line");
 
@@ -425,6 +441,7 @@ async function decryptViaLetterSealingOrProtocol(
     else if (rawCt === "STICKER" || rawCt === "7") contentType = 7;
     else if (rawCt === "RICH" || rawCt === "17" || rawCt === 17) contentType = 17;
     else if (rawCt === "FLEX" || rawCt === "22" || rawCt === 22) contentType = 22;
+    else if (rawCt === "POSTNOTIFICATION" || rawCt === "16" || rawCt === 16) contentType = 16;
     else {
       const metaCt = Number(msg.contentMetadata?.contentType);
       if (Number.isFinite(metaCt)) contentType = metaCt;
@@ -497,6 +514,7 @@ async function decryptE2EEMessageSafe(
   const ct = msg.contentType;
   if (ct === 0 || ct === "0") msg.contentType = "NONE";
   else if (ct === 15 || ct === "15") msg.contentType = "LOCATION";
+  else if (ct === 16 || ct === "16") msg.contentType = "POSTNOTIFICATION";
   else if (typeof ct === "number") {
     // その他数値はそのまま AAD に使えるよう decryptE2EEDataMessage 経路へ
   }
@@ -3935,6 +3953,7 @@ export async function sendMessage(
   text: string,
   opts: SendMessageOptions = {},
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   // ブロック中の友だちには送信しない（サーバ側でも防ぐ）
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
@@ -4208,6 +4227,7 @@ export async function sendMedia(
     mediaType?: MediaSendType;
   },
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4385,6 +4405,7 @@ export async function sendMediaBatch(
   chatMid: string,
   items: MediaBatchItem[],
 ): Promise<number> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4628,6 +4649,7 @@ export async function sendSticker(
   chatMid: string,
   opts?: { packageId?: string; stickerId?: string; isPremium?: boolean },
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4924,6 +4946,7 @@ export async function sendCombinationSticker(
   items: CombinationStickerInput[],
   opts?: { idOfPreviousVersionOfCombinationSticker?: string },
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4961,6 +4984,7 @@ export async function sendLineEmoji(
   chatMid: string,
   opts: { packageId: string; sticonId: string },
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await fetchBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -5030,6 +5054,7 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
   return runSendRpc(accountId, async () => {
     const found = await findStoredMessageByIdLocal(accountId, messageId);
     const chatMid = found?.chatMid;
+    if (chatMid) await assertChatUnlocked(accountId, chatMid);
     if (found) {
       const stored = found.message;
       if (
@@ -5076,6 +5101,7 @@ export async function editMessage(
   messageId: string,
   text: string,
 ): Promise<{ message: Message }> {
+  await assertChatUnlocked(accountId, chatMid);
   return runSendRpc(accountId, async () => {
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
@@ -5236,6 +5262,7 @@ export async function updateChatName(
   chatMid: string,
   name: string,
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   await wrapSession(client).chat.updateName(chatMid, name);
   log.info({ accountId, chatMid, name }, "chat name updated");
@@ -5248,6 +5275,7 @@ export async function updateChatPicture(
   bytes: Uint8Array,
   mime = "image/jpeg",
 ): Promise<{ picturePath: string; objId: string; objHash: string }> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
   const result = await wrapSession(client).chat.uploadAndSetPicture(chatMid, blob);
@@ -5257,6 +5285,7 @@ export async function updateChatPicture(
 
 /** 友だち表示名 override（null で解除） */
 export async function renameContact(accountId: string, input: ContactRenameInput): Promise<void> {
+  await assertChatUnlocked(accountId, input.mid);
   const client = requireClient(accountId);
   await wrapSession(client).contacts.rename(input);
   log.info({ accountId, mid: input.mid }, "contact renamed");
@@ -5271,6 +5300,7 @@ export async function leaveChat(
   accountId: string,
   chatMid: string,
 ): Promise<{ alreadyLeft?: boolean }> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   try {
     await client.base.talk.deleteSelfFromChat({
@@ -5551,6 +5581,7 @@ export async function inviteToGroupChat(
   chatMid: string,
   memberMids: string[],
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   const mids = [...new Set(memberMids.filter((m) => m.startsWith("u")))];
   if (mids.length === 0) throw new Error("memberMids required");
@@ -5563,6 +5594,7 @@ export async function inviteToGroupChat(
 
 /** 連絡先ブロック — Desktop: TalkService_blockContact */
 export async function blockContactMid(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
   const client = requireClient(accountId);
   await client.base.talk.blockContact({
     reqSeq: await client.base.getReqseq(),
@@ -5573,6 +5605,7 @@ export async function blockContactMid(accountId: string, mid: string): Promise<v
 }
 
 export async function unblockContactMid(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
   const client = requireClient(accountId);
   await client.base.talk.unblockContact({
     reqSeq: await client.base.getReqseq(),
@@ -5644,6 +5677,8 @@ export async function reactToMessage(
   messageId: string,
   reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
 ): Promise<void> {
+  const found = await findStoredMessageByIdLocal(accountId, messageId);
+  if (found) await assertChatUnlocked(accountId, found.chatMid);
   const client = requireClient(accountId);
   // react RPC は稀に 8s 超えるため send キュー + 専用タイムアウトで待つ
   await runSendRpc(
@@ -5812,6 +5847,7 @@ export async function startDirectCall(
   callType: "AUDIO" | "VIDEO" = "AUDIO",
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
   assertDirectCallAllowed(to);
+  await assertChatUnlocked(accountId, to);
   if (await isBotMid(accountId, to)) {
     throw new CallNotAllowedError("BOT / 公式アカウントには通話できません");
   }

@@ -621,6 +621,19 @@ export const api = {
         `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/leave`,
       ),
 
+    getChatLocks: (accountId: string) =>
+      request<{ ok: boolean; chatMids?: string[]; error?: string }>(
+        "GET",
+        `/line/${accountId}/chat-locks`,
+      ),
+
+    setChatLocked: (accountId: string, chatMid: string, locked: boolean) =>
+      request<{ ok: boolean; locked?: boolean; chatMids?: string[]; error?: string }>(
+        "PUT",
+        `/line/${accountId}/chat-locks/${encodeURIComponent(chatMid)}`,
+        { locked },
+      ),
+
     blockContact: (accountId: string, mid: string) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
