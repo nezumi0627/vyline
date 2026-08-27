@@ -81,6 +81,23 @@ const recentlyReadAt = new Map<string, number>();
 const RECENTLY_READ_WINDOW_MS = 60_000;
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
+const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
+
+function readLastOpenedChat(accountId: string): string | null {
+  try {
+    return localStorage.getItem(lastOpenedChatStorageKey(accountId));
+  } catch {
+    return null;
+  }
+}
+
+function rememberLastOpenedChat(accountId: string, chatId: string): void {
+  try {
+    localStorage.setItem(lastOpenedChatStorageKey(accountId), chatId);
+  } catch {
+    /* localStorage may be unavailable in restricted browser contexts */
+  }
+}
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
@@ -294,11 +311,13 @@ export const UPDATE_NOTES = {
 
 /** 起動時に開くチャットを、現在の選択と取得済み一覧から安全に決める。 */
 export function resolveChatToOpen(
-  _accountId: string | null,
+  accountId: string | null,
   activeChatId: string | null,
   availableChatIds: readonly string[],
 ): string | null {
   if (activeChatId && availableChatIds.includes(activeChatId)) return activeChatId;
+  const lastOpenedChatId = accountId ? readLastOpenedChat(accountId) : null;
+  if (lastOpenedChatId && availableChatIds.includes(lastOpenedChatId)) return lastOpenedChatId;
   return availableChatIds[0] ?? null;
 }
 
@@ -336,6 +355,8 @@ type State = {
   readDisabledMids: Record<string, boolean>;
   /** ブロック中のユーザー MID 一覧（送信抑止・UI 表示に使用） */
   blockedMids: string[];
+  /** 誤操作防止のため操作を禁止するチャット MID 一覧 */
+  lockedChatMids: string[];
 
   /** chatId → 既読ウォーターマーク（DB永続化） */
   readWatermarks: Record<
@@ -356,6 +377,8 @@ type State = {
   setBlockedMids: (mids: string[]) => void;
   /** ブロック中なら true（送信抑止用） */
   isBlockedMid: (mid: string) => boolean;
+  syncChatLocks: () => Promise<void>;
+  setChatLocked: (chatMid: string, locked: boolean) => Promise<boolean>;
   openChat: (id: string) => void;
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
@@ -526,6 +549,7 @@ export const useStore = create<State>()(
       indexing: null,
       readDisabledMids: {},
       blockedMids: [],
+      lockedChatMids: [],
       notice: null,
       announcements: {},
       readWatermarks: {},
@@ -535,7 +559,10 @@ export const useStore = create<State>()(
       },
 
       setAccountId: (id) => {
-        if (id !== get().accountId) {
+        const currentAccountId = get().accountId;
+        const accountChanged = id !== currentAccountId;
+        const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
+        if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
@@ -545,30 +572,36 @@ export const useStore = create<State>()(
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
-        if (id !== get().accountId) {
+        if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
             accountId: id,
             chats: [],
             messages: [],
-            activeChatId: null,
+            activeChatId: lastOpenedChatId,
             initialChatScrollMessageId: null,
+            initialChatScrollMode: null,
             memberProfile: null,
             readWatermarks: {},
             announcements: {},
+            readDisabledMids: {},
             blockedMids: [],
+            lockedChatMids: [],
           });
         } else {
-          set({ accountId: id });
+          set({
+            accountId: id,
+            ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
+          });
         }
+        if (id) void get().syncChatLocks();
       },
 
       resetAccountData: () =>
         set({
           chats: [],
           messages: [],
-          activeChatId: null,
           profileDrawerOpen: false,
           announcements: {},
           drafts: {},
@@ -577,9 +610,10 @@ export const useStore = create<State>()(
           replyToId: null,
           highlightMessageId: null,
           initialChatScrollMessageId: null,
+          initialChatScrollMode: null,
           customOrder: [],
-          readDisabledMids: {},
           blockedMids: [],
+          lockedChatMids: [],
         }),
 
       toggleChatReadDisabled: (id) => {
@@ -607,6 +641,38 @@ export const useStore = create<State>()(
 
       isBlockedMid: (mid) => get().blockedMids.includes(mid),
 
+      syncChatLocks: async () => {
+        const { accountId, demoMode } = get();
+        if (!accountId || demoMode) return;
+        try {
+          const res = await api.line.getChatLocks(accountId);
+          if (res.ok && Array.isArray(res.chatMids) && get().accountId === accountId) {
+            set({ lockedChatMids: res.chatMids });
+          }
+        } catch {
+          /* silent */
+        }
+      },
+
+      setChatLocked: async (chatMid, locked) => {
+        const { accountId, demoMode } = get();
+        if (demoMode) {
+          set((st) => ({
+            lockedChatMids: locked
+              ? st.lockedChatMids.includes(chatMid)
+                ? st.lockedChatMids
+                : [...st.lockedChatMids, chatMid]
+              : st.lockedChatMids.filter((id) => id !== chatMid),
+          }));
+          return true;
+        }
+        if (!accountId) return false;
+        const res = await api.line.setChatLocked(accountId, chatMid, locked);
+        if (!res.ok) return false;
+        if (get().accountId === accountId) set({ lockedChatMids: res.chatMids ?? [] });
+        return true;
+      },
+
       openChat: (id) => {
         sessionOpenedChats.add(id);
         get()._activateChat(id, { history: true });
@@ -615,6 +681,7 @@ export const useStore = create<State>()(
       _activateChat: (id, opts) => {
         const opts2 = opts ?? {};
         const state = get();
+        if (state.accountId) rememberLastOpenedChat(state.accountId, id);
         const chat = state.chats.find((item) => item.id === id);
         const firstUnread = findFirstUnreadMessage(
           state.messages.filter((message) => message.chatId === id),
@@ -2730,6 +2797,7 @@ export const useStore = create<State>()(
         seenUpdateVersion: s.seenUpdateVersion,
         readDisabledMids: s.readDisabledMids,
         blockedMids: s.blockedMids,
+        lockedChatMids: s.lockedChatMids,
         activeChatId: s.activeChatId,
         readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({

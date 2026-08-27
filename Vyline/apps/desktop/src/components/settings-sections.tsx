@@ -76,9 +76,9 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
-  { key: "info", label: "情報", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
   { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
+  { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
 function Row({
@@ -405,6 +405,7 @@ export function SettingsSections() {
                       />
                     </Row>
                   </Card>
+                  <ReadDisabledChatList />
                   <p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
                     DM
                     では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
@@ -572,7 +573,6 @@ export function SettingsSections() {
                 <>
                   <BetaSection />
                   {settings.betaAgentI && <AgentIBetaPanel />}
-                  <IosBackupBetaPanel accountId={accountId} />
                 </>
               )}
             </div>
@@ -585,8 +585,31 @@ export function SettingsSections() {
 
 function HandoffSection() {
   const mid = useStore((s) => s.self.mid);
+  const accountId = useStore((s) => s.accountId);
+  const updateSelf = useStore((s) => s.updateSelf);
+  const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
+  useEffect(() => {
+    if (mid) {
+      setResolvedMid(mid);
+      return;
+    }
+    if (!accountId) return;
+    let cancelled = false;
+    void api.line
+      .profile(accountId)
+      .then((result) => {
+        if (cancelled || !result.ok || !result.profile?.mid) return;
+        setResolvedMid(result.profile.mid);
+        updateSelf({ mid: result.profile.mid });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, mid, updateSelf]);
+  const diagnosticMid = resolvedMid ?? mid;
   const download = (name: string, content: BlobPart, type: string) => {
     const url = URL.createObjectURL(new Blob([content], { type }));
     const anchor = document.createElement("a");
@@ -596,9 +619,10 @@ function HandoffSection() {
     URL.revokeObjectURL(url);
   };
   const exportHandoff = async () => {
-    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
-      const result = await api.handoff.export(mid);
+      const result = await api.handoff.export(diagnosticMid);
       const bytes = Uint8Array.from(atob(result.archiveBase64), (char) => char.charCodeAt(0));
       download(result.filename, bytes, "application/zip");
       setMessage("引継ぎZIPを作成しました");
@@ -607,16 +631,18 @@ function HandoffSection() {
     }
   };
   const importHandoff = () => {
-    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     const input = document.createElement("input");
     input.type = "file";
     input.accept = ".zip";
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
+      if (!window.confirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
       const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
       try {
-        const result = await api.handoff.import(mid, data, "overwrite");
+        const result = await api.handoff.import(diagnosticMid, data, "overwrite");
         setMessage(
           result.ok ? "引継ぎを適用しました。必要なら再起動してください" : "引継ぎに失敗しました",
         );
@@ -627,9 +653,10 @@ function HandoffSection() {
     input.click();
   };
   const exportLogs = async () => {
-    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
-      const result = await api.diagnostics.export(mid);
+      const result = await api.diagnostics.export(diagnosticMid);
       download("vyline-diagnostics.json", result.content, "application/json");
       setMessage("サニタイズ済みログを出力しました");
     } catch (error) {
@@ -637,9 +664,10 @@ function HandoffSection() {
     }
   };
   const loadLogs = async () => {
-    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
-      const result = await api.diagnostics.list(mid);
+      const result = await api.diagnostics.list(diagnosticMid);
       setEntries(result.entries);
       setMessage(`${result.entries.length}件のログを読み込みました`);
     } catch (error) {
@@ -647,9 +675,10 @@ function HandoffSection() {
     }
   };
   const reportIssue = async () => {
-    if (!mid) return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
-      const result = await api.diagnostics.export(mid);
+      const result = await api.diagnostics.export(diagnosticMid);
       const body = [
         "## 問題の概要",
         "",
@@ -728,9 +757,10 @@ function HandoffSection() {
             <button
               type="button"
               onClick={() =>
-                mid &&
+                diagnosticMid &&
+                window.confirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
-                  .clear(mid)
+                  .clear(diagnosticMid)
                   .then(() => setMessage("ログを削除しました"))
                   .catch((error) =>
                     setMessage(error instanceof Error ? error.message : "ログ削除に失敗しました"),
@@ -1338,7 +1368,59 @@ function AdvancedSection() {
           復元には LINE ログインが必要です。
         </p>
       )}
+      <div className="mt-4">
+        <IosBackupBetaPanel accountId={accountId} />
+      </div>
     </Section>
+  );
+}
+
+function ReadDisabledChatList() {
+  const chats = useStore((s) => s.chats);
+  const readDisabledMids = useStore((s) => s.readDisabledMids);
+  const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
+  const disabledChats = chats.filter((chat) => readDisabledMids[chat.id]);
+
+  return (
+    <div className="mt-4">
+      <Card>
+        <div className="py-3.5">
+          <p className="text-sm font-medium">既読オフにしているチャット</p>
+          <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+            個別に既読を無効化したチャットを確認できます。
+          </p>
+          {disabledChats.length === 0 ? (
+            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">
+              設定されているチャットはありません
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-1">
+              {disabledChats.map((chat) => (
+                <li
+                  key={chat.id}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--vy-surface-2)]"
+                >
+                  <Avatar
+                    glyph={chat.name.charAt(0) || "?"}
+                    color="var(--vy-accent)"
+                    size={30}
+                    imageUrl={chat.avatarUrl}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{chat.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleChatReadDisabled(chat.id)}
+                    className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2 py-1 text-[0.65rem] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
+                  >
+                    既読を有効化
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }
 
@@ -1951,6 +2033,11 @@ function PrivacySection() {
       setBlockedLoading(false);
     }
   };
+
+  useEffect(() => {
+    void loadBlocked();
+    // アカウントを切り替えたときも、ブロック一覧を古い内容のまま表示しない。
+  }, [accountId, demoMode]);
 
   const handleUnblock = async (mid: string) => {
     if ((!accountId && !demoMode) || unblocking.has(mid)) return;

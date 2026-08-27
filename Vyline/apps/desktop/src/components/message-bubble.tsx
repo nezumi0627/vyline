@@ -1182,39 +1182,31 @@ export const MessageBubble = memo(
                 alt={target.kind === "video" ? "動画サムネイル" : "送信された画像"}
                 video={target.kind === "video"}
               />
+            ) : target.kind === "video" ? (
+              <div className="relative overflow-hidden rounded-xl">
+                <video
+                  src={target.imageSrc.replace(/preview=1/, "preview=0")}
+                  controls
+                  preload="metadata"
+                  className="h-auto w-[260px] max-w-full object-cover"
+                />
+              </div>
             ) : (
               <button
                 type="button"
                 className="group relative block overflow-hidden rounded-xl text-left"
                 onClick={(e) => {
                   e.stopPropagation();
-                  if (target.kind === "video") return;
                   setLightbox(true);
                 }}
-                aria-label={target.kind === "video" ? "動画を拡大" : "画像を拡大"}
+                aria-label="画像を拡大"
               >
-                {target.kind === "video" ? (
-                  <div className="relative">
-                    <video
-                      src={target.imageSrc.replace(/preview=1/, "preview=0")}
-                      controls
-                      preload="metadata"
-                      className="h-auto w-[260px] max-w-full object-cover"
-                    />
-                    <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
-                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
-                        <IconPlay size={22} />
-                      </span>
-                    </span>
-                  </div>
-                ) : (
-                  <img
-                    src={target.imageSrc}
-                    alt="送信された画像"
-                    onError={hideBrokenMedia}
-                    className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
-                  />
-                )}
+                <img
+                  src={target.imageSrc}
+                  alt="送信された画像"
+                  onError={hideBrokenMedia}
+                  className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
+                />
               </button>
             ))}
           {target.kind === "audio" && target.audioSrc && (
@@ -1577,40 +1569,32 @@ export const MessageBubble = memo(
                     alt={message.kind === "video" ? "動画サムネイル" : "送信された画像"}
                     video={message.kind === "video"}
                   />
+                ) : message.kind === "video" ? (
+                  <div className="relative overflow-hidden rounded-xl">
+                    <video
+                      src={message.imageSrc.replace(/preview=1/, "preview=0")}
+                      controls
+                      preload="metadata"
+                      className="h-auto w-[260px] max-w-full object-cover"
+                    />
+                  </div>
                 ) : (
                   <button
                     type="button"
                     className="group relative block overflow-hidden rounded-xl text-left"
                     onClick={(e) => {
                       e.stopPropagation();
-                      if (message.kind === "video") return;
                       setLightboxMedia(message);
                       setLightbox(true);
                     }}
-                    aria-label={message.kind === "video" ? "動画を拡大" : "画像を拡大"}
+                    aria-label="画像を拡大"
                   >
-                    {message.kind === "video" ? (
-                      <div className="relative">
-                        <video
-                          src={message.imageSrc.replace(/preview=1/, "preview=0")}
-                          controls
-                          preload="metadata"
-                          className="h-auto w-[260px] max-w-full object-cover"
-                        />
-                        <span className="pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35">
-                          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
-                            <IconPlay size={22} />
-                          </span>
-                        </span>
-                      </div>
-                    ) : (
-                      <img
-                        src={message.imageSrc}
-                        alt="送信された画像"
-                        onError={hideBrokenMedia}
-                        className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
-                      />
-                    )}
+                    <img
+                      src={message.imageSrc}
+                      alt="送信された画像"
+                      onError={hideBrokenMedia}
+                      className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
+                    />
                   </button>
                 ))}
               {mediaItems.length <= 1 && message.kind === "audio" && message.audioSrc && (

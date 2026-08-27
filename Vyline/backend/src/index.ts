@@ -286,6 +286,7 @@ process.on("unhandledRejection", (reason) => {
 await initVylineProfile();
 void ensureCdnCacheDir().catch(() => undefined);
 void ensureMediaStorageDir().catch(() => undefined);
+void import("./tailscale.js").then((m) => m.startTailscaleWatcher(PORT)).catch(() => undefined);
 
 restoreAllSessions()
   .then(async () => {

@@ -59,9 +59,29 @@ tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 
 ---
 
-## 3. ポートフォワード / リバースプロキシ
+## 3. 遠隔アクセス — Tailscale 推奨（最優先）
 
-自宅ルーターで `3001` を外部公開するのは避けてください。**Cloudflare Access（後述）か、最低でもリバースプロキシ + Basic 認証**を挟むことを強く推奨します。
+Vyline の遠隔アクセスは **Tailscale を推奨**します。PC で Vyline を起動した状態で、スマホ／タブレットにも Tailscale をインストールし、**同じアカウントで Tailscale にログイン**すれば、追加のポート開放なしで安全にアクセスできます。
+
+### 手順
+
+1. **PC 側**: [Tailscale](https://tailscale.com/download) をインストールしてログイン → Vyline を起動（`bun run dev` または Docker）
+2. **スマホ側**: Tailscale アプリをインストールして同じアカウントでログイン
+3. **アクセス**: PC の Tailscale IP（`100.x.y.z`）で `http://100.x.y.z:3000`（Docker）または `http://100.x.y.z:3001`（Bun）を開く
+
+Vyline バックエンドは起動時および 30 秒ごとに Tailscale IP を検出し、ログに URL を自動出力します。
+
+```
+Tailscale detected — Vyline accessible via Tailscale {"tailscaleIp":"100.x.y.z","url":"http://100.x.y.z:3000"}
+```
+
+Tailscale が起動していない間は通常の LAN/ローカルアクセスのみ有効です。Tailscale 起動後は自動で URL がログに追加されます。
+
+> Tailscale は WireGuard ベースのメッシュ VPN で、外部公開やリバースプロキシより簡単かつ安全です。家族や自分専用の閉じたネットワークとして使えます。
+
+## 3b. ポートフォワード / リバースプロキシ
+
+自宅ルーターで `3001` を外部公開するのは避けてください。**Tailscale（推奨）か Cloudflare Access（後述）か、最低でもリバースプロキシ + Basic 認証**を挟むことを強く推奨します。
 
 ### Nginx 例
 

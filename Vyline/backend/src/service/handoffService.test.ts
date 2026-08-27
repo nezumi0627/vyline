@@ -16,8 +16,9 @@ describe("handoff archive", () => {
       imported: ["settings.json"],
     });
     const tampered = Buffer.from(exported.archiveBase64, "base64");
-    const last = tampered.length - 1;
-    tampered[last] = (tampered[last] ?? 0) ^ 1;
+    // flip a byte inside the file data region to trigger hash mismatch (last byte is EOCD, may be ignored by fflate)
+    const pos = Math.floor(tampered.length / 3);
+    tampered[pos] = (tampered[pos] ?? 0) ^ 1;
     await expect(importHandoff(mid, tampered.toString("base64"), "overwrite")).rejects.toThrow();
     await rm(dataDir, { recursive: true, force: true });
   });

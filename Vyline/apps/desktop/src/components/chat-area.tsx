@@ -96,6 +96,7 @@ function ChatAreaBase() {
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
   const initialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
+  const loadingMessages = useStore((s) => s.loadingMessages);
   const initialChatScrollMode = useStore((s) => s.initialChatScrollMode);
   const accountId = useStore((s) => s.accountId);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -118,6 +119,10 @@ function ChatAreaBase() {
     [messages, activeChatId],
   );
 
+  const firstUnreadMessageId = useMemo(
+    () => findFirstUnreadMessage(chatMessages)?.id ?? null,
+    [chatMessages],
+  );
   const matches = useMemo(() => {
     const q = search.q.trim().toLowerCase();
     if (!q) return [] as string[];
@@ -194,6 +199,7 @@ function ChatAreaBase() {
     containerRef,
     onScroll,
     visibleRows,
+    hasMeasured,
     topSpacer,
     bottomSpacer,
     rowRef,
@@ -263,46 +269,33 @@ function ChatAreaBase() {
       openedChatRef.current = null;
       return;
     }
-    if (openedChatRef.current === activeChatId) return;
-
-    const fallbackUnread =
-      initialChatScrollMode === "unread" && !initialChatScrollMessageId
-        ? findFirstUnreadMessage(chatMessages)?.id
-        : undefined;
-    const targetId = initialChatScrollMessageId ?? fallbackUnread;
-    if (chatMessages.length === 0) return;
-    const targetRow = targetId
-      ? rows.find(
-          (row) =>
-            row.key === `msg-${targetId}` ||
-            (row.item.kind === "msg" &&
-              row.item.mediaGroup?.some((message) => message.id === targetId)),
-        )
-      : undefined;
-    if (initialChatScrollMode === "unread" && targetId && !targetRow) {
-      // 未読がまだ読み込まれていない（履歴の奥にある）→ 過去を読み込みつつ上端で待機
-      window.dispatchEvent(
-        new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-      );
-      return;
+    // リロード直後はチャットIDだけ復元され、メッセージが後から hydrate される。
+    // 空の状態で初期位置を確定すると、メッセージ到着後に再実行されなくなる。
+    if (!rows.length || openedChatRef.current === activeChatId) return;
+    if (!hasMeasured) return;
+    const targetMessageId =
+      initialChatScrollMode === "unread"
+        ? (initialChatScrollMessageId ?? firstUnreadMessageId)
+        : null;
+    const key = targetMessageId ? `msg-${targetMessageId}` : null;
+    if (key && !rows.some((row) => row.key === key)) {
+      // 初回取得中は、未読位置が分かるまでスクロール位置を確定しない。
+      if (loadingMessages) return;
     }
     const frame = requestAnimationFrame(() => {
       openedChatRef.current = activeChatId;
-      if (targetId && targetRow) {
-        scrollToMessagePosition(targetId, { behavior: "auto", center: true }, targetRow.key);
-      } else if (targetId && !targetRow) {
-        // フォールバック: 見つからなければ末尾
-        scrollToBottom("auto");
-      } else {
-        scrollToBottom("auto");
-      }
+      if (targetMessageId) {
+        scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true });
+      } else scrollToBottom("auto");
     });
     return () => cancelAnimationFrame(frame);
   }, [
     activeChatId,
-    chatMessages,
+    firstUnreadMessageId,
+    hasMeasured,
     initialChatScrollMessageId,
     initialChatScrollMode,
+    loadingMessages,
     rows,
     scrollToBottom,
     scrollToMessagePosition,

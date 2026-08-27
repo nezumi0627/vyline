@@ -65,6 +65,17 @@ describe("useStore account initialization", () => {
     expect(useStore.getState().activeChatId).toBe("chat-last-opened");
   });
 
+  it("keeps per-chat read-disabled settings during reload hydration", () => {
+    useStore.setState({
+      accountId: "account-1",
+      readDisabledMids: { "chat-read-disabled": true },
+    });
+
+    useStore.getState().resetAccountData();
+
+    expect(useStore.getState().readDisabledMids).toEqual({ "chat-read-disabled": true });
+  });
+
   it("clears the last opened chat when switching accounts", () => {
     useStore.setState({
       accountId: "account-1",
