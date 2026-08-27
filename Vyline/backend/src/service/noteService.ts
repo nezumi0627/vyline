@@ -58,3 +58,34 @@ export async function shareNoteToChat(
 ): Promise<unknown> {
   return await client.base.timeline.sharePost({ postId, chatMid, homeId });
 }
+
+export async function updateNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  input: Parameters<VylineClient["base"]["timeline"]["updatePost"]>[0],
+): Promise<unknown> {
+  return await client.base.timeline.updatePost({ ...input, homeId, postId });
+}
+
+export async function likeNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  likeType?: "1001" | "1002" | "1003" | "1004" | "1005" | "1006",
+): Promise<unknown> {
+  return await client.base.timeline.likePost({
+    contentId: postId,
+    homeId,
+    ...(likeType ? { likeType } : {}),
+  });
+}
+
+export async function commentNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  commentText: string,
+): Promise<unknown> {
+  return await client.base.timeline.createComment({ contentId: postId, homeId, commentText });
+}
