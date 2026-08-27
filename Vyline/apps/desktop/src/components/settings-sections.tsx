@@ -1431,6 +1431,10 @@ function AdvancedSection() {
         </Row>
       </Card>
 
+      <div className="mt-4">
+        <VylineBackupPanel accountId={accountId} />
+      </div>
+
       {restoreResult && (
         <div
           className={cn(
@@ -1474,6 +1478,108 @@ function AdvancedSection() {
       <div className="mt-4">
         <IosBackupBetaPanel accountId={accountId} />
       </div>
+    </Section>
+  );
+}
+
+function VylineBackupPanel({ accountId }: { accountId: string | null }) {
+  const [backups, setBackups] = useState<
+    NonNullable<Awaited<ReturnType<typeof api.line.backupList>>["data"]>
+  >([]);
+  const [includeMedia, setIncludeMedia] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = async () => {
+    if (!accountId) return;
+    const result = await api.line.backupList(accountId);
+    if (result.ok) setBackups(result.data ?? []);
+  };
+  useEffect(() => {
+    void load();
+  }, [accountId]);
+  const create = async () => {
+    if (!accountId) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api.line.backupCreate(accountId, { includeMedia });
+      if (!result.ok) throw new Error(result.error ?? "バックアップを作成できませんでした");
+      setMessage(`${result.summary?.messageCount ?? 0}件のメッセージを保存しました`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "バックアップを作成できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const restore = async (id: string, media: boolean) => {
+    if (!accountId || !window.confirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
+      return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api.line.backupRestore(accountId, { backupId: id, includeMedia: media });
+      if (!result.ok) throw new Error(result.error ?? "復元できませんでした");
+      setMessage(`復元完了: ${result.restoredMessages ?? 0}件のメッセージ`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "復元できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section
+      title="VylineBackup"
+      desc="この端末のトーク履歴をスナップショットとして保存・復元します。認証情報は含みません。"
+    >
+      <Card>
+        <Row title="新しいバックアップを作成" desc="履歴をいつでも戻せるよう、このPC内へ保存します">
+          <button
+            type="button"
+            disabled={busy || !accountId}
+            onClick={() => void create()}
+            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            {busy ? "処理中…" : "作成"}
+          </button>
+        </Row>
+        <label className="flex items-center justify-between py-3 text-xs text-[var(--vy-text-dim)]">
+          <span>画像・動画などの保存済みメディアも含める</span>
+          <input
+            type="checkbox"
+            checked={includeMedia}
+            onChange={(event) => setIncludeMedia(event.target.checked)}
+          />
+        </label>
+        {backups.length === 0 ? (
+          <p className="py-3 text-sm text-[var(--vy-text-dim)]">まだバックアップはありません。</p>
+        ) : (
+          backups.slice(0, 5).map((backup) => (
+            <div
+              key={backup.id}
+              className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-medium">{new Date(backup.createdAt).toLocaleString()}</p>
+                <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                  {backup.chatCount}チャット · {backup.messageCount.toLocaleString()}件 ·{" "}
+                  {formatBytes(backup.sizeBytes)}
+                  {backup.includeMedia ? " · メディアあり" : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void restore(backup.id, backup.includeMedia)}
+                className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                復元
+              </button>
+            </div>
+          ))
+        )}
+      </Card>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
     </Section>
   );
 }

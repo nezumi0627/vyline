@@ -1183,6 +1183,17 @@ export const api = {
       ),
   },
   handoff: {
+    inspect: (mid: string, archiveBase64: string) =>
+      request<{
+        ok: boolean;
+        error?: string;
+        files?: string[];
+        matchesCurrentAccount?: boolean;
+        manifest?: {
+          source: { platform: "desktop" | "web"; appVersion: string; schemaVersion: number };
+          createdAt: string;
+        };
+      }>("POST", `/handoff/${encodeURIComponent(mid)}/inspect`, { archiveBase64 }),
     export: (mid: string) =>
       request<{ ok: boolean; filename: string; archiveBase64: string; manifest: unknown }>(
         "POST",

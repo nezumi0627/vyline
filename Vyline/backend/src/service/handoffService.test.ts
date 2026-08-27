@@ -22,4 +22,22 @@ describe("handoff archive", () => {
     await expect(importHandoff(mid, tampered.toString("base64"), "overwrite")).rejects.toThrow();
     await rm(dataDir, { recursive: true, force: true });
   });
+
+  test("inspects an archive before importing and detects the account mismatch", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-inspect-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { exportHandoff, inspectHandoff } = await import("./handoffService.js");
+    const mid = "u1234567890abcdef1234567890abcdef";
+    const exported = await exportHandoff(mid, "desktop");
+    expect(inspectHandoff(mid, exported.archiveBase64)).toMatchObject({
+      matchesCurrentAccount: true,
+      files: ["settings.json"],
+    });
+    expect(
+      inspectHandoff("uabcdef1234567890abcdef1234567890", exported.archiveBase64),
+    ).toMatchObject({
+      matchesCurrentAccount: false,
+    });
+    await rm(dataDir, { recursive: true, force: true });
+  });
 });

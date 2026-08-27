@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import {
   loadAccountSettings,
   saveAccountSettings,
+  SETUP_TOTAL_STEPS,
   updateSetup,
 } from "../service/accountSettingsService.js";
 
@@ -27,7 +28,12 @@ accountSettingsRouter.patch("/:mid/setup", async (c) => {
   const mid = c.req.param("mid");
   if (!MID.test(mid)) return c.json({ ok: false, error: "invalid account MID" }, 422);
   const body = await c.req.json<{ step?: number; settings?: Record<string, unknown> }>();
-  if (!Number.isInteger(body.step) || body.step == null || body.step < 0 || body.step > 3)
+  if (
+    !Number.isInteger(body.step) ||
+    body.step == null ||
+    body.step < 0 ||
+    body.step > SETUP_TOTAL_STEPS
+  )
     return c.json({ ok: false, error: "invalid setup step" }, 422);
   return c.json({ ok: true, settings: await updateSetup(mid, body.step, body.settings ?? {}) });
 });

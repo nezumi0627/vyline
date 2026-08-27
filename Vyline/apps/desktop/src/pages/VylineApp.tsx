@@ -23,6 +23,8 @@ export function VylineApp() {
   const indexing = useStore((s) => s.indexing);
   const notice = useStore((s) => s.notice);
   const mid = useStore((s) => s.self.mid);
+  const profileName = useStore((s) => s.self.name);
+  const accountId = useStore((s) => s.accountId);
   const [consented, setConsented] = useState(() => hasTosConsent());
   const [setupDone, setSetupDone] = useState(false);
 
@@ -76,7 +78,14 @@ export function VylineApp() {
   }
 
   if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
-    return <VylineSetup mid={mid} onComplete={() => setSetupDone(true)} />;
+    return (
+      <VylineSetup
+        mid={mid}
+        accountId={accountId}
+        profileName={profileName}
+        onComplete={() => setSetupDone(true)}
+      />
+    );
   }
 
   return (

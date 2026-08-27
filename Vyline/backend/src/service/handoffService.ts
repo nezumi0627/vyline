@@ -25,6 +25,47 @@ function platform(value: unknown): Platform {
   return value === "web" ? "web" : "desktop";
 }
 
+interface ParsedHandoff {
+  manifest: HandoffManifest;
+  entries: Record<string, Uint8Array>;
+}
+
+function parseHandoff(archiveBase64: string): ParsedHandoff {
+  if (!archiveBase64 || archiveBase64.length > Math.ceil(MAX_ARCHIVE_BYTES * 1.4))
+    throw new Error("handoff archive is too large");
+  const archive = Buffer.from(archiveBase64, "base64");
+  if (archive.byteLength === 0 || archive.byteLength > MAX_ARCHIVE_BYTES)
+    throw new Error("handoff archive is too large");
+  const entries = unzipSync(archive);
+  const manifestBytes = entries["manifest.json"];
+  if (!manifestBytes) throw new Error("manifest.json is required");
+  const manifest = JSON.parse(strFromU8(manifestBytes)) as HandoffManifest;
+  if (manifest.format !== HANDOFF_FORMAT || manifest.version !== HANDOFF_VERSION)
+    throw new Error("unsupported handoff format");
+  if (!manifest.handoffId || !Array.isArray(manifest.files) || manifest.encryption?.mode !== "none")
+    throw new Error("invalid handoff manifest");
+  for (const file of manifest.files) {
+    if (!/^[-a-zA-Z0-9_.]+$/.test(file.path) || file.path.includes(".."))
+      throw new Error("unsafe handoff path");
+    const data = entries[file.path];
+    if (!data || data.byteLength !== file.size || sha256(data) !== file.sha256)
+      throw new Error(`handoff integrity check failed: ${file.path}`);
+  }
+  return { manifest, entries };
+}
+
+export function inspectHandoff(
+  mid: string,
+  archiveBase64: string,
+): { manifest: HandoffManifest; files: string[]; matchesCurrentAccount: boolean } {
+  const { manifest } = parseHandoff(archiveBase64);
+  return {
+    manifest,
+    files: manifest.files.map((file) => file.path),
+    matchesCurrentAccount: manifest.account.midHash === anonymousId(mid),
+  };
+}
+
 export async function exportHandoff(
   mid: string,
   sourcePlatform: unknown = "desktop",
@@ -63,23 +104,7 @@ export async function importHandoff(
   mode: "overwrite" | "merge" | "cancel" = "cancel",
 ): Promise<{ manifest: HandoffManifest; imported: string[] }> {
   if (mode === "cancel") throw new Error("import cancelled");
-  const archive = Buffer.from(archiveBase64, "base64");
-  if (archive.byteLength > MAX_ARCHIVE_BYTES) throw new Error("handoff archive is too large");
-  const entries = unzipSync(archive);
-  const manifestBytes = entries["manifest.json"];
-  if (!manifestBytes) throw new Error("manifest.json is required");
-  const manifest = JSON.parse(strFromU8(manifestBytes)) as HandoffManifest;
-  if (manifest.format !== HANDOFF_FORMAT || manifest.version !== HANDOFF_VERSION)
-    throw new Error("unsupported handoff format");
-  if (!manifest.handoffId || !Array.isArray(manifest.files) || manifest.encryption?.mode !== "none")
-    throw new Error("invalid handoff manifest");
-  for (const file of manifest.files) {
-    if (!/^[-a-zA-Z0-9_.]+$/.test(file.path) || file.path.includes(".."))
-      throw new Error("unsafe handoff path");
-    const data = entries[file.path];
-    if (!data || data.byteLength !== file.size || sha256(data) !== file.sha256)
-      throw new Error(`handoff integrity check failed: ${file.path}`);
-  }
+  const { manifest, entries } = parseHandoff(archiveBase64);
   const settingsData = entries["settings.json"];
   if (!settingsData) throw new Error("settings.json is required");
   const incoming = JSON.parse(strFromU8(settingsData)) as Record<string, unknown>;
