@@ -309,12 +309,15 @@ export const UPDATE_NOTES = {
   ],
 };
 
+/** 起動時に開くチャットを、現在の選択と取得済み一覧から安全に決める。 */
 export function resolveChatToOpen(
-  _accountId: string | null,
+  accountId: string | null,
   activeChatId: string | null,
   availableChatIds: readonly string[],
 ): string | null {
   if (activeChatId && availableChatIds.includes(activeChatId)) return activeChatId;
+  const lastOpenedChatId = accountId ? readLastOpenedChat(accountId) : null;
+  if (lastOpenedChatId && availableChatIds.includes(lastOpenedChatId)) return lastOpenedChatId;
   return availableChatIds[0] ?? null;
 }
 
@@ -672,14 +675,13 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
-        const { accountId } = get();
-        if (accountId) rememberLastOpenedChat(accountId, id);
         get()._activateChat(id, { history: true });
       },
 
       _activateChat: (id, opts) => {
         const opts2 = opts ?? {};
         const state = get();
+        if (state.accountId) rememberLastOpenedChat(state.accountId, id);
         const chat = state.chats.find((item) => item.id === id);
         const firstUnread = findFirstUnreadMessage(
           state.messages.filter((message) => message.chatId === id),
@@ -1801,9 +1803,6 @@ export const useStore = create<State>()(
         if (lastId) readReceiptSent.set(receiptKey, lastId);
         try {
           await api.line.markAsRead(accountId, id, lastId);
-          void get()
-            .refreshChatsSilently()
-            .catch(() => undefined);
         } catch {
           if (lastId) readReceiptSent.delete(receiptKey);
           if (localKey) recentlyReadAt.delete(localKey);
@@ -1841,9 +1840,6 @@ export const useStore = create<State>()(
               : message,
           ),
         }));
-        void get()
-          .refreshChatsSilently()
-          .catch(() => undefined);
       },
 
       setDraft: (chatId, text) => set((st) => ({ drafts: { ...st.drafts, [chatId]: text } })),
@@ -1986,6 +1982,7 @@ export const useStore = create<State>()(
                   const isRecentlyRead =
                     recentAt != null && Date.now() - recentAt < RECENTLY_READ_WINDOW_MS;
                   const serverUnread = c.unreadCount ?? prev?.unread ?? 0;
+                  // 最近既読にしたチャットはサーバ反映前でも未読0を維持（新着があれば poll で上書きされる）
                   const nextUnread =
                     isRecentlyRead && serverUnread > 0 && st.activeChatId !== c.mid
                       ? 0
