@@ -5,6 +5,7 @@ import type { AccountSettings, LogLevel } from "@vyline/types";
 import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+export const SETUP_TOTAL_STEPS = 5;
 
 export function defaultAccountSettings(): AccountSettings {
   return {
@@ -69,12 +70,12 @@ export async function updateSetup(
   patch: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
   const current = await loadAccountSettings(mid);
-  const completed = step >= 3;
+  const completed = step >= SETUP_TOTAL_STEPS;
   return saveAccountSettings(mid, {
     ...patch,
     setup: {
       ...current.setup,
-      step: Math.max(0, Math.min(step, 3)),
+      step: Math.max(0, Math.min(step, SETUP_TOTAL_STEPS)),
       completed,
       ...(completed ? { completedAt: new Date().toISOString() } : {}),
     },
