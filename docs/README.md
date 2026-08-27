@@ -1,6 +1,6 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-24
+最終更新: 2026-08-27
 
 新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
@@ -29,6 +29,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [user-guide/custom-client.md](./user-guide/custom-client.md)              | カスタムクライアントの作り方               |
 | [user-guide/themes.md](./user-guide/themes.md)                            | テーマの作り方                            |
 | [developer-guide/multi-account.md](./developer-guide/multi-account.md) | マルチアカウントデータ分離の現状と計画     |
+| [setup-account-handoff-debug.md](./setup-account-handoff-debug.md) | Vyline Setup、設定引継ぎ、診断ログの仕様 |
 
 ---
 
@@ -45,12 +46,12 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
 | [../CHANGELOG.md](../CHANGELOG.md)   | 変更履歴                                                           |
 
-## 予定（未実装）
+## 次の大きな機能
 
 | ドキュメント                         | 内容                                          |
 | ------------------------------------ | --------------------------------------------- |
 | [plugin-api.md](./plugin-api.md)     | プラグイン API（設計メモ・現状非対応）        |
-| [tasks/STATUS.md](./tasks/STATUS.md) | 予定機能（プラグイン / オープンチャット）一覧 |
+| [tasks/STATUS.md](./tasks/STATUS.md) | Phase とオープンチャット統合の進捗 |
 
 ---
 

@@ -1,14 +1,18 @@
 # Multi Account Design（複数アカウント分離）
 
-最終更新: 2026-08-24
+最終更新: 2026-08-27
 
-## 現状（実装済み）
+## 現状（0.8.0-beta）
 
-Vyline は `accountId` をキーにデータを分離している。実体はフラットなサフィックス方式。
+Vyline はログインセッションの `accountId` と、設定・引継ぎ・診断 API の LINE MID を用途ごとに使い分けます。設定を扱う API は MID を必須にし、別アカウントの設定を誤って読み書きしないようにしています。
 
 | データ | パス | 分離 |
 |---|---|---|
-| セッション / トークン | `data/tokens.json` (`{ [accountId]: ... }`) | ✅ key 単位 |
+| アカウント設定 | `data/accounts/<safe-mid>/settings.json` | ✅ MID ごと。スキーマ version を持ち、原子的に書き込む |
+| Setup 進捗 | `settings.json` 内の `setup` | ✅ MID ごと。途中再開・完了済み判定に使用 |
+| 引継ぎ記録 | `data/accounts/<safe-mid>/handoff.json` | ✅ MID ごと。認証情報は含めない |
+| 診断ログ | `data/logs/diagnostics-<safe-mid>.jsonl` | ✅ MID ごと。保存前にマスキング |
+| セッション / トークン | `data/tokens.json` | ✅ accountId ごと。Windows は DPAPI(CurrentUser) で暗号化して保存 |
 | チャット / メッセージ DB | `data/chatdb-{accountId}.json` | ✅ ファイル単位 |
 | プロフィール等キャッシュ | `data/vyline-cache-{accountId}.json` | ✅ |
 | 既読レンジ | `data/vyline-readRanges-{accountId}.json` | ✅ |
@@ -21,52 +25,27 @@ Vyline は `accountId` をキーにデータを分離している。実体はフ
 クライアント管理 (`clientManager`) もアカウントごとに client / ops loop / token watcher を持つ。
 ログアウト時はタイマー・ループを確実に停止する（perf ブランチで修正済み）。
 
-## 未達成（計画）
+`safe-mid` はファイル名として安全な形式へ正規化した値です。パス結合は共有ユーティリティを通し、`..` などを含む外部入力をパスとして使いません。
 
-README の目標に対し、以下が未実装。**移行は既存データのマイグレーションを伴うため
-段階的に行う**。
+## 設定のライフサイクル
 
-### 1. アカウントレジストリ
+1. ログイン直後、Vyline Setup が未完了なら 3 ステップ画面を表示する
+2. 各ステップは `PATCH /api/settings/accounts/:mid/setup` で保存する
+3. 完了時に `setup.completed` を記録し、次回は自動表示しない
+4. 設定画面からはいつでも再実行・変更できる
+5. アカウント切替時はチャット、既読、下書きなどの一時 UI 状態をクリアし、前アカウントの表示を残さない
 
-```txt
-data/accounts.json
-{
-  "activeAccountId": "main",
-  "accounts": [
-    { "accountId": "main", "displayName": "Main", "createdAt": "...", "lastUsedAt": "..." }
-  ]
-}
-```
+設定 JSON は一時ファイルへの書き込み後に rename するため、途中終了しても完成済みファイルを壊しません。読み込み時は schema version に応じて既定値と統合します。
 
-- raw MID は永続化しない（表示名はローカル付名のみ）
-- ログへ raw MID を出さない
+## 移行方針
 
-### 2. ディレクトリ分離
+既存の accountId サフィックス付きストレージは、互換性を壊さないため継続して読み取ります。`storage/accountDirs.ts` を使う領域は、新レイアウトを優先し、旧フラットファイルを見つけた場合に新レイアウトへコピーします。元ファイルは削除しません。
 
-```txt
-data/accounts/<safe-account-id>/
-  session/ storage/ cache/ media/ db/ logs/ backup/
-```
+トークンや既存のチャット DB を一度に移動するマイグレーションは、データ消失リスクを避けるため未実施です。移行対象を追加する場合は、コピー → 検証 → 旧形式の読み取りフォールバック → 将来のメジャー版での削除、の順を守ります。
 
-- `<safe-account-id>` は MID をそのまま使わず hash / sanitized id を使用
-- 移行時は既存 `*-main.json` 等を取り込み、旧ファイルは読み取り互換のため一定期間残す
+## セキュリティ上の注意
 
-### 3. アカウント切替の完全性
-
-現状もクライアント単位で分離されているが、以下を明示テストする必要がある:
-
-- 切替中に前アカウントの UI state / メディア URL が残らないこと
-- 切替中の送信が誤って前アカウントで実行されないこと
-- バックアップ復元が別アカウントに混ざらないこと
-
-### 4. 公開 API の account スコープ
-
-公開 REST API (/v1) はすでに `/accounts/{accountId}/...` 形式。
-プラグイン API も同様に account スコープ付き（plugin-foundation で実装済み）。
-
-## マイグレーション方針（将来）
-
-1. accounts.json 導入（既存 accountId をそのまま登録・挙動変更なし）
-2. 新規データの書き込み先を `accounts/<id>/` へ（読み込みは旧パスフォールバック）
-3. 起動時に旧フラットファイルを移行する one-shot migration コマンド
-4. フォールバック削除（破壊的変更・メジャーアップデートで実施）
+- 認証トークン、Cookie、E2EE 鍵、パスワード、秘密鍵は引継ぎ ZIP と診断ログに含めない
+- Windows のトークン暗号化は現在の Windows ユーザーに結び付く。別ユーザー・別 PC へファイルだけをコピーしても復号できない
+- アカウント削除・全データ削除は、既存ストレージを含むため明示的なバックアップ確認を伴う別操作として扱う
+- Web／サブデバイスからの接続は、そのブラウザのランダムなインストール ID と有効セッションの両方を検証する

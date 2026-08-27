@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-20
+最終更新: 2026-08-27
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -12,7 +12,7 @@
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
 - **ライセンス**: MIT
-- **ステータス**: Phase 1-3 進行中（E2EE 復号・送信・Desktop 鍵 import・Vyline）
+- **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
 
 ---
@@ -65,6 +65,14 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 | 4     | Telegram-like UI                      | in progress |
 | 5     | Quality / perf                        | in progress |
 | 6     | Beta 公開準備                         | in progress |
+
+### 最近の主な変更 (2026-08-27)
+
+- **Vyline Setup / アカウント設定**: 初回 3 ステップ設定、MID ごとの設定スキーマ、原子的 JSON 保存、進捗の復元を追加
+- **引継ぎ / 診断**: 設定のみを含む SHA-256 検証 ZIP の import/export、サニタイズ済み診断ログの確認・出力・削除、GitHub Issue 作成導線を追加
+- **セッション保護**: Windows のトークンを DPAPI(CurrentUser) で保護。サブデバイスをブラウザごとのランダムなインストール ID に結び付け、端末固有情報を保存しない
+- **同期と表示**: 既読反映・未読位置・仮想リストのスクロールを安定化。アカウント切替時に前アカウントの UI 状態を残さない
+- **遠隔利用**: LAN 公開を既定で無効にし、Tailscale の検出と URL 表示を追加
 
 ### 最近の主な変更 (2026-08-18)
 

@@ -1,6 +1,6 @@
 {
   "name": "vyline",
-  "version": "0.7.0-beta",
+  "version": "0.8.0-beta",
   "private": true,
   "engines": {
     "bun": ">=1.4.0"

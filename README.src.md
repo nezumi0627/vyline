@@ -11,7 +11,7 @@
 </p><!--ja-->
 <!--ja-->
 <p align="center"><!--ja-->
-  <img alt="version" src="https://img.shields.io/badge/version-0.6.1--beta-a78bfa?style=flat-square" /><!--ja-->
+  <img alt="version" src="https://img.shields.io/badge/version-0.8.0--beta-a78bfa?style=flat-square" /><!--ja-->
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" /><!--ja-->
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" /><!--ja-->
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" /><!--ja-->
@@ -36,7 +36,7 @@
 > Vyline は **LINE 非公式・未承認**のサードパーティクライアントです。LINE 株式会社および LY Corporation とは関係ありません。利用規約への抵触やアカウント停止を含むリスクを理解したうえで、自己責任で使用してください。<!--ja-->
 <!--ja-->
 > [!NOTE]<!--ja-->
-> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.6.0** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。<!--ja-->
+> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.8.0** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。<!--ja-->
 <!--ja-->
 ---<!--ja-->
 <!--ja-->
@@ -51,7 +51,7 @@
 | 対象 | UI を自分好みに調整したいユーザー、開発者、セルフホスト利用者 |<!--ja-->
 | 特徴 | 自前プロトコル、VyTheme、公開 API、ローカル優先のデータ管理 |<!--ja-->
 | 技術 | React + Vite / Hono on Bun / TypeScript / Thrift |<!--ja-->
-| 状態 | Beta 0.6.0 |<!--ja-->
+| 状態 | Beta 0.8.0 |<!--ja-->
 | ライセンス | MIT |<!--ja-->
 <!--ja-->
 ## 主な機能<!--ja-->
@@ -71,7 +71,9 @@
 | **プライバシー** | ストリーマーモード、PIN ロック |<!--ja-->
 | **ベータ機能** | ブロック状態確認（機能ごとの追加同意が必要） |<!--ja-->
 | **VylineBackup** | トーク履歴とメディアのスナップショット作成・復元・削除 |<!--ja-->
-| **開発者向け** | Bearer トークン対応の公開 API、OpenAPI 3.1、JSONL 詳細ログ |<!--ja-->
+| **初回設定・引継ぎ** | 3 ステップの Vyline Setup、MID ごとの設定、設定だけを含む改ざん検知付き ZIP 引継ぎ |<!--ja-->
+| **診断と安全性** | 個人情報をマスキングした診断ログ、Windows DPAPI によるセッション保護、端末単位のサブデバイス照合 |<!--ja-->
+| **開発者向け** | Bearer トークン対応の公開 API、OpenAPI 3.1、JSONL 詳細ログ、Tailscale 経由の安全な遠隔利用 |<!--ja-->
 | **その他** | Keepメモ、プロフィール背景、通話中バッジ、共通グループの高速表示、トークの TXT 保存 |<!--ja-->
 <!--ja-->
 ---<!--ja-->
@@ -518,7 +520,7 @@ Copyright © [nezumi0627](https://github.com/nezumi0627)<!--ja-->
 > Vyline is an unofficial and unauthorised LINE third-party client. It is not affiliated with LINE Corporation or LY Corporation. Use it at your own risk after understanding the risks, including possible terms-of-service violations and account suspension.<!--en-->
 <!--en-->
 > [!NOTE]<!--en-->
-> Vyline is currently Beta 0.7.0. Beta software may introduce breaking changes, bugs, or data loss.<!--en-->
+> Vyline is currently Beta 0.8.0. Beta software may introduce breaking changes, bugs, or data loss.<!--en-->
 <!--en-->
 ---<!--en-->
 <!--en-->
@@ -533,7 +535,7 @@ It communicates with LINE servers through the independently implemented **@vylin
 | Audience | Custom UI users, developers, and self-hosters |<!--en-->
 | Highlights | Own protocol stack, VyTheme, public API, local-first data |<!--en-->
 | Technology | React + Vite / Hono on Bun / TypeScript / Thrift |<!--en-->
-| Status | Beta 0.7.0 |<!--en-->
+| Status | Beta 0.8.0 |<!--en-->
 | License | MIT |<!--en-->
 <!--en-->
 ## Features<!--en-->
@@ -553,6 +555,8 @@ It communicates with LINE servers through the independently implemented **@vylin
 | Plugins | ZIP installation, permissions, and ES Module extensions |<!--en-->
 | Search | Cross-chat search over local message history |<!--en-->
 | VylineBackup | Snapshot, restore, and delete chat history and media |<!--en-->
+| Setup & handoff | Three-step Vyline Setup, per-MID settings, and integrity-checked ZIP settings handoff |<!--en-->
+| Diagnostics & safety | Redacted diagnostic logs, Windows DPAPI session protection, and installation-bound subdevice sessions |<!--en-->
 | Developer tools | Bearer-token public API, OpenAPI 3.1, and JSONL diagnostics |<!--en-->
 <!--en-->
 ---<!--en-->

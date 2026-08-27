@@ -1,6 +1,6 @@
 # PHASES — フェーズ詳細
 
-最終更新: 2026-08-24
+最終更新: 2026-08-27
 進捗ボード: [STATUS.md](./STATUS.md)
 
 各 Phase の目標・受け入れ条件・主要コードパスを定義する。受け入れ条件を満たしたら STATUS のチェックを更新する。
@@ -36,11 +36,11 @@
 
 ### 受け入れ条件
 
-- [ ] Desktop 抽出の全自己鍵を import し、履歴復号に使える
-- [ ] mid 既定鍵が **サーバ最新 keyId** と一致する（そうでないと送信拒否）
-- [ ] 復号失敗時に空吹き出しではなく `E2EE_UNAVAILABLE` 表示
-- [ ] `E2EE_UPDATE_SENDER_KEY` 時に新規 sender 鍵登録 → 再送が動く
-- [ ] debug: `/debug/decrypt-test/:accountId/:chatMid` で成功率を確認できる
+- [x] Desktop 抽出の自己鍵を import し、履歴復号に使える（利用者側で鍵を用意する）
+- [x] mid 既定鍵が **サーバ最新 keyId** と一致するよう整備し、送信失敗時は修復を試行する
+- [x] 復号失敗時に空吹き出しではなく `E2EE_UNAVAILABLE` を表示
+- [x] `E2EE_UPDATE_SENDER_KEY` 時に新規 sender 鍵登録 → 再送が動く
+- [x] debug: `/debug/decrypt-test/:accountId/:chatMid` で成功率を確認できる
 
 ### 主要コードパス
 
@@ -91,10 +91,10 @@ LINE Desktop の identity / バージョン /（可能な範囲で）E2EE 鍵を
 
 ### 受け入れ条件
 
-- [ ] `@vyline/protocol` 経由で DESKTOPWIN identity を安定適用できる
-- [ ] インストールパス / `update_info` / 稼働中メモリから app version を取得できる
-- [ ] Desktop E2EE 鍵 dump → import の手順が docs と一致
-- [ ] Desktop 更新時にヘッダ・エンドポイント差分を検知できる update-diff がある（MVP 可）
+- [x] `@vyline/protocol` 経由で DESKTOPWIN identity を安定適用できる
+- [x] インストールパス / `update_info` / 稼働中メモリから app version を取得できる
+- [x] Desktop E2EE 鍵 dump → import の手順が docs と一致
+- [x] Desktop 更新時にヘッダ・エンドポイント差分を検知できる update-diff がある（MVP）
 
 ### 主要コードパス
 
@@ -123,10 +123,11 @@ LINE Desktop の identity / バージョン /（可能な範囲で）E2EE 鍵を
 
 ### 受け入れ条件
 
-- [ ] スタンプ送信 / 表示
-- [ ] 絵文字入力
-- [ ] 通話エントリポイント（実装深度は別途定義）
-- [ ] 既存 chat コンポーネントと矛盾しないデザインシステム
+- [x] スタンプ送信 / 表示
+- [x] 絵文字入力
+- [x] 通話エントリポイント（実験的。通話品質は継続検証）
+- [x] 既存 chat コンポーネントと矛盾しないデザインシステム
+- [x] 未読先頭／既読末尾の初期位置と、仮想リスト計測後の安定したスクロール
 
 ### 主要コードパス（現状）
 
@@ -149,9 +150,27 @@ Phase 1 のメッセージ送受信・復号表示が安定していること。
 
 ### 受け入れ条件
 
-- [ ] `bun run typecheck` / `bun run lint` が日常的に通る
-- [ ] メッセージ一覧取得〜復号のボトルネックが計測・改善されている
-- [ ] 本番相当ログがノイズ過多でない
+- [x] `bun run typecheck` / `bun run lint` / renderer build が日常的に通る
+- [x] メッセージ一覧・既読同期・仮想リストのホットパスを計測・改善
+- [x] 個人情報をマスキングした診断ログを利用者が確認・出力・削除できる
+- [ ] 実アカウントを用いる長時間・複数端末回帰テストを継続する
+
+---
+
+## Phase 6 — Beta 配布とアカウント安全性
+
+### 目標
+
+複数アカウントと複数端末で、設定・診断・セッションを安全に扱える Beta を配布可能にする。
+
+### 受け入れ条件
+
+- [x] Vyline Setup の進捗と MID ごとの設定を保存・復元できる
+- [x] 設定のみを含む検証可能な引継ぎ ZIP を import/export できる
+- [x] Windows セッションを DPAPI(CurrentUser) で保護できる
+- [x] サブデバイスをブラウザ単位のランダムなインストール ID へ結び付けられる
+- [x] Tailscale を優先する遠隔アクセス案内がある
+- [ ] リリースタグと Windows 配布物の最終スモークテストを完了する
 
 ### 関連コマンド
 

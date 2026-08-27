@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.6.1--beta-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-0.8.0--beta-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" />
@@ -35,7 +35,7 @@
 > Vyline は **LINE 非公式・未承認**のサードパーティクライアントです。LINE 株式会社および LY Corporation とは関係ありません。利用規約への抵触やアカウント停止を含むリスクを理解したうえで、自己責任で使用してください。
 
 > [!NOTE]
-> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.6.0** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。
+> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.8.0** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。
 
 ---
 
@@ -50,7 +50,7 @@
 | 対象 | UI を自分好みに調整したいユーザー、開発者、セルフホスト利用者 |
 | 特徴 | 自前プロトコル、VyTheme、公開 API、ローカル優先のデータ管理 |
 | 技術 | React + Vite / Hono on Bun / TypeScript / Thrift |
-| 状態 | Beta 0.6.0 |
+| 状態 | Beta 0.8.0 |
 | ライセンス | MIT |
 
 ## 主な機能
@@ -70,7 +70,9 @@
 | **プライバシー** | ストリーマーモード、PIN ロック |
 | **ベータ機能** | ブロック状態確認（機能ごとの追加同意が必要） |
 | **VylineBackup** | トーク履歴とメディアのスナップショット作成・復元・削除 |
-| **開発者向け** | Bearer トークン対応の公開 API、OpenAPI 3.1、JSONL 詳細ログ |
+| **初回設定・引継ぎ** | 3 ステップの Vyline Setup、MID ごとの設定、設定だけを含む改ざん検知付き ZIP 引継ぎ |
+| **診断と安全性** | 個人情報をマスキングした診断ログ、Windows DPAPI によるセッション保護、端末単位のサブデバイス照合 |
+| **開発者向け** | Bearer トークン対応の公開 API、OpenAPI 3.1、JSONL 詳細ログ、Tailscale 経由の安全な遠隔利用 |
 | **その他** | Keepメモ、プロフィール背景、通話中バッジ、共通グループの高速表示、トークの TXT 保存 |
 
 ---
