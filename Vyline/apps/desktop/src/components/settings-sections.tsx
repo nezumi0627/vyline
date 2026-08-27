@@ -1302,15 +1302,17 @@ function AdvancedSection() {
         </Row>
         <Row
           title="設定をエクスポート"
-          desc="テーマ・非表示リスト・設定をJSONファイルに書き出します"
+          desc="テーマ・表示・チャット整理設定をJSONファイルに書き出します（認証情報・履歴は含みません）"
         >
           <button
             type="button"
             onClick={() => {
               const state = useStore.getState();
               const exportData = {
-                version: 1,
+                format: "vyline-local-settings",
+                version: 2,
                 exportedAt: new Date().toISOString(),
+                contents: ["theme", "preferences", "chat-view"],
                 theme: state.theme,
                 settings: state.settings,
                 hiddenChats: state.chats.filter((c) => c.hidden).map((c) => c.id),
@@ -1337,7 +1339,7 @@ function AdvancedSection() {
             エクスポート
           </button>
         </Row>
-        <Row title="設定をインポート" desc="エクスポートしたJSONファイルから設定を復元します">
+        <Row title="設定をインポート" desc="形式と適用内容を確認してから、画面設定だけを復元します">
           <button
             type="button"
             onClick={() => {
@@ -1348,9 +1350,23 @@ function AdvancedSection() {
                 const file = input.files?.[0];
                 if (!file) return;
                 try {
+                  if (file.size > 1024 * 1024) throw new Error("設定ファイルが大きすぎます");
                   const text = await file.text();
                   const data = JSON.parse(text);
                   if (!data || typeof data !== "object") throw new Error("Invalid format");
+                  if ("format" in data && data.format !== "vyline-local-settings")
+                    throw new Error("Unsupported format");
+                  const contents = Array.isArray(data.contents)
+                    ? data.contents.filter(
+                        (value: unknown): value is string => typeof value === "string",
+                      )
+                    : ["theme", "preferences", "chat-view"];
+                  if (
+                    !window.confirm(
+                      `次の設定を復元します: ${contents.join("、")}\n認証情報とトーク履歴は変更しません。`,
+                    )
+                  )
+                    return;
                   const state = useStore.getState();
                   // テーマ
                   if (data.theme && typeof data.theme === "object") state.setTheme(data.theme);
