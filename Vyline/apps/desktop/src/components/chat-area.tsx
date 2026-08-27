@@ -180,8 +180,11 @@ function ChatAreaBase() {
   );
 
   const firstUnreadMessageId = useMemo(
-    () => chatMessages.find((message) => message.authorId !== "me" && !message.read)?.id ?? null,
-    [chatMessages],
+    () =>
+      chat?.unread
+        ? (chatMessages.find((message) => message.authorId !== "me" && !message.read)?.id ?? null)
+        : null,
+    [chat?.unread, chatMessages],
   );
 
   const matches = useMemo(() => {
@@ -260,6 +263,7 @@ function ChatAreaBase() {
     containerRef,
     onScroll,
     visibleRows,
+    hasMeasured,
     topSpacer,
     bottomSpacer,
     rowRef,
@@ -332,6 +336,7 @@ function ChatAreaBase() {
     // リロード直後はチャットIDだけ復元され、メッセージが後から hydrate される。
     // 空の状態で初期位置を確定すると、メッセージ到着後に再実行されなくなる。
     if (!rows.length || openedChatRef.current === activeChatId) return;
+    if (!hasMeasured) return;
     const targetMessageId = firstUnreadMessageId ?? initialChatScrollMessageId;
     const key = targetMessageId ? `msg-${targetMessageId}` : null;
     if (key && !rows.some((row) => row.key === key)) {
@@ -348,6 +353,7 @@ function ChatAreaBase() {
   }, [
     activeChatId,
     firstUnreadMessageId,
+    hasMeasured,
     initialChatScrollMessageId,
     loadingMessages,
     rows,

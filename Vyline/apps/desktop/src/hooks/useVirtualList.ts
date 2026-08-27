@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 /**
  * 可変高さリストのウィンドウ仮想化
@@ -30,12 +30,13 @@ export function useVirtualList<T>({
   const observers = useRef(new Map<string, ResizeObserver>());
   const anchorRef = useRef<{ key: string; center: boolean } | null>(null);
   const keepBottomRef = useRef(false);
+  const autoScrollInFlightRef = useRef(false);
 
   const preserveInitialPosition = useCallback(() => {
     const el = containerRef.current;
     if (!el) return;
 
-    if (keepBottomRef.current) {
+    if (keepBottomRef.current && !autoScrollInFlightRef.current) {
       el.scrollTo({ top: Math.max(0, el.scrollHeight - el.clientHeight), behavior: "auto" });
       return;
     }
@@ -67,7 +68,7 @@ export function useVirtualList<T>({
     const el = e.currentTarget;
     // 自動で最下部を維持している最中でも、利用者が上へ動かしたら即座に解除する。
     // wheel/pointer イベントだけではスクロールバー操作を取りこぼすため、位置差分でも判定する。
-    if (keepBottomRef.current) {
+    if (keepBottomRef.current && !autoScrollInFlightRef.current) {
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
       if (el.scrollTop < maxScrollTop - 2) {
         anchorRef.current = null;
@@ -179,6 +180,14 @@ export function useVirtualList<T>({
     };
   }, []);
 
+  // 同期で行が追加されても、既存行の高さが変わらなければ measure は呼ばれない。
+  // その場合も下部スペーサー更新後に最下部へ追従する。
+  useLayoutEffect(() => {
+    if (!keepBottomRef.current && !anchorRef.current) return;
+    const frame = requestAnimationFrame(preserveInitialPosition);
+    return () => cancelAnimationFrame(frame);
+  }, [offsets, preserveInitialPosition, rows]);
+
   // 行キー → スクロール位置（center: 可視中央に寄せる）
   const scrollToKey = useCallback(
     (key: string, opts: { behavior?: ScrollBehavior; center?: boolean } = {}) => {
@@ -232,7 +241,11 @@ export function useVirtualList<T>({
     keepBottomRef.current = true;
     const scroll = () => {
       const maxScrollTop = Math.max(0, el.scrollHeight - el.clientHeight);
+      autoScrollInFlightRef.current = true;
       el.scrollTo({ top: maxScrollTop, behavior });
+      requestAnimationFrame(() => {
+        autoScrollInFlightRef.current = false;
+      });
     };
     scroll();
     requestAnimationFrame(() => requestAnimationFrame(scroll));
@@ -249,6 +262,7 @@ export function useVirtualList<T>({
     containerRef,
     onScroll,
     visibleRows,
+    hasMeasured: measuredVersion > 0,
     topSpacer,
     bottomSpacer,
     measure,
