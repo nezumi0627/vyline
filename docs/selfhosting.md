@@ -15,7 +15,7 @@ docker compose up -d --build
 ```
 
 ブラウザで `http://localhost:3001` を開くと Vyline が起動します。
-**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。同一LANのスマホ等から使う場合は、[サブデバイス接続ガイド](./subdevices.md) のQRペアリングを使用してください。`VYLINE_LAN_ACCESS=true` なしでLAN公開しないでください。
+**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。PCとスマホを別ネットワークから接続する場合は、ポート開放ではなく **Tailscale** を推奨します。同じTailscaleアカウントの端末から、PCで表示された `http://100.x.y.z:3001`（またはQR URL）へアクセスしてください。`VYLINE_LAN_ACCESS=true` なしでLAN／Tailscale公開しないでください。
 
 ### 永続化されるデータ
 
@@ -55,11 +55,23 @@ tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 | `VYLINE_CORS_ORIGIN` | `http://localhost:5173` | 許可するブラウザオリジン。**同一オリジンでアクセスする場合は設定不要** |
 | `VYLINE_STATIC_DIR`  | `apps/desktop/dist/`    | 配信するフロントビルドの場所                                           |
 
+## 3. Tailscale で安全にスマホから接続（推奨）
+
+Tailscale はPCとスマホを同じプライベートネットワークへ接続します。ルーターのポート開放やグローバルIPの公開が不要で、Vylineは起動時とTailscale接続時に検出したURLをバックエンドログへ出力します。
+
+1. PCとスマホへ [Tailscale](https://tailscale.com/download) をインストールします。
+2. 両方を同じTailscaleアカウント／tailnetへログインします。
+3. PCで `VYLINE_LAN_ACCESS=true bun run dev` を起動します（Dockerの場合はホストのTailscale IPへ到達できるネットワークで起動します）。
+4. ログに表示された `http://100.x.y.z:3001` をスマホのブラウザで開きます。
+5. スマホを追加する場合はPCの「設定 > サブデバイス」からQRを表示します。Tailscale IPが自動的にQR URLへ使われます。
+
+Tailscaleが未起動の状態でVylineを起動しても、接続後に自動再検出します。URLが表示されない場合は、PC側でTailscaleが接続済みであることと、`VYLINE_LAN_ACCESS=true` が設定されていることを確認してください。
+
 同一オリジン（`http://IP:3001` を直接開く、またはリバースプロキシ経由）で使うなら `VYLINE_CORS_ORIGIN` は不要です。別オリジン（例: `https://vyline.example.com` の前段に別サーバー）から API を叩く場合のみ設定します。
 
 ---
 
-## 3. ポートフォワード / リバースプロキシ
+## 4. ポートフォワード / リバースプロキシ
 
 自宅ルーターで `3001` を外部公開するのは避けてください。**Cloudflare Access（後述）か、最低でもリバースプロキシ + Basic 認証**を挟むことを強く推奨します。
 
@@ -83,7 +95,7 @@ server {
 
 ---
 
-## 4. Cloudflare Access で外部公開（推奨）
+## 5. Cloudflare Access で外部公開
 
 Cloudflare は自宅サーバーを守る認証レイヤーを無料で提供しています。LINE セッションは実質的にアカウントそのものなので、**必ず認証を入れましょう**。
 
@@ -125,7 +137,7 @@ Cloudflare Access（OTP 認証）
 
 ---
 
-## 5. 複数端末の扱い
+## 6. 複数端末の扱い
 
 - **LINE 側の仕様**: LINE のログインセッション数には制限があります。Vyline は `IOSIPAD` 相当のセッションで動くため、公式アプリとの併用状況によっては古いセッションが失効する場合があります。
 - Vyline は複数アカウント対応です。アカウントごとに `./data/tokens.json` に保存され、ログイン画面から切り替えできます。
@@ -133,7 +145,7 @@ Cloudflare Access（OTP 認証）
 
 ---
 
-## 6. 注意点
+## 7. 注意点
 
 - **自己責任**: LINE 非公式クライアントです。アカウント停止リスクがあり、メインアカウント利用は推奨しません。
 - **アクセス保護**: 認証なしの外部公開は LINE アカウントを乗っ取られるのと同じです。必ず Cloudflare Access 等で保護してください。

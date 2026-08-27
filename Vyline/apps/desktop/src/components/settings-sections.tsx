@@ -614,6 +614,7 @@ function HandoffSection() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
+      if (!window.confirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
       const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
       try {
         const result = await api.handoff.import(mid, data, "overwrite");
@@ -729,6 +730,7 @@ function HandoffSection() {
               type="button"
               onClick={() =>
                 mid &&
+                window.confirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
                   .clear(mid)
                   .then(() => setMessage("ログを削除しました"))

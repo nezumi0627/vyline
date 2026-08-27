@@ -42,5 +42,21 @@ export async function clearDiagnostics(mid: string): Promise<void> {
 }
 
 export async function exportDiagnostics(mid: string): Promise<string> {
-  return JSON.stringify(await listDiagnostics(mid, 1000), null, 2);
+  const entries = await listDiagnostics(mid, 1000);
+  return JSON.stringify(
+    {
+      vylineVersion: process.env.npm_package_version ?? "dev",
+      os: `${process.platform} ${process.arch}`,
+      feature: "diagnostics",
+      errorSummary: "ユーザーが確認したエラー概要を入力してください",
+      reproductionSteps: [],
+      generatedAt: new Date().toISOString(),
+      metadata: { entryCount: entries.length },
+      sanitized: true,
+      sanitization: "フィールド名に基づき秘密情報・個人情報・本文・URL・パスを除外済み",
+      entries,
+    },
+    null,
+    2,
+  );
 }

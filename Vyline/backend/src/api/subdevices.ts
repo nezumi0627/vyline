@@ -24,11 +24,16 @@ function getLanHost(): string | null {
   const configured = process.env.VYLINE_PUBLIC_HOST?.trim();
   if (configured) return configured;
 
-  for (const addresses of Object.values(networkInterfaces())) {
-    const address = addresses?.find((entry) => entry.family === "IPv4" && !entry.internal);
-    if (address?.address) return address.address;
-  }
-  return null;
+  const addresses = Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .filter((entry) => entry.family === "IPv4" && !entry.internal)
+    .map((entry) => entry.address);
+  // Tailscale のCGNATアドレスを優先し、同一LAN外からも到達できるQRを作る。
+  return (
+    addresses.find((address) => /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address)) ??
+    addresses[0] ??
+    null
+  );
 }
 
 /** localhost で開いたPC画面からでも、LAN上で開けるQR URLを作る。 */

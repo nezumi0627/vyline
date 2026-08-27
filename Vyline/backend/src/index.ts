@@ -30,6 +30,7 @@ import { isSubdeviceSessionValid } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
+import { startTailscaleMonitor } from "./network/tailscale.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
@@ -263,6 +264,15 @@ logger.info(
   { port: PORT, host: HOST, staticDir: STATIC_DIR, cors: CORS_ORIGIN },
   "starting Vyline backend",
 );
+
+const stopTailscaleMonitor = startTailscaleMonitor(PORT, (urls) => {
+  if (urls.length) {
+    logger.info({ urls }, "Tailscale access URL available");
+  } else {
+    logger.info("Tailscale is not connected; remote URL unavailable");
+  }
+});
+process.once("exit", stopTailscaleMonitor);
 
 process.on("unhandledRejection", (reason) => {
   const msg = reason instanceof Error ? reason.message : String(reason);

@@ -1,7 +1,8 @@
 import { createHash } from "node:crypto";
 
 const SECRET_KEY = /(token|cookie|password|passwd|secret|private.?key|access.?key|auth)/i;
-const PII_KEY = /(mid|gid|email|phone|display.?name|message|content|url|ip|device.?id)/i;
+const PII_KEY =
+  /(mid|gid|email|phone|display.?name|user.?name|message|content|text|body|url|ip|path|media|device.?id)/i;
 
 export function anonymousId(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);

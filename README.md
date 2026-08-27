@@ -223,7 +223,7 @@ cd Vyline-linux-x64-<version>
 ~/.local/bin/vyline
 ```
 
-設定方法と Cloudflare Access を利用した外部公開については、[セルフホストガイド](docs/selfhosting.md) を参照してください。
+設定方法、Tailscaleを利用したPC・スマホ接続、Cloudflare Accessを利用した外部公開については、[セルフホストガイド](docs/selfhosting.md) を参照してください。
 
 ### 既定のプロトコルプロファイル
 

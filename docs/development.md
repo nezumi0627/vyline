@@ -71,7 +71,7 @@ bun run vyline:focus-recovered -- sendMessage
 | `VYLINE_CDN_CACHE_DIR`   | スタンプ / sticon CDN キャッシュ                                      | `backend/data/cdn-cache/`          |
 | `VYLINE_MEDIA_STORAGE_DIR` | 送信済み・取得済みメディアの永続ストレージ                     | `backend/storage/saved-media/`     |
 | `VYLINE_HOST`            | バックエンドの bind アドレス                                          | `127.0.0.1`（Docker は `0.0.0.0`） |
-| `VYLINE_LAN_ACCESS`      | 同一LANのサブデバイス接続を有効化。未設定/false はlocalhostのみ             | `false`                            |
+| `VYLINE_LAN_ACCESS`      | LAN／Tailscaleからのサブデバイス接続を有効化。未設定/false はlocalhostのみ | `false`                            |
 | `PORT`                   | バックエンドの listen ポート                                          | `3001`                             |
 | `VYLINE_CORS_ORIGIN`     | CORS 許可オリジン（dev は Vite 5173）                                 | `http://localhost:5173`            |
 | `VYLINE_STATIC_DIR`      | 本番で配信するフロントビルドの場所                                    | `apps/desktop/dist/`               |
@@ -80,6 +80,7 @@ bun run vyline:focus-recovered -- sendMessage
 
 > セルフホストの詳細は [selfhosting.md](./selfhosting.md) を参照。
 > サブデバイスのQR接続は [サブデバイス接続ガイド](./subdevices.md) を参照。
+> PCとスマホの遠隔接続は、ポート開放ではなくTailscaleを推奨します。Vyline起動後、ログに表示されたTailscale URLを使用してください。
 
 `VYLINE_MEDIA_CACHE_DIR` も旧設定として読み込まれますが、新規環境では
 `VYLINE_MEDIA_STORAGE_DIR` を使用してください。
