@@ -1,6 +1,6 @@
 # Plugin System
 
-最終更新: 2026-08-24
+最終更新: 2026-08-27
 
 ## 使い方（ユーザー向け）
 
@@ -17,8 +17,16 @@ curl -X POST http://127.0.0.1:3001/line/main/plugins/<pluginId>/disable
 curl http://127.0.0.1:3001/line/main/plugins
 ```
 
-完全な動作サンプルは [examples/example-plugin](../../examples/example-plugin/) を
-`data/plugins/` にコピーしてそのまま試せます。
+同梱サンプルは次のとおりです。いずれも `Vyline/packages/plugin/examples/` から
+`data/plugins/` へフォルダごとコピーして試せます。
+
+| サンプル | 用途 | 必要な権限 |
+| --- | --- | --- |
+| `example-plugin` | 最小構成。受信イベントをローカルログへ記録 | `messages:read` |
+| `message-logger` | 受信メッセージ購読の最小実例 | `messages:read` |
+| `settings-demo` | アカウント別設定の読み書き | `settings:read`, `settings:write` |
+
+有効化は **設定 → プラグイン** から行えます。backend を再起動しても、同じアカウントで有効だったプラグインは再度読み込まれます。
 
 ## manifest.json
 
@@ -75,6 +83,8 @@ Bun が `.ts` を直接実行するためビルドは不要。npm パッケー�
 - 無効化されたプラグインのコードは読み込まれない（ランタイムコストゼロ）
 - 設定は `data/plugin-settings/<accountId>.<pluginId>.json` にアカウント別に保存
 - 有効/無効状態は `data/plugin-states.json` にアカウント別に保存
+
+プラグインはローカルで任意コードを実行します。信頼できない ZIP、ソース、URL のプラグインを配置・有効化しないでください。認証トークンやセッションは PluginContext に公開しません。
 
 ## ロードマップ
 

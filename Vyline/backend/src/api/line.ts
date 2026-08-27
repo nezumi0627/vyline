@@ -29,6 +29,7 @@ import { rebuildAccountChatDb } from "../storage/chatStore.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
+import { isPluginActive } from "../line/pluginRuntime.js";
 import {
   createNote,
   deleteNote,
@@ -226,13 +227,16 @@ lineRouter.put("/:accountId/chat-locks/:chatMid", async (c) => {
     return handleError(err, c);
   }
 });
-// ─── plugins（基盤: マニフェスト一覧と有効/無効の永続化。コード実行は未対応） ───
+// ─── plugins（ローカルの信頼済みプラグインのみ実行） ───
 lineRouter.get("/:accountId/plugins", async (c) => {
   const accountId = c.req.param("accountId");
   const states = getPluginStates(accountId);
   return c.json({
-    plugins: listPlugins().map((p) => ({ ...p, enabled: states[p.id] === true })),
-    runtimePending: true,
+    plugins: listPlugins().map((p) => ({
+      ...p,
+      enabled: states[p.id] === true,
+      active: isPluginActive(accountId, p.id),
+    })),
   });
 });
 

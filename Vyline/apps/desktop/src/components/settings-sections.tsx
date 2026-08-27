@@ -62,6 +62,7 @@ type Section =
   | "advanced"
   | "subdevices"
   | "storage"
+  | "plugins"
   | "info"
   | "beta"
   | "handoff";
@@ -76,6 +77,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
+  { key: "plugins", label: "プラグイン", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
   { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
@@ -565,6 +567,8 @@ export function SettingsSections() {
 
               {section === "storage" && <StorageSection />}
 
+              {section === "plugins" && <PluginsSection />}
+
               {section === "info" && <InfoSection />}
 
               {section === "handoff" && <HandoffSection />}
@@ -580,6 +584,105 @@ export function SettingsSections() {
         </div>
       </div>
     </div>
+  );
+}
+
+function PluginsSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [plugins, setPlugins] = useState<
+    Array<{
+      id: string;
+      name: string;
+      version: string;
+      description?: string;
+      permissions?: string[];
+      loadable: boolean;
+      enabled: boolean;
+      active: boolean;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!accountId) {
+      setPlugins([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      const result = await api.line.plugins(accountId);
+      setPlugins(result.plugins ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "プラグイン一覧を取得できませんでした");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [accountId]);
+
+  const toggle = async (plugin: (typeof plugins)[number]) => {
+    if (!accountId || busyId) return;
+    setBusyId(plugin.id);
+    setMessage(null);
+    try {
+      const result = await api.line.setPluginEnabled(accountId, plugin.id, !plugin.enabled);
+      if (!result.ok) throw new Error(result.error ?? "プラグインの切替に失敗しました");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "プラグインの切替に失敗しました");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <Section title="プラグイン" desc="この PC に置いた信頼できるローカルプラグインを管理します">
+      <p className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+        プラグインは Vyline
+        の権限でローカルコードを実行します。内容と要求権限を確認したものだけを有効にしてください。
+      </p>
+      <Card>
+        {loading ? (
+          <p className="py-4 text-sm text-[var(--vy-text-dim)]">読み込み中…</p>
+        ) : plugins.length === 0 ? (
+          <p className="py-4 text-sm leading-relaxed text-[var(--vy-text-dim)]">
+            プラグインはまだありません。`backend/data/plugins` に `manifest.json`
+            を含むフォルダを置くと表示されます。
+          </p>
+        ) : (
+          plugins.map((plugin) => (
+            <Row
+              key={plugin.id}
+              title={`${plugin.name} v${plugin.version}`}
+              desc={`${plugin.description ?? plugin.id}${plugin.permissions?.length ? ` · ${plugin.permissions.join(", ")}` : " · 権限なし"}${!plugin.loadable ? " · 実行ファイルがありません" : plugin.enabled && !plugin.active ? " · 起動に失敗しました。バックエンドログを確認してください" : ""}`}
+            >
+              <Toggle
+                checked={plugin.enabled}
+                onChange={() => void toggle(plugin)}
+                disabled={!accountId || !plugin.loadable || busyId === plugin.id}
+                label={`${plugin.name}を有効にする`}
+              />
+            </Row>
+          ))
+        )}
+      </Card>
+      {message && <p className="mt-3 text-xs text-red-300">{message}</p>}
+      <button
+        type="button"
+        onClick={() => void load()}
+        disabled={loading}
+        className="mt-4 rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+      >
+        再読み込み
+      </button>
+    </Section>
   );
 }
 
