@@ -223,7 +223,7 @@ cd Vyline-linux-x64-<version>
 ~/.local/bin/vyline
 ```
 
-設定方法と Cloudflare Access を利用した外部公開については、[セルフホストガイド](docs/selfhosting.md) を参照してください。
+ 遠隔アクセスは **Tailscale 推奨**です。PC で Vyline を起動した状態で、スマホにも Tailscale を入れて同じアカウントでログインすれば、`http://100.x.y.z:3000` でアクセスできます。Tailscale 起動時はバックエンドログに URL が自動出力されます。設定の詳細は[セルフホストガイド](docs/selfhosting.md) を参照してください。
 
 ### 既定のプロトコルプロファイル
 
