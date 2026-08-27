@@ -22,6 +22,8 @@ export interface PluginEntry extends PluginManifest {
   dir: string;
   /** エントリファイルが存在し実行可能か */
   loadable: boolean;
+  /** manifest.json の実行エントリ（未指定時は index.ts / index.js）。 */
+  main?: string;
 }
 
 type PluginStates = Record<string, Record<string, boolean>>;
@@ -63,6 +65,7 @@ export function listPlugins(): PluginEntry[] {
         permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
         dir: entry.name,
         loadable: resolvePluginEntry(entry.name, raw.main) != null,
+        ...(raw.main ? { main: raw.main } : {}),
       });
     } catch (err) {
       log.warn({ plugin: entry.name, err }, "invalid plugin manifest");
@@ -93,7 +96,14 @@ export async function setPluginState(
 
   if (enabled) {
     if (!entry.loadable) throw new Error("plugin has no index.ts / index.js entry");
-    const ok = await activatePlugin(accountId, pluginId, entry.dir, entry.permissions ?? []);
+    const ok = await activatePlugin(
+      accountId,
+      pluginId,
+      entry.dir,
+      entry.permissions ?? [],
+      undefined,
+      entry.main,
+    );
     if (!ok) throw new Error("plugin activation failed (see backend logs)");
   } else {
     await deactivatePlugin(accountId, pluginId);
@@ -103,4 +113,17 @@ export async function setPluginState(
   states[accountId] = states[accountId] ?? {};
   states[accountId]![pluginId] = enabled;
   saveStates(states);
+}
+
+/** バックエンド再起動後に、そのアカウントで有効化済みのローカルプラグインを戻す。 */
+export async function restoreEnabledPlugins(accountId: string): Promise<void> {
+  const enabled = getPluginStates(accountId);
+  for (const plugin of listPlugins()) {
+    if (!enabled[plugin.id]) continue;
+    try {
+      await setPluginState(accountId, plugin.id, true);
+    } catch (error) {
+      log.warn({ accountId, pluginId: plugin.id, error }, "saved plugin was not restored");
+    }
+  }
 }

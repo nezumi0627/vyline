@@ -634,6 +634,26 @@ export const api = {
         { locked },
       ),
 
+    plugins: (accountId: string) =>
+      request<{
+        plugins: Array<{
+          id: string;
+          name: string;
+          version: string;
+          description?: string;
+          permissions?: string[];
+          loadable: boolean;
+          enabled: boolean;
+          active: boolean;
+        }>;
+      }>("GET", `/line/${accountId}/plugins`),
+
+    setPluginEnabled: (accountId: string, pluginId: string, enabled: boolean) =>
+      request<{ ok: boolean; enabled?: boolean; error?: string }>(
+        "POST",
+        `/line/${accountId}/plugins/${encodeURIComponent(pluginId)}/${enabled ? "enable" : "disable"}`,
+      ),
+
     blockContact: (accountId: string, mid: string) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
