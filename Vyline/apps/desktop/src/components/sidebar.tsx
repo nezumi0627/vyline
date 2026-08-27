@@ -33,6 +33,7 @@ import {
   IconMemo,
   IconLogout,
   IconChevron,
+  IconShield,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 
@@ -134,6 +135,8 @@ function SidebarBase() {
   const markAllChatsRead = useStore((s) => s.markAllChatsRead);
   const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
   const readDisabledMids = useStore((s) => s.readDisabledMids);
+  const lockedChatMids = useStore((s) => s.lockedChatMids);
+  const setChatLocked = useStore((s) => s.setChatLocked);
 
   const accountId = useStore((s) => s.accountId);
   const [tab, setTab] = useState<Tab>("all");
@@ -278,9 +281,26 @@ function SidebarBase() {
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
+  const isChatLocked = menu ? lockedChatMids.includes(menu.chat.id) : false;
 
   const menuItems: MenuItem[] = menu
     ? [
+        {
+          label: isChatLocked ? "チャットのロックを解除" : "チャットをロック",
+          icon: <IconShield size={16} />,
+          danger: !isChatLocked,
+          onClick: () => {
+            if (!menu) return;
+            if (
+              !isChatLocked &&
+              !window.confirm(`「${displayName(menu.chat, false)}」をロックしますか？`)
+            )
+              return;
+            void setChatLocked(menu.chat.id, !isChatLocked).then((ok) => {
+              if (!ok) window.alert("チャットのロック変更に失敗しました");
+            });
+          },
+        },
         {
           label: menu.chat.pinned ? "ピン留めを解除" : "ピン留め",
           icon: <IconPin size={16} />,
@@ -317,7 +337,8 @@ function SidebarBase() {
             void navigator.clipboard.writeText(menu.chat.id);
           },
         },
-        ...(menu.chat.type === "friend" &&
+        ...(!isChatLocked &&
+        menu.chat.type === "friend" &&
         !menu.chat.isSelf &&
         !BLOCK_PROTECTED_MIDS.has(menu.chat.id)
           ? [
@@ -556,6 +577,7 @@ function SidebarBase() {
                 draggable={sort === "custom"}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
+                locked={lockedChatMids.includes(chat.id)}
                 onClick={() => openChat(chat.id)}
                 onContextMenu={(e) => openRowMenu(e, chat)}
                 onDragStart={() => onDragStart(chat.id)}
@@ -602,6 +624,7 @@ const ChatRow = memo(function ChatRow({
   draggable,
   dragging,
   blocked,
+  locked,
   onClick,
   onContextMenu,
   onDragStart,
@@ -616,6 +639,7 @@ const ChatRow = memo(function ChatRow({
   draggable: boolean;
   dragging: boolean;
   blocked?: boolean;
+  locked?: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: () => void;
@@ -715,6 +739,15 @@ const ChatRow = memo(function ChatRow({
             )}
           >
             <IconBlock size={10} />
+          </span>
+        )}
+        {locked && !blocked && (
+          <span
+            title="チャットロック中"
+            aria-label="チャットロック中"
+            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)] shadow-sm ring-2 ring-[var(--vy-surface)]"
+          >
+            <IconShield size={10} />
           </span>
         )}
         <span className="min-w-0 flex-1">
