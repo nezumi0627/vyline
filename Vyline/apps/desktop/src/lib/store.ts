@@ -354,6 +354,8 @@ type State = {
   readDisabledMids: Record<string, boolean>;
   /** ブロック中のユーザー MID 一覧（送信抑止・UI 表示に使用） */
   blockedMids: string[];
+  /** 誤操作防止のため操作を禁止するチャット MID 一覧 */
+  lockedChatMids: string[];
 
   /** chatId → 既読ウォーターマーク（DB永続化） */
   readWatermarks: Record<
@@ -374,6 +376,8 @@ type State = {
   setBlockedMids: (mids: string[]) => void;
   /** ブロック中なら true（送信抑止用） */
   isBlockedMid: (mid: string) => boolean;
+  syncChatLocks: () => Promise<void>;
+  setChatLocked: (chatMid: string, locked: boolean) => Promise<boolean>;
   openChat: (id: string) => void;
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
@@ -543,6 +547,7 @@ export const useStore = create<State>()(
       indexing: null,
       readDisabledMids: {},
       blockedMids: [],
+      lockedChatMids: [],
       notice: null,
       announcements: {},
       readWatermarks: {},
@@ -577,7 +582,9 @@ export const useStore = create<State>()(
             memberProfile: null,
             readWatermarks: {},
             announcements: {},
+            readDisabledMids: {},
             blockedMids: [],
+            lockedChatMids: [],
           });
         } else {
           set({
@@ -585,6 +592,7 @@ export const useStore = create<State>()(
             ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
           });
         }
+        if (id) void get().syncChatLocks();
       },
 
       resetAccountData: () =>
@@ -600,8 +608,8 @@ export const useStore = create<State>()(
           highlightMessageId: null,
           initialChatScrollMessageId: null,
           customOrder: [],
-          readDisabledMids: {},
           blockedMids: [],
+          lockedChatMids: [],
         }),
 
       toggleChatReadDisabled: (id) => {
@@ -628,6 +636,38 @@ export const useStore = create<State>()(
       setBlockedMids: (mids) => set({ blockedMids: mids }),
 
       isBlockedMid: (mid) => get().blockedMids.includes(mid),
+
+      syncChatLocks: async () => {
+        const { accountId, demoMode } = get();
+        if (!accountId || demoMode) return;
+        try {
+          const res = await api.line.getChatLocks(accountId);
+          if (res.ok && Array.isArray(res.chatMids) && get().accountId === accountId) {
+            set({ lockedChatMids: res.chatMids });
+          }
+        } catch {
+          /* silent */
+        }
+      },
+
+      setChatLocked: async (chatMid, locked) => {
+        const { accountId, demoMode } = get();
+        if (demoMode) {
+          set((st) => ({
+            lockedChatMids: locked
+              ? st.lockedChatMids.includes(chatMid)
+                ? st.lockedChatMids
+                : [...st.lockedChatMids, chatMid]
+              : st.lockedChatMids.filter((id) => id !== chatMid),
+          }));
+          return true;
+        }
+        if (!accountId) return false;
+        const res = await api.line.setChatLocked(accountId, chatMid, locked);
+        if (!res.ok) return false;
+        if (get().accountId === accountId) set({ lockedChatMids: res.chatMids ?? [] });
+        return true;
+      },
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
@@ -2764,6 +2804,7 @@ export const useStore = create<State>()(
         seenUpdateVersion: s.seenUpdateVersion,
         readDisabledMids: s.readDisabledMids,
         blockedMids: s.blockedMids,
+        lockedChatMids: s.lockedChatMids,
         activeChatId: s.activeChatId,
         readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({

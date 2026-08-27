@@ -621,6 +621,81 @@ export const api = {
         `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/leave`,
       ),
 
+    listNotes: (accountId: string, homeId: string) =>
+      request<Record<string, unknown>>(
+        "GET",
+        `/line/${accountId}/notes?homeId=${encodeURIComponent(homeId)}`,
+      ),
+
+    createNote: (accountId: string, homeId: string, text: string) =>
+      request<Record<string, unknown>>("POST", `/line/${accountId}/notes`, { homeId, text }),
+
+    updateNote: (
+      accountId: string,
+      homeId: string,
+      postId: string,
+      body: Record<string, unknown>,
+    ) =>
+      request<Record<string, unknown>>(
+        "PATCH",
+        `/line/${accountId}/notes/${encodeURIComponent(postId)}`,
+        { ...body, homeId },
+      ),
+
+    deleteNote: (accountId: string, homeId: string, postId: string) =>
+      request<Record<string, unknown>>(
+        "DELETE",
+        `/line/${accountId}/notes/${encodeURIComponent(postId)}?homeId=${encodeURIComponent(homeId)}`,
+      ),
+
+    likeNote: (accountId: string, homeId: string, postId: string, likeType?: string) =>
+      request<Record<string, unknown>>(
+        "POST",
+        `/line/${accountId}/notes/${encodeURIComponent(postId)}/like`,
+        { homeId, ...(likeType ? { likeType } : {}) },
+      ),
+
+    commentNote: (accountId: string, homeId: string, postId: string, commentText: string) =>
+      request<Record<string, unknown>>(
+        "POST",
+        `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments`,
+        { homeId, commentText },
+      ),
+
+    shareNote: (accountId: string, homeId: string, postId: string, chatMid: string) =>
+      request<Record<string, unknown>>(
+        "POST",
+        `/line/${accountId}/notes/${encodeURIComponent(postId)}/share`,
+        { homeId, chatMid },
+      ),
+
+    albumCall: (
+      accountId: string,
+      path: string,
+      method: "GET" | "POST" | "PUT" | "DELETE" = "GET",
+      query?: Record<string, string>,
+      body?: Record<string, unknown>,
+    ) =>
+      request<Record<string, unknown>>("POST", `/line/${accountId}/albums/call`, {
+        path,
+        method,
+        query,
+        body,
+      }),
+
+    getChatLocks: (accountId: string) =>
+      request<{ ok: boolean; chatMids?: string[]; error?: string }>(
+        "GET",
+        `/line/${accountId}/chat-locks`,
+      ),
+
+    setChatLocked: (accountId: string, chatMid: string, locked: boolean) =>
+      request<{ ok: boolean; locked?: boolean; chatMids?: string[]; error?: string }>(
+        "PUT",
+        `/line/${accountId}/chat-locks/${encodeURIComponent(chatMid)}`,
+        { locked },
+      ),
+
     blockContact: (accountId: string, mid: string) =>
       request<{ ok: boolean; error?: string }>(
         "POST",

@@ -125,6 +125,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const chats = useStore((s) => s.chats);
   const self = useStore((s) => s.self);
   const blockedMids = useStore((s) => s.blockedMids);
+  const lockedChatMids = useStore((s) => s.lockedChatMids);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [picker, setPicker] = useState(false);
@@ -195,6 +196,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const chat = chats.find((c) => c.id === chatId);
   // ブロック中の友だちには送信 UI を出さない
   const blocked = chat?.type === "friend" && blockedMids.includes(chatId);
+  const locked = lockedChatMids.includes(chatId);
 
   // メンションピッカー表示時にグループメンバー未ロードなら自動取得
   useEffect(() => {
@@ -675,6 +677,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
           >
             <IconSend size={19} />
           </button>
+        </div>
+      ) : locked ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
+          ロック中のため操作できません
         </div>
       ) : blocked ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
