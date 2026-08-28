@@ -1,0 +1,69 @@
+name: Publish npm packages
+
+on:
+  workflow_dispatch:
+    inputs:
+      package:
+        description: "Package to publish"
+        required: true
+        default: "cli"
+        type: choice
+        options:
+          - cli
+          - create-plugin
+          - all
+      dry_run:
+        description: "Run npm publish --dry-run"
+        required: true
+        default: true
+        type: boolean
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish selected npm packages
+    runs-on: ubuntu-latest
+    if: github.event_name != 'release' || startsWith(github.event.release.tag_name, 'v')
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: "https://registry.npmjs.org"
+      - name: Install dependencies
+        run: bun install --ignore-scripts
+      - name: Typecheck publish packages
+        run: |
+          bun run --cwd Vyline/packages/cli typecheck
+          bun run --cwd Vyline/packages/create-plugin typecheck
+      - name: npm dry run
+        if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ inputs.package }}" == "cli" || "${{ inputs.package }}" == "all" ]]; then
+            npm publish --dry-run --workspace Vyline/packages/cli
+          fi
+          if [[ "${{ inputs.package }}" == "create-plugin" || "${{ inputs.package }}" == "all" ]]; then
+            npm publish --dry-run --workspace Vyline/packages/create-plugin
+          fi
+      - name: npm publish
+        if: ${{ github.event_name == 'release' || (github.event_name == 'workflow_dispatch' && !inputs.dry_run) }}
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          set -euo pipefail
+          if [[ "${{ github.event_name }}" == "release" || "${{ inputs.package }}" == "cli" || "${{ inputs.package }}" == "all" ]]; then
+            npm publish --workspace Vyline/packages/cli
+          fi
+          if [[ "${{ github.event_name }}" == "release" || "${{ inputs.package }}" == "create-plugin" || "${{ inputs.package }}" == "all" ]]; then
+            npm publish --workspace Vyline/packages/create-plugin
+          fi
