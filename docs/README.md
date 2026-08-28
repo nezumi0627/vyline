@@ -1,6 +1,6 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-27
+最終更新: 2026-08-29
 
 新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
@@ -12,6 +12,7 @@ Desktop の設定には、全体の利用規約同意とは別に機能単位の
 LINE との通常の通信は発生します。これは法的助言ではありません。
 
 ドキュメントの形式・更新日・廃止判断は **[DOCS_FORMAT.md](./DOCS_FORMAT.md)** に統一しています。
+新規ドキュメントや大きめの改修では **[templates/](./templates/)** の薄いテンプレートを使ってください。
 
 ---
 
@@ -44,6 +45,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
 | [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
+| [templates/](./templates/)           | 新規ドキュメント作成用の薄いテンプレート                           |
 | [../CHANGELOG.md](../CHANGELOG.md)   | 変更履歴                                                           |
 
 ## 次の大きな機能
