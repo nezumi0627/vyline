@@ -66,15 +66,19 @@ async function load(): Promise<StoredApiToken[]> {
     let migrated = false;
 
     cache = parsed.map((entry) => {
-      const record = { ...entry, scopes: normalizeScopes(entry.scopes) };
+      const scopes = normalizeScopes(entry.scopes);
+      const tokenHash = entry.tokenHash ?? (entry.token ? hashToken(entry.token) : undefined);
+      const record: StoredApiToken = {
+        name: entry.name,
+        scopes,
+        createdAt: entry.createdAt,
+        ...(entry.lastUsedAt ? { lastUsedAt: entry.lastUsedAt } : {}),
+        ...(tokenHash ? { tokenHash } : {}),
+      };
 
-      if (!record.tokenHash && record.token) {
-        record.tokenHash = hashToken(record.token);
-        record.token = undefined;
-        migrated = true;
-      }
+      if (entry.token || tokenHash !== entry.tokenHash) migrated = true;
+      if (scopes.join(",") !== (entry.scopes ?? []).join(",")) migrated = true;
 
-      if (record.scopes.join(",") !== (entry.scopes ?? []).join(",")) migrated = true;
       return record;
     });
 
