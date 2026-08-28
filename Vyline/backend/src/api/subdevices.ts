@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { networkInterfaces } from "node:os";
 import {
   authenticateSubdevice,
@@ -17,6 +18,10 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 
 function isLanAccessEnabled() {
   return process.env.VYLINE_LAN_ACCESS === "true";
+}
+
+function isLocalRequest(c: Context) {
+  return c.req.header("x-vyline-local-request") === "1";
 }
 
 function getLanHost(): string | null {
@@ -60,6 +65,10 @@ function bearer(c: { req: { header(name: string): string | undefined } }) {
 }
 
 subdeviceRouter.post("/pairing", async (c) => {
+  if (!isLocalRequest(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
+
   const body = await c.req
     .json<{ accountId?: string; origin?: string }>()
     .catch((): { accountId?: string; origin?: string } => ({}));
@@ -102,7 +111,12 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
     : c.json({ ok: false, error: "pairing expired or already used" }, 410);
 });
 
-subdeviceRouter.get("/", async (c) => c.json({ ok: true, devices: await listSubdevices() }));
+subdeviceRouter.get("/", async (c) => {
+  if (!isLocalRequest(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
+  return c.json({ ok: true, devices: await listSubdevices() });
+});
 
 subdeviceRouter.post("/heartbeat", async (c) => {
   const device = await authenticateSubdevice(bearer(c));
@@ -110,16 +124,25 @@ subdeviceRouter.post("/heartbeat", async (c) => {
 });
 
 subdeviceRouter.delete("/:id", async (c) => {
+  if (!isLocalRequest(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const ok = await removeSubdevice(c.req.param("id"));
   return c.json({ ok, error: ok ? undefined : "device not found" }, ok ? 200 : 404);
 });
 
 subdeviceRouter.post("/:id/block", async (c) => {
+  if (!isLocalRequest(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const ok = await setSubdeviceBlocked(c.req.param("id"), true);
   return c.json({ ok, error: ok ? undefined : "device not found" }, ok ? 200 : 404);
 });
 
 subdeviceRouter.delete("/:id/block", async (c) => {
+  if (!isLocalRequest(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const ok = await setSubdeviceBlocked(c.req.param("id"), false);
   return c.json({ ok, error: ok ? undefined : "device not found" }, ok ? 200 : 404);
 });
