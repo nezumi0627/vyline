@@ -55,4 +55,10 @@ describe("OpenChat event mapping", () => {
     expect(member).toMatchObject({ revision: "2", createdAt: 1_720_000_000_000 });
     expect(() => JSON.stringify(member)).not.toThrow();
   });
+
+  test("maps OpenChat management roles to display labels", () => {
+    expect(mapOpenChatMember({ role: "ADMIN" }).roleLabel).toBe("管理人");
+    expect(mapOpenChatMember({ role: "CO_ADMIN" }).roleLabel).toBe("副管理人");
+    expect(mapOpenChatMember({ role: "MEMBER" }).roleLabel).toBeNull();
+  });
 });

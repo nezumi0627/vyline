@@ -45,6 +45,7 @@ import {
   deleteOpenChatAnnouncement,
   deleteOpenChatNote,
   getOpenChatInfo,
+  listRelatedOpenChats,
   getOpenChatThread,
   listOpenChatMembers,
   listOpenChatAnnouncements,
@@ -57,6 +58,7 @@ import {
   sendOpenChatMessage,
   sendOpenChatThreadMessage,
   unsendOpenChatMessage,
+  updateOpenChatSelfProfile,
 } from "../service/openChatService.js";
 import {
   fetchProfile,
@@ -454,6 +456,47 @@ lineRouter.get("/:accountId/open-chats/:squareChatMid/info", async (c) => {
     return c.json({
       ok: true,
       info: await getOpenChatInfo(c.req.param("accountId"), c.req.param("squareChatMid")),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/related-chats", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      data: await listRelatedOpenChats(c.req.param("accountId"), c.req.param("squareChatMid")),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.patch("/:accountId/open-chats/:squareChatMid/self-profile", async (c) => {
+  const body = await c.req.json<{ displayName?: string; selfIntroduction?: string }>();
+  const displayName = body.displayName?.trim();
+  const selfIntroduction = body.selfIntroduction?.trim();
+  if ((!displayName && body.displayName !== undefined) || (displayName?.length ?? 0) > 100) {
+    return c.json({ ok: false, error: "displayName must be 1-100 characters" }, 400);
+  }
+  if ((selfIntroduction?.length ?? 0) > 500) {
+    return c.json({ ok: false, error: "selfIntroduction must be at most 500 characters" }, 400);
+  }
+  if (displayName === undefined && selfIntroduction === undefined) {
+    return c.json({ ok: false, error: "displayName or selfIntroduction required" }, 400);
+  }
+  try {
+    return c.json({
+      ok: true,
+      profile: await updateOpenChatSelfProfile(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        {
+          ...(displayName !== undefined ? { displayName } : {}),
+          ...(selfIntroduction !== undefined ? { selfIntroduction } : {}),
+        },
+      ),
     });
   } catch (err) {
     return handleError(err, c);

@@ -194,6 +194,11 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           />
           <div className="mt-3 flex items-center gap-1.5">
             <h2 className="text-lg font-bold">{name}</h2>
+            {!streamerMode && member.roleLabel && (
+              <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent)]">
+                {member.roleLabel}
+              </span>
+            )}
             {!streamerMode && isOfficial && <OfficialBadge className="ml-0" />}
           </div>
           {!streamerMode && (

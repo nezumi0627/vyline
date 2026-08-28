@@ -207,6 +207,32 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
       if (chat.type === "group") {
         setMembersLoading(true);
         try {
+          if (chat.id.startsWith("m")) {
+            const openChatMembers = await withTimeout(
+              api.openChat.members(accountId, chat.id),
+              10_000,
+            );
+            if (
+              cancelled ||
+              openChatMembers === "timeout" ||
+              !openChatMembers.ok ||
+              !openChatMembers.members
+            ) {
+              return;
+            }
+            const members = openChatMembers.members.map((member) => ({
+              id: member.squareMemberMid,
+              name: member.displayName,
+              avatar: member.displayName.trim().charAt(0).toUpperCase() || "?",
+              color: "#7c5cff",
+              role: member.role || undefined,
+              roleLabel: member.roleLabel ?? undefined,
+            }));
+            useStore.setState((st) => ({
+              chats: st.chats.map((c) => (c.id === chat.id ? { ...c, members } : c)),
+            }));
+            return;
+          }
           const mem = await withTimeout(api.line.chatMembers(accountId, chat.id), 10_000);
           if (cancelled || mem === "timeout") {
             setMembersLoading(false);
@@ -656,6 +682,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                             : `${m.name.slice(0, 12)}…`
                           : m.name}
                     </span>
+                    {!streamerMode && m.roleLabel && (
+                      <span className="shrink-0 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_14%,transparent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent)]">
+                        {m.roleLabel}
+                      </span>
+                    )}
                   </button>
                 ))}
               </div>

@@ -145,6 +145,9 @@ export type Member = {
   avatar: string;
   avatarUrl?: string;
   color: string;
+  /** OpenChat 権限。通常のトーク／グループでは未設定。 */
+  role?: "ADMIN" | "CO_ADMIN" | "MEMBER";
+  roleLabel?: "管理人" | "副管理人";
 };
 
 export type ChatType = "friend" | "group";

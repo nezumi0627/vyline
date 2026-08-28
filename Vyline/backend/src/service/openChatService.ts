@@ -2,6 +2,7 @@ import type { Chat, Message, MessageReaction } from "@vyline/types";
 import { getClient, runSendRpc } from "../line/clientManager.js";
 
 type SquareRaw = Record<string, any>;
+type OpenChatRole = "ADMIN" | "CO_ADMIN" | "MEMBER" | "";
 export const OPEN_CHAT_REACTIONS = [
   "UNDO",
   "NICE",
@@ -53,6 +54,7 @@ export function mapOpenChatMessage(raw: SquareRaw, selfMemberMid?: string): Mess
 
 /** Convert SquareMember's Int64 fields before crossing the JSON BFF boundary. */
 export function mapOpenChatMember(member: SquareRaw) {
+  const role = String(member.role ?? "") as OpenChatRole;
   return {
     squareMemberMid: String(member.squareMemberMid ?? ""),
     squareMid: String(member.squareMid ?? ""),
@@ -60,7 +62,8 @@ export function mapOpenChatMember(member: SquareRaw) {
     profileImageObsHash: String(member.profileImageObsHash ?? ""),
     ableToReceiveMessage: Boolean(member.ableToReceiveMessage),
     membershipState: String(member.membershipState ?? ""),
-    role: String(member.role ?? ""),
+    role,
+    roleLabel: role === "ADMIN" ? "管理人" : role === "CO_ADMIN" ? "副管理人" : null,
     revision: String(member.revision ?? ""),
     createdAt: number(member.createdAt),
     selfIntroduction: String(member.selfIntroduction ?? ""),
@@ -268,6 +271,56 @@ export async function getOpenChatInfo(accountId: string, squareChatMid: string) 
     square: (square as SquareRaw).square,
     selfProfile: (profile as SquareRaw).squareMember,
   });
+}
+
+/** Lists the main OpenChat room and any sub-chats in the same Square. */
+export async function listRelatedOpenChats(accountId: string, squareChatMid: string) {
+  const { client, squareMid } = await getOpenChatSquareMid(accountId, squareChatMid);
+  const chats = (await client.fetchJoinedSquareChats())
+    .map(({ raw }) => raw as SquareRaw)
+    .filter((chat) => String(chat.squareMid) === squareMid);
+  const mainChat = chats.find((chat) => chat.type === "SQUARE_DEFAULT");
+  return toOpenChatJson({
+    mainChat: mainChat ?? null,
+    subChats: chats.filter((chat) => chat !== mainChat),
+  });
+}
+
+/** Updates only the signed-in member's OpenChat profile fields. */
+export async function updateOpenChatSelfProfile(
+  accountId: string,
+  squareChatMid: string,
+  input: { displayName?: string; selfIntroduction?: string },
+) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const detail = await client.base.square.getSquareChat({ squareChatMid });
+  const memberMid = String((detail as SquareRaw).squareChatMember?.squareMemberMid ?? "");
+  if (!memberMid) throw new Error("OpenChat member profile not found");
+  const current = (await client.base.square.getSquareMember({
+    squareMemberMid: memberMid,
+  })) as SquareRaw;
+  const squareMember = current.squareMember as SquareRaw | undefined;
+  if (!squareMember) throw new Error("OpenChat member profile not found");
+
+  const updatedAttrs: Array<"DISPLAY_NAME" | "SELF_INTRODUCTION"> = [];
+  const next: SquareRaw = { ...squareMember };
+  if (input.displayName !== undefined) {
+    next.displayName = input.displayName;
+    updatedAttrs.push("DISPLAY_NAME");
+  }
+  if (input.selfIntroduction !== undefined) {
+    next.selfIntroduction = input.selfIntroduction;
+    updatedAttrs.push("SELF_INTRODUCTION");
+  }
+  if (updatedAttrs.length === 0) throw new Error("no profile fields to update");
+
+  const result = await runSendRpc(accountId, () =>
+    client.base.square.updateSquareMember({
+      request: { updatedAttrs, updatedPreferenceAttrs: [], squareMember: next },
+    }),
+  );
+  return toOpenChatJson(result);
 }
 
 export async function listOpenChatAnnouncements(accountId: string, squareChatMid: string) {

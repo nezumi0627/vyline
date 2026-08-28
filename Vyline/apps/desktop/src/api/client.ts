@@ -48,6 +48,14 @@ export interface AgentIHistoryItem {
   text: string;
 }
 
+export interface OpenChatMember {
+  squareMemberMid: string;
+  displayName: string;
+  profileImageObsHash?: string;
+  role: "ADMIN" | "CO_ADMIN" | "MEMBER" | "";
+  roleLabel: "管理人" | "副管理人" | null;
+}
+
 const BASE = "/api";
 const SUBDEVICE_INSTALLATION_ID_KEY = "vyline:subdevice-installation-id";
 const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -118,6 +126,23 @@ async function request<T>(
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  openChat: {
+    members: (accountId: string, squareChatMid: string) =>
+      request<{ ok: boolean; members?: OpenChatMember[]; error?: string }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/open-chats/${encodeURIComponent(squareChatMid)}/members`,
+      ),
+    selfProfile: (
+      accountId: string,
+      squareChatMid: string,
+      input: { displayName?: string; selfIntroduction?: string },
+    ) =>
+      request<{ ok: boolean; profile?: unknown; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/open-chats/${encodeURIComponent(squareChatMid)}/self-profile`,
+        input,
+      ),
+  },
   subdevices: {
     createPairing: (accountId: string, origin?: string) =>
       request<{
