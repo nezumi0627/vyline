@@ -14,7 +14,7 @@
     "@vyline/protocol": "workspace:*",
     "@vyline/types": "workspace:*",
     "fflate": "^0.8.3",
-    "hono": "^4.7.11",
+    "hono": "^4.12.34",
     "pino": "^9.6.0",
     "pino-pretty": "^13.0.0"
   },

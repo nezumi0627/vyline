@@ -47,6 +47,19 @@
     "@types/bun": "^1.4.0",
     "concurrently": "^9.1.2"
   },
+  "overrides": {
+    "@babel/core": "^7.29.6",
+    "hono": "^4.12.34",
+    "nanoid": "^3.3.18",
+    "postcss": "^8.5.23",
+    "react-router": "^7.18.2",
+    "react-router-dom": "^7.18.2",
+    "shell-quote": "^1.9.0",
+    "thrift": "^0.23.0",
+    "undici": "^7.29.0",
+    "vite": "^6.4.3",
+    "ws": "^8.21.0"
+  },
   "trustedDependencies": [
     "@biomejs/biome"
   ]
