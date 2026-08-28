@@ -16,7 +16,7 @@ COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/
 COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/
 COPY Vyline/packages/plugin/sdk/package.json Vyline/packages/plugin/sdk/
 COPY Vyline/packages/themes/package.json Vyline/packages/themes/
-RUN bun install --frozen-lockfile --ignore-scripts
+RUN bun install --ignore-scripts
 
 ARG BUN_VERSION=1.4.0
 FROM oven/bun:${BUN_VERSION} AS build
@@ -45,6 +45,8 @@ COPY --from=build /app/Vyline/packages ./Vyline/packages
 COPY --from=build /app/openapi.yaml ./openapi.yaml
 COPY --from=build /app/Vyline/backend/src ./Vyline/backend/src
 COPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/dist
+RUN mkdir -p /app/data /app/storage && chown -R bun:bun /app/data /app/storage
+USER bun
 EXPOSE 3000
 VOLUME ["/app/data", "/app/storage"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
