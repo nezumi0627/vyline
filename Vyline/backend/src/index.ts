@@ -60,6 +60,18 @@ app.use(
 
 // LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
 // QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
+
+async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c)))) return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  return next();
+}
+
+app.use("/line/*", requireLanSubdevice);
+app.use("/debug/*", requireLanSubdevice);
+
 app.use("/api/*", async (c, next) => {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
