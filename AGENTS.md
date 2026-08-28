@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-27
+最終更新: 2026-08-29
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -14,6 +14,29 @@
 - **ライセンス**: MIT
 - **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
+
+---
+
+## 最初に読む順番
+
+この repository は README、docs、submodule、workspace が多い。迷った場合は次の順番で読む。
+
+1. `AGENTS.md`（このファイル）
+2. `docs/README.md`
+3. `docs/onboarding.md`
+4. `docs/architecture.md`
+5. 対象機能に一番近い docs
+6. 実コード
+
+README はユーザー向け入口。実装判断の正本にしない。
+
+### AI が手間取りやすい点
+
+- `Vyline/packages/protocol`、`Vyline/packages/plugin`、`Vyline/packages/themes`、`tools` は submodule/workspace の境界が見えにくい。まず `bun run vyl:doctor` で状態を確認する。
+- docs整理では既存docsをテンプレートへ機械的に当て直さない。新規docsや大改修だけ `docs/templates/` を使い、既存docsは必要箇所だけ直す。
+- README は元の構成を守る。新導線を入れる場合も、該当セクションへの追記に留める。
+- `vyl doctor` / `vyl init` は軽い入口にする。npm publish、Docker build、Trivy container scan、full security scan は通常CLIに入れない。
+- 重い処理は GitHub Actions の manual workflow、release workflow、schedule に寄せる。PRでは軽量チェックを優先する。
 
 ---
 
