@@ -3,16 +3,7 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import {
-  cp,
-  mkdir,
-  readdir,
-  readFile,
-  rename,
-  rm,
-  stat,
-  writeFile,
-} from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
@@ -249,14 +240,17 @@ async function installArchive(target: string) {
   await mkdir(target, { recursive: true });
   runChecked("tar", ["-xzf", tempFile, "--strip-components", "1", "-C", target]);
   await rm(tempFile, { force: true });
-  console.log("Archive install completed. Some source submodules are not included in archive mode.");
+  console.log(
+    "Archive install completed. Some source submodules are not included in archive mode.",
+  );
 }
 
 async function snapshot(snapshotArgs: string[]) {
   const action = snapshotArgs[0] ?? "help";
   const root = (await findRepoRoot()) ?? process.cwd();
   const snapshotDir = option(snapshotArgs, "--snapshots") ?? join(root, "snapshots");
-  const dataDir = option(snapshotArgs, "--data-dir") ?? process.env.VYLINE_DATA_DIR ?? join(root, "data");
+  const dataDir =
+    option(snapshotArgs, "--data-dir") ?? process.env.VYLINE_DATA_DIR ?? join(root, "data");
 
   if (action === "help") {
     printSnapshotHelp();
@@ -265,7 +259,11 @@ async function snapshot(snapshotArgs: string[]) {
   } else if (action === "list") {
     await listSnapshots(snapshotDir);
   } else if (action === "restore") {
-    await restoreSnapshot(resolveRequired(snapshotArgs[1], "snapshot restore requires an archive path"), dataDir, snapshotArgs.includes("--force"));
+    await restoreSnapshot(
+      resolveRequired(snapshotArgs[1], "snapshot restore requires an archive path"),
+      dataDir,
+      snapshotArgs.includes("--force"),
+    );
   } else if (action === "schedule") {
     await scheduleSnapshot(snapshotArgs[1] ?? "daily", root, dataDir, snapshotDir);
   } else {
@@ -348,7 +346,12 @@ async function restoreSnapshot(archive: string, dataDir: string, force: boolean)
   console.log(`Restored snapshot to ${dataDir}`);
 }
 
-async function scheduleSnapshot(interval: string, root: string, dataDir: string, snapshotDir: string) {
+async function scheduleSnapshot(
+  interval: string,
+  root: string,
+  dataDir: string,
+  snapshotDir: string,
+) {
   if (!["hourly", "daily", "weekly"].includes(interval)) {
     throw new Error("Use one of: hourly, daily, weekly");
   }
@@ -410,7 +413,12 @@ async function plugin(pluginArgs: string[]) {
   const name = pluginArgs[1] ?? (await prompt("Plugin name", "my-vyline-plugin"));
   const root = await findRepoRoot();
   const target = resolve(root ?? process.cwd(), "plugins", sanitize(name));
-  runChecked("bun", ["Vyline/packages/create-plugin/src/index.ts", target], root ?? process.cwd(), true);
+  runChecked(
+    "bun",
+    ["Vyline/packages/create-plugin/src/index.ts", target],
+    root ?? process.cwd(),
+    true,
+  );
 }
 
 async function findRepoRoot() {
@@ -496,12 +504,7 @@ function run(commandName: string, runArgs: string[], cwd = process.cwd()): RunRe
   };
 }
 
-function runChecked(
-  commandName: string,
-  runArgs: string[],
-  cwd = process.cwd(),
-  inherit = false,
-) {
+function runChecked(commandName: string, runArgs: string[], cwd = process.cwd(), inherit = false) {
   const result = spawnSync(commandName, runArgs, {
     cwd,
     shell: platform() === "win32",
