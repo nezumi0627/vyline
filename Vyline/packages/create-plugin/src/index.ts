@@ -16,39 +16,31 @@ await mkdir(`${target}/src`, { recursive: true });
 
 await writeFile(
   `${target}/package.json`,
-  JSON.stringify(
-    {
-      name: pluginName,
-      version: "0.1.0",
-      private: true,
-      type: "module",
-      scripts: {
-        dev: "bun src/index.ts",
-        typecheck: "bun --check src/index.ts",
-      },
-      dependencies: {
-        "@vyline/plugin-sdk": "workspace:*",
-      },
+  json({
+    name: pluginName,
+    version: "0.1.0",
+    private: true,
+    type: "module",
+    scripts: {
+      dev: "bun src/index.ts",
+      typecheck: "bun --check src/index.ts",
     },
-    null,
-    2,
-  ) + "\n",
+    dependencies: {
+      "@vyline/plugin-sdk": "workspace:*",
+    },
+  }),
 );
 
 await writeFile(
   `${target}/vyline.plugin.json`,
-  JSON.stringify(
-    {
-      id: pluginName,
-      name: title(pluginName),
-      version: "0.1.0",
-      entry: "./src/index.ts",
-      permissions: ["messages:read"],
-      description: "A Vyline plugin.",
-    },
-    null,
-    2,
-  ) + "\n",
+  json({
+    id: pluginName,
+    name: title(pluginName),
+    version: "0.1.0",
+    entry: "./src/index.ts",
+    permissions: ["messages:read"],
+    description: "A Vyline plugin.",
+  }),
 );
 
 await writeFile(
@@ -97,8 +89,17 @@ Edit \`vyline.plugin.json\` to declare plugin metadata and permissions.
 
 console.log(`Created Vyline plugin template: ${target}`);
 
+function json(value: unknown) {
+  return `${JSON.stringify(value, null, 2)}\n`;
+}
+
 function sanitize(value: string) {
-  return value.toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "vyline-plugin";
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "vyline-plugin"
+  );
 }
 
 function title(value: string) {
