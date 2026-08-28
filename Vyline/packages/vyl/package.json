@@ -13,21 +13,12 @@
   "bugs": {
     "url": "https://github.com/nezumi0627/vyline/issues"
   },
-  "keywords": [
-    "vyline",
-    "vyl",
-    "bunx",
-    "cli"
-  ],
+  "keywords": ["vyline", "vyl", "bunx", "cli"],
   "bin": {
     "vyl": "src/index.ts",
     "vyline": "src/index.ts"
   },
-  "files": [
-    "src",
-    "README.md",
-    "package.json"
-  ],
+  "files": ["src", "README.md", "package.json"],
   "scripts": {
     "dev": "bun src/index.ts",
     "typecheck": "bun --check src/index.ts",
