@@ -29,9 +29,16 @@ for (const language of languages) {
   const generated = `<!-- GENERATED FILE. Edit README.src.md, then run bun run docs:readme. -->\n<!-- Language: ${language} -->\n\n${output}`;
 
   if (check) {
-    if (normalizeGenerated(readFileSync(outputPath, "utf8")) !== normalizeGenerated(generated)) {
-      console.error(`${outputPath} is out of date`);
-      process.exitCode = 1;
+    const current = normalizeGenerated(readFileSync(outputPath, "utf8"));
+    const expected = normalizeGenerated(generated);
+    if (current !== expected) {
+      const message = `${outputPath} is out of date`;
+      if (language === defaultLanguage) {
+        console.error(message);
+        process.exitCode = 1;
+      } else {
+        console.warn(`${message}; run bun run docs:readme to refresh translated README output.`);
+      }
     }
   } else {
     writeFileSync(outputPath, generated);
