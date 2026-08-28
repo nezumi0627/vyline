@@ -70,7 +70,7 @@ async function load(): Promise<StoredApiToken[]> {
 
       if (!record.tokenHash && record.token) {
         record.tokenHash = hashToken(record.token);
-        delete record.token;
+        record.token = undefined;
         migrated = true;
       }
 
@@ -122,9 +122,7 @@ export async function createToken(
 
 export async function validateToken(token: string): Promise<ApiToken | null> {
   const tokens = await load();
-  const found = tokens.find(
-    (entry) => entry.tokenHash && tokenHashMatches(token, entry.tokenHash),
-  );
+  const found = tokens.find((entry) => entry.tokenHash && tokenHashMatches(token, entry.tokenHash));
 
   if (!found) return null;
 
