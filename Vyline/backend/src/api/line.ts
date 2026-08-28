@@ -40,11 +40,13 @@ import { getClient } from "../line/clientManager.js";
 import {
   fetchOpenChatMessages,
   listOpenChatMembers,
+  listOpenChatReactions,
   listOpenChats,
   markOpenChatRead,
   reactOpenChatMessage,
   sendOpenChatMedia,
   sendOpenChatMessage,
+  unsendOpenChatMessage,
 } from "../service/openChatService.js";
 import {
   fetchProfile,
@@ -404,51 +406,145 @@ lineRouter.get("/:accountId/chats", async (c) => {
 
 // ─── OpenChat (SquareService /SQ1) ─────────────
 lineRouter.get("/:accountId/open-chats", async (c) => {
-  try { return c.json({ ok: true, chats: await listOpenChats(c.req.param("accountId")) }); }
-  catch (err) { return handleError(err, c); }
+  try {
+    return c.json({ ok: true, chats: await listOpenChats(c.req.param("accountId")) });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.get("/:accountId/open-chats/:squareChatMid/events", async (c) => {
   try {
-    return c.json({ ok: true, ...(await fetchOpenChatMessages(c.req.param("accountId"), c.req.param("squareChatMid"), c.req.query("syncToken"))) });
-  } catch (err) { return handleError(err, c); }
+    return c.json({
+      ok: true,
+      ...(await fetchOpenChatMessages(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.query("syncToken"),
+      )),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.get("/:accountId/open-chats/:squareChatMid/members", async (c) => {
-  try { return c.json({ ok: true, members: await listOpenChatMembers(c.req.param("accountId"), c.req.param("squareChatMid")) }); }
-  catch (err) { return handleError(err, c); }
+  try {
+    return c.json({
+      ok: true,
+      members: await listOpenChatMembers(c.req.param("accountId"), c.req.param("squareChatMid")),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/messages/:messageId/reactions", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      reactions: await listOpenChatReactions(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.param("messageId"),
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.post("/:accountId/open-chats/:squareChatMid/messages", async (c) => {
   const body = await c.req.json<{ text?: string; relatedMessageId?: string }>();
-  if (!body.text?.trim() || body.text.length > 10_000) return c.json({ ok: false, error: "text required (max 10000 chars)" }, 400);
-  try { return c.json({ ok: true, result: await sendOpenChatMessage(c.req.param("accountId"), c.req.param("squareChatMid"), body.text.trim(), body.relatedMessageId) }); }
-  catch (err) { return handleError(err, c); }
+  if (!body.text?.trim() || body.text.length > 10_000)
+    return c.json({ ok: false, error: "text required (max 10000 chars)" }, 400);
+  try {
+    return c.json({
+      ok: true,
+      result: await sendOpenChatMessage(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        body.text.trim(),
+        body.relatedMessageId,
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.post("/:accountId/open-chats/:squareChatMid/media", async (c) => {
-  const body = await c.req.json<{ dataBase64?: string; mimeType?: string; filename?: string }>();
-  if (!body.dataBase64 || body.dataBase64.length > 20 * 1024 * 1024) return c.json({ ok: false, error: "media required (max 15MB)" }, 400);
+  const body = await c.req.json<{
+    dataBase64?: string;
+    mimeType?: string;
+    filename?: string;
+    durationMs?: number;
+  }>();
+  if (!body.dataBase64) return c.json({ ok: false, error: "media required (max 15MB)" }, 400);
   const mimeType = body.mimeType ?? "image/jpeg";
-  if (!/^(image|video|audio)\//.test(mimeType)) return c.json({ ok: false, error: "unsupported media type" }, 400);
+  if (!/^(image|video|audio)\//.test(mimeType))
+    return c.json({ ok: false, error: "unsupported media type" }, 400);
   try {
     const bytes = Uint8Array.from(atob(body.dataBase64), (value) => value.charCodeAt(0));
-    return c.json({ ok: true, result: await sendOpenChatMedia(c.req.param("accountId"), c.req.param("squareChatMid"), bytes, mimeType, body.filename ?? "media") });
-  } catch (err) { return handleError(err, c); }
+    if (bytes.byteLength > 15 * 1024 * 1024)
+      return c.json({ ok: false, error: "media required (max 15MB)" }, 400);
+    const durationMs = Number(body.durationMs);
+    return c.json({
+      ok: true,
+      result: await sendOpenChatMedia(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        bytes,
+        mimeType,
+        body.filename ?? "media",
+        Number.isFinite(durationMs) && durationMs >= 0 ? durationMs : undefined,
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.post("/:accountId/open-chats/:squareChatMid/read", async (c) => {
   const body = await c.req.json<{ messageId?: string }>();
   if (!body.messageId) return c.json({ ok: false, error: "messageId required" }, 400);
-  try { await markOpenChatRead(c.req.param("accountId"), c.req.param("squareChatMid"), body.messageId); return c.json({ ok: true }); }
-  catch (err) { return handleError(err, c); }
+  try {
+    await markOpenChatRead(c.req.param("accountId"), c.req.param("squareChatMid"), body.messageId);
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/open-chats/:squareChatMid/messages/:messageId", async (c) => {
+  try {
+    await unsendOpenChatMessage(
+      c.req.param("accountId"),
+      c.req.param("squareChatMid"),
+      c.req.param("messageId"),
+    );
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.post("/:accountId/open-chats/:squareChatMid/messages/:messageId/react", async (c) => {
-  const body = await c.req.json<{ reaction?: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO" }>();
+  const body = await c.req.json<{
+    reaction?: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO";
+  }>();
   if (!body.reaction) return c.json({ ok: false, error: "reaction required" }, 400);
-  try { await reactOpenChatMessage(c.req.param("accountId"), c.req.param("squareChatMid"), c.req.param("messageId"), body.reaction); return c.json({ ok: true }); }
-  catch (err) { return handleError(err, c); }
+  try {
+    await reactOpenChatMessage(
+      c.req.param("accountId"),
+      c.req.param("squareChatMid"),
+      c.req.param("messageId"),
+      body.reaction,
+    );
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 // ─── GET /line/:accountId/messages/:chatMid ───
