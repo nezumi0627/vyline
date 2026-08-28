@@ -5,6 +5,12 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+    inputs:
+      full:
+        description: "Run heavy Trivy filesystem and container scans"
+        required: true
+        default: true
+        type: boolean
   schedule:
     - cron: "17 3 * * 1"
 
@@ -35,6 +41,7 @@ jobs:
   trivy-fs:
     name: Trivy filesystem scan
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.full)
     steps:
       - uses: actions/checkout@v4
         with:
@@ -59,6 +66,7 @@ jobs:
   trivy-image:
     name: Trivy container image scan
     runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' && (github.event_name != 'workflow_dispatch' || inputs.full)
     steps:
       - uses: actions/checkout@v4
         with:
