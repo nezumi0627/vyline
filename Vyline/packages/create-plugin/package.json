@@ -13,21 +13,11 @@
   "bugs": {
     "url": "https://github.com/nezumi0627/vyline/issues"
   },
-  "keywords": [
-    "vyline",
-    "plugin",
-    "scaffold",
-    "create",
-    "bun"
-  ],
+  "keywords": ["vyline", "plugin", "scaffold", "create", "bun"],
   "bin": {
     "create-vyline-plugin": "src/index.ts"
   },
-  "files": [
-    "src",
-    "README.md",
-    "package.json"
-  ],
+  "files": ["src", "README.md", "package.json"],
   "scripts": {
     "dev": "bun src/index.ts",
     "typecheck": "bun --check src/index.ts",
