@@ -65,7 +65,8 @@ async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
   const auth = c.req.header("authorization") ?? "";
   const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c)))) return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c))))
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
   return next();
 }
 
