@@ -41,7 +41,7 @@
 
 ## Vyline とは
 
-**Vyline** は、メッセージの送受信、Flex / Rich 表示、テーマカスタマイズ、バックアップなどを備えた Web / React ベースの LINE クライアントです。
+**Vyline** は、メッセージの送受信、Flex / Rich 表示、テーマカスタマイズ、Snapshot などを備えた Web / React ベースの LINE クライアントです。
 
 外部の中継サービスに依存せず、独自実装のプロトコルパッケージ **`@vyline/protocol`** を介して LINE サーバーと通信します。UI、バックエンド、プロトコルを分離しているため、テーマ、公開 API、将来のプラグインやカスタムクライアントへ拡張できる構成です。
 
@@ -69,7 +69,7 @@
 | **E2EE** | Letter Sealing の復号・送信、LINE Desktop の鍵のインポート |
 | **プライバシー** | ストリーマーモード、PIN ロック |
 | **ベータ機能** | ブロック状態確認（機能ごとの追加同意が必要） |
-| **VylineBackup** | トーク履歴とメディアのスナップショット作成・復元・削除 |
+| **Snapshot** | `vyl snapshot` によるデータの作成・一覧・復元・定期作成 |
 | **初回設定・引継ぎ** | 3 ステップの Vyline Setup、MID ごとの設定、設定だけを含む改ざん検知付き ZIP 引継ぎ |
 | **診断と安全性** | 個人情報をマスキングした診断ログ、Windows DPAPI によるセッション保護、端末単位のサブデバイス照合 |
 | **開発者向け** | Bearer トークン対応の公開 API、OpenAPI 3.1、JSONL 詳細ログ、Tailscale 経由の安全な遠隔利用 |
@@ -133,6 +133,7 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 
 | 用途 | 推奨方法 | 説明 |
 | --- | --- | --- |
+| はじめて試す | `vyl` の対話式セットアップ | 手動で全体を把握する前に、インストール・診断・修復を選べます |
 | 開発・動作確認 | Bun + ソースコード | フロントエンドとバックエンドを個別に確認できます |
 | 自宅サーバー・複数端末 | Docker Compose | データをボリュームに保存して Web ブラウザから利用できます |
 | Windows の単体アプリ | Beta 対応 | GitHub Releases の `VylineSetup-<version>.exe` を使用します |
@@ -140,6 +141,27 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 
 > [!NOTE]
 > Windows版・Linux版は GitHub Releases から導入できます。サーバー用途では Docker Compose を使用してください。
+
+### vyl で始める（推奨）
+
+`vyl` は Vyline のインストール、診断、修復、起動、プラグイン作成、Snapshot 作成をまとめる入口です。npm / Bun 公開後は次の形で使う想定です。
+
+```bash
+bunx vyl init
+bunx vyl install
+bunx vyl doctor
+```
+
+このリポジトリ内では、公開前でも次のコマンドで同じ流れを確認できます。
+
+```bash
+bun install
+bun run vyl init
+bun run vyl:doctor
+bun run vyl:fix
+```
+
+`vyl install` は通常の丸ごと clone だけでなく、archive-first の導入と developer shallow clone を選べるようにします。既存のセットアップが壊れた場合は `vyl doctor` で状態を確認し、`vyl fix` で `.env`、`data/`、`storage/`、submodule、依存関係を修復します。
 
 ### ソースコードからインストール（Bun）
 
@@ -149,12 +171,12 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 ### 開発環境で起動
 
 ```bash
-git clone https://github.com/nezumi0627/Vyline.git
+git clone --recurse-submodules https://github.com/nezumi0627/Vyline.git
 cd Vyline
 # 必要に応じて環境変数を設定（macOS / Linux / Git Bash）
 cp .env.example .env
 bun install
-bun run typecheck
+bun run vyl:doctor
 bun run dev
 ```
 
@@ -170,6 +192,9 @@ Copy-Item .env.example .env
 
 | コマンド | 内容 |
 | --- | --- |
+| `bun run vyl init` | 対話式セットアップ |
+| `bun run vyl:doctor` | 環境診断 |
+| `bun run vyl:fix` | よくあるセットアップ不備の修復 |
 | `bun run dev` | バックエンドとフロントエンドを同時に起動 |
 | `bun run dev:backend` | バックエンドのみ起動（`:3001`） |
 | `bun run dev:frontend` | フロントエンドのみ起動（`:5173`） |
@@ -177,26 +202,41 @@ Copy-Item .env.example .env
 | `bun run lint` | Biome による lint |
 | `bun run build` | フロントエンドの本番ビルド |
 
-導入の詳細は [オンボーディング](docs/onboarding.md) と [開発ガイド](docs/development.md) を参照してください。
+導入の詳細は [Vyline/docs/vyl-cli.md](Vyline/docs/vyl-cli.md)、[オンボーディング](docs/onboarding.md) と [開発ガイド](docs/development.md) を参照してください。
 
 ### Bun環境の更新
 
-ローカルで変更したファイルがある場合は、先にコミットまたは退避してください。
+ローカルで変更したファイルがある場合は、先にコミットまたは退避してください。更新前に Snapshot を作成しておくと安全です。
 
 ```bash
+bun run vyl snapshot create before-update
 git status --short
 git pull --ff-only
 bun install
+bun run vyl:doctor
 bun run typecheck
 bun run dev
 ```
 
 `git pull --ff-only` が失敗した場合は、ローカル変更を確認してから手動で merge または rebase してください。`git reset --hard` で変更を消す必要はありません。
 
+### Snapshot
+
+従来のバックアップ/リストア導線は **Snapshot** として整理します。Snapshot は `data/` を復元可能なアーカイブとして保存します。
+
+```bash
+bun run vyl snapshot create manual
+bun run vyl snapshot list
+bun run vyl snapshot restore snapshots/vyline-snapshot-xxxx.tar.gz --force
+bun run vyl snapshot schedule daily
+```
+
+Windows では `snapshot schedule` が `VylineSnapshot` のタスク登録を試みます。その他の環境では cron / systemd timer に貼り付けるためのコマンドを表示します。
+
 ### Docker でインストール
 
 ```bash
-git clone https://github.com/nezumi0627/Vyline.git
+git clone --recurse-submodules https://github.com/nezumi0627/Vyline.git
 cd Vyline
 docker compose up -d --build
 ```
@@ -225,7 +265,7 @@ cd Vyline-linux-x64-<version>
 ~/.local/bin/vyline
 ```
 
- 遠隔アクセスは **Tailscale 推奨**です。PC で Vyline を起動した状態で、スマホにも Tailscale を入れて同じアカウントでログインすれば、`http://100.x.y.z:3000` でアクセスできます。Tailscale 起動時はバックエンドログに URL が自動出力されます。設定の詳細は[セルフホストガイド](docs/selfhosting.md) を参照してください。
+遠隔アクセスは **Tailscale 推奨**です。PC で Vyline を起動した状態で、スマホにも Tailscale を入れて同じアカウントでログインすれば、`http://100.x.y.z:3000` でアクセスできます。Tailscale 起動時はバックエンドログに URL が自動出力されます。設定の詳細は[セルフホストガイド](docs/selfhosting.md) を参照してください。
 
 ### 既定のプロトコルプロファイル
 
@@ -252,16 +292,6 @@ flowchart TB
     FE -->|HTTP / WebSocket| BE
     BE -->|Protocol API| VP
     VP -->|Thrift / E2EE| LS
-
-    classDef frontend fill:#eff6ff,stroke:#3b82f6,color:#172554,stroke-width:2px;
-    classDef backend fill:#f5f3ff,stroke:#8b5cf6,color:#2e1065,stroke-width:2px;
-    classDef protocol fill:#ecfdf5,stroke:#10b981,color:#052e16,stroke-width:2px;
-    classDef external fill:#f8fafc,stroke:#64748b,color:#0f172a,stroke-width:2px;
-
-    class FE frontend;
-    class BE backend;
-    class VP protocol;
-    class LS external;
 ```
 
 | パス | 役割 |
@@ -270,6 +300,7 @@ flowchart TB
 | `Vyline/backend` | Hono ベースの BFF、認証、同期、API |
 | `Vyline/packages/protocol` | ドメインモデル、辞書、E2EE、Thrift 通信 |
 | `Vyline/packages/line-types` | vendored の Thrift 型定義 |
+| `Vyline/packages/cli` | `vyl` CLI、診断、修復、Snapshot、plugin scaffold |
 
 詳細は [docs/architecture.md](docs/architecture.md) を参照してください。
 
@@ -320,9 +351,13 @@ Vyline は API ファーストの拡張可能なクライアントを目指し�
 
 テーマ、文字サイズ、表示密度、プロフィール背景を変更できます。今後は CSS 変数、背景、各 UI 要素を対象としたカスタムセレクターを整備し、コードを直接変更せずに外観を調整できる仕組みを強化します。
 
-### プラグインシステム（計画中）
+### プラグインシステム
 
-JavaScript / TypeScript で機能を追加できるプラグインシステムを計画しています。
+JavaScript / TypeScript で機能を追加できるプラグインシステムを整備しています。雛形は `vyl` から作成できます。
+
+```bash
+bun run vyl plugin create my-plugin
+```
 
 - Manifest によるプラグイン情報と互換バージョンの宣言
 - API ごとの権限スコープと、インストール時の権限確認
@@ -385,8 +420,8 @@ Vyline はセマンティックバージョン（`X.Y.Z`、Beta 期間中は `X.
 手動更新の手間を避けるため、bump スクリプトで一括更新できます:
 
 ```bash
-bun run bump -- 0.7.0        # 指定バージョンへ一括更新
-bun run bump -- patch         # 0.6.0-beta → 0.6.1-beta のように相対指定も可 (major / minor / patch)
+bun run bump -- 0.7.0
+bun run bump -- patch
 ```
 
 スクリプトは上記のバージョン箇所と README バッジを自動で書き換えます。`UPDATE_NOTES.items` と CHANGELOG エントリはリリースごとに手動（または AI エージェント）で追記します。詳細は [AGENTS.md](AGENTS.md) の「バージョン管理」を参照してください。
@@ -417,6 +452,7 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 | ドキュメント | 内容 |
 | --- | --- |
 | [docs/README.md](docs/README.md) | ドキュメント索引 |
+| [Vyline/docs/vyl-cli.md](Vyline/docs/vyl-cli.md) | `vyl` CLI、対話式セットアップ、診断、修復、Snapshot |
 | [docs/onboarding.md](docs/onboarding.md) | 初回セットアップ |
 | [docs/development.md](docs/development.md) | 開発環境とコマンド |
 | [docs/architecture.md](docs/architecture.md) | アーキテクチャ |
@@ -427,7 +463,7 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 | [docs/developers/plugin-system.md](docs/developers/plugin-system.md) | プラグイン開発（サンプル付き） |
 | [docs/developers/for-ai.md](docs/developers/for-ai.md) | AI エージェント向け指示書 |
 | [examples/](examples/) | プラグイン・API サンプルコード |
-| [docs/user-guide/update.md](docs/user-guide/update.md) | アップデート方法（`bun run update`） |
+| [docs/user-guide/update.md](docs/user-guide/update.md) | アップデート方法 |
 | [docs/user-guide/custom-client.md](docs/user-guide/custom-client.md) | カスタムクライアントの作り方 |
 | [docs/user-guide/themes.md](docs/user-guide/themes.md) | テーマの作り方（VyTheme） |
 | [docs/CONTRIBUTING.md](docs/CONTRIBUTING.md) | コントリビューションガイド |
@@ -441,10 +477,11 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 ## ロードマップ
 
 - **API / Swagger**: `/v1/`、`/openapi.json`、`/docs`、`/swagger` の整備と安定化
+- **vyl CLI**: インストール、診断、修復、Snapshot、プラグイン雛形の導線改善
 - **プラグインシステム**: JavaScript / TypeScript、権限スコープ、型付き Open API
 - **カスタムクライアント**: 独自フロントエンド、Bot、外部ツールとの連携
 - **マルチアカウント**: アカウント単位の認証・データ・メディア分離
-- **ストレージ管理**: キャッシュと保存済みメディアの分離、容量表示、バックアップ復元
+- **ストレージ管理**: キャッシュと保存済みメディアの分離、容量表示、Snapshot 作成・復元
 - **複数画像送信**: 個別の IMAGE メッセージとグルーピング表示
 - **サーバーモード**: Docker Compose とセルフホスト運用の改善
 - **軽量化**: メモリ、CPU、通信量を計測し、公式クライアント以下を目標に改善
