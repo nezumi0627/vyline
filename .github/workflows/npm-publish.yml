@@ -6,9 +6,10 @@ on:
       package:
         description: "Package to publish"
         required: true
-        default: "cli"
+        default: "vyl"
         type: choice
         options:
+          - vyl
           - cli
           - create-plugin
           - all
@@ -44,6 +45,7 @@ jobs:
       - name: Typecheck publish packages
         run: |
           bun run --cwd Vyline/packages/cli typecheck
+          bun run --cwd Vyline/packages/vyl typecheck
           bun run --cwd Vyline/packages/create-plugin typecheck
       - name: npm dry run
         if: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
@@ -51,6 +53,9 @@ jobs:
           set -euo pipefail
           if [[ "${{ inputs.package }}" == "cli" || "${{ inputs.package }}" == "all" ]]; then
             npm publish --dry-run --workspace Vyline/packages/cli
+          fi
+          if [[ "${{ inputs.package }}" == "vyl" || "${{ inputs.package }}" == "all" ]]; then
+            npm publish --dry-run --workspace Vyline/packages/vyl
           fi
           if [[ "${{ inputs.package }}" == "create-plugin" || "${{ inputs.package }}" == "all" ]]; then
             npm publish --dry-run --workspace Vyline/packages/create-plugin
@@ -63,6 +68,9 @@ jobs:
           set -euo pipefail
           if [[ "${{ github.event_name }}" == "release" || "${{ inputs.package }}" == "cli" || "${{ inputs.package }}" == "all" ]]; then
             npm publish --workspace Vyline/packages/cli
+          fi
+          if [[ "${{ github.event_name }}" == "release" || "${{ inputs.package }}" == "vyl" || "${{ inputs.package }}" == "all" ]]; then
+            npm publish --workspace Vyline/packages/vyl
           fi
           if [[ "${{ github.event_name }}" == "release" || "${{ inputs.package }}" == "create-plugin" || "${{ inputs.package }}" == "all" ]]; then
             npm publish --workspace Vyline/packages/create-plugin
