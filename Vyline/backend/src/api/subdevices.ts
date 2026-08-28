@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { networkInterfaces } from "node:os";
 import {
   authenticateSubdevice,
@@ -20,7 +21,7 @@ function isLanAccessEnabled() {
   return process.env.VYLINE_LAN_ACCESS === "true";
 }
 
-function requireLocalRequest(c: { req: { header(name: string): string | undefined }; json: Hono["get"] }) {
+function isLocalRequest(c: Context) {
   return c.req.header("x-vyline-local-request") === "1";
 }
 
@@ -73,7 +74,7 @@ function installationId(c: { req: { header(name: string): string | undefined } }
 }
 
 subdeviceRouter.post("/pairing", async (c) => {
-  if (!requireLocalRequest(c)) {
+  if (!isLocalRequest(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
 
@@ -124,7 +125,7 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
 });
 
 subdeviceRouter.get("/", async (c) => {
-  if (!requireLocalRequest(c)) {
+  if (!isLocalRequest(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   return c.json({ ok: true, devices: await listSubdevices() });
@@ -136,7 +137,7 @@ subdeviceRouter.post("/heartbeat", async (c) => {
 });
 
 subdeviceRouter.delete("/:id", async (c) => {
-  if (!requireLocalRequest(c)) {
+  if (!isLocalRequest(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   const ok = await removeSubdevice(c.req.param("id"));
@@ -144,7 +145,7 @@ subdeviceRouter.delete("/:id", async (c) => {
 });
 
 subdeviceRouter.post("/:id/block", async (c) => {
-  if (!requireLocalRequest(c)) {
+  if (!isLocalRequest(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   const ok = await setSubdeviceBlocked(c.req.param("id"), true);
@@ -152,7 +153,7 @@ subdeviceRouter.post("/:id/block", async (c) => {
 });
 
 subdeviceRouter.delete("/:id/block", async (c) => {
-  if (!requireLocalRequest(c)) {
+  if (!isLocalRequest(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   const ok = await setSubdeviceBlocked(c.req.param("id"), false);
