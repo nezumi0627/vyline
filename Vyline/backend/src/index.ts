@@ -35,11 +35,21 @@ const PORT = Number(process.env.PORT ?? 3001);
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
 const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
+const CORS_ORIGINS = new Set(
+  CORS_ORIGIN.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
 const app = new Hono();
+
+function allowedCorsOrigin(origin: string | undefined) {
+  if (!origin) return CORS_ORIGIN;
+  return CORS_ORIGINS.has(origin) ? origin : CORS_ORIGIN;
+}
 
 function subdeviceInstallationId(c: Context) {
   return c.req.header("x-vyline-installation-id");
@@ -53,7 +63,7 @@ function isPublicPairingRequest(path: string, method: string) {
 app.use(
   "*",
   cors({
-    origin: (origin) => (LAN_ACCESS ? origin : CORS_ORIGIN),
+    origin: allowedCorsOrigin,
     credentials: true,
   }),
 );
