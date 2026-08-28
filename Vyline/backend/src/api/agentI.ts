@@ -6,8 +6,25 @@ import {
   resetAgentISession,
   type AgentIHistoryItem,
 } from "../service/agentIService.js";
+import { isSubdeviceSessionValid } from "../storage/subdeviceStore.js";
 
 export const agentIRouter = new Hono();
+
+function isLanAccessEnabled() {
+  return process.env.VYLINE_LAN_ACCESS === "true";
+}
+
+agentIRouter.use("*", async (c, next) => {
+  if (!isLanAccessEnabled() || c.req.header("x-vyline-local-request") === "1") return next();
+
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  const installationId = c.req.header("x-vyline-installation-id");
+  if (!(await isSubdeviceSessionValid(session, installationId))) {
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  return next();
+});
 
 function validHistory(value: unknown): AgentIHistoryItem[] {
   if (!Array.isArray(value)) return [];
