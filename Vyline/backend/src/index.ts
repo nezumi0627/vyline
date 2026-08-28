@@ -35,11 +35,21 @@ const PORT = Number(process.env.PORT ?? 3001);
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
 const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
+const CORS_ORIGINS = new Set(
+  CORS_ORIGIN.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
 const app = new Hono();
+
+function allowedCorsOrigin(origin: string | undefined) {
+  if (!origin) return CORS_ORIGIN;
+  return CORS_ORIGINS.has(origin) ? origin : CORS_ORIGIN;
+}
 
 function subdeviceInstallationId(c: Context) {
   return c.req.header("x-vyline-installation-id");
@@ -53,13 +63,26 @@ function isPublicPairingRequest(path: string, method: string) {
 app.use(
   "*",
   cors({
-    origin: (origin) => (LAN_ACCESS ? origin : CORS_ORIGIN),
+    origin: allowedCorsOrigin,
     credentials: true,
   }),
 );
 
 // LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
 // QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
+
+async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c))))
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  return next();
+}
+
+app.use("/line/*", requireLanSubdevice);
+app.use("/debug/*", requireLanSubdevice);
+
 app.use("/api/*", async (c, next) => {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
