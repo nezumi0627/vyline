@@ -11,36 +11,20 @@
 </p>
 
 > [!CAUTION]
-> Vyline is an unofficial and unauthorised LINE third-party client. It is not affiliated with LINE Corporation or LY Corporation. Use it at your own risk after understanding the risks, including possible terms-of-service violations and account suspension.
+> Vyline is an unofficial and unauthorised LINE third-party client. It is not affiliated with LINE Corporation or LY Corporation. Use it at your own risk.
 
 > [!NOTE]
-> Vyline is currently Beta 0.8.0. Beta software may introduce breaking changes, bugs, or data loss. Protect important data with `vyl snapshot`.
-
----
-
-## What is Vyline?
-
-**Vyline** is a Web/React-based LINE client with messaging, Flex/Rich rendering, themes, a public API, plugins, and Snapshot-based data protection.
-
-It communicates with LINE servers through the independently implemented **`@vyline/protocol`** package without relying on an external relay service. The UI, backend, protocol, and CLI are separated so installation, self-hosting, development, plugin work, and data migration can be handled step by step.
-
-| Item | Details |
-| --- | --- |
-| Entry point | `vyl` CLI / `bunx vyl` / `bun run vyl` |
-| Audience | Custom UI users, developers, and self-hosters |
-| Technology | React + Vite / Hono on Bun / TypeScript / Thrift |
-| Status | Beta 0.8.0 |
-| License | MIT |
+> Vyline is currently Beta 0.8.0. Protect important data with `vyl snapshot`.
 
 ## Quick start
 
-New users should start with the interactive `vyl` flow instead of manually cloning the full repository first.
+The new entrypoint is the **`vyl` CLI**. New users should start with the interactive flow instead of manually cloning the full repository first.
 
 ```bash
 bunx vyl init
 ```
 
-Before npm publishing, or when working inside this repository, use:
+Before npm / bunx publishing, or inside this repository, use:
 
 ```bash
 bun install
@@ -49,7 +33,7 @@ bun run vyl init
 
 `vyl init` lets you choose startup, doctor, repair, plugin creation, Snapshot creation, and archive-first install interactively.
 
-### Installation paths
+## Installation paths
 
 | Goal | Recommended path | Command |
 | --- | --- | --- |
@@ -74,7 +58,7 @@ bun run vyl init
 | `vyl plugin create <name>` | Create a TypeScript plugin template |
 | `vyl snapshot create/list/restore/schedule` | Create, list, restore, and schedule Snapshots |
 
-Inside the repository, run `bun run vyl ...` or one of the root helper scripts.
+Inside the repository, run:
 
 ```bash
 bun run vyl init
@@ -132,17 +116,6 @@ docker compose up -d --build
 ```
 
 Open `http://localhost:3000`. Do not delete `./data/`; it contains sessions and keys.
-
-## Public API
-
-Self-hosted Vyline exposes a Bearer-token API under `/v1/`. It also serves `/openapi.json`, `/docs`, and `/swagger`.
-
-```bash
-curl http://localhost:3001/v1/accounts/{accountId}/chats \
-  -H "Authorization: Bearer vyl_xxxx..."
-```
-
-Never commit `VYLINE_API_ADMIN_SECRET`, issued tokens, sessions, or encryption keys.
 
 ## Documentation
 
