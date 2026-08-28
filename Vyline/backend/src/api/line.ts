@@ -39,13 +39,23 @@ import {
 import { getClient } from "../line/clientManager.js";
 import {
   fetchOpenChatMessages,
+  fetchOpenChatThreadMessages,
+  createOpenChatAnnouncement,
+  createOpenChatNote,
+  deleteOpenChatAnnouncement,
+  deleteOpenChatNote,
+  getOpenChatInfo,
+  getOpenChatThread,
   listOpenChatMembers,
+  listOpenChatAnnouncements,
+  listOpenChatNotes,
   listOpenChatReactions,
   listOpenChats,
   markOpenChatRead,
   reactOpenChatMessage,
   sendOpenChatMedia,
   sendOpenChatMessage,
+  sendOpenChatThreadMessage,
   unsendOpenChatMessage,
 } from "../service/openChatService.js";
 import {
@@ -433,6 +443,162 @@ lineRouter.get("/:accountId/open-chats/:squareChatMid/members", async (c) => {
     return c.json({
       ok: true,
       members: await listOpenChatMembers(c.req.param("accountId"), c.req.param("squareChatMid")),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/info", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      info: await getOpenChatInfo(c.req.param("accountId"), c.req.param("squareChatMid")),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/announcements", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      announcements: await listOpenChatAnnouncements(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/open-chats/:squareChatMid/announcements", async (c) => {
+  const body = await c.req.json<{ messageId?: string; text?: string; createdAt?: number }>();
+  if (!body.messageId || !body.text?.trim() || !Number.isFinite(body.createdAt))
+    return c.json({ ok: false, error: "messageId, text and createdAt required" }, 400);
+  try {
+    return c.json({
+      ok: true,
+      result: await createOpenChatAnnouncement(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        body.messageId,
+        body.text.trim(),
+        body.createdAt!,
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete(
+  "/:accountId/open-chats/:squareChatMid/announcements/:announcementSeq",
+  async (c) => {
+    try {
+      await deleteOpenChatAnnouncement(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.param("announcementSeq"),
+      );
+      return c.json({ ok: true });
+    } catch (err) {
+      return handleError(err, c);
+    }
+  },
+);
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/threads/by-message/:messageId", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      thread: await getOpenChatThread(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.param("messageId"),
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/threads/:threadMid/events", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      data: await fetchOpenChatThreadMessages(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.param("threadMid"),
+        c.req.query("syncToken"),
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/open-chats/:squareChatMid/threads/:threadMid/messages", async (c) => {
+  const body = await c.req.json<{ text?: string; relatedMessageId?: string }>();
+  if (!body.text?.trim() || body.text.length > 10_000)
+    return c.json({ ok: false, error: "text required (max 10000 chars)" }, 400);
+  try {
+    return c.json({
+      ok: true,
+      result: await sendOpenChatThreadMessage(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.param("threadMid"),
+        body.text.trim(),
+        body.relatedMessageId,
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/open-chats/:squareChatMid/notes", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      data: await listOpenChatNotes(c.req.param("accountId"), c.req.param("squareChatMid")),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/open-chats/:squareChatMid/notes", async (c) => {
+  const body = await c.req.json<{ text?: string }>();
+  if (!body.text?.trim() || body.text.length > 10_000)
+    return c.json({ ok: false, error: "text required (max 10000 chars)" }, 400);
+  try {
+    return c.json({
+      ok: true,
+      data: await createOpenChatNote(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        body.text.trim(),
+      ),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/open-chats/:squareChatMid/notes/:postId", async (c) => {
+  try {
+    return c.json({
+      ok: true,
+      data: await deleteOpenChatNote(
+        c.req.param("accountId"),
+        c.req.param("squareChatMid"),
+        c.req.param("postId"),
+      ),
     });
   } catch (err) {
     return handleError(err, c);

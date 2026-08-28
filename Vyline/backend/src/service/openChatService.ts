@@ -18,6 +18,21 @@ function number(value: unknown): number {
   return Number.isFinite(result) ? result : 0;
 }
 
+/** LINE thrift values include Int64/BigInt; never leak them to Hono JSON. */
+export function toOpenChatJson(value: unknown): unknown {
+  if (typeof value === "bigint") return value.toString();
+  if (Array.isArray(value)) return value.map(toOpenChatJson);
+  if (value && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value as Record<string, unknown>).map(([key, item]) => [
+        key,
+        toOpenChatJson(item),
+      ]),
+    );
+  }
+  return value;
+}
+
 export function mapOpenChatMessage(raw: SquareRaw, selfMemberMid?: string): Message {
   const message = raw.message ?? raw;
   const from = String(message.from ?? raw.from ?? "");
@@ -235,4 +250,177 @@ export async function listOpenChatMembers(accountId: string, squareChatMid: stri
   if (!client) throw new Error("not logged in");
   const chat = await client.getSquareChat(squareChatMid);
   return (await chat.getMembers()).map(mapOpenChatMember);
+}
+
+export async function getOpenChatInfo(accountId: string, squareChatMid: string) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const detail = await client.base.square.getSquareChat({ squareChatMid });
+  const raw = detail as SquareRaw;
+  const [square, profile] = await Promise.all([
+    client.base.square.getSquare({ squareMid: raw.squareChat.squareMid }),
+    client.base.square.getSquareMember({ squareMemberMid: raw.squareChatMember.squareMemberMid }),
+  ]);
+  return toOpenChatJson({
+    chat: raw.squareChat,
+    chatStatus: raw.squareChatStatus,
+    selfChatMember: raw.squareChatMember,
+    square: (square as SquareRaw).square,
+    selfProfile: (profile as SquareRaw).squareMember,
+  });
+}
+
+export async function listOpenChatAnnouncements(accountId: string, squareChatMid: string) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const result = await client.base.square.getSquareChatAnnouncements({
+    getSquareChatAnnouncementsRequest: { squareChatMid },
+  });
+  return toOpenChatJson((result as SquareRaw).announcements ?? []);
+}
+
+export async function createOpenChatAnnouncement(
+  accountId: string,
+  squareChatMid: string,
+  messageId: string,
+  text: string,
+  createdAt: number,
+) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const detail = await client.base.square.getSquareChat({ squareChatMid });
+  const senderMid = (detail as SquareRaw).squareChatMember.squareMemberMid;
+  return toOpenChatJson(
+    await client.base.square.createSquareChatAnnouncement({
+      squareChatMid,
+      senderMid,
+      messageId,
+      text,
+      createdAt,
+    }),
+  );
+}
+
+export async function deleteOpenChatAnnouncement(
+  accountId: string,
+  squareChatMid: string,
+  announcementSeq: string,
+) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  return toOpenChatJson(
+    await client.base.square.deleteSquareChatAnnouncement({
+      deleteSquareChatAnnouncementRequest: {
+        squareChatMid,
+        announcementSeq: BigInt(announcementSeq),
+      },
+    }),
+  );
+}
+
+export async function getOpenChatThread(
+  accountId: string,
+  squareChatMid: string,
+  messageId: string,
+) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const mid = await client.base.square.getSquareThreadMid({
+    request: { chatMid: squareChatMid, messageId },
+  });
+  const threadMid = String((mid as SquareRaw).threadMid);
+  const thread = await client.base.square.getSquareThread({
+    request: { threadMid, includeRootMessage: true },
+  });
+  return toOpenChatJson({ threadMid, ...(thread as SquareRaw) });
+}
+
+export async function fetchOpenChatThreadMessages(
+  accountId: string,
+  squareChatMid: string,
+  threadMid: string,
+  syncToken?: string,
+) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const result = await client.base.square.fetchSquareChatEvents({
+    squareChatMid,
+    threadMid,
+    ...(syncToken ? { syncToken } : {}),
+    limit: 100,
+  });
+  const raw = result as SquareRaw;
+  return toOpenChatJson({
+    events: raw.events ?? [],
+    syncToken: raw.syncToken ?? "",
+    continuationToken: raw.continuationToken,
+  });
+}
+
+export async function sendOpenChatThreadMessage(
+  accountId: string,
+  squareChatMid: string,
+  threadMid: string,
+  text: string,
+  relatedMessageId?: string,
+) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  return toOpenChatJson(
+    await runSendRpc(accountId, () =>
+      client.base.square.sendSquareThreadMessage({
+        request: {
+          reqSeq: 0,
+          chatMid: squareChatMid,
+          threadMid,
+          threadMessage: {
+            message: {
+              to: squareChatMid,
+              toType: "SQUARE_THREAD",
+              text,
+              contentType: "NONE",
+              ...(relatedMessageId
+                ? {
+                    relatedMessageId,
+                    relatedMessageServiceCode: "SQUARE",
+                    messageRelationType: "REPLY",
+                  }
+                : {}),
+            },
+          },
+        },
+      }),
+    ),
+  );
+}
+
+async function getOpenChatSquareMid(accountId: string, squareChatMid: string) {
+  const client = getClient(accountId);
+  if (!client) throw new Error("not logged in");
+  const detail = await client.base.square.getSquareChat({ squareChatMid });
+  return { client, squareMid: String((detail as SquareRaw).squareChat.squareMid) };
+}
+
+export async function listOpenChatNotes(accountId: string, squareChatMid: string) {
+  const { client, squareMid } = await getOpenChatSquareMid(accountId, squareChatMid);
+  return toOpenChatJson(
+    await client.base.timeline.listPost({ homeId: squareMid, sourceType: "TALKROOM" }),
+  );
+}
+
+export async function createOpenChatNote(accountId: string, squareChatMid: string, text: string) {
+  const { client, squareMid } = await getOpenChatSquareMid(accountId, squareChatMid);
+  return toOpenChatJson(
+    await client.base.timeline.createPost({
+      homeId: squareMid,
+      text,
+      readPermissionType: "ALL",
+      sourceType: "TIMELINE",
+    }),
+  );
+}
+
+export async function deleteOpenChatNote(accountId: string, squareChatMid: string, postId: string) {
+  const { client, squareMid } = await getOpenChatSquareMid(accountId, squareChatMid);
+  return toOpenChatJson(await client.base.timeline.deletePost({ homeId: squareMid, postId }));
 }
