@@ -51,7 +51,7 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modules
-COPY --from=prod-deps /app/Vyline/packages ./Vyline/packages
+COPY --from=build /app/Vyline/packages ./Vyline/packages
 COPY --from=build /app/openapi.yaml ./openapi.yaml
 COPY --from=build /app/Vyline/backend/src ./Vyline/backend/src
 COPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/dist
