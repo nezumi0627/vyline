@@ -43,7 +43,8 @@ async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Resp
 
 /** 管理者認証（VYLINE_API_ADMIN_SECRET）。失敗時は Response を返す */
 function requireScope(c: Context<any>, token: ApiToken, scope: "read" | "write"): true | Response {
-  if (!token.scopes.includes(scope)) return c.json({ ok: false, error: `token requires ${scope} scope` }, 403);
+  if (!token.scopes.includes(scope))
+    return c.json({ ok: false, error: `token requires ${scope} scope` }, 403);
   return true;
 }
 
@@ -212,7 +213,12 @@ publicRouter.get("/tokens", async (c) => {
   if (admin instanceof Response) return admin;
 
   const tokens = await listTokens();
-  const data = tokens.map(({ name, scopes, createdAt, lastUsedAt }) => ({ name, scopes, createdAt, lastUsedAt }));
+  const data = tokens.map(({ name, scopes, createdAt, lastUsedAt }) => ({
+    name,
+    scopes,
+    createdAt,
+    lastUsedAt,
+  }));
   return c.json({ ok: true, data });
 });
 
