@@ -78,6 +78,16 @@ export type Message = {
   mentions?: MentionInfo[];
   /** 通話イベント用 */
   callMeta?: CallMessageMeta;
+  /** ノート/アルバム作成時の POSTNOTIFICATION */
+  postNotification?: {
+    kind: "note" | "album" | "unknown";
+    homeId?: string;
+    postId?: string;
+    albumId?: string;
+    title?: string;
+    mediaCount?: number;
+    previewMedias?: Array<{ mediaOid: string; mediaType?: string }>;
+  };
   createdAt: number;
   status: MessageStatus;
   read: boolean;

@@ -41,6 +41,8 @@ export interface TokenEntry {
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  /** セッション発行時のデバイス種別。復元時に別端末種別へ化けるのを防ぐ。 */
+  deviceMode?: string;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -63,10 +65,12 @@ async function persistTokens(tokens: TokenMap): Promise<void> {
 }
 
 export type SessionMeta = {
+  storageFile?: string;
   mid?: string;
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  deviceMode?: string;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -135,7 +139,8 @@ export async function saveToken(
   const existing = tokens[accountId];
   const entry: TokenEntry = {
     authToken: token,
-    storageFile: existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
+    storageFile:
+      meta?.storageFile ?? existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
     savedAt: new Date().toISOString(),
   };
   try {
@@ -149,11 +154,13 @@ export async function saveToken(
   const displayName = meta?.displayName ?? existing?.displayName;
   const picturePath = meta?.picturePath ?? existing?.picturePath;
   const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
+  const deviceMode = meta?.deviceMode ?? existing?.deviceMode;
   const premium = meta?.premium ?? existing?.premium;
   if (mid) entry.mid = mid;
   if (displayName) entry.displayName = displayName;
   if (picturePath) entry.picturePath = picturePath;
   if (statusMessage) entry.statusMessage = statusMessage;
+  if (deviceMode) entry.deviceMode = deviceMode;
   if (premium) entry.premium = premium;
   tokens[accountId] = entry;
 
@@ -169,6 +176,7 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.displayName != null) existing.displayName = meta.displayName;
   if (meta.picturePath != null) existing.picturePath = meta.picturePath;
   if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
+  if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
   tokens[accountId] = existing;
@@ -201,6 +209,7 @@ export async function listSavedSessions(): Promise<
 > {
   const tokens = await loadTokens();
   return Object.entries(tokens)
+    .filter(([accountId]) => !accountId.endsWith(":content"))
     .map(([accountId, entry]) => {
       const row: {
         accountId: string;
