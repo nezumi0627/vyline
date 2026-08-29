@@ -361,7 +361,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     }
   }, [accountId, applyChatsToContactCache]);
 
-  // iOS復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
+  // 外部バックアップ復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
   useEffect(() => {
     if (!accountId || typeof window === "undefined") return;
     const onRestore = (event: Event) => {
@@ -389,7 +389,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       })();
     };
     window.addEventListener("vyline:ios-backup-restored", onRestore);
-    return () => window.removeEventListener("vyline:ios-backup-restored", onRestore);
+    window.addEventListener("vyline:android-backup-restored", onRestore);
+    return () => {
+      window.removeEventListener("vyline:ios-backup-restored", onRestore);
+      window.removeEventListener("vyline:android-backup-restored", onRestore);
+    };
   }, [accountId, loadBootstrap, resolveMessageAuthors]);
 
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）

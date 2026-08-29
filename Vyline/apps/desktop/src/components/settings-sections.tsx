@@ -7,6 +7,7 @@ import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
+import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
@@ -1492,6 +1493,7 @@ function AdvancedSection() {
         </p>
       )}
       <div className="mt-4">
+        <AndroidBackupPanel accountId={accountId} />
         <IosBackupBetaPanel accountId={accountId} />
       </div>
     </Section>

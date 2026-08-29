@@ -1987,6 +1987,39 @@ lineRouter.get("/:accountId/restore/ios-backup/:sessionId", async (c) => {
     : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);
 });
 
+// ─── Android: naver_line DB / LEINs バックアップ復元 ───
+
+lineRouter.post("/:accountId/restore/android-backup", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!c.req.raw.body) {
+    return c.json({ ok: false, error: "Androidバックアップファイルが必要です" }, 400);
+  }
+  try {
+    const sourceName = c.req.header("X-Vyline-Backup-Name") ?? "naver_line";
+    const includeMedia = c.req.query("includeMedia") === "1";
+    const { startAndroidBackupRestore } = await import(
+      "../service/androidBackupService.js"
+    );
+    const session = await startAndroidBackupRestore(
+      accountId,
+      sourceName,
+      c.req.raw,
+      includeMedia,
+    );
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/restore/android-backup/:sessionId", async (c) => {
+  const { getAndroidBackupSession } = await import("../service/androidBackupService.js");
+  const session = getAndroidBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
+  return session
+    ? c.json({ ok: true, session })
+    : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);
+});
+
 // ─── VylineBackup: スナップショット作成 / 一覧 / 復元 ───
 
 lineRouter.get("/:accountId/backup/chats", async (c) => {

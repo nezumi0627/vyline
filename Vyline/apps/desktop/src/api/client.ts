@@ -115,6 +115,42 @@ async function request<T>(
   }
 }
 
+async function uploadFile<T>(path: string, file: File): Promise<T> {
+  let res: Response;
+  const sessionToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
+  const installationId = getSubdeviceInstallationId();
+  try {
+    res = await fetch(`${BASE}${path}`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/octet-stream",
+        "X-Vyline-Backup-Name": encodeURIComponent(file.name || "naver_line"),
+        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
+        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
+      },
+      body: file,
+    });
+  } catch (err) {
+    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
+    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
+  }
+
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(
+      res.ok
+        ? "サーバーが空の応答を返しました"
+        : `サーバーエラー HTTP ${res.status}（backend のログを確認）`,
+    );
+  }
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
+  }
+}
+
 // ─── api ──────────────────────────────────────
 
 export const api = {
@@ -883,6 +919,57 @@ export const api = {
         } | null;
         error?: string;
       }>("GET", `/line/${accountId}/restore/ios-backup/${encodeURIComponent(sessionId)}`),
+
+    /** Android naver_line DB / LEINs ZIP から履歴復元を開始 */
+    startAndroidBackupRestore: (accountId: string, file: File, includeMedia = false) =>
+      uploadFile<{ ok: boolean; sessionId?: string; error?: string }>(
+        `/line/${accountId}/restore/android-backup?includeMedia=${includeMedia ? "1" : "0"}`,
+        file,
+      ),
+
+    /** Android DB 復元セッションのステータス取得 */
+    getAndroidBackupSession: (accountId: string, sessionId: string) =>
+      request<{
+        ok: boolean;
+        session?: {
+          id: string;
+          accountId: string;
+          sourceName: string;
+          includeMedia: boolean;
+          status: "pending" | "running" | "completed" | "failed";
+          progress: {
+            stage: string;
+            current: number;
+            total: number;
+            message: string;
+            file?: string;
+          } | null;
+          result: {
+            sourceName: string;
+            sourceKind: "sqlite" | "zip";
+            databaseVersion: number;
+            restoredAt: string;
+            parsed: {
+              chats: number;
+              totalMessages: number;
+              reactions: number;
+              unsupportedReactions: number;
+            };
+            restoredChatMids: string[];
+            merged: {
+              importedChats: number;
+              skippedChats: number;
+              importedMessages: number;
+              skippedMessages: number;
+            };
+            media: { restored: number; skipped: number };
+          } | null;
+          error: string | null;
+          startedAt: number;
+          completedAt: number | null;
+        } | null;
+        error?: string;
+      }>("GET", `/line/${accountId}/restore/android-backup/${encodeURIComponent(sessionId)}`),
 
     /** VylineBackup: チャット一覧 + メッセージ件数（選択 UI 用） */
     backupChats: (accountId: string) =>
