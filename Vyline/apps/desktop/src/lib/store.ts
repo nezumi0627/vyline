@@ -1,7 +1,11 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { api, type Announcement } from "../api/client.js";
-import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
+import {
+  canUnsendMessage,
+  type Chat as LineChat,
+  type Message as LineMessage,
+} from "@vyline/types";
 import { THEME_PRESETS } from "@vyline/themes";
 import type {
   Chat,
@@ -1563,6 +1567,15 @@ export const useStore = create<State>()(
           get().showNotice("一度取り消したメッセージは再度取り消せません");
           return;
         }
+        const isPremium = Boolean(get().self.premium?.active);
+        if (!demoMode && !canUnsendMessage(msg.createdAt, isPremium)) {
+          get().showNotice(
+            isPremium
+              ? "送信取り消しできません（LYPプレミアムは送信後7日以内です）"
+              : "送信取り消しできません（通常は送信後1時間以内です）",
+          );
+          return;
+        }
         const prevState = msg.messageState ?? "normal";
         const historyEntry = {
           state: prevState,
@@ -1590,13 +1603,26 @@ export const useStore = create<State>()(
         const res = await api.line.unsend(accountId!, id);
         if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
         else if (!res.ok) {
+          set((st) => ({
+            messages: st.messages.map((m) =>
+              m.id === id
+                ? {
+                    ...m,
+                    history: msg.history,
+                    revokedSnapshot: msg.revokedSnapshot,
+                    messageState: prevState,
+                    text: msg.text,
+                  }
+                : m,
+            ),
+          }));
           const errText = res.error ?? "";
           if (
             errText.includes("MESSAGE_NOT_DESTRUCTIBLE") ||
             errText.includes("message too old") ||
             errText.includes("too old")
           ) {
-            get().showNotice("取り消し失敗(送信取り消し可能な時間を過ぎています)");
+            get().showNotice("送信取り消しできません（送信取り消し可能な時間を過ぎています）");
           } else {
             window.alert(errText || "取り消しに失敗しました");
           }
