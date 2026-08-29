@@ -22,6 +22,21 @@
 
 既存ドキュメントをテンプレートに合わせるためだけの全面リライトはしない。見出しや用語の統一は、内容変更がある範囲に限定する。
 
+## README の生成ルール
+
+ルート README の正本は `README.src.md` とする。`README.md` と `README.en.md` は `scripts/generate-readmes.ts` による生成物で、通常の編集対象ではない。
+
+README を変更するときは次の順序を守る。
+
+1. `README.src.md` を編集する。
+2. `bun run docs:readme` で生成する。
+3. `git diff -- README.src.md README.md README.en.md` で生成結果を確認する。
+4. `bun run docs:readme:check` で正本との整合を確認する。
+
+現在は `README.src.md` の一部で英語向け言語タグが不足しており、生成時に `README.en.md` が日本語内容で上書きされる既知の不整合がある。そのため、英語READMEの生成仕様そのものを修正する作業でない限り、`README.en.md` に意図しない大規模差分が出た場合はコミットしない。
+
+生成済みファイルだけを直接直す変更は禁止する。例外は、生成スクリプトや生成仕様そのものを修正している途中で、検証用に一時編集する場合のみ。
+
 ## 用語
 
 - `storage/saved-media/`: 送信済みまたは取得済みのメディアを保持する永続ストレージ。ユーザーが明示的に削除するまで残す。

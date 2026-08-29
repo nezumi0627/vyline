@@ -34,7 +34,9 @@ README はユーザー向け入口。実装判断の正本にしない。
 
 - `Vyline/packages/protocol`、`Vyline/packages/plugin`、`Vyline/packages/themes`、`tools` は submodule/workspace の境界が見えにくい。まず `bun run vyl:doctor` で状態を確認する。
 - docs整理では既存docsをテンプレートへ機械的に当て直さない。新規docsや大改修だけ `docs/templates/` を使い、既存docsは必要箇所だけ直す。
+- README の正本は `README.src.md`。`README.md` / `README.en.md` は生成物なので、原則として直接編集しない。README変更は `README.src.md` に入れ、`bun run docs:readme` で生成して差分を確認する。
 - README は元の構成を守る。新導線を入れる場合も、該当セクションへの追記に留める。
+- 現在の `README.src.md` には英語向け言語タグが不足している箇所があり、`bun run docs:readme` で `README.en.md` を日本語内容で上書きする既知の不整合がある。README生成前後で `README.en.md` の差分を必ず確認し、意図しない上書きはコミットしない。英語生成仕様を修正するPR以外では、この既知不整合を広げない。
 - `vyl doctor` / `vyl init` は軽い入口にする。npm publish、Docker build、Trivy container scan、full security scan は通常CLIに入れない。
 - 重い処理は GitHub Actions の manual workflow、release workflow、schedule に寄せる。PRでは軽量チェックを優先する。
 
