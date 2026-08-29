@@ -115,7 +115,11 @@ async function request<T>(
   }
 }
 
-async function uploadFile<T>(path: string, file: File): Promise<T> {
+async function uploadBinary<T>(
+  path: string,
+  body: Blob,
+  extraHeaders?: HeadersInit,
+): Promise<T> {
   let res: Response;
   const sessionToken =
     typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
@@ -125,11 +129,11 @@ async function uploadFile<T>(path: string, file: File): Promise<T> {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
-        "X-Vyline-Backup-Name": encodeURIComponent(file.name || "naver_line"),
         ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
         ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
+        ...(extraHeaders ?? {}),
       },
-      body: file,
+      body,
     });
   } catch (err) {
     if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
@@ -137,6 +141,11 @@ async function uploadFile<T>(path: string, file: File): Promise<T> {
   }
 
   const text = await res.text();
+  if (res.status === 413) {
+    throw new Error(
+      "リバースプロキシがアップロードchunkを拒否しました（HTTP 413）。Nginx の client_max_body_size が 512 KiB 未満になっていないか確認してください。",
+    );
+  }
   if (!text.trim()) {
     throw new Error(
       res.ok
@@ -149,6 +158,65 @@ async function uploadFile<T>(path: string, file: File): Promise<T> {
   } catch {
     throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
   }
+}
+
+async function uploadAndroidBackupChunked(
+  accountId: string,
+  file: File,
+  includeMedia: boolean,
+  onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+): Promise<{ ok: boolean; sessionId?: string; error?: string }> {
+  const basePath = `/line/${accountId}/restore/android-backup/chunked`;
+  const init = await request<{
+    ok: boolean;
+    uploadId?: string;
+    chunkSize?: number;
+    error?: string;
+  }>("POST", basePath, {
+    sourceName: file.name || "naver_line",
+    includeMedia,
+    expectedBytes: file.size,
+  });
+  if (!init.ok || !init.uploadId) {
+    throw new Error(init.error ?? "Androidバックアップの分割アップロードを開始できませんでした");
+  }
+
+  const chunkSize = Math.min(768 * 1024, Math.max(64 * 1024, Number(init.chunkSize ?? 512 * 1024)));
+  let index = 0;
+  for (let offset = 0; offset < file.size; offset += chunkSize, index += 1) {
+    const end = Math.min(file.size, offset + chunkSize);
+    const chunk = file.slice(offset, end);
+    let lastError: unknown = null;
+    let uploaded = false;
+    for (let attempt = 1; attempt <= 3 && !uploaded; attempt += 1) {
+      try {
+        const response = await uploadBinary<{
+          ok: boolean;
+          receivedBytes?: number;
+          expectedBytes?: number;
+          error?: string;
+        }>(`${basePath}/${encodeURIComponent(init.uploadId)}/chunks/${index}`, chunk);
+        if (!response.ok) {
+          throw new Error(response.error ?? `chunk ${index} の送信に失敗しました`);
+        }
+        onProgress?.(response.receivedBytes ?? end, file.size);
+        uploaded = true;
+      } catch (error) {
+        lastError = error;
+        if (attempt < 3) {
+          await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+        }
+      }
+    }
+    if (!uploaded) {
+      throw lastError instanceof Error ? lastError : new Error(`chunk ${index} の送信に失敗しました`);
+    }
+  }
+
+  return request<{ ok: boolean; sessionId?: string; error?: string }>(
+    "POST",
+    `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
+  );
 }
 
 // ─── api ──────────────────────────────────────
@@ -921,11 +989,12 @@ export const api = {
       }>("GET", `/line/${accountId}/restore/ios-backup/${encodeURIComponent(sessionId)}`),
 
     /** Android naver_line DB / LEINs ZIP から履歴復元を開始 */
-    startAndroidBackupRestore: (accountId: string, file: File, includeMedia = false) =>
-      uploadFile<{ ok: boolean; sessionId?: string; error?: string }>(
-        `/line/${accountId}/restore/android-backup?includeMedia=${includeMedia ? "1" : "0"}`,
-        file,
-      ),
+    startAndroidBackupRestore: (
+      accountId: string,
+      file: File,
+      includeMedia = false,
+      onProgress?: (uploadedBytes: number, totalBytes: number) => void,
+    ) => uploadAndroidBackupChunked(accountId, file, includeMedia, onProgress),
 
     /** Android DB 復元セッションのステータス取得 */
     getAndroidBackupSession: (accountId: string, sessionId: string) =>

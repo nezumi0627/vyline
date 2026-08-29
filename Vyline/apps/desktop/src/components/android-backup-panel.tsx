@@ -20,11 +20,13 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   const [session, setSession] = useState<Session | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
 
   useEffect(() => {
     setFile(null);
     setSession(null);
     setMessage(null);
+    setUploadProgress(null);
   }, [accountId]);
 
   useEffect(() => {
@@ -62,11 +64,18 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
     setLoading(true);
     setMessage(null);
     setSession(null);
+    setUploadProgress({ current: 0, total: file.size });
     try {
-      const response = await api.line.startAndroidBackupRestore(accountId, file, includeMedia);
+      const response = await api.line.startAndroidBackupRestore(
+        accountId,
+        file,
+        includeMedia,
+        (current, total) => setUploadProgress({ current, total }),
+      );
       if (!response.ok || !response.sessionId) {
         throw new Error(response.error ?? "Android DBの復元を開始できませんでした");
       }
+      setUploadProgress(null);
       setSession({
         id: response.sessionId,
         accountId,
@@ -88,6 +97,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
       setMessage(error instanceof Error ? error.message : "Android DBの復元を開始できませんでした");
     } finally {
       setLoading(false);
+      setUploadProgress(null);
     }
   };
 
@@ -122,6 +132,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
               setFile(event.target.files?.[0] ?? null);
               setSession(null);
               setMessage(null);
+              setUploadProgress(null);
             }}
           />
         </label>
@@ -164,9 +175,43 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
           className="w-full rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
           style={{ background: "var(--vy-accent)" }}
         >
-          {loading ? "アップロード中…" : busy ? "復元中…" : "Android DBから復元"}
+          {loading && uploadProgress?.total
+            ? `アップロード中… ${Math.min(100, Math.round((uploadProgress.current / uploadProgress.total) * 100))}%`
+            : loading
+              ? "アップロード中…"
+              : busy
+                ? "復元中…"
+                : "Android DBから復元"}
         </button>
       </div>
+
+      {loading && uploadProgress && (
+        <div className="mt-3 space-y-1.5" role="status" aria-live="polite">
+          <div className="flex items-center justify-between gap-3 text-xs text-[var(--vy-text-dim)]">
+            <span>リバースプロキシ互換の分割アップロード</span>
+            <span className="shrink-0 font-mono">
+              {uploadProgress.total > 0
+                ? `${Math.min(100, Math.round((uploadProgress.current / uploadProgress.total) * 100))}%`
+                : "0%"}
+            </span>
+          </div>
+          <div
+            className="h-1.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]"
+            role="progressbar"
+            aria-label="Android DBアップロードの進捗"
+            aria-valuemin={0}
+            aria-valuemax={Math.max(1, uploadProgress.total)}
+            aria-valuenow={Math.min(uploadProgress.current, Math.max(1, uploadProgress.total))}
+          >
+            <div
+              className="h-full rounded-full bg-[var(--vy-accent)] transition-[width] duration-300"
+              style={{
+                width: `${uploadProgress.total > 0 ? Math.min(100, (uploadProgress.current / uploadProgress.total) * 100) : 0}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
 
       {session?.progress && (
         <div className="mt-3 space-y-1.5" role="status" aria-live="polite">

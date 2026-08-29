@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises";
+import { appendFile, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -21,6 +21,13 @@ const log = childLogger("android-backup");
 
 const MAX_UPLOAD_BYTES = Number(
   process.env.VYLINE_ANDROID_BACKUP_MAX_BYTES ?? 2 * 1024 * 1024 * 1024,
+);
+const CHUNK_UPLOAD_BYTES = Math.min(
+  768 * 1024,
+  Math.max(64 * 1024, Number(process.env.VYLINE_ANDROID_BACKUP_CHUNK_BYTES ?? 512 * 1024)),
+);
+const CHUNK_UPLOAD_TTL_MS = Number(
+  process.env.VYLINE_ANDROID_BACKUP_CHUNK_TTL_MS ?? 60 * 60 * 1000,
 );
 const MAX_EXTRACT_BYTES = Number(
   process.env.VYLINE_ANDROID_BACKUP_MAX_EXTRACT_BYTES ?? 4 * 1024 * 1024 * 1024,
@@ -94,6 +101,72 @@ interface ExtractedAndroidZip {
 
 const sessions = new Map<string, AndroidBackupSession>();
 
+interface AndroidBackupChunkUpload {
+  id: string;
+  accountId: string;
+  sourceName: string;
+  includeMedia: boolean;
+  expectedBytes: number;
+  receivedBytes: number;
+  nextIndex: number;
+  workDir: string;
+  sourcePath: string;
+  updatedAt: number;
+}
+
+const chunkUploads = new Map<string, AndroidBackupChunkUpload>();
+
+async function pruneStaleChunkUploads(): Promise<void> {
+  const threshold = Date.now() - CHUNK_UPLOAD_TTL_MS;
+  const stale = [...chunkUploads.values()].filter((upload) => upload.updatedAt < threshold);
+  for (const upload of stale) {
+    chunkUploads.delete(upload.id);
+    await rm(upload.workDir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
+function createRestoreSession(
+  accountId: string,
+  sourceName: string,
+  includeMedia: boolean,
+  totalBytes: number,
+): AndroidBackupSession {
+  const id = `android-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  return {
+    id,
+    accountId,
+    sourceName: sanitizeDisplayName(sourceName),
+    includeMedia,
+    status: "pending",
+    progress: {
+      stage: "upload",
+      current: 0,
+      total: totalBytes > 0 ? totalBytes : 1,
+      message: "Androidバックアップを受信しています",
+    },
+    result: null,
+    error: null,
+    startedAt: Date.now(),
+    completedAt: null,
+  };
+}
+
+function queueRestore(
+  session: AndroidBackupSession,
+  sourcePath: string,
+  workDir: string,
+): AndroidBackupSession {
+  session.progress = {
+    stage: "queued",
+    current: 1,
+    total: 1,
+    message: "復元処理を開始しています",
+  };
+  sessions.set(session.id, session);
+  void runRestore(session, sourcePath, workDir);
+  return session;
+}
+
 export async function startAndroidBackupRestore(
   accountId: string,
   sourceName: string,
@@ -106,26 +179,9 @@ export async function startAndroidBackupRestore(
     throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
   }
 
-  const id = `android-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const session: AndroidBackupSession = {
-    id,
-    accountId,
-    sourceName: sanitizeDisplayName(sourceName),
-    includeMedia,
-    status: "pending",
-    progress: {
-      stage: "upload",
-      current: 0,
-      total: contentLength > 0 ? contentLength : 1,
-      message: "Androidバックアップを受信しています",
-    },
-    result: null,
-    error: null,
-    startedAt: Date.now(),
-    completedAt: null,
-  };
+  const session = createRestoreSession(accountId, sourceName, includeMedia, contentLength);
 
-  const workDir = await mkdtemp(join(tmpdir(), `vyline-android-${id}-`));
+  const workDir = await mkdtemp(join(tmpdir(), `vyline-android-${session.id}-`));
   const sourcePath = join(workDir, "source.bin");
   try {
     const written = await Bun.write(sourcePath, request);
@@ -133,19 +189,129 @@ export async function startAndroidBackupRestore(
     if (written > MAX_UPLOAD_BYTES) {
       throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
     }
-    session.progress = {
-      stage: "queued",
-      current: 1,
-      total: 1,
-      message: "復元処理を開始しています",
-    };
-    sessions.set(id, session);
-    void runRestore(session, sourcePath, workDir);
-    return session;
+    return queueRestore(session, sourcePath, workDir);
   } catch (error) {
     await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+/**
+ * Reverse proxy の body size 制限を避けるための分割アップロードを開始する。
+ * chunk 自体は 1 MiB を十分下回るため、Nginx の既定 client_max_body_size=1m でも通る。
+ */
+export async function createAndroidBackupChunkUpload(
+  accountId: string,
+  sourceName: string,
+  includeMedia: boolean,
+  expectedBytes: number,
+): Promise<{ uploadId: string; chunkSize: number }> {
+  if (!accountId) throw new Error("accountId が必要です");
+  if (!Number.isFinite(expectedBytes) || expectedBytes <= 0) {
+    throw new Error("Androidバックアップのファイルサイズが不正です");
+  }
+  if (expectedBytes > MAX_UPLOAD_BYTES) {
+    throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
+  }
+
+  await pruneStaleChunkUploads();
+  const id = `android-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  const workDir = await mkdtemp(join(tmpdir(), `vyline-${id}-`));
+  const sourcePath = join(workDir, "source.bin");
+  await writeFile(sourcePath, new Uint8Array());
+  chunkUploads.set(id, {
+    id,
+    accountId,
+    sourceName: sanitizeDisplayName(sourceName),
+    includeMedia,
+    expectedBytes,
+    receivedBytes: 0,
+    nextIndex: 0,
+    workDir,
+    sourcePath,
+    updatedAt: Date.now(),
+  });
+  return { uploadId: id, chunkSize: CHUNK_UPLOAD_BYTES };
+}
+
+export async function appendAndroidBackupChunk(
+  accountId: string,
+  uploadId: string,
+  index: number,
+  request: Request,
+): Promise<{ receivedBytes: number; expectedBytes: number; nextIndex: number }> {
+  const upload = chunkUploads.get(uploadId);
+  if (!upload || upload.accountId !== accountId) {
+    throw new Error("Androidバックアップのアップロードセッションが見つかりません");
+  }
+  if (!Number.isInteger(index) || index < 0) throw new Error("chunk index が不正です");
+
+  // 応答だけ失われて同じchunkが再送された場合は二重追記せず成功扱いにする。
+  if (index < upload.nextIndex) {
+    upload.updatedAt = Date.now();
+    return {
+      receivedBytes: upload.receivedBytes,
+      expectedBytes: upload.expectedBytes,
+      nextIndex: upload.nextIndex,
+    };
+  }
+  if (index !== upload.nextIndex) {
+    throw new Error(`chunk順序が不正です（expected=${upload.nextIndex}, received=${index}）`);
+  }
+
+  const declared = Number(request.headers.get("content-length") ?? 0);
+  if (Number.isFinite(declared) && declared > CHUNK_UPLOAD_BYTES) {
+    throw new Error(`chunkが大きすぎます（上限 ${formatBytes(CHUNK_UPLOAD_BYTES)}）`);
+  }
+  const bytes = new Uint8Array(await request.arrayBuffer());
+  if (bytes.byteLength <= 0) throw new Error("空のchunkは受け付けられません");
+  if (bytes.byteLength > CHUNK_UPLOAD_BYTES) {
+    throw new Error(`chunkが大きすぎます（上限 ${formatBytes(CHUNK_UPLOAD_BYTES)}）`);
+  }
+  if (upload.receivedBytes + bytes.byteLength > upload.expectedBytes) {
+    throw new Error("アップロードサイズが宣言されたファイルサイズを超えました");
+  }
+
+  await appendFile(upload.sourcePath, bytes);
+  upload.receivedBytes += bytes.byteLength;
+  upload.nextIndex += 1;
+  upload.updatedAt = Date.now();
+  return {
+    receivedBytes: upload.receivedBytes,
+    expectedBytes: upload.expectedBytes,
+    nextIndex: upload.nextIndex,
+  };
+}
+
+export async function completeAndroidBackupChunkUpload(
+  accountId: string,
+  uploadId: string,
+): Promise<AndroidBackupSession> {
+  const upload = chunkUploads.get(uploadId);
+  if (!upload || upload.accountId !== accountId) {
+    throw new Error("Androidバックアップのアップロードセッションが見つかりません");
+  }
+  if (upload.receivedBytes !== upload.expectedBytes) {
+    throw new Error(
+      `アップロードが未完了です（${formatBytes(upload.receivedBytes)} / ${formatBytes(upload.expectedBytes)}）`,
+    );
+  }
+
+  chunkUploads.delete(uploadId);
+  const actualBytes = (await stat(upload.sourcePath)).size;
+  if (actualBytes !== upload.expectedBytes) {
+    await rm(upload.workDir, { recursive: true, force: true }).catch(() => undefined);
+    throw new Error(
+      `アップロード済みファイルサイズが一致しません（${formatBytes(actualBytes)} / ${formatBytes(upload.expectedBytes)}）`,
+    );
+  }
+  const session = createRestoreSession(
+    upload.accountId,
+    upload.sourceName,
+    upload.includeMedia,
+    actualBytes,
+  );
+  return queueRestore(session, upload.sourcePath, upload.workDir);
 }
 
 export function getAndroidBackupSession(

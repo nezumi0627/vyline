@@ -2012,6 +2012,63 @@ lineRouter.post("/:accountId/restore/android-backup", async (c) => {
   }
 });
 
+lineRouter.post("/:accountId/restore/android-backup/chunked", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const body = await c.req.json<{
+      sourceName?: string;
+      includeMedia?: boolean;
+      expectedBytes?: number;
+    }>();
+    const { createAndroidBackupChunkUpload } = await import(
+      "../service/androidBackupService.js"
+    );
+    const upload = await createAndroidBackupChunkUpload(
+      accountId,
+      body.sourceName ?? "naver_line",
+      body.includeMedia === true,
+      Number(body.expectedBytes ?? 0),
+    );
+    return c.json({ ok: true, ...upload });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/chunks/:index", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!c.req.raw.body) {
+    return c.json({ ok: false, error: "chunkデータが必要です" }, 400);
+  }
+  try {
+    const { appendAndroidBackupChunk } = await import(
+      "../service/androidBackupService.js"
+    );
+    const result = await appendAndroidBackupChunk(
+      accountId,
+      c.req.param("uploadId"),
+      Number(c.req.param("index")),
+      c.req.raw,
+    );
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/complete", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { completeAndroidBackupChunkUpload } = await import(
+      "../service/androidBackupService.js"
+    );
+    const session = await completeAndroidBackupChunkUpload(accountId, c.req.param("uploadId"));
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.get("/:accountId/restore/android-backup/:sessionId", async (c) => {
   const { getAndroidBackupSession } = await import("../service/androidBackupService.js");
   const session = getAndroidBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
