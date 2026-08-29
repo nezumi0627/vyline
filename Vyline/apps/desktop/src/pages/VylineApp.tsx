@@ -57,14 +57,21 @@ export function VylineApp() {
   }, []);
 
   // Some restored/legacy sessions reach the main UI before self.mid has been
-  // hydrated.  If a settings panel later resolves that MID, do not retroactively
-  // replace the whole app with the first-run setup wizard.  Setup is only armed
-  // for an account when a valid MID was already available before entering the app.
-  useEffect(() => {
-    if (!initialized || loading || accounts.length === 0 || !consented) return;
-    if (!currentAccountId || hasValidMid) return;
+  // hydrated. Mark that account as setup-bypassed during the render that first
+  // enters the app, before child effects (for example HandoffSection's profile
+  // lookup) can populate self.mid. Doing this in a passive effect races with
+  // those child effects and can make clicking "引継ぎ・診断" suddenly replace
+  // the settings screen with the first-run setup wizard.
+  if (
+    initialized &&
+    !loading &&
+    accounts.length > 0 &&
+    consented &&
+    currentAccountId &&
+    !hasValidMid
+  ) {
     setupBypassedAccounts.current.add(currentAccountId);
-  }, [accounts.length, consented, currentAccountId, hasValidMid, initialized, loading]);
+  }
 
   // 同意前は同期・通信を開始しない
   useVylineSync(initialized && accounts.length > 0 && consented);
