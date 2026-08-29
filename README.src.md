@@ -101,6 +101,12 @@ Vyline は個人開発のオープンソースプロジェクトです。支援�
 | [nezumi0627](https://github.com/nezumi0627) | リード開発者 |
 | [YoseiUshida](https://github.com/youseiushida) | 定期メンテナー |
 
+### Development Partner
+
+- [REINs](https://github.com/areteruhiro/LEINs) — Development Partner
+
+Vyline と REINs は、それぞれ独立したプロジェクトとして開発・運営を続けながら、必要に応じて開発や技術研究で協力します。
+
 ### メンテナー・コントリビューター募集
 
 Vyline の継続的な開発を支えるメンテナーとコントリビューターを募集しています。
@@ -519,6 +525,20 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 5. 実装量・トークン・コストの削減
 
 効率化よりも正確性と安全性を優先します。詳細は [AGENTS.md](AGENTS.md) を参照してください。
+
+---
+
+## References
+
+以下のプロジェクトは、Vyline の調査・研究・実装において技術的な参考資料として参照したものです。
+
+特記がない限り、これらのプロジェクトおよび開発者と Vyline の間に、公式な提携・所属・承認・その他の深い関係はありません。
+
+- [CHRLINE (old)](https://github.com/DeachSword/CHRLINE)
+- [CHRLINE-Thrift](https://github.com/DeachSword/CHRLINE-Thrift/)
+- [CHRLINE-Patch](https://github.com/WEDeach/CHRLINE-Patch)
+- [linejs](https://github.com/evex-dev/linejs)
+- [line-py](https://github.com/fadhiilrachman/line-py)
 
 ---
 
