@@ -64,6 +64,8 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [protocol/dictionary.md](./protocol/dictionary.md) | RPC 辞書・Desktop 検証表・API 早見 |
 | [login-flow.md](./login-flow.md)                   | QR / Email E2EE ログインフロー     |
 | [analysis/README.md](./analysis/README.md)         | 機能別解析メモ索引                 |
+| [analysis/liff.md](./analysis/liff.md)             | LIFF token / share / sender helper |
+| [analysis/note-album.md](./analysis/note-album.md) | Note/Album ChannelToken・CRUD・OBS  |
 | [analysis/stickers.md](./analysis/stickers.md)     | スタンプ/絵文字 API 解析           |
 | [analysis/line-emoji.md](./analysis/line-emoji.md) | LINE 絵文字 (sticon) 解析          |
 | [analysis/stability-read-revoke-multi-account.md](./analysis/stability-read-revoke-multi-account.md) | 取消・既読者・複数アカウント・MID検索の安定化 |

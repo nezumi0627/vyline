@@ -1,6 +1,6 @@
 # Desktop / プロトコル分析メモ
 
-最終更新: 2026-08-24
+最終更新: 2026-08-29
 
 LINE Desktop 更新や RPC 差分を調べた結果を置く場所。  
 agents は `bun run vyline:delta` のレポートが指す feature ごとに、ここに追記する。
@@ -21,6 +21,8 @@ agents は `bun run vyline:delta` のレポートが指す feature ごとに、�
 | sync-events              | [sync-events.md](./sync-events.md)               |                                                      |
 | stickers                 | [stickers.md](./stickers.md)                     |                                                      |
 | line-emoji               | [line-emoji.md](./line-emoji.md)                 |                                                      |
+| liff                     | [liff.md](./liff.md)                             | token / share / sender helper                        |
+| note / album             | [note-album.md](./note-album.md)                 | ChannelToken / CRUD / OBS upload・download           |
 | history-restore          | [history-restore.md](./history-restore.md)       | [e2ee-decrypt-journey.md](./e2ee-decrypt-journey.md) |
 | edb-decrypt              | [edb-decrypt.md](./edb-decrypt.md)               | Desktop .edb 全履歴 dump（メモリ捕捉方式）           |
 | sbc-key-restore          | [sbc-key-restore.md](./sbc-key-restore.md)       | SBC クラウドバックアップ鍵取り出し（/EKBS4・/LKBS4） |
