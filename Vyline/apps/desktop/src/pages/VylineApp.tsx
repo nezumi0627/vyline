@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
@@ -13,11 +13,14 @@ import { api } from "../api/client.js";
 import { VylineSetup } from "../components/vyline-setup.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
 
+const ACCOUNT_MID = /^u[0-9a-f]{32}$/i;
+
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const accounts = useAuthStore((s) => s.accounts);
+  const activeAccountId = useAuthStore((s) => s.activeAccountId);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const screen = useStore((s) => s.screen);
   const showUpdateNote = useStore((s) => s.showUpdateNote);
@@ -27,7 +30,11 @@ export function VylineApp() {
   const profileName = useStore((s) => s.self.name);
   const accountId = useStore((s) => s.accountId);
   const [consented, setConsented] = useState(() => hasTosConsent());
-  const [setupDone, setSetupDone] = useState(false);
+  const [setupDoneAccounts, setSetupDoneAccounts] = useState<Set<string>>(() => new Set());
+  const setupBypassedAccounts = useRef<Set<string>>(new Set());
+
+  const currentAccountId = accountId ?? activeAccountId ?? accounts[0] ?? null;
+  const hasValidMid = Boolean(mid && ACCOUNT_MID.test(mid));
 
   useEffect(() => {
     void bootstrap();
@@ -48,6 +55,16 @@ export function VylineApp() {
       },
     );
   }, []);
+
+  // Some restored/legacy sessions reach the main UI before self.mid has been
+  // hydrated.  If a settings panel later resolves that MID, do not retroactively
+  // replace the whole app with the first-run setup wizard.  Setup is only armed
+  // for an account when a valid MID was already available before entering the app.
+  useEffect(() => {
+    if (!initialized || loading || accounts.length === 0 || !consented) return;
+    if (!currentAccountId || hasValidMid) return;
+    setupBypassedAccounts.current.add(currentAccountId);
+  }, [accounts.length, consented, currentAccountId, hasValidMid, initialized, loading]);
 
   // 同意前は同期・通信を開始しない
   useVylineSync(initialized && accounts.length > 0 && consented);
@@ -85,13 +102,26 @@ export function VylineApp() {
     );
   }
 
-  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
+  if (
+    currentAccountId &&
+    !setupDoneAccounts.has(currentAccountId) &&
+    !setupBypassedAccounts.current.has(currentAccountId) &&
+    mid &&
+    ACCOUNT_MID.test(mid)
+  ) {
     return (
       <VylineSetup
         mid={mid}
-        accountId={accountId}
+        accountId={currentAccountId}
         profileName={profileName}
-        onComplete={() => setSetupDone(true)}
+        onComplete={() =>
+          setSetupDoneAccounts((previous) => {
+            if (previous.has(currentAccountId)) return previous;
+            const next = new Set(previous);
+            next.add(currentAccountId);
+            return next;
+          })
+        }
       />
     );
   }
