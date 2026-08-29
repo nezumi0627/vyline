@@ -659,7 +659,7 @@ export async function loginContentWithQRCode(
       },
       {
         profile: getVylineProfile(),
-        storagePath: `${storagePathFor(accountId)}.content-secondary`,
+        storagePath: `${storagePathForAccount(accountId)}.content-secondary`,
         deviceMode: "ANDROIDSECONDARY",
       },
     );
@@ -667,7 +667,7 @@ export async function loginContentWithQRCode(
     const token = client.authToken ?? client.base.authToken;
     if (!token) throw new Error("content login completed without auth token");
     await saveToken(contentTokenId(accountId), token, {
-      storageFile: `${storagePathFor(accountId)}.content-secondary`,
+      storageFile: `${storagePathForAccount(accountId)}.content-secondary`,
     });
     contentClients.set(accountId, Promise.resolve(client));
     state.url = null;
