@@ -53,13 +53,17 @@ await client.liff.shareMessage(chatMid, message);
 
 そのため表示文字列・名前の正本は `sender.name`、アイコンは `sender.iconUrl` を優先する。LINE 公式の `sender` には URL フィールドがないため、URL が必要な場合だけ既存の `sentBy.linkUrl` を併用する。
 
-3項目をまとめて指定したい場合は `withAttribution()` を使う。
+通常の送信では、text / flex / image なども含めて LINE の message JSON をそのまま `sendLiff()` に渡す。表示名・アイコン・URL も message 内の `sender` にまとめて指定する。
 
 ```ts
-const message = liff.withAttribution(liff.text("Hello!"), {
-  name: "Cony",
-  iconUrl: "https://example.com/icon.png",
-  linkUrl: "https://example.com/profile",
+await client.liff.sendLiff(chatMid, {
+  type: "text",
+  text: "Hello!",
+  sender: {
+    name: "Cony",
+    iconUrl: "https://example.com/icon.png",
+    linkUrl: "https://example.com/profile",
+  },
 });
 ```
 
@@ -81,7 +85,7 @@ const message = liff.withAttribution(liff.text("Hello!"), {
 }
 ```
 
-`withAttribution()` は常に正規の `sender` を生成し、`linkUrl` が指定された場合だけ同じ表示名・アイコンを `sentBy` にも複製して URL を保持する。名前・アイコンだけなら `withSender()`、名前・アイコン・URL の3項目なら `withAttribution()` を使う。
+`sendLiff()` は内部で正規の `sender` を生成し、`sender.linkUrl` が指定された場合だけ同じ表示名・アイコンを `sentBy` にも複製して URL を保持する。呼び出し側は通常 `sentBy` を意識しなくてよい。`liff.text()` / `withSender()` / `withAttribution()` など既存 helper は互換・低レベル用途として残す。
 
 `sentBy` を LINE 公式 schema として扱わないこと。現時点で LINE Developers の公式資料上に `sentBy` の仕様は確認できていない。
 
