@@ -112,8 +112,14 @@ export const useAuthStore = create<AuthState>()(
         let saved = res.saved;
         let sessions = res.sessions ?? [];
 
-        // メモリに無いが tokens.json にある → restore
-        const missing = saved.filter((id) => !active.includes(id));
+        // メモリに無い保存セッションだけ restore。
+        // 期限切れで再認証待ちのセッションは起動のたびに失敗させず、ログイン画面へ委ねる。
+        const reauthRequired = new Set(
+          sessions.filter((session) => session.reauthRequired).map((session) => session.accountId),
+        );
+        const missing = saved.filter(
+          (id) => !active.includes(id) && !reauthRequired.has(normalizeAccountId(id) ?? id),
+        );
         if (missing.length > 0) {
           await Promise.allSettled(missing.map((id) => api.auth.restore(id)));
           const again = await api.auth.accounts();

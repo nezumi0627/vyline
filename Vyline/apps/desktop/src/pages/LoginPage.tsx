@@ -133,6 +133,15 @@ export function LoginPage() {
     await goHome(id);
   };
 
+  const prepareReauth = (id: string) => {
+    setPendingLogin(id);
+    setAccountId(id);
+    setQrAccountId(id);
+    setTokenAccountId(id);
+    setSessionError(null);
+    setTab("qr");
+  };
+
   const handleDeleteSession = async (id: string) => {
     setSessionError(null);
     await deleteSession(id);
@@ -295,16 +304,26 @@ export function LoginPage() {
                           {s.accountId}
                           {s.savedAt ? ` · ${formatSavedAt(s.savedAt)}` : ""}
                           {s.active ? " · 接続中" : ""}
+                          {s.reauthRequired ? " · 再認証が必要" : ""}
                         </p>
+                        {s.reauthRequired && (
+                          <p className="mt-1 text-[0.68rem] leading-relaxed text-amber-400">
+                            履歴・E2EE鍵・設定を残したまま再認証できます
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
                         disabled={busy || loading}
-                        onClick={() => void handleRestore(s.accountId)}
+                        onClick={() =>
+                          s.reauthRequired
+                            ? prepareReauth(s.accountId)
+                            : void handleRestore(s.accountId)
+                        }
                         className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
                         style={{ background: "var(--vy-accent)" }}
                       >
-                        {busy ? "復元中…" : "続行"}
+                        {busy ? "復元中…" : s.reauthRequired ? "再認証" : "続行"}
                       </button>
                       <button
                         type="button"

@@ -48,6 +48,8 @@ export interface TokenEntry {
   statusMessage?: string;
   /** セッション発行時のデバイス種別。復元時に別端末種別へ化けるのを防ぐ。 */
   deviceMode?: string;
+  /** access token が失効し、同じ accountId で再認証が必要な状態。 */
+  reauthRequired?: boolean;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -66,6 +68,7 @@ export type SessionMeta = {
   picturePath?: string;
   statusMessage?: string;
   deviceMode?: string;
+  reauthRequired?: boolean;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -202,6 +205,8 @@ export async function saveToken(
   if (picturePath) entry.picturePath = picturePath;
   if (statusMessage) entry.statusMessage = statusMessage;
   if (deviceMode) entry.deviceMode = deviceMode;
+  // saveToken は認証成功後にだけ呼ばれるため、期限切れ状態はここで解除する。
+  entry.reauthRequired = meta?.reauthRequired ?? false;
   if (premium) entry.premium = premium;
   tokens[accountId] = entry;
   await persistAccount(accountId, entry);
@@ -217,6 +222,7 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.picturePath != null) existing.picturePath = meta.picturePath;
   if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
   if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
+  if (meta.reauthRequired != null) existing.reauthRequired = meta.reauthRequired;
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
   await persistAccount(accountId, existing);
@@ -330,6 +336,7 @@ export async function listSavedSessions(): Promise<
     displayName?: string;
     picturePath?: string;
     statusMessage?: string;
+    reauthRequired?: boolean;
     hasToken: boolean;
   }>
 > {
@@ -344,6 +351,7 @@ export async function listSavedSessions(): Promise<
         displayName?: string;
         picturePath?: string;
         statusMessage?: string;
+        reauthRequired?: boolean;
         premium?: TokenEntry["premium"];
         hasToken: boolean;
       } = {
@@ -355,6 +363,7 @@ export async function listSavedSessions(): Promise<
       if (entry.displayName) row.displayName = entry.displayName;
       if (entry.picturePath) row.picturePath = entry.picturePath;
       if (entry.statusMessage) row.statusMessage = entry.statusMessage;
+      if (entry.reauthRequired) row.reauthRequired = true;
       if (entry.premium) row.premium = entry.premium;
       return row;
     })

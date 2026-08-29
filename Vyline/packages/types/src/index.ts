@@ -256,6 +256,8 @@ export type SavedSession = {
   savedAt: string;
   hasToken: boolean;
   active?: boolean;
+  /** access token の期限切れ等で、同じ accountId の再認証が必要。 */
+  reauthRequired?: boolean;
   mid?: string;
   displayName?: string;
   picturePath?: string;

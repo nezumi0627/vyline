@@ -598,11 +598,18 @@ export async function restoreAllSessions(): Promise<void> {
         await loginWithToken(id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        const expiredDevice =
+          msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
+        if (expiredDevice) {
+          removeClient(id);
+          await updateSessionMeta(id, { reauthRequired: true });
+          log.warn({ accountId: id }, "saved session expired; reauthentication required");
+          return;
+        }
         const authFailed =
           msg.includes("AUTHENTICATION_FAILED") ||
           msg.includes("Authentication Failed") ||
           msg.includes("status=403") ||
-          msg.includes("NOT_AUTHORIZED_DEVICE") ||
           msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
           msg.includes("logged out");
         if (authFailed) {

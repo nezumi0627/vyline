@@ -245,6 +245,20 @@ authRouter.post("/restore", async (c) => {
     await loginWithToken(body.accountId);
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("NOT_AUTHORIZED_DEVICE") && message.includes("EXPIRED")) {
+      const { updateSessionMeta } = await import("../storage/tokenStore.js");
+      await updateSessionMeta(body.accountId, { reauthRequired: true });
+      return c.json(
+        {
+          ok: false,
+          error:
+            "セッションの有効期限が切れました。再認証すると履歴・E2EE鍵・設定はそのまま引き継がれます。",
+          code: "REAUTH_REQUIRED",
+        },
+        401,
+      );
+    }
     log.error({ accountId: body.accountId, err }, "restore failed");
     return c.json({ ok: false, error: String(err) }, 500);
   }
