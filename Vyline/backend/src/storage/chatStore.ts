@@ -531,10 +531,17 @@ function storedChatToChat(stored: StoredChat): Chat {
 }
 
 function storedMessageToMessage(stored: StoredMessage): Message {
+  // Older Android/iOS restores stored received group messages with to=self MID.
+  // Normalize on read so already-imported histories become visible immediately
+  // after upgrading, without requiring users to delete or re-import chatdb.
+  const to =
+    stored.chatMid.startsWith("c") || stored.chatMid.startsWith("r")
+      ? stored.chatMid
+      : stored.to;
   const msg: Message = {
     id: stored.id,
     from: stored.from,
-    to: stored.to,
+    to,
     text: stored.text,
     contentType: stored.contentType,
     createdTime: stored.createdTime,
@@ -779,7 +786,13 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
   let messages = 0;
   const allMids = new Set([...Object.keys(target.chats), ...Object.keys(target.messages)]);
   for (const chatMid of allMids) {
-    const ordered = Object.values(target.messages[chatMid] ?? {}).sort(compareMessagesOldestFirst);
+    const byChat = target.messages[chatMid] ?? {};
+    // Repair legacy restore records in-place as well. LINE group/room messages
+    // always target the chat MID, regardless of who sent them.
+    if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+      for (const message of Object.values(byChat)) message.to = chatMid;
+    }
+    const ordered = Object.values(byChat).sort(compareMessagesOldestFirst);
     target.messages[chatMid] = Object.fromEntries(ordered.map((message) => [message.id, message]));
     messages += ordered.length;
     const latest = ordered.at(-1);
@@ -796,6 +809,7 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
       ...(existing?.thumbnailUrl ? { thumbnailUrl: existing.thumbnailUrl } : {}),
       ...(existing?.unreadCount != null ? { unreadCount: existing.unreadCount } : {}),
       ...(existing?.isOfficial != null ? { isOfficial: existing.isOfficial } : {}),
+      ...(existing?.restoredHistory ? { restoredHistory: true } : {}),
       updatedAt: existing?.updatedAt ?? latest.savedAt,
     };
   }

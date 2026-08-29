@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   compareMessagesNewestFirst,
   mergeChatDbRecords,
+  rebuildChatDbRecords,
   type ChatDbRecords,
   type StoredChat,
   type StoredMessage,
@@ -70,6 +71,25 @@ describe("mergeChatDbRecords", () => {
     expect(target.messages["u-chat"]?.["2"]?.text).toBe("imported");
   });
 
+
+  test("repairs legacy restored group recipients and preserves restored-history flag", () => {
+    const restoredGroup = chat("c-group", "Restored group", 100);
+    restoredGroup.kind = "group";
+    restoredGroup.restoredHistory = true;
+    const received = message("1", "c-group", "from peer");
+    received.from = "u-peer";
+    received.to = "u-me"; // legacy restore bug
+    received.isMyMessage = false;
+    const target: ChatDbRecords = {
+      chats: { "c-group": restoredGroup },
+      messages: { "c-group": { "1": received } },
+    };
+
+    rebuildChatDbRecords(target);
+
+    expect(target.messages["c-group"]?.["1"]?.to).toBe("c-group");
+    expect(target.chats["c-group"]?.restoredHistory).toBe(true);
+  });
 
   test("repairs a cached c* chat to group and keeps restored-history visibility", () => {
     const existing = chat("c-group", "c-group", 500);

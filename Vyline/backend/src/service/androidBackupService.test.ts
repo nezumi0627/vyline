@@ -154,7 +154,8 @@ describe("Android LINE backup import", () => {
     });
     expect(parsed.records.messages["c-group"]?.["581758080913244213"]).toMatchObject({
       from: "u-peer",
-      to: "u-me",
+      // Received group messages must still target the group chat MID.
+      to: "c-group",
       text: null,
       contentType: "UNSENT",
       messageState: "revoked-by-other",

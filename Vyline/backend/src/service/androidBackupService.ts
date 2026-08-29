@@ -680,7 +680,13 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         id: messageId,
         chatMid,
         from,
-        to: isMyMessage ? chatMid : selfMid,
+        // LINE group/room messages target the chat MID even when received.
+        // Using selfMid here makes the desktop-side chat filter drop every
+        // restored message sent by another group member.
+        to:
+          isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r")
+            ? chatMid
+            : selfMid,
         text: unsent ? null : asNullableString(row.content),
         contentType: unsent ? "UNSENT" : contentType,
         createdTime: Number.isFinite(createdTime) ? createdTime : 0,
