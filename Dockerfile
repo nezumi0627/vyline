@@ -43,7 +43,7 @@ ENV NODE_ENV=production \
     VYLINE_DATA_DIR=/app/data \
     VYLINE_STORAGE_DIR=/app/storage
 LABEL org.opencontainers.image.title="Vyline" \
-      org.opencontainers.image.source="https://github.com/tqmane/vyline" \
+      org.opencontainers.image.source="https://github.com/nezumi0627/vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"
 RUN apt-get update \
   && apt-get upgrade -y \
