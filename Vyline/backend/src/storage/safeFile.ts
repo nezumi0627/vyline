@@ -9,17 +9,25 @@ export function safePathComponent(value: string, fallback = "unknown"): string {
   return normalized || fallback;
 }
 
-export async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+export async function writeTextAtomic(
+  path: string,
+  content: string,
+  mode = 0o600,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = join(
     dirname(path),
     `.${safePathComponent(path.split(/[\\/]/).pop() ?? "data")}.${process.pid}.${Date.now()}.tmp`,
   );
   try {
-    await writeFile(temp, `${JSON.stringify(value, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+    await writeFile(temp, content, { encoding: "utf8", mode });
     await rename(temp, path);
   } catch (error) {
     await unlink(temp).catch(() => undefined);
     throw error;
   }
+}
+
+export async function writeJsonAtomic(path: string, value: unknown): Promise<void> {
+  await writeTextAtomic(path, `${JSON.stringify(value, null, 2)}\n`);
 }

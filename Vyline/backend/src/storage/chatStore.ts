@@ -18,6 +18,7 @@ import type {
 } from "@vyline/types";
 import { childLogger } from "../logger.js";
 import { accountFile, readAccountJson } from "./accountDirs.js";
+import { writeTextAtomic } from "./safeFile.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -139,7 +140,9 @@ function previewForMessage(message: StoredMessage): string {
 
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
+const dirtyVersion = new Map<string, number>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const flushInFlight = new Map<string, Promise<void>>();
 
 function dbPath(accountId: string): string {
   return accountFile(accountId, "chatdb.json");
@@ -210,12 +213,16 @@ function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
 
 function scheduleSave(accountId: string): void {
   dirty.add(accountId);
+  dirtyVersion.set(accountId, (dirtyVersion.get(accountId) ?? 0) + 1);
   const prev = saveTimers.get(accountId);
   if (prev) clearTimeout(prev);
   saveTimers.set(
     accountId,
     setTimeout(() => {
-      void flushDb(accountId);
+      saveTimers.delete(accountId);
+      // Background saves are best-effort, but failures remain dirty so an
+      // explicit restore/rebuild flush can retry and surface the error.
+      void flushDb(accountId).catch(() => undefined);
     }, SAVE_DEBOUNCE_MS),
   );
 }
@@ -235,15 +242,46 @@ export function mergeStoredReadState(
 }
 
 async function flushDb(accountId: string): Promise<void> {
+  const existingFlush = flushInFlight.get(accountId);
+  if (existingFlush) return existingFlush;
   if (!dirty.has(accountId)) return;
-  dirty.delete(accountId);
-  const db = memory.get(accountId);
-  if (!db) return;
-  await ensureDataDir();
+
+  const run = (async () => {
+    while (dirty.has(accountId)) {
+      const db = memory.get(accountId);
+      if (!db) {
+        dirty.delete(accountId);
+        return;
+      }
+
+      await ensureDataDir();
+      const version = dirtyVersion.get(accountId) ?? 0;
+      // Serialize before the asynchronous write starts so mutations that occur
+      // during I/O can be detected by dirtyVersion and written in a second pass.
+      const serialized = JSON.stringify(db);
+      try {
+        await writeTextAtomic(dbPath(accountId), serialized);
+      } catch (err) {
+        // Never convert a failed restore into a successful in-memory-only one.
+        // Keep the DB dirty and let explicit flush callers observe the error.
+        dirty.add(accountId);
+        log.warn({ accountId, err }, "failed to save chat db");
+        throw err;
+      }
+
+      if ((dirtyVersion.get(accountId) ?? 0) === version) {
+        dirty.delete(accountId);
+      }
+      // If another mutation happened while writing, dirty remains set and the
+      // loop atomically writes the newer snapshot before resolving.
+    }
+  })();
+
+  flushInFlight.set(accountId, run);
   try {
-    await writeFile(dbPath(accountId), JSON.stringify(db), "utf-8");
-  } catch (err) {
-    log.warn({ accountId, err }, "failed to save chat db");
+    await run;
+  } finally {
+    if (flushInFlight.get(accountId) === run) flushInFlight.delete(accountId);
   }
 }
 
@@ -826,7 +864,9 @@ export async function mergeImportedChatDb(
   for (const [chatMid, messages] of Object.entries(db.messages)) {
     applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
   }
-  if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
+  // mergeChatDbRecords can normalize/repair records even when every incoming
+  // message ID already exists, so every restore attempt must become durable.
+  scheduleSave(accountId);
   return result;
 }
 
