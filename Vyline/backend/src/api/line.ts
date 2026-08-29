@@ -2420,15 +2420,8 @@ lineRouter.post("/:accountId/restore/android-backup", async (c) => {
   try {
     const sourceName = c.req.header("X-Vyline-Backup-Name") ?? "naver_line";
     const includeMedia = c.req.query("includeMedia") === "1";
-    const { startAndroidBackupRestore } = await import(
-      "../service/androidBackupService.js"
-    );
-    const session = await startAndroidBackupRestore(
-      accountId,
-      sourceName,
-      c.req.raw,
-      includeMedia,
-    );
+    const { startAndroidBackupRestore } = await import("../service/androidBackupService.js");
+    const session = await startAndroidBackupRestore(accountId, sourceName, c.req.raw, includeMedia);
     return c.json({ ok: true, sessionId: session.id });
   } catch (err) {
     return handleError(err, c);
@@ -2443,9 +2436,7 @@ lineRouter.post("/:accountId/restore/android-backup/chunked", async (c) => {
       includeMedia?: boolean;
       expectedBytes?: number;
     }>();
-    const { createAndroidBackupChunkUpload } = await import(
-      "../service/androidBackupService.js"
-    );
+    const { createAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
     const upload = await createAndroidBackupChunkUpload(
       accountId,
       body.sourceName ?? "naver_line",
@@ -2464,9 +2455,7 @@ lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/chunks/:in
     return c.json({ ok: false, error: "chunkデータが必要です" }, 400);
   }
   try {
-    const { appendAndroidBackupChunk } = await import(
-      "../service/androidBackupService.js"
-    );
+    const { appendAndroidBackupChunk } = await import("../service/androidBackupService.js");
     const result = await appendAndroidBackupChunk(
       accountId,
       c.req.param("uploadId"),
@@ -2482,9 +2471,7 @@ lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/chunks/:in
 lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/complete", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const { completeAndroidBackupChunkUpload } = await import(
-      "../service/androidBackupService.js"
-    );
+    const { completeAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
     const session = await completeAndroidBackupChunkUpload(accountId, c.req.param("uploadId"));
     return c.json({ ok: true, sessionId: session.id });
   } catch (err) {

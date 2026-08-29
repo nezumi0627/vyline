@@ -251,7 +251,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         // 再入室時は表示を待たせずキャッシュを出し、その後に最新1ページだけローカルDBから統合する。
         // 3,000件読んだ履歴を3,000件再取得することも、ネットワーク先読みすることもない。
         try {
-          const local = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, { local: true });
+          const local = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, {
+            local: true,
+          });
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const latestAsc = [...local.messages].reverse();
@@ -287,11 +289,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const asc = [...local.messages].reverse();
-            commitHistoryWindow(
-              chatMid,
-              asc,
-              local.hasMore ?? local.messages.length >= localLimit,
-            );
+            commitHistoryWindow(chatMid, asc, local.hasMore ?? local.messages.length >= localLimit);
             return;
           }
         }
@@ -482,7 +480,6 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       void loadProfile();
       await loadChats({ refresh: true, light: true });
       if (accountIdRef.current !== accountId) return;
-
 
       window.setTimeout(() => {
         if (accountIdRef.current === accountId) void loadChats({ light: true });

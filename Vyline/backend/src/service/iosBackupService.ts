@@ -378,8 +378,7 @@ function mapMessage(
     from,
     // Group/room recipients are the chat MID for both sent and received messages.
     // Keeping received restores pointed at myMid causes them to be filtered out in the UI.
-    to:
-      isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : myMid,
+    to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : myMid,
     text: message.text,
     contentType: iosContentType(message.contentType),
     createdTime: Number.isFinite(message.ts) ? message.ts : 0,

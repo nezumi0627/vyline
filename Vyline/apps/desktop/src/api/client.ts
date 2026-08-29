@@ -115,11 +115,7 @@ async function request<T>(
   }
 }
 
-async function uploadBinary<T>(
-  path: string,
-  body: Blob,
-  extraHeaders?: HeadersInit,
-): Promise<T> {
+async function uploadBinary<T>(path: string, body: Blob, extraHeaders?: HeadersInit): Promise<T> {
   let res: Response;
   const sessionToken =
     typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
@@ -209,7 +205,9 @@ async function uploadAndroidBackupChunked(
       }
     }
     if (!uploaded) {
-      throw lastError instanceof Error ? lastError : new Error(`chunk ${index} の送信に失敗しました`);
+      throw lastError instanceof Error
+        ? lastError
+        : new Error(`chunk ${index} の送信に失敗しました`);
     }
   }
 

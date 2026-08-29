@@ -3,9 +3,7 @@ import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield } from "@/components/icons";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
 
-type Session = NonNullable<
-  Awaited<ReturnType<typeof api.line.getAndroidBackupSession>>["session"]
->;
+type Session = NonNullable<Awaited<ReturnType<typeof api.line.getAndroidBackupSession>>["session"]>;
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -20,7 +18,9 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   const [session, setSession] = useState<Session | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(
+    null,
+  );
 
   useEffect(() => {
     setFile(null);
@@ -101,8 +101,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
     }
   };
 
-  const busy =
-    loading || session?.status === "pending" || session?.status === "running";
+  const busy = loading || session?.status === "pending" || session?.status === "running";
 
   return (
     <section className="mt-6 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
@@ -252,8 +251,10 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
             {session.result.parsed.totalMessages.toLocaleString()} メッセージ
           </p>
           <p className="mt-1 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
-            DB v{session.result.databaseVersion} · 新規メッセージ {session.result.merged.importedMessages.toLocaleString()}
-            件 · 重複 {session.result.merged.skippedMessages.toLocaleString()} 件 · リアクション {session.result.parsed.reactions.toLocaleString()} 件
+            DB v{session.result.databaseVersion} · 新規メッセージ{" "}
+            {session.result.merged.importedMessages.toLocaleString()}件 · 重複{" "}
+            {session.result.merged.skippedMessages.toLocaleString()} 件 · リアクション{" "}
+            {session.result.parsed.reactions.toLocaleString()} 件
             {session.result.media.restored > 0
               ? ` · メディア ${session.result.media.restored.toLocaleString()} 件`
               : ""}

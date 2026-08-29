@@ -3019,8 +3019,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     const storedTime = stored.lastMessageTime ?? 0;
     const liveTime = live.lastMessageTime ?? 0;
     const useStoredLast = storedTime > liveTime;
-    const liveNameIsFallback =
-      !live.name || live.name === live.mid || live.name === "(No Name)";
+    const liveNameIsFallback = !live.name || live.name === live.mid || live.name === "(No Name)";
     return {
       ...stored,
       ...live,

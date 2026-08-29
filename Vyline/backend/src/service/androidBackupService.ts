@@ -372,7 +372,9 @@ async function runRestore(
     const selfMid =
       token?.mid?.trim() || String(getClient(session.accountId)?.base.profile?.mid ?? "").trim();
     if (!selfMid) {
-      throw new Error("復元先LINEアカウントのMIDを確認できません。再ログインしてから実行してください");
+      throw new Error(
+        "復元先LINEアカウントのMIDを確認できません。再ログインしてから実行してください",
+      );
     }
     const parsed = parseAndroidDatabase(databasePath, selfMid);
 
@@ -538,8 +540,7 @@ async function extractAndroidZip(
           }
         }
       } catch (writeError) {
-        extractionError =
-          writeError instanceof Error ? writeError : new Error(String(writeError));
+        extractionError = writeError instanceof Error ? writeError : new Error(String(writeError));
         try {
           file.terminate();
         } catch {
@@ -581,9 +582,7 @@ function androidDatabaseCandidateRank(name: string): number | null {
   return null;
 }
 
-function parseAndroidMediaEntry(
-  name: string,
-): { chatMid: string; fileName: string } | null {
+function parseAndroidMediaEntry(name: string): { chatMid: string; fileName: string } | null {
   const match = name.match(
     /(?:^|\/)chats\/([a-z0-9_-]{4,128})\/messages\/(\d+)(\.original|\.thumb)?$/i,
   );
@@ -600,7 +599,9 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         .filter(Boolean),
     );
     if (!tables.has("chat_history")) {
-      throw new Error("chat_history テーブルがないため、LINE Androidの naver_line DB として読めません");
+      throw new Error(
+        "chat_history テーブルがないため、LINE Androidの naver_line DB として読めません",
+      );
     }
 
     const databaseVersion = Number(
@@ -649,7 +650,8 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
       const localId = asString(row.id);
       if (!chatMid || !localId) continue;
       const rawServerId = asString(row.server_id);
-      const messageId = rawServerId && rawServerId !== "0" ? rawServerId : `android-local-${localId}`;
+      const messageId =
+        rawServerId && rawServerId !== "0" ? rawServerId : `android-local-${localId}`;
       const rawFrom = asString(row.from_mid);
       const isMyMessage = !rawFrom || rawFrom === selfMid;
       const from = isMyMessage ? selfMid : rawFrom;
@@ -683,10 +685,7 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         // LINE group/room messages target the chat MID even when received.
         // Using selfMid here makes the desktop-side chat filter drop every
         // restored message sent by another group member.
-        to:
-          isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r")
-            ? chatMid
-            : selfMid,
+        to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : selfMid,
         text: unsent ? null : asNullableString(row.content),
         contentType: unsent ? "UNSENT" : contentType,
         createdTime: Number.isFinite(createdTime) ? createdTime : 0,
@@ -696,9 +695,7 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         ...(relationType === "reply" && relationId ? { relatedMessageId: relationId } : {}),
         ...(stickerOption.includes("A") ? { stickerAnimated: true } : {}),
         ...(reactions?.length ? { reactions } : {}),
-        ...(unsent
-          ? { messageState: isMyMessage ? "revoked-by-self" : "revoked-by-other" }
-          : {}),
+        ...(unsent ? { messageState: isMyMessage ? "revoked-by-self" : "revoked-by-other" } : {}),
         savedAt,
       };
       const byChat = (messages[chatMid] ??= {});
@@ -1038,10 +1035,7 @@ function sniffMediaMime(bytes: Uint8Array, kind: string): string {
   ) {
     return "image/webp";
   }
-  if (
-    bytes.length >= 12 &&
-    Buffer.from(bytes.subarray(4, 8)).toString("ascii") === "ftyp"
-  ) {
+  if (bytes.length >= 12 && Buffer.from(bytes.subarray(4, 8)).toString("ascii") === "ftyp") {
     return kind === "AUDIO" ? "audio/mp4" : "video/mp4";
   }
   if (bytes.length >= 3 && Buffer.from(bytes.subarray(0, 3)).toString("ascii") === "ID3") {

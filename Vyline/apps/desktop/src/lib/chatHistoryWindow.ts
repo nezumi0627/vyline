@@ -50,7 +50,10 @@ export function readHistoryDepths(accountId: string): Map<string, number> {
     const entries = Object.entries(parsed)
       .map(([chatMid, value]) => [chatMid, Number(value)] as const)
       .filter(([, value]) => Number.isFinite(value) && value > 0)
-      .map(([chatMid, value]) => [chatMid, Math.min(MAX_LOCAL_HISTORY_LIMIT, Math.floor(value))] as const);
+      .map(
+        ([chatMid, value]) =>
+          [chatMid, Math.min(MAX_LOCAL_HISTORY_LIMIT, Math.floor(value))] as const,
+      );
     return new Map(entries);
   } catch {
     return new Map();
@@ -70,9 +73,7 @@ export function rememberHistoryDepth(
   if (typeof localStorage === "undefined") return;
   try {
     const compact = Object.fromEntries(
-      [...depths.entries()]
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 64),
+      [...depths.entries()].sort((a, b) => b[1] - a[1]).slice(0, 64),
     );
     localStorage.setItem(depthStorageKey(accountId), JSON.stringify(compact));
   } catch {

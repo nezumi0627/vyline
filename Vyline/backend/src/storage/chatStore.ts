@@ -573,9 +573,7 @@ function storedMessageToMessage(stored: StoredMessage): Message {
   // Normalize on read so already-imported histories become visible immediately
   // after upgrading, without requiring users to delete or re-import chatdb.
   const to =
-    stored.chatMid.startsWith("c") || stored.chatMid.startsWith("r")
-      ? stored.chatMid
-      : stored.to;
+    stored.chatMid.startsWith("c") || stored.chatMid.startsWith("r") ? stored.chatMid : stored.to;
   const msg: Message = {
     id: stored.id,
     from: stored.from,
@@ -766,7 +764,9 @@ export function mergeChatDbRecords(
       ...existing,
       kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
       hasMessages: existing.hasMessages || incomingChat.hasMessages,
-      ...(existing.restoredHistory || incomingChat.restoredHistory ? { restoredHistory: true } : {}),
+      ...(existing.restoredHistory || incomingChat.restoredHistory
+        ? { restoredHistory: true }
+        : {}),
       lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
       ...(incomingIsNewer && incomingChat.lastMessageId
         ? { lastMessageId: incomingChat.lastMessageId }

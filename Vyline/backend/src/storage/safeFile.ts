@@ -9,11 +9,7 @@ export function safePathComponent(value: string, fallback = "unknown"): string {
   return normalized || fallback;
 }
 
-export async function writeTextAtomic(
-  path: string,
-  content: string,
-  mode = 0o600,
-): Promise<void> {
+export async function writeTextAtomic(path: string, content: string, mode = 0o600): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temp = join(
     dirname(path),

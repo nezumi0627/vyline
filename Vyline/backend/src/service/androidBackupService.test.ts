@@ -12,16 +12,14 @@ import {
 const tempDirs: string[] = [];
 
 afterEach(async () => {
-  await Promise.all(
-    tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })),
-  );
+  await Promise.all(tempDirs.splice(0).map((path) => rm(path, { recursive: true, force: true })));
 });
 
 describe("Android LINE backup import", () => {
   test("parses tab-separated LINE contentMetadata without dropping Android-only fields", () => {
     expect(
       parseAndroidParameter(
-        'STKPKGID\t123\tSTKID\t456\tmessage_relation_type_code\treply\tmessage_relation_server_message_id\t999',
+        "STKPKGID\t123\tSTKID\t456\tmessage_relation_type_code\treply\tmessage_relation_server_message_id\t999",
       ),
     ).toEqual({
       STKPKGID: "123",
@@ -75,12 +73,8 @@ describe("Android LINE backup import", () => {
           custom_reaction TEXT
         );
       `);
-      db.query(
-        "INSERT INTO chat VALUES (?, ?, ?, ?, ?)",
-      ).run("c-group", "Test group", 2, 2, 3);
-      db.query(
-        "INSERT INTO chat_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(
+      db.query("INSERT INTO chat VALUES (?, ?, ?, ?, ?)").run("c-group", "Test group", 2, 2, 3);
+      db.query("INSERT INTO chat_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         10,
         "581758080913244212",
         1,
@@ -92,9 +86,7 @@ describe("Android LINE backup import", () => {
         0,
         "",
       );
-      db.query(
-        "INSERT INTO chat_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(
+      db.query("INSERT INTO chat_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         11,
         "581758080913244213",
         1,
@@ -106,9 +98,7 @@ describe("Android LINE backup import", () => {
         1,
         "message_relation_type_code\treply\tmessage_relation_server_message_id\t581758080913244212",
       );
-      db.query(
-        "INSERT INTO chat_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-      ).run(
+      db.query("INSERT INTO chat_history VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
         12,
         "581758080913244213",
         1,
@@ -120,12 +110,15 @@ describe("Android LINE backup import", () => {
         0,
         "LEINsUnsend",
       );
-      db.query(
-        "INSERT INTO reactions VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(581758080913244213n, "u-reactor", "c-group", 1787977002000, "love", "");
-      db.query(
-        "INSERT INTO reactions VALUES (?, ?, ?, ?, ?, ?)",
-      ).run(
+      db.query("INSERT INTO reactions VALUES (?, ?, ?, ?, ?, ?)").run(
+        581758080913244213n,
+        "u-reactor",
+        "c-group",
+        1787977002000,
+        "love",
+        "",
+      );
+      db.query("INSERT INTO reactions VALUES (?, ?, ?, ?, ?, ?)").run(
         581758080913244213n,
         "u-paid-reactor",
         "c-group",
