@@ -113,11 +113,12 @@ function collectAlbumPhotos(value: unknown): Array<Record<string, unknown>> {
     : [];
 }
 
-function AlbumModal({
+export function AlbumModal({
   accountId,
   chatId,
   onClose,
-}: { accountId: string; chatId: string; onClose: () => void }) {
+  embedded = false,
+}: { accountId: string; chatId: string; onClose: () => void; embedded?: boolean }) {
   const [albums, setAlbums] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [photos, setPhotos] = useState<Array<Record<string, unknown>>>([]);
@@ -195,8 +196,8 @@ function AlbumModal({
     }
   };
 
-  return (
-    <Modal title="アルバム" onClose={onClose}>
+  const content = (
+    <>
       <ErrorText error={error} />
       <div className="mb-3 grid grid-cols-2 gap-2">
         <button
@@ -374,6 +375,14 @@ function AlbumModal({
           </div>
         </>
       )}
+    </>
+  );
+
+  return embedded ? (
+    <div className="px-1 pb-4">{content}</div>
+  ) : (
+    <Modal title="アルバム" onClose={onClose}>
+      {content}
     </Modal>
   );
 }
@@ -404,11 +413,12 @@ function noteSummary(post: Record<string, unknown>): { id: string; text: string 
   };
 }
 
-function NoteModal({
+export function NoteModal({
   accountId,
   chatId,
   onClose,
-}: { accountId: string; chatId: string; onClose: () => void }) {
+  embedded = false,
+}: { accountId: string; chatId: string; onClose: () => void; embedded?: boolean }) {
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [text, setText] = useState("");
@@ -477,8 +487,8 @@ function NoteModal({
     }
   };
 
-  return (
-    <Modal title="ノート" onClose={onClose}>
+  const content = (
+    <>
       <ErrorText error={error} />
       <Field label="本文">
         <textarea
@@ -702,6 +712,14 @@ function NoteModal({
       {likeInfo && (
         <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>
       )}
+    </>
+  );
+
+  return embedded ? (
+    <div className="px-1 pb-4">{content}</div>
+  ) : (
+    <Modal title="ノート" onClose={onClose}>
+      {content}
     </Modal>
   );
 }
@@ -1143,10 +1161,10 @@ export function PlusMenu({ chatId }: { chatId: string }) {
   const accountId = useStore((s) => s.accountId);
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | "note" | "album" | null>(null);
+  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | null>(null);
 
   const items: {
-    key: "schedule" | "ladder" | "poll" | "note" | "album";
+    key: "schedule" | "ladder" | "poll";
     label: string;
     icon: string;
     disabled?: boolean;
@@ -1154,8 +1172,6 @@ export function PlusMenu({ chatId }: { chatId: string }) {
     { key: "schedule", label: "イベントを作成", icon: "📅" },
     { key: "ladder", label: "あみだくじ", icon: "🎯", disabled: chat?.type !== "group" },
     { key: "poll", label: "アンケート", icon: "🗳️" },
-    { key: "note", label: "ノート", icon: "📝", disabled: chat?.type !== "group" },
-    { key: "album", label: "アルバム", icon: "🖼️", disabled: chat?.type !== "group" },
   ];
 
   return (
@@ -1209,12 +1225,6 @@ export function PlusMenu({ chatId }: { chatId: string }) {
       )}
       {mode === "poll" && accountId && (
         <PollModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
-      )}
-      {mode === "note" && accountId && (
-        <NoteModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
-      )}
-      {mode === "album" && accountId && (
-        <AlbumModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
       )}
     </>
   );
