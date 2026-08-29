@@ -441,7 +441,14 @@ function noteView(post: Record<string, unknown>): NoteView {
         if (!productId || !sticonId) return [];
         const S = Number(item?.S);
         const E = Number(item?.E);
-        return [{ productId, sticonId, ...(Number.isFinite(S) ? { S } : {}), ...(Number.isFinite(E) ? { E } : {}) }];
+        return [
+          {
+            productId,
+            sticonId,
+            ...(Number.isFinite(S) ? { S } : {}),
+            ...(Number.isFinite(E) ? { E } : {}),
+          },
+        ];
       })
     : [];
   return {
@@ -464,7 +471,12 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
   return (
     <>
       {item.text && (
-        <p className={cn("whitespace-pre-wrap break-words text-sm leading-6 text-[var(--vy-text)]", compact && "line-clamp-3")}>
+        <p
+          className={cn(
+            "whitespace-pre-wrap break-words text-sm leading-6 text-[var(--vy-text)]",
+            compact && "line-clamp-3",
+          )}
+        >
           {segmentTextWithSticon(item.text, item.sticons).map((segment, index) =>
             segment.type === "sticon" ? (
               <img
@@ -483,7 +495,14 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
         <div className="mt-2 flex flex-wrap gap-2">
           {item.stickers.slice(0, compact ? 2 : 6).map((sticker, index) => {
             const id = String(sticker.id ?? sticker.stickerId ?? "");
-            return id ? <img key={`${id}-${index}`} src={lineStickerUrl(id)} alt="スタンプ" className="h-16 w-16 object-contain" /> : null;
+            return id ? (
+              <img
+                key={`${id}-${index}`}
+                src={lineStickerUrl(id)}
+                alt="スタンプ"
+                className="h-16 w-16 object-contain"
+              />
+            ) : null;
           })}
         </div>
       )}
@@ -492,11 +511,24 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
           {item.media.slice(0, compact ? 2 : 6).map((media, index) => {
             const objectId = String(media.objectId ?? media.id ?? "");
             if (!objectId) return null;
-            const src = lineCdnProxy(`https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`);
+            const src = lineCdnProxy(
+              `https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`,
+            );
             return String(media.type ?? "PHOTO").toUpperCase() === "VIDEO" ? (
-              <video key={`${objectId}-${index}`} src={src} controls={!compact} preload="metadata" className="max-h-48 w-full bg-black object-contain" />
+              <video
+                key={`${objectId}-${index}`}
+                src={src}
+                controls={!compact}
+                preload="metadata"
+                className="max-h-48 w-full bg-black object-contain"
+              />
             ) : (
-              <img key={`${objectId}-${index}`} src={src} alt="ノート画像" className="max-h-48 w-full object-cover" />
+              <img
+                key={`${objectId}-${index}`}
+                src={src}
+                alt="ノート画像"
+                className="max-h-48 w-full object-cover"
+              />
             );
           })}
         </div>
@@ -610,7 +642,6 @@ export function NoteModal({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="ノートを書いてください"
-          autoFocus
         />
       </div>
       <label className="flex cursor-pointer items-center justify-between rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-3">
@@ -639,7 +670,11 @@ export function NoteModal({
         <div className="mt-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
             <Field label="スタンプID">
-              <input className={inputCls} value={stickerId} onChange={(e) => setStickerId(e.target.value)} />
+              <input
+                className={inputCls}
+                value={stickerId}
+                onChange={(e) => setStickerId(e.target.value)}
+              />
             </Field>
             <Field label="パッケージID">
               <input
@@ -650,7 +685,11 @@ export function NoteModal({
             </Field>
           </div>
           <Field label="共有元 postId">
-            <input className={inputCls} value={sharedPostId} onChange={(e) => setSharedPostId(e.target.value)} />
+            <input
+              className={inputCls}
+              value={sharedPostId}
+              onChange={(e) => setSharedPostId(e.target.value)}
+            />
           </Field>
         </div>
       </details>
@@ -698,7 +737,9 @@ export function NoteModal({
           </p>
         )}
         {selectedSummary.sharedPostId && (
-          <p className="mt-2 break-all text-xs text-[var(--vy-text-dim)]">共有元: {selectedSummary.sharedPostId}</p>
+          <p className="mt-2 break-all text-xs text-[var(--vy-text-dim)]">
+            共有元: {selectedSummary.sharedPostId}
+          </p>
         )}
       </div>
       <div className="flex gap-2">
@@ -752,7 +793,13 @@ export function NoteModal({
               if (!file) return;
               void run(async () => {
                 const uploaded = await api.line.notes.uploadCommentImage(accountId, file);
-                await api.line.notes.comment(accountId, selectedId, chatId, comment.trim(), uploaded.objId);
+                await api.line.notes.comment(
+                  accountId,
+                  selectedId,
+                  chatId,
+                  comment.trim(),
+                  uploaded.objId,
+                );
               }, false);
               e.currentTarget.value = "";
             }}
@@ -764,16 +811,24 @@ export function NoteModal({
           リアクション・その他
         </summary>
         <div className="mt-3 grid grid-cols-2 gap-2">
-          <select className={inputCls} value={likeType} onChange={(e) => setLikeType(e.target.value)}>
+          <select
+            className={inputCls}
+            value={likeType}
+            onChange={(e) => setLikeType(e.target.value)}
+          >
             {["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => (
-              <option key={v} value={v}>リアクション {v}</option>
+              <option key={v} value={v}>
+                リアクション {v}
+              </option>
             ))}
           </select>
           <button
             type="button"
             disabled={busy}
             className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-            onClick={() => void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)}
+            onClick={() =>
+              void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)
+            }
           >
             リアクション
           </button>
@@ -781,7 +836,9 @@ export function NoteModal({
             type="button"
             disabled={busy}
             className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-            onClick={() => void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)}
+            onClick={() =>
+              void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)
+            }
           >
             解除
           </button>
@@ -802,7 +859,9 @@ export function NoteModal({
             確認
           </button>
         </div>
-        {likeInfo && <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>}
+        {likeInfo && (
+          <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>
+        )}
       </details>
       <button
         type="button"
@@ -830,7 +889,11 @@ export function NoteModal({
           <p className="text-xs text-[var(--vy-text-dim)]">{posts.length}件</p>
         </div>
         <div className="flex gap-2">
-          <button type="button" className="rounded-lg px-2.5 py-2 text-xs text-[var(--vy-accent)]" onClick={() => void refresh()}>
+          <button
+            type="button"
+            className="rounded-lg px-2.5 py-2 text-xs text-[var(--vy-accent)]"
+            onClick={() => void refresh()}
+          >
             再読み込み
           </button>
           <button
@@ -850,7 +913,9 @@ export function NoteModal({
         {posts.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[var(--vy-border)] px-4 py-10 text-center">
             <p className="text-sm font-medium">ノートはまだありません</p>
-            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">右上の「新規作成」から追加できます</p>
+            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+              右上の「新規作成」から追加できます
+            </p>
           </div>
         ) : (
           posts.map((post, index) => {
@@ -868,7 +933,9 @@ export function NoteModal({
                     {new Date(item.createdTime).toLocaleString("ja-JP")}
                   </span>
                 )}
-                <span className="mt-2 block text-[10px] text-[var(--vy-text-dim)]">詳細を見る →</span>
+                <span className="mt-2 block text-[10px] text-[var(--vy-text-dim)]">
+                  詳細を見る →
+                </span>
               </button>
             );
           })

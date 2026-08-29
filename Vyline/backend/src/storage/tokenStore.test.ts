@@ -79,8 +79,7 @@ describe("tokenStore account isolation and handoff", () => {
       (await tokenStore.listSavedSessions()).find(
         (s: { accountId: string; reauthRequired?: boolean }) => s.accountId === "expired",
       ),
-    )
-      .toMatchObject({ hasToken: true, reauthRequired: true });
+    ).toMatchObject({ hasToken: true, reauthRequired: true });
 
     await tokenStore.saveToken("expired", "new-token");
     expect((await tokenStore.getToken("expired"))?.authToken).toBe("new-token");

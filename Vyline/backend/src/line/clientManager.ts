@@ -598,8 +598,7 @@ export async function restoreAllSessions(): Promise<void> {
         await loginWithToken(id);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        const expiredDevice =
-          msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
+        const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
         if (expiredDevice) {
           removeClient(id);
           await updateSessionMeta(id, { reauthRequired: true });
