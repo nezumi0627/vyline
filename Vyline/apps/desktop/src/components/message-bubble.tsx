@@ -171,12 +171,13 @@ function PostNotificationCard({
 }) {
   const notification = message.postNotification;
   const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [loaded, setLoaded] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   if (!notification || notification.kind === "unknown") return null;
 
   const load = async () => {
-    if (!accountId || loading || detail) return;
+    if (!accountId || loading || loaded) return;
     setLoading(true);
     setError(null);
     try {
@@ -184,13 +185,17 @@ function PostNotificationCard({
         notification.kind === "note" && notification.homeId && notification.postId
           ? await api.line.notes.get(accountId, notification.homeId, notification.postId)
           : notification.kind === "album" && notification.albumId
-            ? await api.line.albums.list(accountId)
+            ? await api.line.albums.list(
+                accountId,
+                notification.homeId ? { chatId: notification.homeId } : {},
+              )
             : null;
       setDetail(
         notification.kind === "album" && notification.albumId
           ? findAlbumRecord(raw, notification.albumId)
           : objectRecord(raw),
       );
+      setLoaded(true);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
@@ -204,6 +209,10 @@ function PostNotificationCard({
   const media = Array.isArray(post?.media) ? post.media : [];
   const sticons = noteSticons(post);
   const sharedPostId = typeof post?.sharedPostId === "string" ? post.sharedPostId : undefined;
+  const albumTitle =
+    notification.kind === "album"
+      ? String(detail?.title ?? detail?.albumName ?? notification.title ?? "").trim()
+      : "";
 
   return (
     <div className="my-1 flex w-full justify-center px-2">
@@ -218,7 +227,7 @@ function PostNotificationCard({
           </p>
           <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
             {notification.kind === "album"
-              ? notification.title || "アルバムが更新されました"
+              ? albumTitle || notification.title || "アルバムが更新されました"
               : "ノートが作成されました"}
           </p>
           {notification.kind === "album" && notification.mediaCount != null && (
@@ -285,8 +294,13 @@ function PostNotificationCard({
               共有ノート: {sharedPostId}
             </p>
           )}
-          {!detail && !loading && (
+          {!loaded && !loading && (
             <p className="mt-2 text-xs text-[var(--vy-text-dim)]">クリックして内容を表示</p>
+          )}
+          {loaded && !detail && !error && (
+            <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+              内容を取得できませんでした。再読み込み後にもう一度お試しください。
+            </p>
           )}
         </div>
       </button>
