@@ -18,6 +18,7 @@ import type {
 } from "@vyline/types";
 import { childLogger } from "../logger.js";
 import { accountFile, readAccountJson } from "./accountDirs.js";
+import { writeTextAtomic } from "./safeFile.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -38,6 +39,8 @@ export interface StoredChat {
   thumbnailUrl?: string;
   unreadCount?: number;
   isOfficial?: boolean;
+  /** 外部バックアップから復元された履歴を持つ。退出済みグループも履歴として表示するために使う。 */
+  restoredHistory?: boolean;
   updatedAt: string;
 }
 
@@ -137,7 +140,9 @@ function previewForMessage(message: StoredMessage): string {
 
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
+const dirtyVersion = new Map<string, number>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const flushInFlight = new Map<string, Promise<void>>();
 
 function dbPath(accountId: string): string {
   return accountFile(accountId, "chatdb.json");
@@ -208,12 +213,16 @@ function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
 
 function scheduleSave(accountId: string): void {
   dirty.add(accountId);
+  dirtyVersion.set(accountId, (dirtyVersion.get(accountId) ?? 0) + 1);
   const prev = saveTimers.get(accountId);
   if (prev) clearTimeout(prev);
   saveTimers.set(
     accountId,
     setTimeout(() => {
-      void flushDb(accountId);
+      saveTimers.delete(accountId);
+      // Background saves are best-effort, but failures remain dirty so an
+      // explicit restore/rebuild flush can retry and surface the error.
+      void flushDb(accountId).catch(() => undefined);
     }, SAVE_DEBOUNCE_MS),
   );
 }
@@ -233,15 +242,46 @@ export function mergeStoredReadState(
 }
 
 async function flushDb(accountId: string): Promise<void> {
+  const existingFlush = flushInFlight.get(accountId);
+  if (existingFlush) return existingFlush;
   if (!dirty.has(accountId)) return;
-  dirty.delete(accountId);
-  const db = memory.get(accountId);
-  if (!db) return;
-  await ensureDataDir();
+
+  const run = (async () => {
+    while (dirty.has(accountId)) {
+      const db = memory.get(accountId);
+      if (!db) {
+        dirty.delete(accountId);
+        return;
+      }
+
+      await ensureDataDir();
+      const version = dirtyVersion.get(accountId) ?? 0;
+      // Serialize before the asynchronous write starts so mutations that occur
+      // during I/O can be detected by dirtyVersion and written in a second pass.
+      const serialized = JSON.stringify(db);
+      try {
+        await writeTextAtomic(dbPath(accountId), serialized);
+      } catch (err) {
+        // Never convert a failed restore into a successful in-memory-only one.
+        // Keep the DB dirty and let explicit flush callers observe the error.
+        dirty.add(accountId);
+        log.warn({ accountId, err }, "failed to save chat db");
+        throw err;
+      }
+
+      if ((dirtyVersion.get(accountId) ?? 0) === version) {
+        dirty.delete(accountId);
+      }
+      // If another mutation happened while writing, dirty remains set and the
+      // loop atomically writes the newer snapshot before resolving.
+    }
+  })();
+
+  flushInFlight.set(accountId, run);
   try {
-    await writeFile(dbPath(accountId), JSON.stringify(db), "utf-8");
-  } catch (err) {
-    log.warn({ accountId, err }, "failed to save chat db");
+    await run;
+  } finally {
+    if (flushInFlight.get(accountId) === run) flushInFlight.delete(accountId);
   }
 }
 
@@ -258,7 +298,42 @@ export async function upsertChats(
 ): Promise<void> {
   const db = await getDb(accountId);
   for (const chat of chats) {
-    db.chats[chat.mid] = chat;
+    const existing = db.chats[chat.mid];
+    if (!existing) {
+      db.chats[chat.mid] = chat;
+      continue;
+    }
+
+    const incomingTime = chat.lastMessageTime ?? 0;
+    const existingTime = existing.lastMessageTime ?? 0;
+    const keepExistingLast = existingTime > incomingTime;
+    const incomingNameIsFallback =
+      !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
+    const incomingKindIsFallback = chat.kind === "unknown";
+
+    db.chats[chat.mid] = {
+      ...existing,
+      ...chat,
+      name: incomingNameIsFallback && existing.name ? existing.name : chat.name,
+      kind: incomingKindIsFallback ? existing.kind : chat.kind,
+      hasMessages: existing.hasMessages || chat.hasMessages,
+      lastMessageTime: Math.max(existingTime, incomingTime),
+      ...(keepExistingLast && existing.lastMessageId
+        ? { lastMessageId: existing.lastMessageId }
+        : chat.lastMessageId
+          ? { lastMessageId: chat.lastMessageId }
+          : existing.lastMessageId
+            ? { lastMessageId: existing.lastMessageId }
+            : {}),
+      ...(keepExistingLast && existing.lastMessagePreview
+        ? { lastMessagePreview: existing.lastMessagePreview }
+        : chat.lastMessagePreview
+          ? { lastMessagePreview: chat.lastMessagePreview }
+          : existing.lastMessagePreview
+            ? { lastMessagePreview: existing.lastMessagePreview }
+            : {}),
+      ...(existing.restoredHistory || chat.restoredHistory ? { restoredHistory: true } : {}),
+    };
   }
   if (meta?.boxOrder) db.meta.boxOrder = meta.boxOrder;
   if (meta?.lastOpRevision != null) db.meta.lastOpRevision = meta.lastOpRevision;
@@ -489,14 +564,20 @@ function storedChatToChat(stored: StoredChat): Chat {
   if (stored.lastMessagePreview) chat.lastMessagePreview = stored.lastMessagePreview;
   if (stored.unreadCount != null) chat.unreadCount = stored.unreadCount;
   if (stored.isOfficial) chat.isOfficial = true;
+  if (stored.restoredHistory) chat.restoredHistory = true;
   return chat;
 }
 
 function storedMessageToMessage(stored: StoredMessage): Message {
+  // Older Android/iOS restores stored received group messages with to=self MID.
+  // Normalize on read so already-imported histories become visible immediately
+  // after upgrading, without requiring users to delete or re-import chatdb.
+  const to =
+    stored.chatMid.startsWith("c") || stored.chatMid.startsWith("r") ? stored.chatMid : stored.to;
   const msg: Message = {
     id: stored.id,
     from: stored.from,
-    to: stored.to,
+    to,
     text: stored.text,
     contentType: stored.contentType,
     createdTime: stored.createdTime,
@@ -675,9 +756,17 @@ export function mergeChatDbRecords(
 
     skippedChats++;
     const incomingIsNewer = (incomingChat.lastMessageTime ?? 0) > (existing.lastMessageTime ?? 0);
+    const incomingKindShouldWin =
+      incomingChat.kind !== "unknown" &&
+      (existing.kind === "unknown" ||
+        ((mid.startsWith("c") || mid.startsWith("r")) && incomingChat.kind === "group"));
     target.chats[mid] = {
       ...existing,
+      kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
       hasMessages: existing.hasMessages || incomingChat.hasMessages,
+      ...(existing.restoredHistory || incomingChat.restoredHistory
+        ? { restoredHistory: true }
+        : {}),
       lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
       ...(incomingIsNewer && incomingChat.lastMessageId
         ? { lastMessageId: incomingChat.lastMessageId }
@@ -735,7 +824,13 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
   let messages = 0;
   const allMids = new Set([...Object.keys(target.chats), ...Object.keys(target.messages)]);
   for (const chatMid of allMids) {
-    const ordered = Object.values(target.messages[chatMid] ?? {}).sort(compareMessagesOldestFirst);
+    const byChat = target.messages[chatMid] ?? {};
+    // Repair legacy restore records in-place as well. LINE group/room messages
+    // always target the chat MID, regardless of who sent them.
+    if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+      for (const message of Object.values(byChat)) message.to = chatMid;
+    }
+    const ordered = Object.values(byChat).sort(compareMessagesOldestFirst);
     target.messages[chatMid] = Object.fromEntries(ordered.map((message) => [message.id, message]));
     messages += ordered.length;
     const latest = ordered.at(-1);
@@ -752,6 +847,7 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
       ...(existing?.thumbnailUrl ? { thumbnailUrl: existing.thumbnailUrl } : {}),
       ...(existing?.unreadCount != null ? { unreadCount: existing.unreadCount } : {}),
       ...(existing?.isOfficial != null ? { isOfficial: existing.isOfficial } : {}),
+      ...(existing?.restoredHistory ? { restoredHistory: true } : {}),
       updatedAt: existing?.updatedAt ?? latest.savedAt,
     };
   }
@@ -768,7 +864,9 @@ export async function mergeImportedChatDb(
   for (const [chatMid, messages] of Object.entries(db.messages)) {
     applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
   }
-  if (result.importedChats > 0 || result.importedMessages > 0) scheduleSave(accountId);
+  // mergeChatDbRecords can normalize/repair records even when every incoming
+  // message ID already exists, so every restore attempt must become durable.
+  scheduleSave(accountId);
   return result;
 }
 

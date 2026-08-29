@@ -152,6 +152,7 @@ export function mapChat(
     backgroundUrl: c.backgroundUrl,
     isSelf: c.isSelf,
     left,
+    restoredHistory: c.restoredHistory,
     unread: c.unreadCount ?? 0,
     hidden,
     lastMessagePreview: c.lastMessagePreview,

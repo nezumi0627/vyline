@@ -820,12 +820,15 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const limitParam = Number(c.req.query("limit") ?? "30");
-  const limit = Math.min(Math.max(1, limitParam), 100);
+  const localOnly = c.req.query("local") === "1";
+  // ネットワーク RPC は従来通り最大100件。ローカル chatdb の再入室復元だけは、
+  // 前回ユーザーが見た深度を1回で戻せるよう上限を広げる。
+  const limitMax = localOnly ? 10_000 : 100;
+  const limit = Math.min(Math.max(1, limitParam), limitMax);
   const beforeMessageId = c.req.query("beforeMessageId") || undefined;
   const beforeDeliveredTimeRaw = c.req.query("beforeDeliveredTime");
   const beforeDeliveredTime = beforeDeliveredTimeRaw ? Number(beforeDeliveredTimeRaw) : undefined;
   const force = c.req.query("force") === "1";
-  const localOnly = c.req.query("local") === "1";
 
   try {
     const fetchOpts: {
@@ -840,11 +843,14 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
     }
     if (force) fetchOpts.force = true;
     if (localOnly) fetchOpts.localOnly = true;
-    const messages = await fetchMessages(accountId, chatMid, limit, fetchOpts);
+    const fetchLimit = localOnly ? limit + 1 : limit;
+    const fetched = await fetchMessages(accountId, chatMid, fetchLimit, fetchOpts);
+    const hasMore = localOnly ? fetched.length > limit : fetched.length >= limit;
+    const messages = localOnly && fetched.length > limit ? fetched.slice(0, limit) : fetched;
     return c.json({
       ok: true,
       messages,
-      hasMore: messages.length >= limit,
+      hasMore,
       fromCache: localOnly || (!force && !beforeMessageId),
     });
   } catch (err) {
@@ -2399,6 +2405,83 @@ lineRouter.post("/:accountId/restore/ios-backup", async (c) => {
 lineRouter.get("/:accountId/restore/ios-backup/:sessionId", async (c) => {
   const { getIosBackupSession } = await import("../service/iosBackupService.js");
   const session = getIosBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
+  return session
+    ? c.json({ ok: true, session })
+    : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);
+});
+
+// ─── Android: naver_line DB / LEINs バックアップ復元 ───
+
+lineRouter.post("/:accountId/restore/android-backup", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!c.req.raw.body) {
+    return c.json({ ok: false, error: "Androidバックアップファイルが必要です" }, 400);
+  }
+  try {
+    const sourceName = c.req.header("X-Vyline-Backup-Name") ?? "naver_line";
+    const includeMedia = c.req.query("includeMedia") === "1";
+    const { startAndroidBackupRestore } = await import("../service/androidBackupService.js");
+    const session = await startAndroidBackupRestore(accountId, sourceName, c.req.raw, includeMedia);
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const body = await c.req.json<{
+      sourceName?: string;
+      includeMedia?: boolean;
+      expectedBytes?: number;
+    }>();
+    const { createAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
+    const upload = await createAndroidBackupChunkUpload(
+      accountId,
+      body.sourceName ?? "naver_line",
+      body.includeMedia === true,
+      Number(body.expectedBytes ?? 0),
+    );
+    return c.json({ ok: true, ...upload });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/chunks/:index", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!c.req.raw.body) {
+    return c.json({ ok: false, error: "chunkデータが必要です" }, 400);
+  }
+  try {
+    const { appendAndroidBackupChunk } = await import("../service/androidBackupService.js");
+    const result = await appendAndroidBackupChunk(
+      accountId,
+      c.req.param("uploadId"),
+      Number(c.req.param("index")),
+      c.req.raw,
+    );
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/complete", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { completeAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
+    const session = await completeAndroidBackupChunkUpload(accountId, c.req.param("uploadId"));
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/restore/android-backup/:sessionId", async (c) => {
+  const { getAndroidBackupSession } = await import("../service/androidBackupService.js");
+  const session = getAndroidBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
   return session
     ? c.json({ ok: true, session })
     : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);

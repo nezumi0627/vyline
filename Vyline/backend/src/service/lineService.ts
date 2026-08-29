@@ -72,7 +72,6 @@ import {
   getStoredMessages,
   getBootstrapPayload,
   getCacheMeta,
-  messageSyncAgeMs,
   upsertChats,
   upsertMessages,
   markStoredMessagesReadThrough,
@@ -738,7 +737,6 @@ const readRangeBgAt = new Map<string, number>();
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
-const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -2584,6 +2582,7 @@ function chatFromMessageBox(
       statusMessage?: string;
     }
   >,
+  joinedChatsKnown = true,
 ): Chat {
   const mid = String(box.id);
   const meta = boxMeta(box);
@@ -2591,7 +2590,8 @@ function chatFromMessageBox(
 
   if (kind === "group" || kind === "room") {
     const group = groupByMid.get(mid);
-    const left = !group; // messageBox にあるが joined に無い = 退出・キック済み
+    // joinedChats の取得自体が失敗した場合は「退出済み」と誤判定しない。
+    const left = joinedChatsKnown ? !group : false;
     const raw = group?.raw ?? {};
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const chat: Chat = {
@@ -2636,13 +2636,9 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
 }
 
 export async function warmLineCache(accountId: string): Promise<void> {
+  // セッション/プロフィール等の軽量キャッシュだけを温める。
+  // メッセージ履歴の一括インデックスは暗黙実行しない。
   await warmAccountCache(accountId);
-  // 初回インデックス（裏）— 履歴・プロフィールを chatdb / VylineCache へ
-  // runAccountIndex 内の fetchChats が必要な RPC を同じキューに入れるため、
-  // ここで外側まで enqueue すると初回起動時に自己待機になる。
-  void runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 }).catch((err) => {
-    log.debug({ accountId, err }, "background account index failed");
-  });
 }
 
 export async function fetchChats(
@@ -2730,11 +2726,13 @@ async function fetchChatsCore(
 
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
+  let joinedChatsFetchFailed = false;
 
   const [messageBoxes, joinedChats, users] = await Promise.all([
     fetchMessageBoxesCached(accountId, client, { forChats: true }),
     client.fetchJoinedChats().catch((err) => {
-      log.warn({ accountId, err }, "fetchJoinedChats failed — skipping groups");
+      joinedChatsFetchFailed = true;
+      log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
       return [] as Awaited<ReturnType<VylineClient["fetchJoinedChats"]>>;
     }),
     client.fetchUsers().catch((err) => {
@@ -2827,7 +2825,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
-    const chat = chatFromMessageBox(box, groupByMid, userByMid);
+    const chat = chatFromMessageBox(box, groupByMid, userByMid, !joinedChatsFetchFailed);
     seen.add(chat.mid);
     result.push(chat);
   }
@@ -3010,17 +3008,55 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     void vylinePutGroup(accountId, put);
   }
 
+  // 通常RPCに現れない復元済みチャットも一覧から消さない。
+  // upsertChats は復元名・種別・最新履歴を保持するため、ここでディスク順を正本にして
+  // live-only の left / official / profile 情報だけ重ねる。
+  const storedChats = await getStoredChats(accountId);
+  const liveByMid = new Map(result.map((chat) => [chat.mid, chat]));
+  const mergedResult = storedChats.map((stored) => {
+    const live = liveByMid.get(stored.mid);
+    if (!live) return stored;
+    const storedTime = stored.lastMessageTime ?? 0;
+    const liveTime = live.lastMessageTime ?? 0;
+    const useStoredLast = storedTime > liveTime;
+    const liveNameIsFallback = !live.name || live.name === live.mid || live.name === "(No Name)";
+    return {
+      ...stored,
+      ...live,
+      name: liveNameIsFallback && stored.name ? stored.name : live.name,
+      kind: live.kind === "unknown" ? stored.kind : live.kind,
+      hasMessages: stored.hasMessages || live.hasMessages,
+      lastMessageTime: Math.max(storedTime, liveTime),
+      ...(useStoredLast && stored.lastMessageId
+        ? { lastMessageId: stored.lastMessageId }
+        : live.lastMessageId
+          ? { lastMessageId: live.lastMessageId }
+          : stored.lastMessageId
+            ? { lastMessageId: stored.lastMessageId }
+            : {}),
+      ...(useStoredLast && stored.lastMessagePreview
+        ? { lastMessagePreview: stored.lastMessagePreview }
+        : live.lastMessagePreview
+          ? { lastMessagePreview: live.lastMessagePreview }
+          : stored.lastMessagePreview
+            ? { lastMessagePreview: stored.lastMessagePreview }
+            : {}),
+      ...(stored.restoredHistory || live.restoredHistory ? { restoredHistory: true } : {}),
+    };
+  });
+
   log.debug(
     {
       accountId,
-      count: result.length,
+      count: mergedResult.length,
       activeBoxes: messageBoxes.length,
       friends: users.length,
       groups: joinedChats.length,
+      restoredOnly: mergedResult.filter((chat) => !liveByMid.has(chat.mid)).length,
     },
-    "chats fetched (desktop messageBox order)",
+    "chats fetched (desktop messageBox order + restored history)",
   );
-  return result;
+  return mergedResult;
 }
 
 /** 復号済み Thrift メッセージ → API Message */
@@ -3503,24 +3539,8 @@ export async function fetchMessages(
   if (!opts?.force && !isPagination && !isSpecial) {
     const local = await getStoredMessages(accountId, chatMid, limit);
     if (local.length > 0) {
-      const meta = await getCacheMeta(accountId);
-      const age = messageSyncAgeMs(meta, chatMid);
-      if (age == null || age > MESSAGE_LOCAL_STALE_MS) {
-        void enqueueTalkRpcBackground(accountId, () =>
-          fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch((err) => {
-            log.debug(
-              {
-                accountId,
-                chatMid,
-                err: err instanceof Error ? err.message : String(err),
-              },
-              "background message sync failed",
-            );
-          }),
-        );
-      }
-      const cacheDict = await readRangeStorage.load(accountId);
-      const cached = cacheDict[chatMid]?.ranges ?? [];
+      // local-first は本当に local-only にする。表示要求に便乗した履歴RPCは発火させない。
+      // 新着は push / delta、明示同期は force 経路が担当する。
       return local;
     }
   }

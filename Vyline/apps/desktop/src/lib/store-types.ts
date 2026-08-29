@@ -183,6 +183,8 @@ export type Chat = {
   muted?: boolean;
   /** 退出・キック済みグループ */
   left?: boolean;
+  /** 外部バックアップから復元された履歴を持つ */
+  restoredHistory?: boolean;
   unread: number;
   /** 一覧用プレビュー（API） */
   lastMessagePreview?: string;

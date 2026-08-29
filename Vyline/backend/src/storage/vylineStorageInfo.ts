@@ -5,7 +5,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { mkdir, readdir, stat, statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -75,9 +75,31 @@ function extractDriveLetter(path: string): string {
 }
 
 async function getDiskInfo(
-  driveLetter: string,
+  targetPath: string,
 ): Promise<{ totalBytes: number; freeBytes: number; usedBytes: number } | null> {
+  // statfs works for Linux containers as well as ordinary local filesystems and
+  // reports the capacity of the filesystem backing the bind mount.
   try {
+    const fs = await statfs(targetPath);
+    const blockSize = Number(fs.bsize);
+    const totalBytes = Number(fs.blocks) * blockSize;
+    const freeBytes = Number(fs.bavail) * blockSize;
+    if (Number.isFinite(totalBytes) && Number.isFinite(freeBytes) && totalBytes > 0) {
+      return {
+        totalBytes,
+        freeBytes: Math.max(0, freeBytes),
+        usedBytes: Math.max(0, totalBytes - freeBytes),
+      };
+    }
+  } catch (err) {
+    log.debug({ err, targetPath }, "statfs failed");
+  }
+
+  // Older Windows/Bun combinations may not expose a useful statfs result.
+  // Keep the previous PowerShell fallback there only.
+  if (process.platform !== "win32") return null;
+  try {
+    const driveLetter = extractDriveLetter(targetPath);
     if (!driveLetter) return null;
     const name = driveLetter.replace(":", "");
     const ps = `[pscustomobject]@{ Total = (Get-PSDrive ${name}).Used + (Get-PSDrive ${name}).Free; Free = (Get-PSDrive ${name}).Free; Used = (Get-PSDrive ${name}).Used } | ConvertTo-Json`;
@@ -85,11 +107,7 @@ async function getDiskInfo(
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [code, stdout, stderr] = await Promise.all([
-      proc.exited,
-      streamToText(proc.stdout),
-      streamToText(proc.stderr),
-    ]);
+    const [code, stdout] = await Promise.all([proc.exited, streamToText(proc.stdout)]);
     if (typeof code === "number" && code === 0 && stdout.trim()) {
       const data = JSON.parse(stdout.trim());
       if (data && typeof data.Total === "number") {
@@ -117,7 +135,7 @@ export async function getVylineStorageInfo() {
   const cacheSize = cdnCacheSize + iconCacheSize;
   const savedMediaSize = imagesSize + videosSize + audioSize + filesSize;
   const vylineTotal = cacheSize + savedMediaSize;
-  const disk = await getDiskInfo(driveLetter);
+  const disk = await getDiskInfo(VYLINE_STORAGE_DIR);
 
   return {
     ok: true,

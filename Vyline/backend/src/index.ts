@@ -32,6 +32,11 @@ import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
+const MAX_REQUEST_BODY_BYTES = Number(
+  process.env.VYLINE_MAX_REQUEST_BODY_BYTES ??
+    process.env.VYLINE_ANDROID_BACKUP_MAX_BYTES ??
+    2 * 1024 * 1024 * 1024,
+);
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
 const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
@@ -377,6 +382,8 @@ async function getCallWsHandlers(): Promise<CallWsHandlers> {
 export default {
   port: PORT,
   hostname: HOST,
+  /** AndroidバックアップZIPは数百MBになるため、ストリーム受信前のBun上限も合わせる。 */
+  maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
   /** 既読取得など LINE RPC が 10s を超えることがある */
   idleTimeout: 120,
   async fetch(req: Request, server: Bun.Server<CallWsData>) {
