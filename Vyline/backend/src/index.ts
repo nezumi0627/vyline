@@ -19,7 +19,7 @@ import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
 import { publicRouter } from "./api/public.js";
 import { lineOpenApiSpec } from "./api/openapi.line.js";
-import { restoreAllSessions } from "./line/clientManager.js";
+import { getClient, restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
 import { warmAccountCache } from "./storage/chatStore.js";
 import type { CallWsData } from "./call/callManager.js";
@@ -69,13 +69,20 @@ function isSubdeviceAuthRequest(path: string) {
   return /^\/(?:api\/)?auth\/subdevices(?:\/|$)/.test(path);
 }
 
-function scopedAccountId(path: string): string | null {
-  const match = path.match(/^\/(?:api\/)?(?:line|beta\/agent-i)\/([^/]+)(?:\/|$)/);
+type AccountScope = { kind: "accountId" | "mid"; value: string };
+
+function scopedAccount(path: string): AccountScope | null {
+  const accountMatch = path.match(/^\/(?:api\/)?(?:line|beta\/agent-i)\/([^/]+)(?:\/|$)/);
+  const midMatch = path.match(/^\/api\/(?:settings\/accounts|handoff|diagnostics)\/([^/]+)(?:\/|$)/);
+  const match = accountMatch ?? midMatch;
   if (!match) return null;
   try {
-    return decodeURIComponent(match[1]!);
+    return {
+      kind: accountMatch ? "accountId" : "mid",
+      value: decodeURIComponent(match[1]!),
+    };
   } catch {
-    return "";
+    return { kind: accountMatch ? "accountId" : "mid", value: "" };
   }
 }
 
@@ -96,9 +103,16 @@ async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
   if (!device) {
     return c.json({ ok: false, error: "subdevice authentication required" }, 401);
   }
-  const accountId = scopedAccountId(c.req.path);
-  if (accountId !== null && accountId !== device.accountId) {
+  const scope = scopedAccount(c.req.path);
+  if (scope?.kind === "accountId" && scope.value !== device.accountId) {
     return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+  }
+  if (scope?.kind === "mid") {
+    const clientMid = String(getClient(device.accountId)?.base.profile?.mid ?? "");
+    const ownMid = clientMid || (/^u[0-9a-f]{32}$/i.test(device.accountId) ? device.accountId : "");
+    if (!ownMid || scope.value !== ownMid) {
+      return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+    }
   }
   return next();
 }
