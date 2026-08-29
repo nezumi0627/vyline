@@ -21,6 +21,7 @@ import {
   type StoredMessage,
 } from "../storage/chatStore.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import { safePathComponent } from "../storage/safeFile.js";
 
 const log = childLogger("vyline-backup");
 
@@ -75,9 +76,13 @@ function snapshotPath(id: string): string {
   return join(BACKUP_DIR, `${id}.json`);
 }
 
+function backupAccountComponent(accountId: string): string {
+  return safePathComponent(accountId, "account").replace(/\.+/g, "_");
+}
+
 function idFor(accountId: string, date: Date): string {
   const stamp = date.toISOString().replace(/[:.]/g, "-");
-  return `vyline-backup-${accountId}-${stamp}`;
+  return `vyline-backup-${backupAccountComponent(accountId)}-${stamp}`;
 }
 
 function asString(v: unknown): string {
@@ -185,7 +190,7 @@ export async function createBackup(
 
 export async function listBackups(accountId: string): Promise<BackupSummary[]> {
   await ensureBackupDir();
-  const prefix = `vyline-backup-${accountId}-`;
+  const prefix = `vyline-backup-${backupAccountComponent(accountId)}-`;
   let files: string[] = [];
   try {
     files = await readdir(BACKUP_DIR);

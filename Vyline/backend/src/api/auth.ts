@@ -331,9 +331,12 @@ authRouter.get("/accounts", async (c) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /auth/token/:id — 現在の authToken 取得（ログイン中のみ）
+// GET /auth/token/:id — 現在の authToken 取得（PCローカルのみ）
 // ─────────────────────────────────────────────
 authRouter.get("/token/:id", async (c) => {
+  if (c.req.header("x-vyline-local-request") !== "1") {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const accountId = c.req.param("id");
   const token = getAuthToken(accountId);
   if (!token) {

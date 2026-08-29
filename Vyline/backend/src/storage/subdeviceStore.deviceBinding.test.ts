@@ -6,8 +6,13 @@ import { join } from "node:path";
 const testDataDir = await mkdtemp(join(tmpdir(), "vyline-subdevice-device-binding-"));
 process.env.VYLINE_DATA_DIR = testDataDir;
 
-const { authenticateSubdevice, completePairing, createPairing, isSubdeviceSessionValid } =
-  await import("./subdeviceStore.js");
+const {
+  authenticateSubdevice,
+  completePairing,
+  createPairing,
+  getSubdeviceSession,
+  isSubdeviceSessionValid,
+} = await import("./subdeviceStore.js");
 
 afterAll(async () => {
   await rm(testDataDir, { force: true, recursive: true });
@@ -25,5 +30,9 @@ describe("subdevice installation binding", () => {
     expect(await authenticateSubdevice(completed!.sessionToken, otherInstallationId)).toBeNull();
     expect(await isSubdeviceSessionValid(completed!.sessionToken, installationId)).toBe(true);
     expect(await isSubdeviceSessionValid(completed!.sessionToken, otherInstallationId)).toBe(false);
+    expect(await getSubdeviceSession(completed!.sessionToken, installationId)).toMatchObject({
+      accountId: "main",
+    });
+    expect(await getSubdeviceSession(completed!.sessionToken, otherInstallationId)).toBeNull();
   });
 });
