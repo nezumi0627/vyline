@@ -151,7 +151,8 @@ export async function getVylineStorageInfo() {
   return {
     ok: true,
     driveLetter,
-    storagePath: diskTarget,
+    dataPath: VYLINE_DATA_DIR,
+    storagePath: VYLINE_STORAGE_DIR,
     disk,
     vylineTotal,
     dataSize,

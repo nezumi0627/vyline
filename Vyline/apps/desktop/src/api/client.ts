@@ -595,6 +595,10 @@ export const api = {
       request<{
         ok: boolean;
         driveLetter?: string;
+        dataPath?: string;
+        storagePath?: string;
+        dataSize?: number;
+        storageSize?: number;
         disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
         vylineTotal: number;
         cacheSize: number;

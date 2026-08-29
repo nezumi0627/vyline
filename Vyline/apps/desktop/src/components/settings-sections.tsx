@@ -1654,6 +1654,8 @@ function StorageSection() {
   const [storage, setStorage] = useState<{
     ok: boolean;
     driveLetter?: string;
+    dataPath?: string;
+    storagePath?: string;
     disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
     vylineTotal: number;
     cacheSize: number;
@@ -1670,6 +1672,8 @@ function StorageSection() {
       setStorage({
         ok: true,
         driveLetter: "DEMO",
+        dataPath: "/app/data",
+        storagePath: "/app/storage",
         disk: {
           totalBytes: 512 * 1024 ** 3,
           freeBytes: 338 * 1024 ** 3,
@@ -1733,8 +1737,21 @@ function StorageSection() {
     void load();
   }, [accountId, demoMode]);
 
+  const removableTotal = storage ? storage.cacheSize + storage.savedMediaSize : 0;
+  const appDataSize = storage ? Math.max(0, storage.vylineTotal - removableTotal) : 0;
+  const persistentPathLabel =
+    storage?.dataPath && storage?.storagePath && storage.dataPath !== storage.storagePath
+      ? `${storage.dataPath} + ${storage.storagePath}`
+      : storage?.storagePath ?? storage?.dataPath ?? storage?.driveLetter ?? "---";
+
   const segments = storage
     ? [
+        {
+          key: "app-data",
+          label: "トーク履歴・設定",
+          size: appDataSize,
+          color: "#f59e0b",
+        },
         { key: "cdn", label: "CDN", size: storage.cache.cdn, color: "var(--vy-accent)" },
         { key: "icons", label: "アイコン", size: storage.cache.icons, color: "var(--vy-accent)" },
         { key: "image", label: "画像", size: storage.savedMedia.image, color: "#3b82f6" },
@@ -1756,18 +1773,18 @@ function StorageSection() {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="text-xs text-[var(--vy-text-dim)]">
-                  ドライブ {storage.driveLetter ?? "---"}
+                  保存先 {persistentPathLabel}
                 </p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
                 </p>
                 <p className="mt-2 max-w-md text-sm text-[var(--vy-text-dim)]">
-                  CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。
+                  トーク履歴・設定・バックアップ・キャッシュ・保存メディアを含むVyline全体の使用量です。
                 </p>
               </div>
 
               <div className="shrink-0 sm:text-right">
-                <p className="text-xs text-[var(--vy-text-dim)]">ドライブ使用率</p>
+                <p className="text-xs text-[var(--vy-text-dim)]">保存先の使用率</p>
                 <p className="mt-1 text-xl font-semibold tracking-tight">
                   {formatPercent(diskUsedPct)}
                 </p>
@@ -1779,10 +1796,10 @@ function StorageSection() {
 
             <div className="mt-5">
               <div className="mb-2 flex items-center justify-between text-xs text-[var(--vy-text-dim)]">
-                <span>保存データの内訳</span>
+                <span>Vyline使用量の内訳</span>
                 <span>{formatBytes(storage.vylineTotal)} 合計</span>
               </div>
-              <div className="h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+              <div className="flex h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
                 {segments.map((s) => {
                   const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
                   return (
@@ -1816,14 +1833,14 @@ function StorageSection() {
 
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <p className="text-base font-semibold">保存データ</p>
+          <p className="text-base font-semibold">削除可能なデータ</p>
           <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-            不要なデータを種類ごとに削除できます。
+            キャッシュと保存済みメディアだけを削除できます。トーク履歴・設定・バックアップは保持されます。
           </p>
         </div>
         {storage && (
           <span className="shrink-0 rounded-full bg-[var(--vy-surface-2)] px-2.5 py-1 text-xs text-[var(--vy-text-dim)]">
-            {formatBytes(storage.cacheSize + storage.savedMediaSize)}
+            {formatBytes(removableTotal)}
           </span>
         )}
       </div>
@@ -1833,7 +1850,7 @@ function StorageSection() {
           title="CDN キャッシュ"
           desc="スタンプ・LINE絵文字など"
           size={storage?.cache.cdn ?? 0}
-          ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
+          ratio={removableTotal > 0 ? (storage?.cache.cdn ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -1846,7 +1863,7 @@ function StorageSection() {
           title="アイコンキャッシュ"
           desc="プロフィール画像など"
           size={storage?.cache.icons ?? 0}
-          ratio={storage && storage.vylineTotal > 0 ? storage.cache.icons / storage.vylineTotal : 0}
+          ratio={removableTotal > 0 ? (storage?.cache.icons ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -1860,7 +1877,7 @@ function StorageSection() {
           desc="チャット画像"
           size={storage?.savedMedia.image ?? 0}
           ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.image / storage.vylineTotal : 0
+            removableTotal > 0 ? (storage?.savedMedia.image ?? 0) / removableTotal : 0
           }
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
@@ -1875,7 +1892,7 @@ function StorageSection() {
           desc="チャット動画"
           size={storage?.savedMedia.video ?? 0}
           ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.video / storage.vylineTotal : 0
+            removableTotal > 0 ? (storage?.savedMedia.video ?? 0) / removableTotal : 0
           }
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
@@ -1890,7 +1907,7 @@ function StorageSection() {
           desc="ボイスメッセージなど"
           size={storage?.savedMedia.audio ?? 0}
           ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.audio / storage.vylineTotal : 0
+            removableTotal > 0 ? (storage?.savedMedia.audio ?? 0) / removableTotal : 0
           }
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
@@ -1905,7 +1922,7 @@ function StorageSection() {
           desc="PDF など"
           size={storage?.savedMedia.file ?? 0}
           ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.file / storage.vylineTotal : 0
+            removableTotal > 0 ? (storage?.savedMedia.file ?? 0) / removableTotal : 0
           }
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
