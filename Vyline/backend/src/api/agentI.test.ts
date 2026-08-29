@@ -12,12 +12,12 @@ const { agentIRouter } = await import("./agentI.js");
 const { completePairing, createPairing } = await import("../storage/subdeviceStore.js");
 
 afterEach(() => {
-  if (previousLanAccess === undefined) delete process.env.VYLINE_LAN_ACCESS;
+  if (previousLanAccess === undefined) process.env.VYLINE_LAN_ACCESS = undefined;
   else process.env.VYLINE_LAN_ACCESS = previousLanAccess;
 });
 
 afterAll(async () => {
-  if (previousDataDir === undefined) delete process.env.VYLINE_DATA_DIR;
+  if (previousDataDir === undefined) process.env.VYLINE_DATA_DIR = undefined;
   else process.env.VYLINE_DATA_DIR = previousDataDir;
   await rm(testDataDir, { recursive: true, force: true });
 });
