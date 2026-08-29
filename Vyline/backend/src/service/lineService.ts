@@ -72,7 +72,6 @@ import {
   getStoredMessages,
   getBootstrapPayload,
   getCacheMeta,
-  messageSyncAgeMs,
   upsertChats,
   upsertMessages,
   markStoredMessagesReadThrough,
@@ -738,7 +737,6 @@ const readRangeBgAt = new Map<string, number>();
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
-const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -2638,13 +2636,9 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
 }
 
 export async function warmLineCache(accountId: string): Promise<void> {
+  // セッション/プロフィール等の軽量キャッシュだけを温める。
+  // メッセージ履歴の一括インデックスは暗黙実行しない。
   await warmAccountCache(accountId);
-  // 初回インデックス（裏）— 履歴・プロフィールを chatdb / VylineCache へ
-  // runAccountIndex 内の fetchChats が必要な RPC を同じキューに入れるため、
-  // ここで外側まで enqueue すると初回起動時に自己待機になる。
-  void runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 }).catch((err) => {
-    log.debug({ accountId, err }, "background account index failed");
-  });
 }
 
 export async function fetchChats(
@@ -3546,24 +3540,8 @@ export async function fetchMessages(
   if (!opts?.force && !isPagination && !isSpecial) {
     const local = await getStoredMessages(accountId, chatMid, limit);
     if (local.length > 0) {
-      const meta = await getCacheMeta(accountId);
-      const age = messageSyncAgeMs(meta, chatMid);
-      if (age == null || age > MESSAGE_LOCAL_STALE_MS) {
-        void enqueueTalkRpcBackground(accountId, () =>
-          fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch((err) => {
-            log.debug(
-              {
-                accountId,
-                chatMid,
-                err: err instanceof Error ? err.message : String(err),
-              },
-              "background message sync failed",
-            );
-          }),
-        );
-      }
-      const cacheDict = await readRangeStorage.load(accountId);
-      const cached = cacheDict[chatMid]?.ranges ?? [];
+      // local-first は本当に local-only にする。表示要求に便乗した履歴RPCは発火させない。
+      // 新着は push / delta、明示同期は force 経路が担当する。
       return local;
     }
   }

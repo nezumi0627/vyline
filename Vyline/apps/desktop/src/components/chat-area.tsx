@@ -1,4 +1,13 @@
-import { memo, useEffect, useMemo, useRef, useState, useCallback, type UIEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type UIEvent,
+} from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
@@ -207,43 +216,78 @@ function ChatAreaBase() {
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
 
-  // 先頭に居続けているときは、ページ追加後も次のローカル履歴を連続して取得する。
-  useEffect(() => {
-    const onOlderLoaded = (event: Event) => {
-      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
-      if (chatMid !== activeChatId) return;
-      const container = containerRef.current;
-      if (!container || container.scrollTop > 160) return;
-      window.requestAnimationFrame(() => {
-        window.dispatchEvent(
-          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-        );
-      });
-    };
-    window.addEventListener("vyline:older-messages-loaded", onOlderLoaded);
-    return () => window.removeEventListener("vyline:older-messages-loaded", onOlderLoaded);
-  }, [activeChatId, containerRef]);
+  const olderBoundaryArmedRef = useRef(true);
+  const lastUserScrollIntentAtRef = useRef(0);
+  const prependAnchorRef = useRef<{
+    chatMid: string;
+    messageCount: number;
+    oldestMessageId: string | null;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+
+  const requestOlderMessages = useCallback(() => {
+    if (!activeChatId || olderState.loading || !olderState.hasMore) return;
+    const container = containerRef.current;
+    if (container) {
+      prependAnchorRef.current = {
+        chatMid: activeChatId,
+        messageCount: chatMessages.length,
+        oldestMessageId: chatMessages[0]?.id ?? null,
+        scrollHeight: container.scrollHeight,
+        scrollTop: container.scrollTop,
+      };
+    }
+    window.dispatchEvent(
+      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+    );
+  }, [activeChatId, chatMessages.length, containerRef, olderState]);
 
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       onScroll(event);
-      if (event.currentTarget.scrollTop <= 160 && activeChatId) {
-        window.dispatchEvent(
-          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-        );
+      const top = event.currentTarget.scrollTop;
+      if (top > 240) {
+        olderBoundaryArmedRef.current = true;
+        return;
+      }
+      const userDriven = performance.now() - lastUserScrollIntentAtRef.current < 1_500;
+      if (
+        top <= 80 &&
+        userDriven &&
+        olderBoundaryArmedRef.current &&
+        olderState.hasMore &&
+        !olderState.loading
+      ) {
+        // wheel / touch / scrollbar 操作で実際に上端へ到達した時だけ1ページ。
+        // 初期レイアウトやプログラムによる scrollTop 変更では取得しない。
+        olderBoundaryArmedRef.current = false;
+        requestOlderMessages();
       }
     },
-    [activeChatId, onScroll],
+    [olderState.hasMore, olderState.loading, onScroll, requestOlderMessages],
   );
 
-  const requestOlderMessages = useCallback(() => {
-    if (!activeChatId || olderState.loading || !olderState.hasMore) return;
-    window.dispatchEvent(
-      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-    );
-  }, [activeChatId, olderState]);
+  // prepend 後も、読み込み前に見ていた位置を維持する。
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor || anchor.chatMid !== activeChatId) return;
+    if (chatMessages.length <= anchor.messageCount) return;
+    if ((chatMessages[0]?.id ?? null) === anchor.oldestMessageId) return;
+
+    const frame = requestAnimationFrame(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const addedHeight = Math.max(0, container.scrollHeight - anchor.scrollHeight);
+      container.scrollTop = anchor.scrollTop + addedHeight;
+      prependAnchorRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeChatId, chatMessages.length, containerRef]);
 
   useEffect(() => {
+    olderBoundaryArmedRef.current = true;
+    prependAnchorRef.current = null;
     setOlderState({ hasMore: true, loading: false });
     const onOlderState = (event: Event) => {
       const detail = (
@@ -254,7 +298,11 @@ function ChatAreaBase() {
         }>
       ).detail;
       if (detail?.chatMid !== activeChatId) return;
-      setOlderState({ hasMore: detail.hasMore ?? false, loading: detail.loading ?? false });
+      const next = { hasMore: detail.hasMore ?? false, loading: detail.loading ?? false };
+      if (!next.loading && !next.hasMore && prependAnchorRef.current?.chatMid === activeChatId) {
+        prependAnchorRef.current = null;
+      }
+      setOlderState(next);
     };
     window.addEventListener("vyline:older-messages-state", onOlderState);
     return () => window.removeEventListener("vyline:older-messages-state", onOlderState);
@@ -557,6 +605,15 @@ function ChatAreaBase() {
         <div
           ref={containerRef}
           onScroll={handleMessageScroll}
+          onWheel={() => {
+            lastUserScrollIntentAtRef.current = performance.now();
+          }}
+          onTouchStart={() => {
+            lastUserScrollIntentAtRef.current = performance.now();
+          }}
+          onPointerDown={() => {
+            lastUserScrollIntentAtRef.current = performance.now();
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             setPanel({ x: e.clientX, y: e.clientY });

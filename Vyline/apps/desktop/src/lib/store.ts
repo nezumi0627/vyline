@@ -71,7 +71,6 @@ const lastDeltaPollAt = new Map<string, number>();
 /** messageId → リアクションのキャッシュ（高速読み込み用） */
 const messageReactionCache = new Map<string, MessageReaction[]>();
 /** chatId → 進行中のギャップ backfill（重複抑止） */
-const backfillInflight = new Map<string, Promise<void>>();
 /** mid → プロフィール取得済み（重複 API 抑止） */
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
@@ -491,7 +490,6 @@ type State = {
   /** 楽観リアクション更新（UNDO は自分の全リアクション除去） */
   setMessageReaction: (messageId: string, reaction: "UNDO" | string, myMid: string) => void;
   fetchMessageHistory: (chatId: string, messageId: string) => Promise<Message["history"]>;
-  backfillChat: (chatId: string) => Promise<void>;
   pollMessagesDelta: (chatId: string) => Promise<void>;
   pollIncoming: () => Promise<void>;
   loadAnnouncements: (chatId: string) => Promise<void>;
@@ -568,7 +566,6 @@ export const useStore = create<State>()(
           readReceiptSent.clear();
           readReceiptInflight.clear();
           myMessageIdsByChat.clear();
-          backfillInflight.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
@@ -899,10 +896,14 @@ export const useStore = create<State>()(
                 : c;
             }),
           messages: (() => {
-            if (mappedMessages.length === 0 && st.messages.length > 0) return st.messages;
-            const pending = st.messages.filter(
-              (m) => m.id.startsWith("pending_") || m.status === "sending" || m.status === "failed",
-            );
+            if (!chatId) return [];
+
+            // hydrate は「現在のチャットの最新スナップショットを重ねる」だけにする。
+            // 既に表示済みの古い履歴を捨てると、送受信や contact 解決のたびに
+            // 数千件の履歴ウィンドウが初期ページへ巻き戻るため、同一チャット分は保持する。
+            const existingChat = st.messages.filter((m) => m.chatId === chatId);
+            if (mappedMessages.length === 0) return existingChat;
+
             mappedMessages.forEach((m) => {
               if (m.id) {
                 if (m.reactions?.length) {
@@ -912,12 +913,16 @@ export const useStore = create<State>()(
                 }
               }
             });
-            if (pending.length === 0) {
-              return mappedMessages;
-            }
-            const ids = new Set(mappedMessages.map((m) => m.id));
-            const keep = pending.filter((p) => !ids.has(p.id));
-            return [...mappedMessages, ...keep];
+
+            const merged = new Map<string, Message>();
+            for (const m of existingChat) merged.set(m.id, m);
+            // API / local DB 側の値を新しい正本として上書きする。
+            for (const m of mappedMessages) merged.set(m.id, m);
+
+            return [...merged.values()].sort((a, b) => {
+              if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+              return a.id.localeCompare(b.id);
+            });
           })(),
           activeChatId: st.activeChatId ?? chatId,
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
@@ -2009,23 +2014,8 @@ export const useStore = create<State>()(
                     : base;
                 }),
             }));
-            // ギャップ回復: 既知だが欠落のある chat を最新ページで修復
-            // （getMessageBoxes の lastMessageTime が store の最新より新しい）
-            const activeChatId = get().activeChatId;
-            const msgs = get().messages;
-            const candidates = res.chats
-              .filter((c) => {
-                const newest = msgs
-                  .filter((m) => m.chatId === c.mid)
-                  .reduce((t, m) => Math.max(t, m.createdAt), 0);
-                return newest > 0 && newest < (c.lastMessageTime ?? 0);
-              })
-              .sort((a, b) => (b.mid === activeChatId ? 1 : 0) - (a.mid === activeChatId ? 1 : 0));
-            for (const c of candidates.slice(0, 3)) {
-              void get()
-                .backfillChat(c.mid)
-                .catch(() => undefined);
-            }
+            // チャット一覧更新ではメッセージ履歴を触らない。
+            // 新着は push / delta、古い履歴はユーザー操作時のページングだけが担当する。
           }
         } catch {
           /* silent */
@@ -2169,12 +2159,27 @@ export const useStore = create<State>()(
                 }
                 return false;
               });
+              // refresh は最新50件を「置換」するのではなく、現在保持している履歴へ重ねる。
+              // これにより送信・既読更新・手動 refresh 後も読み込み済みの古い履歴を維持する。
               const mergedMap = new Map<string, Message>();
+              for (const m of existingChat) {
+                if (
+                  m.id.startsWith("pending_") ||
+                  m.status === "sending" ||
+                  m.status === "failed"
+                ) {
+                  continue;
+                }
+                mergedMap.set(m.id, m);
+              }
               for (const m of mapped) mergedMap.set(m.id, m);
               for (const m of keep) {
                 if (!mergedMap.has(m.id)) mergedMap.set(m.id, m);
               }
-              const forChat = [...mergedMap.values()].sort((a, b) => a.createdAt - b.createdAt);
+              const forChat = [...mergedMap.values()].sort((a, b) => {
+                if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
+                return a.id.localeCompare(b.id);
+              });
               return {
                 messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
                 chats: st.chats.map((c) =>
@@ -2635,31 +2640,6 @@ export const useStore = create<State>()(
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
-      },
-
-      backfillChat: async (chatId) => {
-        const accountId = get().accountId;
-        if (!accountId || !chatId) return;
-        const chatKey = accountChatKey(accountId, chatId);
-        const inflight = backfillInflight.get(chatKey);
-        if (inflight) return inflight;
-
-        let task!: Promise<void>;
-        task = (async () => {
-          try {
-            const res = await api.line.messages(accountId, chatId, 50, { force: true });
-            if (res.ok && res.messages?.length) {
-              get().mergeIncomingMessages(chatId, res.messages, { silent: true });
-            }
-          } catch {
-            /* silent */
-          }
-        })();
-        backfillInflight.set(chatKey, task);
-        void task.finally(() => {
-          if (backfillInflight.get(chatKey) === task) backfillInflight.delete(chatKey);
-        });
-        return task;
       },
 
       pollMessagesDelta: async (chatId) => {

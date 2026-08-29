@@ -403,12 +403,15 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const limitParam = Number(c.req.query("limit") ?? "30");
-  const limit = Math.min(Math.max(1, limitParam), 100);
+  const localOnly = c.req.query("local") === "1";
+  // ネットワーク RPC は従来通り最大100件。ローカル chatdb の再入室復元だけは、
+  // 前回ユーザーが見た深度を1回で戻せるよう上限を広げる。
+  const limitMax = localOnly ? 10_000 : 100;
+  const limit = Math.min(Math.max(1, limitParam), limitMax);
   const beforeMessageId = c.req.query("beforeMessageId") || undefined;
   const beforeDeliveredTimeRaw = c.req.query("beforeDeliveredTime");
   const beforeDeliveredTime = beforeDeliveredTimeRaw ? Number(beforeDeliveredTimeRaw) : undefined;
   const force = c.req.query("force") === "1";
-  const localOnly = c.req.query("local") === "1";
 
   try {
     const fetchOpts: {
@@ -423,11 +426,14 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
     }
     if (force) fetchOpts.force = true;
     if (localOnly) fetchOpts.localOnly = true;
-    const messages = await fetchMessages(accountId, chatMid, limit, fetchOpts);
+    const fetchLimit = localOnly ? limit + 1 : limit;
+    const fetched = await fetchMessages(accountId, chatMid, fetchLimit, fetchOpts);
+    const hasMore = localOnly ? fetched.length > limit : fetched.length >= limit;
+    const messages = localOnly && fetched.length > limit ? fetched.slice(0, limit) : fetched;
     return c.json({
       ok: true,
       messages,
-      hasMore: messages.length >= limit,
+      hasMore,
       fromCache: localOnly || (!force && !beforeMessageId),
     });
   } catch (err) {
