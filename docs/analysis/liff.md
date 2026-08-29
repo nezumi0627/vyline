@@ -19,7 +19,7 @@ LIFF access token は通常の LINE access token や Note/Album の ChannelToken
 
 ### `sender`
 
-今回追加する helper は namespace export される `liff` から利用する。
+namespace export される `liff` から利用できる。
 
 ```ts
 import { liff } from "@vyline/protocol/stack";
@@ -49,7 +49,41 @@ await client.liff.shareMessage(chatMid, message);
 
 ### `sender` と `sentBy` の違い
 
-既存 `text(body, sentBy)` の `sentBy` は `label` / `iconUrl` / `linkUrl` を持つ既存の footer metadata で、今回の `sender: { name, iconUrl }` とは別フィールド。互換性維持のため統合・置換しない。
+履歴上、`sentBy` は Vyline の初期 LIFF 実装から存在していた互換 metadata で、`label` / `iconUrl` / `linkUrl` を持つ。一方、`sender` は LINE Messaging API の正式な送信者表示カスタマイズで、`name` / `iconUrl` を持つ。
+
+そのため表示文字列・名前の正本は `sender.name`、アイコンは `sender.iconUrl` を優先する。LINE 公式の `sender` には URL フィールドがないため、URL が必要な場合だけ既存の `sentBy.linkUrl` を併用する。
+
+3項目をまとめて指定したい場合は `withAttribution()` を使う。
+
+```ts
+const message = liff.withAttribution(liff.text("Hello!"), {
+  name: "Cony",
+  iconUrl: "https://example.com/icon.png",
+  linkUrl: "https://example.com/profile",
+});
+```
+
+生成される payload:
+
+```json
+{
+  "type": "text",
+  "text": "Hello!",
+  "sender": {
+    "name": "Cony",
+    "iconUrl": "https://example.com/icon.png"
+  },
+  "sentBy": {
+    "label": "Cony",
+    "iconUrl": "https://example.com/icon.png",
+    "linkUrl": "https://example.com/profile"
+  }
+}
+```
+
+`withAttribution()` は常に正規の `sender` を生成し、`linkUrl` が指定された場合だけ同じ表示名・アイコンを `sentBy` にも複製して URL を保持する。名前・アイコンだけなら `withSender()`、名前・アイコン・URL の3項目なら `withAttribution()` を使う。
+
+`sentBy` を LINE 公式 schema として扱わないこと。現時点で LINE Developers の公式資料上に `sentBy` の仕様は確認できていない。
 
 ## LIFF feature 実装
 
