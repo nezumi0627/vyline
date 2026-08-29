@@ -32,7 +32,11 @@ import {
   IconEdit,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
-import { segmentTextWithSticon, segmentUnicodeEmoji, type SticonResource } from "@/utils/lineSticon";
+import {
+  segmentTextWithSticon,
+  segmentUnicodeEmoji,
+  type SticonResource,
+} from "@/utils/lineSticon";
 import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 
@@ -107,10 +111,12 @@ function findAlbumRecord(value: unknown, albumId: string): Record<string, unknow
   const result = objectRecord(root?.result) ?? root;
   const albums = result?.albums;
   if (!Array.isArray(albums)) return null;
-  return albums.find((album) => {
-    const record = objectRecord(album);
-    return String(record?.albumId ?? record?.id ?? "") === albumId;
-  }) as Record<string, unknown> | undefined ?? null;
+  return (
+    (albums.find((album) => {
+      const record = objectRecord(album);
+      return String(record?.albumId ?? record?.id ?? "") === albumId;
+    }) as Record<string, unknown> | undefined) ?? null
+  );
 }
 
 function noteSticons(post: Record<string, unknown> | null): SticonResource[] {
@@ -123,13 +129,15 @@ function noteSticons(post: Record<string, unknown> | null): SticonResource[] {
     if (!productId || !sticonId) return [];
     const S = Number(record?.S ?? record?.start);
     const E = Number(record?.E ?? record?.end);
-    return [{
-      productId,
-      sticonId,
-      ...(Number.isFinite(S) ? { S } : {}),
-      ...(Number.isFinite(E) ? { E } : {}),
-      ...(typeof record?.alt === "string" ? { alt: record.alt } : {}),
-    }];
+    return [
+      {
+        productId,
+        sticonId,
+        ...(Number.isFinite(S) ? { S } : {}),
+        ...(Number.isFinite(E) ? { E } : {}),
+        ...(typeof record?.alt === "string" ? { alt: record.alt } : {}),
+      },
+    ];
   });
 }
 
@@ -214,7 +222,9 @@ function PostNotificationCard({
               : "ノートが作成されました"}
           </p>
           {notification.kind === "album" && notification.mediaCount != null && (
-            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{notification.mediaCount}件のメディア</p>
+            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+              {notification.mediaCount}件のメディア
+            </p>
           )}
           {loading && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">読み込み中…</p>}
           {error && <p className="mt-2 text-xs text-[var(--vy-danger)]">{error}</p>}
@@ -247,7 +257,9 @@ function PostNotificationCard({
                 const objectId = String(item?.objectId ?? "");
                 const type = String(item?.type ?? "PHOTO").toUpperCase();
                 if (!objectId) return null;
-                const src = lineCdnProxy(`https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`);
+                const src = lineCdnProxy(
+                  `https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`,
+                );
                 return type === "VIDEO" ? (
                   <video
                     key={`${objectId}-${index}`}

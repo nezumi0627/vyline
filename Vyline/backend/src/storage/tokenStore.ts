@@ -139,7 +139,8 @@ export async function saveToken(
   const existing = tokens[accountId];
   const entry: TokenEntry = {
     authToken: token,
-    storageFile: meta?.storageFile ?? existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
+    storageFile:
+      meta?.storageFile ?? existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
     savedAt: new Date().toISOString(),
   };
   try {

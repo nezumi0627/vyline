@@ -108,15 +108,27 @@ export async function likeNote(
   });
 }
 
-export async function unlikeNote(client: VylineClient, homeId: string, postId: string): Promise<unknown> {
+export async function unlikeNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
   return await client.base.timeline.unlikePost({ contentId: postId, homeId });
 }
 
-export async function getNoteLike(client: VylineClient, homeId: string, postId: string): Promise<unknown> {
+export async function getNoteLike(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
   return await client.base.timeline.getLike({ contentId: postId, homeId });
 }
 
-export async function listNoteLikes(client: VylineClient, homeId: string, postId: string): Promise<unknown> {
+export async function listNoteLikes(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
   return await client.base.timeline.listLikes({ contentId: postId, homeId });
 }
 

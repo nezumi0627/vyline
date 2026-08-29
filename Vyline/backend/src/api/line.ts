@@ -188,18 +188,25 @@ lineRouter.post("/:accountId/notes/updates", async (c) => {
 
 lineRouter.post("/:accountId/notes", async (c) => {
   const accountId = c.req.param("accountId");
-    const body = await c.req.json<{
-      homeId?: string;
+  const body = await c.req.json<{
+    homeId?: string;
     text?: string;
     sharedPostId?: string;
     stickerIds?: string[];
     stickerPackageIds?: string[];
     mediaObjectIds?: string[];
-      mediaObjectTypes?: string[];
-      contents?: Record<string, unknown>;
-      postInfo?: Record<string, unknown>;
-    }>();
-  if (!body.homeId || (!body.text && !body.sharedPostId && !body.stickerIds?.length && !body.mediaObjectIds?.length && !body.contents)) {
+    mediaObjectTypes?: string[];
+    contents?: Record<string, unknown>;
+    postInfo?: Record<string, unknown>;
+  }>();
+  if (
+    !body.homeId ||
+    (!body.text &&
+      !body.sharedPostId &&
+      !body.stickerIds?.length &&
+      !body.mediaObjectIds?.length &&
+      !body.contents)
+  ) {
     return c.json({ ok: false, error: "homeId and note content required" }, 400);
   }
   try {
@@ -228,11 +235,15 @@ lineRouter.patch("/:accountId/notes/:postId", async (c) => {
       ...(Array.isArray(raw.stickerPackageIds)
         ? { stickerPackageIds: raw.stickerPackageIds.map(String) }
         : {}),
-      ...(Array.isArray(raw.mediaObjectIds) ? { mediaObjectIds: raw.mediaObjectIds.map(String) } : {}),
+      ...(Array.isArray(raw.mediaObjectIds)
+        ? { mediaObjectIds: raw.mediaObjectIds.map(String) }
+        : {}),
       ...(Array.isArray(raw.mediaObjectTypes)
         ? { mediaObjectTypes: raw.mediaObjectTypes.map(String) }
         : {}),
-      ...(raw.contents && typeof raw.contents === "object" ? { contents: raw.contents as Record<string, unknown> } : {}),
+      ...(raw.contents && typeof raw.contents === "object"
+        ? { contents: raw.contents as Record<string, unknown> }
+        : {}),
     };
     return c.json(await updateNote(client, homeId, postId, input));
   } catch (err) {
@@ -252,7 +263,14 @@ lineRouter.post("/:accountId/notes/:postId/like", async (c) => {
   try {
     const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await likeNote(client, body.homeId, postId, body.likeType as "1001" | "1002" | "1003" | "1004" | "1005" | "1006" | undefined));
+    return c.json(
+      await likeNote(
+        client,
+        body.homeId,
+        postId,
+        body.likeType as "1001" | "1002" | "1003" | "1004" | "1005" | "1006" | undefined,
+      ),
+    );
   } catch (err) {
     return handleError(err, c);
   }
@@ -266,7 +284,9 @@ lineRouter.delete("/:accountId/notes/:postId/like", async (c) => {
   try {
     const client = await getContentClient(accountId);
     return c.json(await unlikeNote(client, homeId, postId));
-  } catch (err) { return handleError(err, c); }
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.get("/:accountId/notes/:postId/like", async (c) => {
@@ -277,7 +297,9 @@ lineRouter.get("/:accountId/notes/:postId/like", async (c) => {
   try {
     const client = await getContentClient(accountId);
     return c.json(await getNoteLike(client, homeId, postId));
-  } catch (err) { return handleError(err, c); }
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.get("/:accountId/notes/:postId/likes", async (c) => {
@@ -288,7 +310,9 @@ lineRouter.get("/:accountId/notes/:postId/likes", async (c) => {
   try {
     const client = await getContentClient(accountId);
     return c.json(await listNoteLikes(client, homeId, postId));
-  } catch (err) { return handleError(err, c); }
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 lineRouter.post("/:accountId/notes/:postId/comments", async (c) => {
@@ -302,15 +326,17 @@ lineRouter.post("/:accountId/notes/:postId/comments", async (c) => {
     const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     const contentsList = body.imageObjectId
-      ? [{
-          categoryId: "media",
-          extData: {
-            objectId: body.imageObjectId,
-            type: "PHOTO",
-            obsNamespace: "cmt",
-            serviceName: "myhome",
+      ? [
+          {
+            categoryId: "media",
+            extData: {
+              objectId: body.imageObjectId,
+              type: "PHOTO",
+              obsNamespace: "cmt",
+              serviceName: "myhome",
+            },
           },
-        }]
+        ]
       : undefined;
     return c.json(await commentNote(client, body.homeId, postId, body.text ?? "", contentsList));
   } catch (err) {
@@ -409,8 +435,15 @@ lineRouter.get("/:accountId/albums", async (c) => {
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     const query = albumQuery(c);
     if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
-    return c.json(await listAlbums(client, query as { chatId: string; cursor?: string; orderBy?: string; include?: string }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await listAlbums(
+        client,
+        query as { chatId: string; cursor?: string; orderBy?: string; include?: string },
+      ),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.get("/:accountId/albums/preview", async (c) => {
   try {
@@ -418,30 +451,56 @@ lineRouter.get("/:accountId/albums/preview", async (c) => {
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     const query = albumQuery(c);
     if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
-    return c.json(await previewAlbums(client, query as { chatId: string; pageSize?: string; thumbnailCount?: string; viewType?: string }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await previewAlbums(
+        client,
+        query as { chatId: string; pageSize?: string; thumbnailCount?: string; viewType?: string },
+      ),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.post("/:accountId/albums", async (c) => {
-  const body = await c.req.json<{ chatId?: string; title?: string; modifyDuplicateTitle?: boolean }>();
-  if (!body.chatId || !body.title?.trim()) return c.json({ ok: false, error: "chatId and title required" }, 400);
+  const body = await c.req.json<{
+    chatId?: string;
+    title?: string;
+    modifyDuplicateTitle?: boolean;
+  }>();
+  if (!body.chatId || !body.title?.trim())
+    return c.json({ ok: false, error: "chatId and title required" }, 400);
   try {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await createAlbum(client, {
-      chatId: body.chatId,
-      title: body.title.trim(),
-      ...(body.modifyDuplicateTitle !== undefined ? { modifyDuplicateTitle: body.modifyDuplicateTitle } : {}),
-    }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await createAlbum(client, {
+        chatId: body.chatId,
+        title: body.title.trim(),
+        ...(body.modifyDuplicateTitle !== undefined
+          ? { modifyDuplicateTitle: body.modifyDuplicateTitle }
+          : {}),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.patch("/:accountId/albums/:albumId", async (c) => {
   const body = await c.req.json<{ chatId?: string; title?: string }>();
-  if (!body.chatId || !body.title?.trim()) return c.json({ ok: false, error: "chatId and title required" }, 400);
+  if (!body.chatId || !body.title?.trim())
+    return c.json({ ok: false, error: "chatId and title required" }, 400);
   try {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await updateAlbum(client, c.req.param("albumId"), { chatId: body.chatId, title: body.title.trim() }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await updateAlbum(client, c.req.param("albumId"), {
+        chatId: body.chatId,
+        title: body.title.trim(),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.delete("/:accountId/albums/:albumId", async (c) => {
   const chatId = c.req.query("chatId");
@@ -450,7 +509,9 @@ lineRouter.delete("/:accountId/albums/:albumId", async (c) => {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     return c.json(await deleteAlbum(client, c.req.param("albumId"), chatId));
-  } catch (err) { return handleError(err, c); }
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.post("/:accountId/albums/:albumId/share", async (c) => {
   const body = await c.req.json<{ chatId?: string }>();
@@ -459,7 +520,9 @@ lineRouter.post("/:accountId/albums/:albumId/share", async (c) => {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     return c.json(await shareAlbum(client, c.req.param("albumId"), body.chatId));
-  } catch (err) { return handleError(err, c); }
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.post("/:accountId/albums/:albumId/media", async (c) => {
   const chatId = c.req.query("chatId");
@@ -468,30 +531,51 @@ lineRouter.post("/:accountId/albums/:albumId/media", async (c) => {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     const contentType = c.req.header("content-type");
-    return c.json(await uploadAlbumMedia(client, c.req.param("albumId"), {
-      chatId,
-      data: await c.req.blob(),
-      ...(contentType ? { contentType } : {}),
-    }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await uploadAlbumMedia(client, c.req.param("albumId"), {
+        chatId,
+        data: await c.req.blob(),
+        ...(contentType ? { contentType } : {}),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.post("/:accountId/albums/:albumId/photos", async (c) => {
-  const body = await c.req.json<{ chatId?: string; photos?: Parameters<typeof addAlbumPhotos>[2]["photos"] }>();
-  if (!body.chatId || !body.photos?.length) return c.json({ ok: false, error: "chatId and photos required" }, 400);
+  const body = await c.req.json<{
+    chatId?: string;
+    photos?: Parameters<typeof addAlbumPhotos>[2]["photos"];
+  }>();
+  if (!body.chatId || !body.photos?.length)
+    return c.json({ ok: false, error: "chatId and photos required" }, 400);
   try {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await addAlbumPhotos(client, c.req.param("albumId"), { chatId: body.chatId, albumId: c.req.param("albumId"), photos: body.photos }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await addAlbumPhotos(client, c.req.param("albumId"), {
+        chatId: body.chatId,
+        albumId: c.req.param("albumId"),
+        photos: body.photos,
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.delete("/:accountId/albums/:albumId/photos", async (c) => {
   const body = await c.req.json<{ chatId?: string; photoIds?: string[] }>();
-  if (!body.chatId || !body.photoIds?.length) return c.json({ ok: false, error: "chatId and photoIds required" }, 400);
+  if (!body.chatId || !body.photoIds?.length)
+    return c.json({ ok: false, error: "chatId and photoIds required" }, 400);
   try {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await deleteAlbumPhotos(client, c.req.param("albumId"), body.chatId, body.photoIds));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await deleteAlbumPhotos(client, c.req.param("albumId"), body.chatId, body.photoIds),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.get("/:accountId/albums/:albumId/photos", async (c) => {
   try {
@@ -499,16 +583,20 @@ lineRouter.get("/:accountId/albums/:albumId/photos", async (c) => {
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     const query = albumQuery(c);
     if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
-    return c.json(await listAlbumPhotos(client, c.req.param("albumId"), {
-      chatId: query.chatId,
-      ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
-      ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
-      ...(query.orderBy !== undefined ? { orderBy: query.orderBy } : {}),
-      ...(query.include !== undefined ? { include: query.include } : {}),
-      ...(query.filterType !== undefined ? { filterType: query.filterType } : {}),
-      ...(query.targetUser !== undefined ? { targetUser: query.targetUser } : {}),
-    }));
-  } catch (err) { return handleError(err, c); }
+    return c.json(
+      await listAlbumPhotos(client, c.req.param("albumId"), {
+        chatId: query.chatId,
+        ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
+        ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+        ...(query.orderBy !== undefined ? { orderBy: query.orderBy } : {}),
+        ...(query.include !== undefined ? { include: query.include } : {}),
+        ...(query.filterType !== undefined ? { filterType: query.filterType } : {}),
+        ...(query.targetUser !== undefined ? { targetUser: query.targetUser } : {}),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 lineRouter.get("/:accountId/albums/:albumId/media/:oid", async (c) => {
   try {
@@ -525,11 +613,15 @@ lineRouter.get("/:accountId/albums/:albumId/media/:oid", async (c) => {
     return new Response(response.body, {
       status: 200,
       headers: {
-        "content-type": response.headers.get("content-type") ?? (mediaType === "video" ? "video/mp4" : "image/jpeg"),
+        "content-type":
+          response.headers.get("content-type") ??
+          (mediaType === "video" ? "video/mp4" : "image/jpeg"),
         "cache-control": "private, max-age=300",
       },
     });
-  } catch (err) { return handleError(err, c); }
+  } catch (err) {
+    return handleError(err, c);
+  }
 });
 
 // ─── Chat safety locks ─────────────────────────

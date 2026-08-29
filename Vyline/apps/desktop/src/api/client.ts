@@ -225,8 +225,7 @@ export const api = {
       accountId: string;
       authToken: string;
       deviceMode?: "IOS" | "IOSIPAD" | "ANDROIDSECONDARY" | "DESKTOPWIN" | "DESKTOPMAC";
-    }) =>
-      request<LoginResult>("POST", "/auth/login/token", params),
+    }) => request<LoginResult>("POST", "/auth/login/token", params),
 
     getToken: (accountId: string) =>
       request<{ ok: boolean; token?: string; error?: string }>(
@@ -1201,20 +1200,20 @@ export const api = {
           "GET",
           `/line/${accountId}/notes/${encodeURIComponent(postId)}?homeId=${encodeURIComponent(homeId)}`,
         ),
-        create: (
-          accountId: string,
-          input: {
-            homeId: string;
-            text?: string;
+      create: (
+        accountId: string,
+        input: {
+          homeId: string;
+          text?: string;
           sharedPostId?: string;
           stickerIds?: string[];
-            stickerPackageIds?: string[];
-            mediaObjectIds?: string[];
-            mediaObjectTypes?: string[];
-            contents?: Record<string, unknown>;
-            postInfo?: Record<string, unknown>;
-          },
-        ) => request<unknown>("POST", `/line/${accountId}/notes`, input),
+          stickerPackageIds?: string[];
+          mediaObjectIds?: string[];
+          mediaObjectTypes?: string[];
+          contents?: Record<string, unknown>;
+          postInfo?: Record<string, unknown>;
+        },
+      ) => request<unknown>("POST", `/line/${accountId}/notes`, input),
       update: (
         accountId: string,
         postId: string,
@@ -1223,42 +1222,43 @@ export const api = {
           text?: string;
           sharedPostId?: string;
           stickerIds?: string[];
-            stickerPackageIds?: string[];
-            mediaObjectIds?: string[];
-            mediaObjectTypes?: string[];
-            contents?: Record<string, unknown>;
-            postInfo?: Record<string, unknown>;
-          },
-        ) => request<unknown>("PATCH", `/line/${accountId}/notes/${encodeURIComponent(postId)}`, input),
+          stickerPackageIds?: string[];
+          mediaObjectIds?: string[];
+          mediaObjectTypes?: string[];
+          contents?: Record<string, unknown>;
+          postInfo?: Record<string, unknown>;
+        },
+      ) =>
+        request<unknown>("PATCH", `/line/${accountId}/notes/${encodeURIComponent(postId)}`, input),
       remove: (accountId: string, homeId: string, postId: string) =>
         request<unknown>(
           "DELETE",
           `/line/${accountId}/notes/${encodeURIComponent(postId)}?homeId=${encodeURIComponent(homeId)}`,
         ),
-        share: (accountId: string, postId: string, homeId: string) =>
-          request<unknown>("POST", `/line/${accountId}/notes/${encodeURIComponent(postId)}/share`, {
-            homeId,
-          }),
+      share: (accountId: string, postId: string, homeId: string) =>
+        request<unknown>("POST", `/line/${accountId}/notes/${encodeURIComponent(postId)}/share`, {
+          homeId,
+        }),
       like: (accountId: string, postId: string, homeId: string, likeType?: string) =>
-          request<unknown>("POST", `/line/${accountId}/notes/${encodeURIComponent(postId)}/like`, {
-            homeId,
-            likeType,
-          }),
-        unlike: (accountId: string, postId: string, homeId: string) =>
-          request<unknown>(
-            "DELETE",
-            `/line/${accountId}/notes/${encodeURIComponent(postId)}/like?homeId=${encodeURIComponent(homeId)}`,
-          ),
-        getLike: (accountId: string, postId: string, homeId: string) =>
-          request<unknown>(
-            "GET",
-            `/line/${accountId}/notes/${encodeURIComponent(postId)}/like?homeId=${encodeURIComponent(homeId)}`,
-          ),
-        listLikes: (accountId: string, postId: string, homeId: string) =>
-          request<unknown>(
-            "GET",
-            `/line/${accountId}/notes/${encodeURIComponent(postId)}/likes?homeId=${encodeURIComponent(homeId)}`,
-          ),
+        request<unknown>("POST", `/line/${accountId}/notes/${encodeURIComponent(postId)}/like`, {
+          homeId,
+          likeType,
+        }),
+      unlike: (accountId: string, postId: string, homeId: string) =>
+        request<unknown>(
+          "DELETE",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}/like?homeId=${encodeURIComponent(homeId)}`,
+        ),
+      getLike: (accountId: string, postId: string, homeId: string) =>
+        request<unknown>(
+          "GET",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}/like?homeId=${encodeURIComponent(homeId)}`,
+        ),
+      listLikes: (accountId: string, postId: string, homeId: string) =>
+        request<unknown>(
+          "GET",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}/likes?homeId=${encodeURIComponent(homeId)}`,
+        ),
       comment: (
         accountId: string,
         postId: string,
@@ -1266,11 +1266,15 @@ export const api = {
         text?: string,
         imageObjectId?: string,
       ) =>
-        request<unknown>("POST", `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments`, {
-          homeId,
-          text,
-          imageObjectId,
-        }),
+        request<unknown>(
+          "POST",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments`,
+          {
+            homeId,
+            text,
+            imageObjectId,
+          },
+        ),
       uploadMedia: (accountId: string, type: "image" | "video", blob: Blob) =>
         requestBlob<{ objId: string; objHash: string }>(
           "POST",
@@ -1285,45 +1289,67 @@ export const api = {
         ),
     },
 
-      albums: {
-        list: (accountId: string, query: Record<string, string> = {}) => {
-          const qs = new URLSearchParams(query).toString();
-          return request<unknown>("GET", `/line/${accountId}/albums${qs ? `?${qs}` : ""}`);
-        },
-        preview: (accountId: string, chatId: string) =>
-          request<unknown>("GET", `/line/${accountId}/albums/preview?chatId=${encodeURIComponent(chatId)}`),
-        create: (accountId: string, chatId: string, title: string) =>
-          request<unknown>("POST", `/line/${accountId}/albums`, { chatId, title }),
-        rename: (accountId: string, albumId: string, chatId: string, title: string) =>
-          request<unknown>("PATCH", `/line/${accountId}/albums/${encodeURIComponent(albumId)}`, { chatId, title }),
-        remove: (accountId: string, albumId: string, chatId: string) =>
-          request<unknown>(
-            "DELETE",
-            `/line/${accountId}/albums/${encodeURIComponent(albumId)}?chatId=${encodeURIComponent(chatId)}`,
-          ),
-        share: (accountId: string, albumId: string, chatId: string) =>
-          request<unknown>("POST", `/line/${accountId}/albums/${encodeURIComponent(albumId)}/share`, { chatId }),
-        uploadMedia: (accountId: string, albumId: string, chatId: string, blob: Blob) =>
-          requestBlob<{ oid: string }>(
-            "POST",
-            `/line/${accountId}/albums/${encodeURIComponent(albumId)}/media?chatId=${encodeURIComponent(chatId)}`,
-            blob,
-          ),
-        addPhotos: (
-          accountId: string,
-          albumId: string,
-          chatId: string,
-          photos: Array<{
-            obsResourceId: { oid: string; sid?: string; svc?: string };
-            width: number;
-            height: number;
-            shotTime?: number;
-            resourceType?: string;
-          }>,
-        ) => request<unknown>("POST", `/line/${accountId}/albums/${encodeURIComponent(albumId)}/photos`, { chatId, photos }),
-        deletePhotos: (accountId: string, albumId: string, chatId: string, photoIds: string[]) =>
-          request<unknown>("DELETE", `/line/${accountId}/albums/${encodeURIComponent(albumId)}/photos`, { chatId, photoIds }),
-      photos: (accountId: string, albumId: string, chatId: string, query: Record<string, string> = {}) => {
+    albums: {
+      list: (accountId: string, query: Record<string, string> = {}) => {
+        const qs = new URLSearchParams(query).toString();
+        return request<unknown>("GET", `/line/${accountId}/albums${qs ? `?${qs}` : ""}`);
+      },
+      preview: (accountId: string, chatId: string) =>
+        request<unknown>(
+          "GET",
+          `/line/${accountId}/albums/preview?chatId=${encodeURIComponent(chatId)}`,
+        ),
+      create: (accountId: string, chatId: string, title: string) =>
+        request<unknown>("POST", `/line/${accountId}/albums`, { chatId, title }),
+      rename: (accountId: string, albumId: string, chatId: string, title: string) =>
+        request<unknown>("PATCH", `/line/${accountId}/albums/${encodeURIComponent(albumId)}`, {
+          chatId,
+          title,
+        }),
+      remove: (accountId: string, albumId: string, chatId: string) =>
+        request<unknown>(
+          "DELETE",
+          `/line/${accountId}/albums/${encodeURIComponent(albumId)}?chatId=${encodeURIComponent(chatId)}`,
+        ),
+      share: (accountId: string, albumId: string, chatId: string) =>
+        request<unknown>("POST", `/line/${accountId}/albums/${encodeURIComponent(albumId)}/share`, {
+          chatId,
+        }),
+      uploadMedia: (accountId: string, albumId: string, chatId: string, blob: Blob) =>
+        requestBlob<{ oid: string }>(
+          "POST",
+          `/line/${accountId}/albums/${encodeURIComponent(albumId)}/media?chatId=${encodeURIComponent(chatId)}`,
+          blob,
+        ),
+      addPhotos: (
+        accountId: string,
+        albumId: string,
+        chatId: string,
+        photos: Array<{
+          obsResourceId: { oid: string; sid?: string; svc?: string };
+          width: number;
+          height: number;
+          shotTime?: number;
+          resourceType?: string;
+        }>,
+      ) =>
+        request<unknown>(
+          "POST",
+          `/line/${accountId}/albums/${encodeURIComponent(albumId)}/photos`,
+          { chatId, photos },
+        ),
+      deletePhotos: (accountId: string, albumId: string, chatId: string, photoIds: string[]) =>
+        request<unknown>(
+          "DELETE",
+          `/line/${accountId}/albums/${encodeURIComponent(albumId)}/photos`,
+          { chatId, photoIds },
+        ),
+      photos: (
+        accountId: string,
+        albumId: string,
+        chatId: string,
+        query: Record<string, string> = {},
+      ) => {
         const qs = new URLSearchParams({ chatId, ...query }).toString();
         return request<unknown>(
           "GET",
@@ -1336,7 +1362,8 @@ export const api = {
         oid: string,
         chatId: string,
         mediaType: "image" | "video" = "image",
-      ) => `/api/line/${accountId}/albums/${encodeURIComponent(albumId)}/media/${encodeURIComponent(oid)}?${new URLSearchParams({ chatId, mediaType })}`,
+      ) =>
+        `/api/line/${accountId}/albums/${encodeURIComponent(albumId)}/media/${encodeURIComponent(oid)}?${new URLSearchParams({ chatId, mediaType })}`,
     },
   },
   debug: {

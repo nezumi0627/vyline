@@ -88,10 +88,14 @@ function ErrorText({ error }: { error: string | null }) {
 function collectAlbums(value: unknown): Array<Record<string, unknown>> {
   if (!value || typeof value !== "object") return [];
   const root = value as Record<string, unknown>;
-  const result = root.result && typeof root.result === "object" ? root.result as Record<string, unknown> : root;
+  const result =
+    root.result && typeof root.result === "object"
+      ? (root.result as Record<string, unknown>)
+      : root;
   for (const key of ["albums", "items", "albumList"]) {
     const list = result[key];
-    if (Array.isArray(list)) return list.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+    if (Array.isArray(list))
+      return list.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
   }
   return [];
 }
@@ -99,14 +103,21 @@ function collectAlbums(value: unknown): Array<Record<string, unknown>> {
 function collectAlbumPhotos(value: unknown): Array<Record<string, unknown>> {
   if (!value || typeof value !== "object") return [];
   const root = value as Record<string, unknown>;
-  const result = root.result && typeof root.result === "object" ? root.result as Record<string, unknown> : root;
+  const result =
+    root.result && typeof root.result === "object"
+      ? (root.result as Record<string, unknown>)
+      : root;
   const photos = result.photos;
   return Array.isArray(photos)
     ? photos.filter((x): x is Record<string, unknown> => !!x && typeof x === "object")
     : [];
 }
 
-function AlbumModal({ accountId, chatId, onClose }: { accountId: string; chatId: string; onClose: () => void }) {
+function AlbumModal({
+  accountId,
+  chatId,
+  onClose,
+}: { accountId: string; chatId: string; onClose: () => void }) {
   const [albums, setAlbums] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [photos, setPhotos] = useState<Array<Record<string, unknown>>>([]);
@@ -126,7 +137,9 @@ function AlbumModal({ accountId, chatId, onClose }: { accountId: string; chatId:
     }
   };
 
-  useEffect(() => { void refresh(); }, [accountId, chatId]);
+  useEffect(() => {
+    void refresh();
+  }, [accountId, chatId]);
 
   const openAlbum = async (id: string) => {
     setSelectedId(id);
@@ -167,13 +180,15 @@ function AlbumModal({ accountId, chatId, onClose }: { accountId: string; chatId:
       });
       await runAlbum(async () => {
         const uploaded = await api.line.albums.uploadMedia(accountId, selectedId, chatId, file);
-        await api.line.albums.addPhotos(accountId, selectedId, chatId, [{
-          obsResourceId: { oid: uploaded.oid, sid: "a", svc: "album" },
-          width: dimensions.width,
-          height: dimensions.height,
-          shotTime: Date.now(),
-          resourceType: "IMAGE",
-        }]);
+        await api.line.albums.addPhotos(accountId, selectedId, chatId, [
+          {
+            obsResourceId: { oid: uploaded.oid, sid: "a", svc: "album" },
+            width: dimensions.width,
+            height: dimensions.height,
+            shotTime: Date.now(),
+            resourceType: "IMAGE",
+          },
+        ]);
       }, true);
     } finally {
       URL.revokeObjectURL(objectUrl);
@@ -184,49 +199,179 @@ function AlbumModal({ accountId, chatId, onClose }: { accountId: string; chatId:
     <Modal title="アルバム" onClose={onClose}>
       <ErrorText error={error} />
       <div className="mb-3 grid grid-cols-2 gap-2">
-        <button disabled={busy} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => {
-          const title = window.prompt("アルバム名");
-          if (title?.trim()) void runAlbum(() => api.line.albums.create(accountId, chatId, title.trim()));
-        }}>新規作成</button>
-        <button disabled={busy} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void api.line.albums.preview(accountId, chatId).catch((e) => setError(e instanceof Error ? e.message : String(e)))}>プレビュー確認</button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() => {
+            const title = window.prompt("アルバム名");
+            if (title?.trim())
+              void runAlbum(() => api.line.albums.create(accountId, chatId, title.trim()));
+          }}
+        >
+          新規作成
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() =>
+            void api.line.albums
+              .preview(accountId, chatId)
+              .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+          }
+        >
+          プレビュー確認
+        </button>
       </div>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-xs text-[var(--vy-text-dim)]">アルバム一覧</span>
-        <button type="button" disabled={busy} className="text-xs text-[var(--vy-accent)] disabled:opacity-50" onClick={() => void refresh()}>再読み込み</button>
+        <button
+          type="button"
+          disabled={busy}
+          className="text-xs text-[var(--vy-accent)] disabled:opacity-50"
+          onClick={() => void refresh()}
+        >
+          再読み込み
+        </button>
       </div>
       <div className="max-h-56 space-y-1 overflow-y-auto">
-        {albums.length === 0 ? <p className="py-5 text-center text-xs text-[var(--vy-text-dim)]">アルバムがありません</p> : albums.map((album, index) => {
-          const id = String(album.albumId ?? album.id ?? "");
-          const title = String(album.title ?? album.name ?? `アルバム ${index + 1}`);
-          return <button key={id || index} type="button" className={cn("w-full rounded-lg border px-3 py-2 text-left", selectedId === id ? "border-[var(--vy-accent)]" : "border-[var(--vy-border)]")} onClick={() => id && void openAlbum(id)}><span className="block truncate text-sm">{title}</span><span className="block truncate text-[10px] text-[var(--vy-text-dim)]">{id}</span></button>;
-        })}
+        {albums.length === 0 ? (
+          <p className="py-5 text-center text-xs text-[var(--vy-text-dim)]">アルバムがありません</p>
+        ) : (
+          albums.map((album, index) => {
+            const id = String(album.albumId ?? album.id ?? "");
+            const title = String(album.title ?? album.name ?? `アルバム ${index + 1}`);
+            return (
+              <button
+                key={id || index}
+                type="button"
+                className={cn(
+                  "w-full rounded-lg border px-3 py-2 text-left",
+                  selectedId === id ? "border-[var(--vy-accent)]" : "border-[var(--vy-border)]",
+                )}
+                onClick={() => id && void openAlbum(id)}
+              >
+                <span className="block truncate text-sm">{title}</span>
+                <span className="block truncate text-[10px] text-[var(--vy-text-dim)]">{id}</span>
+              </button>
+            );
+          })
+        )}
       </div>
       {selectedId && (
         <>
-        <div className="mt-3 grid grid-cols-2 gap-2">
-          <button disabled={busy} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => {
-            const title = window.prompt("新しいアルバム名");
-            if (title?.trim()) void runAlbum(() => api.line.albums.rename(accountId, selectedId, chatId, title.trim()));
-          }}>名前変更</button>
-          <button disabled={busy} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void runAlbum(() => api.line.albums.share(accountId, selectedId, chatId), false)}>共有</button>
-          <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">写真追加<input className="hidden" type="file" accept="image/*" onChange={(e) => { const f = e.target.files?.[0]; if (f) void uploadAlbumImage(f); e.currentTarget.value = ""; }} /></label>
-          <button disabled={busy} className="rounded-lg border border-red-500/40 py-2 text-red-400 disabled:opacity-50" onClick={() => void runAlbum(async () => { await api.line.albums.remove(accountId, selectedId, chatId); setSelectedId(""); setPhotos([]); })}>アルバム削除</button>
-        </div>
-        <div className="mt-3 grid max-h-64 grid-cols-3 gap-2 overflow-y-auto rounded-lg border border-[var(--vy-border)] p-2">
-          {photos.length === 0 ? <p className="col-span-3 py-4 text-center text-xs text-[var(--vy-text-dim)]">写真がありません</p> : photos.map((photo, index) => {
-            const resource = photo.obsResourceId && typeof photo.obsResourceId === "object" ? photo.obsResourceId as Record<string, unknown> : null;
-            const oid = String(photo.oid ?? resource?.oid ?? "");
-            const photoId = String(photo.photoId ?? photo.id ?? oid);
-            const isVideo = String(photo.resourceType ?? resource?.sid ?? "").toLowerCase() === "v";
-            if (!oid) return null;
-            const src = api.line.albums.mediaUrl(accountId, selectedId, oid, chatId, isVideo ? "video" : "image");
-            return <div key={`${oid}-${index}`} className="relative">{isVideo
-              ? <video src={src} controls preload="metadata" className="aspect-square w-full rounded-md object-cover" />
-              : <img src={src} alt="アルバム写真" loading="lazy" className="aspect-square w-full rounded-md object-cover" />}
-              <button type="button" className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white" onClick={() => void runAlbum(() => api.line.albums.deletePhotos(accountId, selectedId, chatId, [photoId]), true)}>削除</button>
-            </div>;
-          })}
-        </div>
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+              onClick={() => {
+                const title = window.prompt("新しいアルバム名");
+                if (title?.trim())
+                  void runAlbum(() =>
+                    api.line.albums.rename(accountId, selectedId, chatId, title.trim()),
+                  );
+              }}
+            >
+              名前変更
+            </button>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+              onClick={() =>
+                void runAlbum(() => api.line.albums.share(accountId, selectedId, chatId), false)
+              }
+            >
+              共有
+            </button>
+            <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">
+              写真追加
+              <input
+                className="hidden"
+                type="file"
+                accept="image/*"
+                onChange={(e) => {
+                  const f = e.target.files?.[0];
+                  if (f) void uploadAlbumImage(f);
+                  e.currentTarget.value = "";
+                }}
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy}
+              className="rounded-lg border border-red-500/40 py-2 text-red-400 disabled:opacity-50"
+              onClick={() =>
+                void runAlbum(async () => {
+                  await api.line.albums.remove(accountId, selectedId, chatId);
+                  setSelectedId("");
+                  setPhotos([]);
+                })
+              }
+            >
+              アルバム削除
+            </button>
+          </div>
+          <div className="mt-3 grid max-h-64 grid-cols-3 gap-2 overflow-y-auto rounded-lg border border-[var(--vy-border)] p-2">
+            {photos.length === 0 ? (
+              <p className="col-span-3 py-4 text-center text-xs text-[var(--vy-text-dim)]">
+                写真がありません
+              </p>
+            ) : (
+              photos.map((photo, index) => {
+                const resource =
+                  photo.obsResourceId && typeof photo.obsResourceId === "object"
+                    ? (photo.obsResourceId as Record<string, unknown>)
+                    : null;
+                const oid = String(photo.oid ?? resource?.oid ?? "");
+                const photoId = String(photo.photoId ?? photo.id ?? oid);
+                const isVideo =
+                  String(photo.resourceType ?? resource?.sid ?? "").toLowerCase() === "v";
+                if (!oid) return null;
+                const src = api.line.albums.mediaUrl(
+                  accountId,
+                  selectedId,
+                  oid,
+                  chatId,
+                  isVideo ? "video" : "image",
+                );
+                return (
+                  <div key={`${oid}-${index}`} className="relative">
+                    {isVideo ? (
+                      <video
+                        src={src}
+                        controls
+                        preload="metadata"
+                        className="aspect-square w-full rounded-md object-cover"
+                      />
+                    ) : (
+                      <img
+                        src={src}
+                        alt="アルバム写真"
+                        loading="lazy"
+                        className="aspect-square w-full rounded-md object-cover"
+                      />
+                    )}
+                    <button
+                      type="button"
+                      className="absolute right-1 top-1 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white"
+                      onClick={() =>
+                        void runAlbum(
+                          () =>
+                            api.line.albums.deletePhotos(accountId, selectedId, chatId, [photoId]),
+                          true,
+                        )
+                      }
+                    >
+                      削除
+                    </button>
+                  </div>
+                );
+              })
+            )}
+          </div>
         </>
       )}
     </Modal>
@@ -236,25 +381,34 @@ function AlbumModal({ accountId, chatId, onClose }: { accountId: string; chatId:
 function collectPosts(value: unknown): Array<Record<string, unknown>> {
   if (!value || typeof value !== "object") return [];
   const root = value as Record<string, unknown>;
-  const result = root.result && typeof root.result === "object" ? root.result as Record<string, unknown> : root;
+  const result =
+    root.result && typeof root.result === "object"
+      ? (root.result as Record<string, unknown>)
+      : root;
   for (const key of ["posts", "items", "postList", "feeds"]) {
     const list = result[key];
-    if (Array.isArray(list)) return list.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+    if (Array.isArray(list))
+      return list.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
   }
   return [];
 }
 
 function noteSummary(post: Record<string, unknown>): { id: string; text: string } {
-  const contents = post.contents && typeof post.contents === "object"
-    ? post.contents as Record<string, unknown>
-    : post;
+  const contents =
+    post.contents && typeof post.contents === "object"
+      ? (post.contents as Record<string, unknown>)
+      : post;
   return {
     id: String(post.postId ?? post.id ?? contents.postId ?? ""),
     text: String(contents.text ?? post.text ?? "").trim(),
   };
 }
 
-function NoteModal({ accountId, chatId, onClose }: { accountId: string; chatId: string; onClose: () => void }) {
+function NoteModal({
+  accountId,
+  chatId,
+  onClose,
+}: { accountId: string; chatId: string; onClose: () => void }) {
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [text, setText] = useState("");
@@ -277,14 +431,20 @@ function NoteModal({ accountId, chatId, onClose }: { accountId: string; chatId: 
     }
   };
 
-  useEffect(() => { void refresh(); }, [accountId, chatId]);
+  useEffect(() => {
+    void refresh();
+  }, [accountId, chatId]);
 
   const noteInput = () => ({
     homeId: chatId,
     ...(text.trim() ? { text: text.trim() } : {}),
     ...(sharedPostId.trim() ? { sharedPostId: sharedPostId.trim() } : {}),
-    ...(stickerId.trim() ? { stickerIds: [stickerId.trim()], stickerPackageIds: [stickerPackageId.trim() || "1"] } : {}),
-    ...(media.length ? { mediaObjectIds: media.map((m) => m.id), mediaObjectTypes: media.map((m) => m.type) } : {}),
+    ...(stickerId.trim()
+      ? { stickerIds: [stickerId.trim()], stickerPackageIds: [stickerPackageId.trim() || "1"] }
+      : {}),
+    ...(media.length
+      ? { mediaObjectIds: media.map((m) => m.id), mediaObjectTypes: media.map((m) => m.type) }
+      : {}),
   });
 
   const run = async (task: () => Promise<unknown>, after = true) => {
@@ -306,7 +466,10 @@ function NoteModal({ accountId, chatId, onClose }: { accountId: string; chatId: 
     try {
       const result = await api.line.notes.uploadMedia(accountId, type, file);
       if (!result.objId) throw new Error("メディアIDを取得できませんでした");
-      setMedia((prev) => [...prev, { id: result.objId, type: type === "video" ? "VIDEO" : "PHOTO" }]);
+      setMedia((prev) => [
+        ...prev,
+        { id: result.objId, type: type === "video" ? "VIDEO" : "PHOTO" },
+      ]);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -318,63 +481,227 @@ function NoteModal({ accountId, chatId, onClose }: { accountId: string; chatId: 
     <Modal title="ノート" onClose={onClose}>
       <ErrorText error={error} />
       <Field label="本文">
-        <textarea className={cn(inputCls, "min-h-24 resize-y")} value={text} onChange={(e) => setText(e.target.value)} placeholder="ノート本文" />
+        <textarea
+          className={cn(inputCls, "min-h-24 resize-y")}
+          value={text}
+          onChange={(e) => setText(e.target.value)}
+          placeholder="ノート本文"
+        />
       </Field>
       <div className="grid grid-cols-2 gap-2">
-        <Field label="スタンプID（任意）"><input className={inputCls} value={stickerId} onChange={(e) => setStickerId(e.target.value)} /></Field>
-        <Field label="パッケージID"><input className={inputCls} value={stickerPackageId} onChange={(e) => setStickerPackageId(e.target.value)} /></Field>
+        <Field label="スタンプID（任意）">
+          <input
+            className={inputCls}
+            value={stickerId}
+            onChange={(e) => setStickerId(e.target.value)}
+          />
+        </Field>
+        <Field label="パッケージID">
+          <input
+            className={inputCls}
+            value={stickerPackageId}
+            onChange={(e) => setStickerPackageId(e.target.value)}
+          />
+        </Field>
       </div>
-      <Field label="共有元 postId（任意）"><input className={inputCls} value={sharedPostId} onChange={(e) => setSharedPostId(e.target.value)} /></Field>
+      <Field label="共有元 postId（任意）">
+        <input
+          className={inputCls}
+          value={sharedPostId}
+          onChange={(e) => setSharedPostId(e.target.value)}
+        />
+      </Field>
       <Field label="画像・動画">
-        <input type="file" accept="image/*,video/*" multiple onChange={(e) => {
-          for (const file of Array.from(e.target.files ?? [])) void upload(file);
-          e.currentTarget.value = "";
-        }} />
-        {media.length > 0 && <p className="mt-1 text-xs text-[var(--vy-text-dim)]">アップロード済み {media.length}件</p>}
+        <input
+          type="file"
+          accept="image/*,video/*"
+          multiple
+          onChange={(e) => {
+            for (const file of Array.from(e.target.files ?? [])) void upload(file);
+            e.currentTarget.value = "";
+          }}
+        />
+        {media.length > 0 && (
+          <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+            アップロード済み {media.length}件
+          </p>
+        )}
       </Field>
       <div className="mb-4 grid grid-cols-2 gap-2">
-        <button disabled={busy} className="rounded-lg bg-[var(--vy-accent)] py-2 font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50" onClick={() => void run(() => api.line.notes.create(accountId, noteInput()))}>新規作成</button>
-        <button disabled={busy || !selectedId} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void run(() => api.line.notes.update(accountId, selectedId, noteInput()))}>選択ノートを更新</button>
+        <button
+          type="button"
+          disabled={busy}
+          className="rounded-lg bg-[var(--vy-accent)] py-2 font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+          onClick={() => void run(() => api.line.notes.create(accountId, noteInput()))}
+        >
+          新規作成
+        </button>
+        <button
+          type="button"
+          disabled={busy || !selectedId}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() => void run(() => api.line.notes.update(accountId, selectedId, noteInput()))}
+        >
+          選択ノートを更新
+        </button>
       </div>
       <div className="mb-3 flex items-center justify-between">
         <span className="text-xs text-[var(--vy-text-dim)]">ノート一覧</span>
-        <button type="button" className="text-xs text-[var(--vy-accent)]" onClick={() => void refresh()}>再読み込み</button>
+        <button
+          type="button"
+          className="text-xs text-[var(--vy-accent)]"
+          onClick={() => void refresh()}
+        >
+          再読み込み
+        </button>
       </div>
       <div className="mb-4 max-h-48 space-y-1 overflow-y-auto">
-        {posts.length === 0 ? <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">ノートがありません</p> : posts.map((post, index) => {
-          const item = noteSummary(post);
-          return (
-            <button type="button" key={item.id || index} className={cn("w-full rounded-lg border px-3 py-2 text-left", selectedId === item.id ? "border-[var(--vy-accent)]" : "border-[var(--vy-border)]")} onClick={() => { setSelectedId(item.id); setText(item.text); }}>
-              <span className="block truncate text-sm">{item.text || "（メディア/スタンプノート）"}</span>
-              <span className="block truncate text-[10px] text-[var(--vy-text-dim)]">{item.id}</span>
-            </button>
-          );
-        })}
+        {posts.length === 0 ? (
+          <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">ノートがありません</p>
+        ) : (
+          posts.map((post, index) => {
+            const item = noteSummary(post);
+            return (
+              <button
+                type="button"
+                key={item.id || index}
+                className={cn(
+                  "w-full rounded-lg border px-3 py-2 text-left",
+                  selectedId === item.id
+                    ? "border-[var(--vy-accent)]"
+                    : "border-[var(--vy-border)]",
+                )}
+                onClick={() => {
+                  setSelectedId(item.id);
+                  setText(item.text);
+                }}
+              >
+                <span className="block truncate text-sm">
+                  {item.text || "（メディア/スタンプノート）"}
+                </span>
+                <span className="block truncate text-[10px] text-[var(--vy-text-dim)]">
+                  {item.id}
+                </span>
+              </button>
+            );
+          })
+        )}
       </div>
       <Field label="コメント">
-        <div className="flex gap-2"><input className={cn(inputCls, "flex-1")} value={comment} onChange={(e) => setComment(e.target.value)} /><button disabled={busy || !selectedId || !comment.trim()} className="rounded-lg border border-[var(--vy-border)] px-3 disabled:opacity-50" onClick={() => void run(() => api.line.notes.comment(accountId, selectedId, chatId, comment.trim()), false)}>送信</button></div>
+        <div className="flex gap-2">
+          <input
+            className={cn(inputCls, "flex-1")}
+            value={comment}
+            onChange={(e) => setComment(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={busy || !selectedId || !comment.trim()}
+            className="rounded-lg border border-[var(--vy-border)] px-3 disabled:opacity-50"
+            onClick={() =>
+              void run(
+                () => api.line.notes.comment(accountId, selectedId, chatId, comment.trim()),
+                false,
+              )
+            }
+          >
+            送信
+          </button>
+        </div>
       </Field>
       <div className="grid grid-cols-2 gap-2">
-        <select className={inputCls} value={likeType} onChange={(e) => setLikeType(e.target.value)}>{["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => <option key={v} value={v}>リアクション {v}</option>)}</select>
-        <button disabled={busy || !selectedId} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)}>リアクション</button>
-        <button disabled={busy || !selectedId} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)}>リアクション解除</button>
-        <button disabled={busy || !selectedId} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void run(async () => { const [mine, list] = await Promise.all([api.line.notes.getLike(accountId, selectedId, chatId), api.line.notes.listLikes(accountId, selectedId, chatId)]); setLikeInfo(JSON.stringify({ mine, list })); }, false)}>リアクション確認</button>
-        <button disabled={busy || !selectedId} className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50" onClick={() => void run(() => api.line.notes.share(accountId, selectedId, chatId), false)}>このチャットへ共有</button>
+        <select className={inputCls} value={likeType} onChange={(e) => setLikeType(e.target.value)}>
+          {["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => (
+            <option key={v} value={v}>
+              リアクション {v}
+            </option>
+          ))}
+        </select>
+        <button
+          type="button"
+          disabled={busy || !selectedId}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() =>
+            void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)
+          }
+        >
+          リアクション
+        </button>
+        <button
+          type="button"
+          disabled={busy || !selectedId}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() =>
+            void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)
+          }
+        >
+          リアクション解除
+        </button>
+        <button
+          type="button"
+          disabled={busy || !selectedId}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() =>
+            void run(async () => {
+              const [mine, list] = await Promise.all([
+                api.line.notes.getLike(accountId, selectedId, chatId),
+                api.line.notes.listLikes(accountId, selectedId, chatId),
+              ]);
+              setLikeInfo(JSON.stringify({ mine, list }));
+            }, false)
+          }
+        >
+          リアクション確認
+        </button>
+        <button
+          type="button"
+          disabled={busy || !selectedId}
+          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+          onClick={() => void run(() => api.line.notes.share(accountId, selectedId, chatId), false)}
+        >
+          このチャットへ共有
+        </button>
         <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">
           コメント画像
-          <input type="file" accept="image/*" className="hidden" onChange={(e) => {
-            const file = e.target.files?.[0];
-            if (!file || !selectedId) return;
-            void run(async () => {
-              const uploaded = await api.line.notes.uploadCommentImage(accountId, file);
-              await api.line.notes.comment(accountId, selectedId, chatId, comment.trim(), uploaded.objId);
-            }, false);
-            e.currentTarget.value = "";
-          }} />
+          <input
+            type="file"
+            accept="image/*"
+            className="hidden"
+            onChange={(e) => {
+              const file = e.target.files?.[0];
+              if (!file || !selectedId) return;
+              void run(async () => {
+                const uploaded = await api.line.notes.uploadCommentImage(accountId, file);
+                await api.line.notes.comment(
+                  accountId,
+                  selectedId,
+                  chatId,
+                  comment.trim(),
+                  uploaded.objId,
+                );
+              }, false);
+              e.currentTarget.value = "";
+            }}
+          />
         </label>
-        <button disabled={busy || !selectedId} className="rounded-lg border border-red-500/40 py-2 text-red-400 disabled:opacity-50" onClick={() => void run(async () => { await api.line.notes.remove(accountId, chatId, selectedId); setSelectedId(""); setText(""); })}>削除</button>
+        <button
+          type="button"
+          disabled={busy || !selectedId}
+          className="rounded-lg border border-red-500/40 py-2 text-red-400 disabled:opacity-50"
+          onClick={() =>
+            void run(async () => {
+              await api.line.notes.remove(accountId, chatId, selectedId);
+              setSelectedId("");
+              setText("");
+            })
+          }
+        >
+          削除
+        </button>
       </div>
-      {likeInfo && <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>}
+      {likeInfo && (
+        <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>
+      )}
     </Modal>
   );
 }

@@ -979,7 +979,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       op: "deleteAlbum",
       summary: "アルバム削除",
       tags: ["albums"],
-      params: [acc, pathParam("albumId", "アルバム ID"), queryParam("chatId", "対象チャット ID", true)],
+      params: [
+        acc,
+        pathParam("albumId", "アルバム ID"),
+        queryParam("chatId", "対象チャット ID", true),
+      ],
       responses: { "200": jsonRes("削除結果") },
     },
   ],
@@ -1002,7 +1006,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       op: "uploadAlbumMedia",
       summary: "アルバム用画像・動画アップロード",
       tags: ["albums"],
-      params: [acc, pathParam("albumId", "アルバム ID"), queryParam("chatId", "対象チャット ID", true)],
+      params: [
+        acc,
+        pathParam("albumId", "アルバム ID"),
+        queryParam("chatId", "対象チャット ID", true),
+      ],
       requestBody: {
         required: true,
         content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },

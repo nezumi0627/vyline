@@ -71,8 +71,9 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
   })();
   const homeId = String(meta.chatId ?? meta.homeId ?? params?.get("homeId") ?? "") || undefined;
   const albumId =
-    String(meta.cafeId ?? meta.albumId ?? params?.get("albumIdV2") ?? params?.get("albumId") ?? "") ||
-    undefined;
+    String(
+      meta.cafeId ?? meta.albumId ?? params?.get("albumIdV2") ?? params?.get("albumId") ?? "",
+    ) || undefined;
   const postId =
     String(meta.postId ?? meta.POST_ID ?? meta.noteId ?? params?.get("postId") ?? "") || undefined;
   const previewMedias = (() => {
@@ -87,10 +88,15 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
           const media = item as Record<string, unknown>;
           const mediaOid = typeof media.mediaOid === "string" ? media.mediaOid : "";
           return mediaOid
-            ? { mediaOid, mediaType: typeof media.mediaType === "string" ? media.mediaType : undefined }
+            ? {
+                mediaOid,
+                mediaType: typeof media.mediaType === "string" ? media.mediaType : undefined,
+              }
             : null;
         })
-        .filter((item): item is { mediaOid: string; mediaType: string | undefined } => Boolean(item));
+        .filter((item): item is { mediaOid: string; mediaType: string | undefined } =>
+          Boolean(item),
+        );
     } catch {
       return undefined;
     }

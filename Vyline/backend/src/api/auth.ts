@@ -200,7 +200,9 @@ authRouter.post("/content/qr", async (c) => {
     log.info({ accountId: body.accountId, urlReady: Boolean(url) }, "content QR URL ready");
   })
     .then(() => log.info({ accountId: body.accountId }, "content QR login completed"))
-    .catch((err: unknown) => log.error({ accountId: body.accountId, err }, "content QR login failed"));
+    .catch((err: unknown) =>
+      log.error({ accountId: body.accountId, err }, "content QR login failed"),
+    );
 
   return c.json({
     ok: true,
@@ -260,7 +262,13 @@ authRouter.post("/login/token", async (c) => {
 
   try {
     const deviceMode = body.deviceMode?.trim().toUpperCase();
-    const allowedDeviceModes = new Set(["IOS", "IOSIPAD", "ANDROIDSECONDARY", "DESKTOPWIN", "DESKTOPMAC"]);
+    const allowedDeviceModes = new Set([
+      "IOS",
+      "IOSIPAD",
+      "ANDROIDSECONDARY",
+      "DESKTOPWIN",
+      "DESKTOPMAC",
+    ]);
     if (deviceMode && !allowedDeviceModes.has(deviceMode)) {
       return c.json({ ok: false, error: "invalid deviceMode" }, 400);
     }

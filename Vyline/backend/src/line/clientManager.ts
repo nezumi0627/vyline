@@ -646,7 +646,12 @@ export async function loginContentWithQRCode(
 ): Promise<VylineClient> {
   if (!clients.get(accountId)?.client) throw new Error("not logged in");
 
-  const state: { url: string | null; expired: boolean; pincode: string | null; inProgress: boolean } = {
+  const state: {
+    url: string | null;
+    expired: boolean;
+    pincode: string | null;
+    inProgress: boolean;
+  } = {
     url: null,
     expired: false,
     pincode: null,
