@@ -15,6 +15,7 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
+import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
 import {
@@ -5074,6 +5075,9 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
     const found = await findStoredMessageByIdLocal(accountId, messageId);
+    if (!found) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message timestamp unavailable");
+    }
     const chatMid = found?.chatMid;
     if (chatMid) await assertChatUnlocked(accountId, chatMid);
     if (found) {
@@ -5085,6 +5089,10 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
         stored.contentType === "UNSEND"
       ) {
         throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+      }
+      const premium = await fetchPremiumStatus(accountId);
+      if (!canUnsendMessage(stored.createdTime, premium.active)) {
+        throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
       }
     }
     const client = requireClient(accountId);
