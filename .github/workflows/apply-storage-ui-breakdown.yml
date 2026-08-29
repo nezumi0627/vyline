@@ -1,0 +1,189 @@
+name: Apply storage UI breakdown fix
+
+on:
+  push:
+    branches:
+      - fix/storage-ui-breakdown
+
+permissions:
+  contents: write
+
+jobs:
+  apply:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          submodules: recursive
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Patch storage reporting UI
+        shell: bash
+        run: |
+          python3 <<'PY'
+          from pathlib import Path
+
+          def replace_once(text: str, old: str, new: str, label: str) -> str:
+              count = text.count(old)
+              if count != 1:
+                  raise SystemExit(f"{label}: expected exactly 1 match, found {count}")
+              return text.replace(old, new, 1)
+
+          # Backend: expose both persistent roots so Linux/Docker does not present
+          # one path as if it were a Windows drive letter.
+          backend_path = Path("Vyline/backend/src/storage/vylineStorageInfo.ts")
+          backend = backend_path.read_text()
+          backend = replace_once(
+              backend,
+              "    driveLetter,\n    storagePath: diskTarget,\n",
+              "    driveLetter,\n    dataPath: VYLINE_DATA_DIR,\n    storagePath: VYLINE_STORAGE_DIR,\n",
+              "backend persistent paths",
+          )
+          backend_path.write_text(backend)
+
+          # API typing for the extra storage metadata already returned by backend.
+          api_path = Path("Vyline/apps/desktop/src/api/client.ts")
+          api = api_path.read_text()
+          api = replace_once(
+              api,
+              "        driveLetter?: string;\n        disk?: { totalBytes: number; freeBytes: number; usedBytes: number };\n        vylineTotal: number;\n",
+              "        driveLetter?: string;\n        dataPath?: string;\n        storagePath?: string;\n        dataSize?: number;\n        storageSize?: number;\n        disk?: { totalBytes: number; freeBytes: number; usedBytes: number };\n        vylineTotal: number;\n",
+              "frontend storage API type",
+          )
+          api_path.write_text(api)
+
+          settings_path = Path("Vyline/apps/desktop/src/components/settings-sections.tsx")
+          text = settings_path.read_text()
+          start = text.index("function StorageSection() {")
+          end = text.index("\nfunction TypeCard(", start)
+          section = text[start:end]
+
+          section = replace_once(
+              section,
+              "    driveLetter?: string;\n    disk?: { totalBytes: number; freeBytes: number; usedBytes: number };\n",
+              "    driveLetter?: string;\n    dataPath?: string;\n    storagePath?: string;\n    disk?: { totalBytes: number; freeBytes: number; usedBytes: number };\n",
+              "StorageSection state type",
+          )
+          section = replace_once(
+              section,
+              "        driveLetter: \"DEMO\",\n        disk: {\n",
+              "        driveLetter: \"DEMO\",\n        dataPath: \"/app/data\",\n        storagePath: \"/app/storage\",\n        disk: {\n",
+              "demo storage paths",
+          )
+
+          section = replace_once(
+              section,
+              "  const segments = storage\n    ? [\n",
+              "  const removableTotal = storage ? storage.cacheSize + storage.savedMediaSize : 0;\n"
+              "  const appDataSize = storage ? Math.max(0, storage.vylineTotal - removableTotal) : 0;\n"
+              "  const persistentPathLabel =\n"
+              "    storage?.dataPath && storage?.storagePath && storage.dataPath !== storage.storagePath\n"
+              "      ? `${storage.dataPath} + ${storage.storagePath}`\n"
+              "      : storage?.storagePath ?? storage?.dataPath ?? storage?.driveLetter ?? \"---\";\n\n"
+              "  const segments = storage\n"
+              "    ? [\n"
+              "        {\n"
+              "          key: \"app-data\",\n"
+              "          label: \"トーク履歴・設定\",\n"
+              "          size: appDataSize,\n"
+              "          color: \"#f59e0b\",\n"
+              "        },\n",
+              "storage totals and app-data segment",
+          )
+
+          section = replace_once(
+              section,
+              "                  ドライブ {storage.driveLetter ?? \"---\"}\n",
+              "                  保存先 {persistentPathLabel}\n",
+              "storage path label",
+          )
+          section = replace_once(
+              section,
+              "                  CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。\n",
+              "                  トーク履歴・設定・バックアップ・キャッシュ・保存メディアを含むVyline全体の使用量です。\n",
+              "storage summary description",
+          )
+          section = replace_once(
+              section,
+              "<p className=\"text-xs text-[var(--vy-text-dim)]\">ドライブ使用率</p>",
+              "<p className=\"text-xs text-[var(--vy-text-dim)]\">保存先の使用率</p>",
+              "filesystem usage label",
+          )
+          section = replace_once(
+              section,
+              "                <span>保存データの内訳</span>\n",
+              "                <span>Vyline使用量の内訳</span>\n",
+              "breakdown title",
+          )
+          section = replace_once(
+              section,
+              "              <div className=\"h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]\">\n",
+              "              <div className=\"flex h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]\">\n",
+              "stacked usage bar",
+          )
+          section = replace_once(
+              section,
+              "          <p className=\"text-base font-semibold\">保存データ</p>\n"
+              "          <p className=\"mt-1 text-xs text-[var(--vy-text-dim)]\">\n"
+              "            不要なデータを種類ごとに削除できます。\n"
+              "          </p>\n",
+              "          <p className=\"text-base font-semibold\">削除可能なデータ</p>\n"
+              "          <p className=\"mt-1 text-xs text-[var(--vy-text-dim)]\">\n"
+              "            キャッシュと保存済みメディアだけを削除できます。トーク履歴・設定・バックアップは保持されます。\n"
+              "          </p>\n",
+              "removable data heading",
+          )
+          section = replace_once(
+              section,
+              "            {formatBytes(storage.cacheSize + storage.savedMediaSize)}\n",
+              "            {formatBytes(removableTotal)}\n",
+              "removable data total",
+          )
+
+          replacements = {
+              "storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0":
+                  "removableTotal > 0 ? (storage?.cache.cdn ?? 0) / removableTotal : 0",
+              "storage && storage.vylineTotal > 0 ? storage.cache.icons / storage.vylineTotal : 0":
+                  "removableTotal > 0 ? (storage?.cache.icons ?? 0) / removableTotal : 0",
+              "storage && storage.vylineTotal > 0 ? storage.savedMedia.image / storage.vylineTotal : 0":
+                  "removableTotal > 0 ? (storage?.savedMedia.image ?? 0) / removableTotal : 0",
+              "storage && storage.vylineTotal > 0 ? storage.savedMedia.video / storage.vylineTotal : 0":
+                  "removableTotal > 0 ? (storage?.savedMedia.video ?? 0) / removableTotal : 0",
+              "storage && storage.vylineTotal > 0 ? storage.savedMedia.audio / storage.vylineTotal : 0":
+                  "removableTotal > 0 ? (storage?.savedMedia.audio ?? 0) / removableTotal : 0",
+              "storage && storage.vylineTotal > 0 ? storage.savedMedia.file / storage.vylineTotal : 0":
+                  "removableTotal > 0 ? (storage?.savedMedia.file ?? 0) / removableTotal : 0",
+          }
+          for old, new in replacements.items():
+              section = replace_once(section, old, new, f"ratio: {old}")
+
+          text = text[:start] + section + text[end:]
+          settings_path.write_text(text)
+          PY
+
+      - name: Typecheck and build
+        shell: bash
+        run: |
+          set -euo pipefail
+          bun install --ignore-scripts
+          bun run --cwd Vyline/backend typecheck
+          bun run --cwd Vyline/apps/desktop typecheck
+          bun run build
+
+      - name: Commit verified fix to main
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -f .github/workflows/apply-storage-ui-breakdown.yml
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add Vyline/backend/src/storage/vylineStorageInfo.ts \
+                  Vyline/apps/desktop/src/api/client.ts \
+                  Vyline/apps/desktop/src/components/settings-sections.tsx \
+                  .github/workflows/apply-storage-ui-breakdown.yml
+          git commit -m "fix: make storage breakdown match total usage"
+          git push origin HEAD:main
