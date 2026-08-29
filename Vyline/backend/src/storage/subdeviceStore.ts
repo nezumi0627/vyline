@@ -175,7 +175,10 @@ export async function listSubdevices() {
   return devices.map(toSafeDevice);
 }
 
-async function resolveSubdeviceSession(raw: string, installationId?: string): Promise<Subdevice | null> {
+async function resolveSubdeviceSession(
+  raw: string,
+  installationId?: string,
+): Promise<Subdevice | null> {
   const state = await load();
   const device = state.devices.find((d) => d.tokenHash === hash(raw));
   if (!device || device.blocked) return null;
