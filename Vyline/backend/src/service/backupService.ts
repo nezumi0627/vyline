@@ -76,10 +76,13 @@ function snapshotPath(id: string): string {
   return join(BACKUP_DIR, `${id}.json`);
 }
 
+function backupAccountComponent(accountId: string): string {
+  return safePathComponent(accountId, "account").replace(/\.+/g, "_");
+}
+
 function idFor(accountId: string, date: Date): string {
   const stamp = date.toISOString().replace(/[:.]/g, "-");
-  const safeAccountId = safePathComponent(accountId, "account");
-  return `vyline-backup-${safeAccountId}-${stamp}`;
+  return `vyline-backup-${backupAccountComponent(accountId)}-${stamp}`;
 }
 
 function asString(v: unknown): string {
@@ -187,7 +190,7 @@ export async function createBackup(
 
 export async function listBackups(accountId: string): Promise<BackupSummary[]> {
   await ensureBackupDir();
-  const prefix = `vyline-backup-${safePathComponent(accountId, "account")}-`;
+  const prefix = `vyline-backup-${backupAccountComponent(accountId)}-`;
   let files: string[] = [];
   try {
     files = await readdir(BACKUP_DIR);
