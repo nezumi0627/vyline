@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 
 const root = new URL("..", import.meta.url).pathname.replace(/^\/(\w):/, "$1:");
 const source = readFileSync(`${root}/README.src.md`, "utf8").replace(/\r\n/g, "\n");
@@ -15,7 +15,12 @@ if (languages.length === 0 || !languages.includes(defaultLanguage)) {
 const body = source.split("\n").filter((line) => !/^<!--@(languages|default)=/.test(line));
 
 for (const language of languages) {
-  const output = body
+  const translatedSourcePath = `${root}/README.${language}.src.md`;
+  const languageBody =
+    language !== defaultLanguage && existsSync(translatedSourcePath)
+      ? readFileSync(translatedSourcePath, "utf8").replace(/\r\n/g, "\n").split("\n")
+      : body;
+  const output = languageBody
     .flatMap((line) => {
       const match = line.match(/^(.*)<!--([a-z-]+)-->$/);
       return !match || match[2] === language ? [match ? match[1] : line] : [];
@@ -26,7 +31,8 @@ for (const language of languages) {
     .concat("\n");
 
   const outputPath = language === defaultLanguage ? `${root}/README.md` : `${root}/README.${language}.md`;
-  const generated = `<!-- GENERATED FILE. Edit README.src.md, then run bun run docs:readme. -->\n<!-- Language: ${language} -->\n\n${output}`;
+  const sourceName = language !== defaultLanguage && existsSync(translatedSourcePath) ? `README.${language}.src.md` : "README.src.md";
+  const generated = `<!-- GENERATED FILE. Edit ${sourceName}, then run bun run docs:readme. -->\n<!-- Language: ${language} -->\n\n${output}`;
 
   if (check) {
     const current = normalizeGenerated(readFileSync(outputPath, "utf8"));

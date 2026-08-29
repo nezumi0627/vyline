@@ -1,6 +1,3 @@
-<!-- GENERATED FILE. Edit README.en.src.md, then run bun run docs:readme. -->
-<!-- Language: en -->
-
 [日本語](README.md)
 
 <h1 align="center">Vyline <sup>Beta</sup></h1>
