@@ -19,6 +19,7 @@ import { childLogger } from "../logger.js";
 import {
   saveToken,
   getToken,
+  storagePathForAccount,
   loadTokens,
   deleteToken,
   updateSessionMeta,
@@ -184,21 +185,11 @@ export async function withTalkChannelIdle<T>(
   return enqueueTalkRpcBackground(accountId, work);
 }
 
-import { dirname, join as pathJoin } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const _dir = dirname(fileURLToPath(import.meta.url));
-
-function storagePathFor(accountId: string): string {
-  const dataDir = process.env.VYLINE_DATA_DIR ?? pathJoin(_dir, "../../data");
-  return `${dataDir}/storage-${accountId}.json`;
-}
-
 function loginInit(accountId: string) {
   const deviceMode = process.env.VYLINE_DEVICE;
   return {
     profile: getVylineProfile(),
-    storagePath: storagePathFor(accountId),
+    storagePath: storagePathForAccount(accountId),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
@@ -568,11 +559,7 @@ export async function loginWithAuthToken(
   authToken: string,
   deviceMode?: string,
 ): Promise<VylineClient> {
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const _dir = dirname(fileURLToPath(import.meta.url));
-  const dataDir = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-  const storagePath = join(dataDir, `storage-${accountId}.json`);
+  const storagePath = storagePathForAccount(accountId);
 
   log.info({ accountId }, "login with authToken via Vyline");
 
@@ -672,7 +659,7 @@ export async function loginContentWithQRCode(
       },
       {
         profile: getVylineProfile(),
-        storagePath: `${storagePathFor(accountId)}.content-secondary`,
+        storagePath: `${storagePathForAccount(accountId)}.content-secondary`,
         deviceMode: "ANDROIDSECONDARY",
       },
     );
@@ -680,7 +667,7 @@ export async function loginContentWithQRCode(
     const token = client.authToken ?? client.base.authToken;
     if (!token) throw new Error("content login completed without auth token");
     await saveToken(contentTokenId(accountId), token, {
-      storageFile: `${storagePathFor(accountId)}.content-secondary`,
+      storageFile: `${storagePathForAccount(accountId)}.content-secondary`,
     });
     contentClients.set(accountId, Promise.resolve(client));
     state.url = null;

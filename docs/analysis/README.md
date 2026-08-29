@@ -26,6 +26,7 @@ agents は `bun run vyline:delta` のレポートが指す feature ごとに、�
 | sbc-key-restore          | [sbc-key-restore.md](./sbc-key-restore.md)       | SBC クラウドバックアップ鍵取り出し（/EKBS4・/LKBS4） |
 | ios-backup-history       | [ios-backup-history-extraction.md](./ios-backup-history-extraction.md) | iOS バックアップ履歴取り出し作業の全経緯・手順       |
 | calls                    | [calls.md](./calls.md)                           |                                                      |
+| token-lifecycle          | [token-lifecycle.md](./token-lifecycle.md)       | auth / refresh / channel / request token と安全な引き継ぎ |
 
 **ドキュメント索引**
 

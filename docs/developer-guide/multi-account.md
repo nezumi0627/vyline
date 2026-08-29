@@ -12,7 +12,8 @@ Vyline はログインセッションの `accountId` と、設定・引継ぎ・
 | Setup 進捗 | `settings.json` 内の `setup` | ✅ MID ごと。途中再開・完了済み判定に使用 |
 | 引継ぎ記録 | `data/accounts/<safe-mid>/handoff.json` | ✅ MID ごと。認証情報は含めない |
 | 診断ログ | `data/logs/diagnostics-<safe-mid>.jsonl` | ✅ MID ごと。保存前にマスキング |
-| セッション / トークン | `data/tokens.json` | ✅ accountId ごと。Windows は DPAPI(CurrentUser) で暗号化して保存 |
+| Primary セッション / auth token | `data/accounts/<accountId>/credentials.json` | ✅ accountId ごと。Windows は DPAPI(CurrentUser) で暗号化して保存 |
+| Protocol credential | `data/accounts/<accountId>/protocol.json` | ✅ refresh token / channel token / E2EE・device credential を accountId ごとに分離 |
 | チャット / メッセージ DB | `data/chatdb-{accountId}.json` | ✅ ファイル単位 |
 | プロフィール等キャッシュ | `data/vyline-cache-{accountId}.json` | ✅ |
 | 既読レンジ | `data/vyline-readRanges-{accountId}.json` | ✅ |
@@ -41,11 +42,13 @@ Vyline はログインセッションの `accountId` と、設定・引継ぎ・
 
 既存の accountId サフィックス付きストレージは、互換性を壊さないため継続して読み取ります。`storage/accountDirs.ts` を使う領域は、新レイアウトを優先し、旧フラットファイルを見つけた場合に新レイアウトへコピーします。元ファイルは削除しません。
 
-トークンや既存のチャット DB を一度に移動するマイグレーションは、データ消失リスクを避けるため未実施です。移行対象を追加する場合は、コピー → 検証 → 旧形式の読み取りフォールバック → 将来のメジャー版での削除、の順を守ります。
+旧 `data/tokens.json` は読み込み時に `data/accounts/<accountId>/credentials.json` へ遅延コピーします。旧ファイルは復旧用として削除せず、既存 `storage-<accountId>.json` 参照も維持します。新規セッションの protocol storage は `data/accounts/<accountId>/protocol.json` を使います。
+
+認証情報を別 PC へ引き継ぐ場合は通常の引継ぎ ZIP / VylineBackup へ混ぜず、専用の encrypted credential handoff を使用します。AES-256-GCM + PBKDF2-SHA256 で auth / refresh / channel / E2EE・device credential をまとめて暗号化し、passphrase は保存しません。詳細は [token-lifecycle.md](../analysis/token-lifecycle.md) を参照してください。
 
 ## セキュリティ上の注意
 
-- 認証トークン、Cookie、E2EE 鍵、パスワード、秘密鍵は引継ぎ ZIP と診断ログに含めない
+- 認証トークン、Cookie、E2EE 鍵、パスワード、秘密鍵は通常の引継ぎ ZIP / VylineBackup / 診断ログに含めない。移行が必要な場合だけ encrypted credential handoff を使う
 - Windows のトークン暗号化は現在の Windows ユーザーに結び付く。別ユーザー・別 PC へファイルだけをコピーしても復号できない
 - アカウント削除・全データ削除は、既存ストレージを含むため明示的なバックアップ確認を伴う別操作として扱う
 - Web／サブデバイスからの接続は、そのブラウザのランダムなインストール ID と有効セッションの両方を検証する

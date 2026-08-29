@@ -2567,6 +2567,50 @@ lineRouter.delete("/:accountId/backup/:backupId", async (c) => {
   }
 });
 
+// ─── Credentials: encrypted handoff / channel-token lifecycle ───
+
+lineRouter.post("/:accountId/credentials/handoff/export", async (c) => {
+  const accountId = c.req.param("accountId");
+  const { passphrase } = await c.req.json<{ passphrase: string }>();
+  try {
+    const { exportCredentialHandoff } = await import("../storage/tokenStore.js");
+    return c.json({ ok: true, bundle: await exportCredentialHandoff(accountId, passphrase) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/credentials/handoff/import", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    passphrase: string;
+    bundle: import("../storage/tokenStore.js").CredentialHandoffBundle;
+  }>();
+  try {
+    const { importCredentialHandoff } = await import("../storage/tokenStore.js");
+    await importCredentialHandoff(body.bundle, body.passphrase, accountId);
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/credentials/channel/:channelId/reissue", async (c) => {
+  const accountId = c.req.param("accountId");
+  const channelId = c.req.param("channelId");
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const base = client.base as typeof client.base & {
+      channelTokens: { reissue(id: string, approve?: boolean): Promise<string> };
+    };
+    await base.channelTokens.reissue(channelId, true);
+    return c.json({ ok: true, channelId, reissued: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.get("/:accountId/log", async (c) => {
   const accountId = c.req.param("accountId");
   const { readRecentMessageLog } = await import("../storage/messageLog.js");
