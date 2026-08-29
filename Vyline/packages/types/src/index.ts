@@ -67,6 +67,7 @@ export interface VylineCachedGroup {
 }
 
 export * from "./accountFeatures.js";
+export * from "./unsendPolicy.js";
 
 // ─── Chat ─────────────────────────────────────
 
