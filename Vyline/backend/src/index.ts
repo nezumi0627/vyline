@@ -123,8 +123,10 @@ async function requireLocalOnLan(c: Context, next: () => Promise<void>) {
 }
 
 app.use("/line/*", requireLanSubdevice);
+app.use("/line/:accountId/proxy", requireLocalOnLan);
 app.use("/beta/agent-i/*", requireLanSubdevice);
 app.use("/debug/*", requireLocalOnLan);
+app.use("/api/line/:accountId/proxy", requireLocalOnLan);
 
 app.use("/api/*", async (c, next) => {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
