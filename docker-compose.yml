@@ -4,12 +4,14 @@ services:
     build: .
     pull_policy: missing
     ports:
-      - "3000:3000"
+      # Secure default: do not publish Vyline to the LAN unless explicitly opted in.
+      - "${VYLINE_BIND_ADDRESS:-127.0.0.1}:3000:3000"
     volumes:
       - ./data:/app/data
       - ./storage:/app/storage
     environment:
       - VYLINE_HOST=0.0.0.0
+      - VYLINE_LAN_ACCESS=${VYLINE_LAN_ACCESS:-false}
       - PORT=3000
       - VYLINE_DATA_DIR=/app/data
       - VYLINE_STORAGE_DIR=/app/storage

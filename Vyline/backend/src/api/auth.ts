@@ -25,6 +25,8 @@ import {
   getQrState,
   getLoggedInAt,
   getAuthToken,
+  getContentQrState,
+  loginContentWithQRCode,
   removeClient,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
@@ -185,6 +187,51 @@ authRouter.get("/login/qr/:id", (c) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /auth/content/qr
+// Note / Album 用の ANDROIDSECONDARY セッションを正式登録する
+// ─────────────────────────────────────────────
+authRouter.post("/content/qr", async (c) => {
+  const body = await c.req.json<{ accountId: string }>();
+  if (!body.accountId) {
+    return c.json({ ok: false, error: "accountId required" }, 400);
+  }
+
+  loginContentWithQRCode(body.accountId, (url) => {
+    log.info({ accountId: body.accountId, urlReady: Boolean(url) }, "content QR URL ready");
+  })
+    .then(() => log.info({ accountId: body.accountId }, "content QR login completed"))
+    .catch((err: unknown) =>
+      log.error({ accountId: body.accountId, err }, "content QR login failed"),
+    );
+
+  return c.json({
+    ok: true,
+    message: "Content QR login started — poll GET /auth/content/qr/:id",
+    accountId: body.accountId,
+  });
+});
+
+authRouter.get("/content/qr/:id", (c) => {
+  const accountId = c.req.param("id");
+  const state = getContentQrState(accountId);
+  const status = state.ready
+    ? "completed"
+    : state.expired
+      ? "expired"
+      : state.url
+        ? "pending"
+        : state.inProgress
+          ? "waiting"
+          : "idle";
+  return c.json({
+    ok: true,
+    status,
+    qrUrl: state.url,
+    pincode: state.pincode,
+  });
+});
+
+// ─────────────────────────────────────────────
 // POST /auth/restore
 // body: { accountId }  — 保存済みトークンで復元
 // ─────────────────────────────────────────────
@@ -208,17 +255,28 @@ authRouter.post("/restore", async (c) => {
 // body: { accountId, authToken }  — トークン直接指定でログイン
 // ─────────────────────────────────────────────
 authRouter.post("/login/token", async (c) => {
-  const body = await c.req.json<{ accountId: string; authToken: string }>();
+  const body = await c.req.json<{ accountId: string; authToken: string; deviceMode?: string }>();
   if (!body.accountId || !body.authToken) {
     return c.json({ ok: false, error: "accountId and authToken required" }, 400);
   }
 
   try {
-    await loginWithAuthToken(body.accountId, body.authToken);
+    const deviceMode = body.deviceMode?.trim().toUpperCase();
+    const allowedDeviceModes = new Set([
+      "IOS",
+      "IOSIPAD",
+      "ANDROIDSECONDARY",
+      "DESKTOPWIN",
+      "DESKTOPMAC",
+    ]);
+    if (deviceMode && !allowedDeviceModes.has(deviceMode)) {
+      return c.json({ ok: false, error: "invalid deviceMode" }, 400);
+    }
+    await loginWithAuthToken(body.accountId, body.authToken, deviceMode);
 
     // トークンを保存（次回から restore で復元可能）
     const { saveToken } = await import("../storage/tokenStore.js");
-    await saveToken(body.accountId, body.authToken, {});
+    await saveToken(body.accountId, body.authToken, deviceMode ? { deviceMode } : {});
 
     log.info({ accountId: body.accountId }, "token login success");
     return c.json({ ok: true, accountId: body.accountId });
@@ -273,9 +331,12 @@ authRouter.get("/accounts", async (c) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /auth/token/:id — 現在の authToken 取得（ログイン中のみ）
+// GET /auth/token/:id — 現在の authToken 取得（PCローカルのみ）
 // ─────────────────────────────────────────────
 authRouter.get("/token/:id", async (c) => {
+  if (c.req.header("x-vyline-local-request") !== "1") {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const accountId = c.req.param("id");
   const token = getAuthToken(accountId);
   if (!token) {

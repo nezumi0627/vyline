@@ -6,8 +6,39 @@ import {
   resetAgentISession,
   type AgentIHistoryItem,
 } from "../service/agentIService.js";
+import { getSubdeviceSession } from "../storage/subdeviceStore.js";
 
 export const agentIRouter = new Hono();
+
+function isLanAccessEnabled() {
+  return process.env.VYLINE_LAN_ACCESS === "true";
+}
+
+function accountIdFromPath(path: string): string {
+  const match = path.match(/\/([^/]+)\/(?:chat|history|session)$/);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return "";
+  }
+}
+
+agentIRouter.use("*", async (c, next) => {
+  if (!isLanAccessEnabled() || c.req.header("x-vyline-local-request") === "1") return next();
+
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  const installationId = c.req.header("x-vyline-installation-id");
+  const device = await getSubdeviceSession(session, installationId);
+  if (!device) {
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  if (accountIdFromPath(c.req.path) !== device.accountId) {
+    return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+  }
+  return next();
+});
 
 function validHistory(value: unknown): AgentIHistoryItem[] {
   if (!Array.isArray(value)) return [];

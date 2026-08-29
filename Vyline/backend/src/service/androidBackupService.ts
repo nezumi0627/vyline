@@ -184,7 +184,7 @@ export async function startAndroidBackupRestore(
   const workDir = await mkdtemp(join(tmpdir(), `vyline-android-${session.id}-`));
   const sourcePath = join(workDir, "source.bin");
   try {
-    const written = await Bun.write(sourcePath, request);
+    const written = await Bun.write(sourcePath, await request.arrayBuffer());
     if (written <= 0) throw new Error("アップロードされたファイルが空です");
     if (written > MAX_UPLOAD_BYTES) {
       throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
@@ -588,7 +588,7 @@ function parseAndroidMediaEntry(
     /(?:^|\/)chats\/([a-z0-9_-]{4,128})\/messages\/(\d+)(\.original|\.thumb)?$/i,
   );
   if (!match) return null;
-  return { chatMid: match[1], fileName: `${match[2]}${match[3] ?? ""}` };
+  return { chatMid: match[1]!, fileName: `${match[2]!}${match[3] ?? ""}` };
 }
 
 export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAndroidDatabase {
@@ -785,7 +785,9 @@ function snapshotFromAndroidMessage(message: StoredMessage): MessageSnapshot {
     revokedSnapshot: _revokedSnapshot,
     ...snapshot
   } = message;
-  return snapshot;
+  return Object.fromEntries(
+    Object.entries(snapshot).filter(([, value]) => value !== undefined),
+  ) as MessageSnapshot;
 }
 
 function mergeAndroidDuplicateMessage(
@@ -1045,7 +1047,7 @@ function sniffMediaMime(bytes: Uint8Array, kind: string): string {
   if (bytes.length >= 3 && Buffer.from(bytes.subarray(0, 3)).toString("ascii") === "ID3") {
     return "audio/mpeg";
   }
-  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1]! & 0xe0) === 0xe0) {
     return "audio/mpeg";
   }
   if (bytes.length >= 5 && Buffer.from(bytes.subarray(0, 5)).toString("ascii") === "%PDF-") {

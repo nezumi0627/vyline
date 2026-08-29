@@ -13,7 +13,17 @@ $env:VYLINE_LAN_ACCESS = "true"
 bun run dev
 ```
 
-本番ビルドやDockerでは、同じ環境変数をサーバーの環境に設定します。`false`（既定）の場合、サーバーはlocalhostのみで待ち受けます。
+Docker Compose は安全のため既定でホストの `127.0.0.1:3000` にだけ公開します。LANから接続するときは、待受公開とサブデバイス認証をセットで有効にしてください。
+
+PowerShell:
+
+```powershell
+$env:VYLINE_BIND_ADDRESS = "0.0.0.0"
+$env:VYLINE_LAN_ACCESS = "true"
+docker compose up -d --build
+```
+
+`VYLINE_BIND_ADDRESS=0.0.0.0` だけを設定して認証を無効のまま公開しないでください。通常利用では両方とも未設定のままで構いません。
 
 ## 接続
 
