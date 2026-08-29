@@ -58,6 +58,65 @@ function sanitizeText(text: string | null | undefined): string | undefined {
   return cleaned || undefined;
 }
 
+function parsePostNotification(meta: Record<string, unknown> | null) {
+  if (!meta) return undefined;
+  const serviceType = String(meta.serviceType ?? meta.SERVICE_TYPE ?? "").toUpperCase();
+  const postEndUrl = typeof meta.postEndUrl === "string" ? meta.postEndUrl : "";
+  const params = (() => {
+    try {
+      return postEndUrl ? new URL(postEndUrl).searchParams : null;
+    } catch {
+      return null;
+    }
+  })();
+  const homeId = String(meta.chatId ?? meta.homeId ?? params?.get("homeId") ?? "") || undefined;
+  const albumId =
+    String(
+      meta.cafeId ?? meta.albumId ?? params?.get("albumIdV2") ?? params?.get("albumId") ?? "",
+    ) || undefined;
+  const postId =
+    String(meta.postId ?? meta.POST_ID ?? meta.noteId ?? params?.get("postId") ?? "") || undefined;
+  const previewMedias = (() => {
+    const raw = meta.previewMedias;
+    if (typeof raw !== "string" || !raw.trim()) return undefined;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return undefined;
+      return parsed
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const media = item as Record<string, unknown>;
+          const mediaOid = typeof media.mediaOid === "string" ? media.mediaOid : "";
+          return mediaOid
+            ? {
+                mediaOid,
+                mediaType: typeof media.mediaType === "string" ? media.mediaType : undefined,
+              }
+            : null;
+        })
+        .filter((item): item is { mediaOid: string; mediaType: string | undefined } =>
+          Boolean(item),
+        );
+    } catch {
+      return undefined;
+    }
+  })();
+  if (serviceType === "AB" || albumId) {
+    return {
+      kind: "album" as const,
+      homeId,
+      albumId,
+      title: typeof meta.albumName === "string" ? meta.albumName : undefined,
+      mediaCount: Number(meta.mediaCount) || undefined,
+      previewMedias,
+    };
+  }
+  if (postId || serviceType === "NOTE" || serviceType === "NT") {
+    return { kind: "note" as const, homeId, postId };
+  }
+  return { kind: "unknown" as const, homeId };
+}
+
 function resolveDisplayName(
   raw: string | null | undefined,
   fallbackMid: string,
@@ -352,6 +411,10 @@ export function mapMessage(
         ? parseMentions(m.contentMetadata as Record<string, unknown> | null)
         : undefined,
     callMeta: kind === "call" ? parseCallMeta(m.contentType, meta) : undefined,
+    postNotification:
+      String(m.contentType ?? "").toUpperCase() === "POSTNOTIFICATION"
+        ? parsePostNotification(meta)
+        : undefined,
     createdAt: m.createdTime,
     status: messageStatus(m),
     read,
