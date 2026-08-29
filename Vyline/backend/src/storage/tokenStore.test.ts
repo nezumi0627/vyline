@@ -27,11 +27,15 @@ describe("tokenStore account isolation and handoff", () => {
 
     await writeFile(
       join(dataDir, "tokens.json"),
-      JSON.stringify({ legacy: { authToken: "legacy-token", storageFile: "", savedAt: "2026-08-29T00:00:00.000Z" } }),
+      JSON.stringify({
+        legacy: { authToken: "legacy-token", storageFile: "", savedAt: "2026-08-29T00:00:00.000Z" },
+      }),
       "utf8",
     );
     expect((await tokenStore.getToken("legacy"))?.authToken).toBe("legacy-token");
-    expect(await readFile(join(dataDir, "accounts", "legacy", "credentials.json"), "utf8")).toContain("legacy-token");
+    expect(
+      await readFile(join(dataDir, "accounts", "legacy", "credentials.json"), "utf8"),
+    ).toContain("legacy-token");
   });
 
   test("encrypted handoff round-trips without exposing raw credentials", async () => {
@@ -40,7 +44,10 @@ describe("tokenStore account isolation and handoff", () => {
     await mkdir(join(dataDir, "accounts", "source"), { recursive: true });
     await writeFile(
       protocolPath,
-      JSON.stringify({ refreshToken: "refresh-secret", "channelToken:1": { channelAccessToken: "channel-secret" } }),
+      JSON.stringify({
+        refreshToken: "refresh-secret",
+        "channelToken:1": { channelAccessToken: "channel-secret" },
+      }),
       "utf8",
     );
 
@@ -49,7 +56,9 @@ describe("tokenStore account isolation and handoff", () => {
     expect(serialized).not.toContain("primary-secret");
     expect(serialized).not.toContain("refresh-secret");
     expect(serialized).not.toContain("channel-secret");
-    await expect(tokenStore.importCredentialHandoff(bundle, "wrong-passphrase", "wrong")).rejects.toThrow();
+    await expect(
+      tokenStore.importCredentialHandoff(bundle, "wrong-passphrase", "wrong"),
+    ).rejects.toThrow();
 
     await tokenStore.importCredentialHandoff(bundle, "passphrase-123", "restored");
     const restored = await tokenStore.getToken("restored");

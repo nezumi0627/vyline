@@ -83,7 +83,10 @@ async function ensureDataDir(): Promise<void> {
   await mkdir(ACCOUNTS_DIR, { recursive: true });
 }
 
-async function decodePersistedEntry(accountId: string, entry: TokenEntry): Promise<TokenEntry | undefined> {
+async function decodePersistedEntry(
+  accountId: string,
+  entry: TokenEntry,
+): Promise<TokenEntry | undefined> {
   const targetStorage = storagePathForAccount(accountId);
   if (
     entry?.storageFile &&
