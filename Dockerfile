@@ -1,6 +1,6 @@
 # Vyline — Bun ベースの軽量ランタイムイメージ
 # ビルド: docker build -t vyline .
-# 実行:  docker run -p 3000:3000 -v ./data:/app/data vyline
+# 実行:  docker run -p 127.0.0.1:3000:3000 -v ./data:/app/data vyline
 
 ARG BUN_VERSION=1.4.0
 ARG VYLINE_VERSION=dev
