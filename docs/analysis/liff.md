@@ -19,22 +19,10 @@ LIFF access token は通常の LINE access token や Note/Album の ChannelToken
 
 ### `sender`
 
-LIFF share payload では次の sender metadata を付加できる。
+今回追加する helper は namespace export される `liff` から利用する。
 
 ```ts
-const message = client.liffMessage.withSender(
-  { type: "text", text: "Hello!" },
-  {
-    name: "Cony",
-    iconUrl: "https://example.com/icon.png",
-  },
-);
-```
-
-実際の helper は namespace export される `liff` から利用する想定:
-
-```ts
-import { Client, liff } from "@vyline/protocol/stack";
+import { liff } from "@vyline/protocol/stack";
 
 const message = liff.withSender(liff.text("Hello!"), {
   name: "Cony",
