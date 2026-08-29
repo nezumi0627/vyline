@@ -26,7 +26,7 @@ import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
 import { subdeviceRouter } from "./api/subdevices.js";
-import { isSubdeviceSessionValid } from "./storage/subdeviceStore.js";
+import { getSubdeviceSession } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
@@ -55,9 +55,28 @@ function subdeviceInstallationId(c: Context) {
   return c.req.header("x-vyline-installation-id");
 }
 
+function subdeviceBearer(c: Context) {
+  const auth = c.req.header("authorization") ?? "";
+  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+}
+
 function isPublicPairingRequest(path: string, method: string) {
   if (method === "GET") return /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+$/.test(path);
   return method === "POST" && /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+\/complete$/.test(path);
+}
+
+function isSubdeviceAuthRequest(path: string) {
+  return /^\/(?:api\/)?auth\/subdevices(?:\/|$)/.test(path);
+}
+
+function scopedAccountId(path: string): string | null {
+  const match = path.match(/^\/(?:api\/)?(?:line|beta\/agent-i)\/([^/]+)(?:\/|$)/);
+  if (!match) return null;
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return "";
+  }
 }
 
 app.use(
@@ -73,35 +92,41 @@ app.use(
 
 async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
-  const auth = c.req.header("authorization") ?? "";
-  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c))))
+  const device = await getSubdeviceSession(subdeviceBearer(c), subdeviceInstallationId(c));
+  if (!device) {
     return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  const accountId = scopedAccountId(c.req.path);
+  if (accountId !== null && accountId !== device.accountId) {
+    return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+  }
   return next();
 }
 
+async function requireLocalOnLan(c: Context, next: () => Promise<void>) {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  return c.json({ ok: false, error: "local request required" }, 403);
+}
+
 app.use("/line/*", requireLanSubdevice);
-app.use("/debug/*", requireLanSubdevice);
+app.use("/beta/agent-i/*", requireLanSubdevice);
+app.use("/debug/*", requireLocalOnLan);
 
 app.use("/api/*", async (c, next) => {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
-  const auth = c.req.header("authorization") ?? "";
-  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c)))) {
-    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  if (/^\/api\/debug(?:\/|$)/.test(c.req.path)) return requireLocalOnLan(c, next);
+  if (/^\/api\/auth(?:\/|$)/.test(c.req.path)) {
+    if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
+    return requireLanSubdevice(c, next);
   }
-  return next();
+  return requireLanSubdevice(c, next);
 });
 app.use("/auth/*", async (c, next) => {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
-  const auth = c.req.header("authorization") ?? "";
-  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session, subdeviceInstallationId(c)))) {
-    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
-  }
-  return next();
+  if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
+  return requireLanSubdevice(c, next);
 });
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
@@ -347,17 +372,24 @@ export default {
     const url = new URL(request.url);
     const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
     if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      if (
-        LAN_ACCESS &&
-        !local &&
-        !(await isSubdeviceSessionValid(
+      let accountId: string;
+      try {
+        accountId = decodeURIComponent(m[1]!);
+      } catch {
+        return new Response("invalid accountId", { status: 400 });
+      }
+      if (LAN_ACCESS && !local) {
+        const device = await getSubdeviceSession(
           (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""),
           request.headers.get("x-vyline-installation-id") ?? undefined,
-        ))
-      ) {
-        return new Response("subdevice authentication required", { status: 401 });
+        );
+        if (!device) {
+          return new Response("subdevice authentication required", { status: 401 });
+        }
+        if (device.accountId !== accountId) {
+          return new Response("subdevice account mismatch", { status: 403 });
+        }
       }
-      const accountId = decodeURIComponent(m[1]!);
       const sessionId = url.searchParams.get("sessionId");
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
