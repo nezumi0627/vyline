@@ -1453,6 +1453,46 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/credentials/handoff/export",
+    "post",
+    {
+      op: "exportCredentialHandoff",
+      summary: "認証情報を暗号化引き継ぎファイルとして書き出す",
+      description: "通常の VylineBackup とは分離。パスフレーズは保存しない。",
+      tags: ["credentials"],
+      params: [acc],
+      requestBody: body(["passphrase"], { passphrase: { type: "string", minLength: 8 } }),
+      responses: { "200": jsonRes("暗号化 credential handoff bundle") },
+    },
+  ],
+  [
+    "/line/{accountId}/credentials/handoff/import",
+    "post",
+    {
+      op: "importCredentialHandoff",
+      summary: "暗号化認証情報を指定アカウントへ復元",
+      tags: ["credentials"],
+      params: [acc],
+      requestBody: body(["passphrase", "bundle"], {
+        passphrase: { type: "string", minLength: 8 },
+        bundle: { type: "object" },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/credentials/channel/{channelId}/reissue",
+    "post",
+    {
+      op: "reissueChannelToken",
+      summary: "チャネルトークンを明示的に再発行",
+      description: "新しいトークン値そのものは API 応答へ返さない。",
+      tags: ["credentials"],
+      params: [acc, pathParam("channelId", "LINE Channel ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
     "/line/{accountId}/vyline/cache",
     "get",
     {
@@ -1771,6 +1811,7 @@ export const lineOpenApiSpec = {
     { name: "announcements", description: "アナウンス" },
     { name: "calls", description: "通話" },
     { name: "backup", description: "VylineBackup の作成・復元" },
+    { name: "credentials", description: "認証情報の安全な引き継ぎ・再発行" },
     { name: "storage", description: "キャッシュ・ストレージ管理" },
     { name: "misc", description: "その他（プラグイン・プロキシ・復元など Vyline 拡張）" },
   ],
