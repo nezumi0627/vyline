@@ -7,6 +7,7 @@ import { api } from "../api/client.js";
 import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { lineAvatarUrl } from "../utils/lineMedia.js";
+import { startSerialPoll } from "../lib/serialPoll.js";
 
 type Tab = "email" | "qr" | "token" | "subdevice";
 type QrStatus = "idle" | "waiting" | "completed";
@@ -59,14 +60,14 @@ export function LoginPage() {
   const [emailMsg, setEmailMsg] = useState("");
   const [emailStatus, setEmailStatus] = useState<EmailStatus>("idle");
   const [emailPincode, setEmailPincode] = useState<string | null>(null);
-  const emailPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const emailPollStopRef = useRef<(() => void) | null>(null);
 
   const [qrAccountId, setQrAccountId] = useState(pendingLoginAccountId ?? "main");
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [qrStatus, setQrStatus] = useState<QrStatus>("idle");
   const [qrExpired, setQrExpired] = useState(false);
   const [pincode, setPincode] = useState<string | null>(null);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qrPollStopRef = useRef<(() => void) | null>(null);
 
   const [tokenAccountId, setTokenAccountId] = useState(pendingLoginAccountId ?? "main");
   const [authToken, setAuthToken] = useState("");
@@ -150,25 +151,39 @@ export function LoginPage() {
       return;
     }
     setEmailMsg("PIN が表示されたら、LINE 端末側に入力してください。");
-    // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ
-    if (pollRef.current) clearInterval(pollRef.current);
-    if (emailPollRef.current) clearInterval(emailPollRef.current);
-    emailPollRef.current = setInterval(async () => {
-      const polled = await api.auth.loginEmailPoll(accountId);
-      if (!polled.ok) return;
-      if (polled.pincode) setEmailPincode(polled.pincode);
-      if (polled.status === "failed") {
-        setEmailStatus("failed");
-        setEmailMsg(polled.error ?? "メールログインに失敗しました。");
-        if (emailPollRef.current) clearInterval(emailPollRef.current);
-        return;
-      }
-      if (polled.status === "completed") {
-        setEmailStatus("completed");
-        if (emailPollRef.current) clearInterval(emailPollRef.current);
-        await goHome(accountId);
-      }
-    }, 1200);
+    // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ。
+    qrPollStopRef.current?.();
+    qrPollStopRef.current = null;
+    emailPollStopRef.current?.();
+    emailPollStopRef.current = startSerialPoll(
+      async () => {
+        const polled = await api.auth.loginEmailPoll(accountId);
+        if (!polled.ok) return true;
+        if (polled.pincode) setEmailPincode(polled.pincode);
+        if (polled.status === "failed") {
+          setEmailStatus("failed");
+          setEmailMsg(polled.error ?? "メールログインに失敗しました。");
+          emailPollStopRef.current = null;
+          return false;
+        }
+        if (polled.status === "completed") {
+          setEmailStatus("completed");
+          emailPollStopRef.current = null;
+          await goHome(accountId);
+          return false;
+        }
+        return true;
+      },
+      {
+        intervalMs: 1200,
+        runImmediately: false,
+        pauseWhenHidden: true,
+        onError: (pollError) =>
+          setEmailMsg(
+            pollError instanceof Error ? pollError.message : "メールログイン状態の取得に失敗しました。",
+          ),
+      },
+    );
   };
 
   const handleTokenLogin = async (e: FormEvent<HTMLFormElement>) => {
@@ -192,40 +207,54 @@ export function LoginPage() {
     setQrExpired(false);
     setPincode(null);
     setQrStatus("waiting");
-    // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ
-    if (emailPollRef.current) clearInterval(emailPollRef.current);
-    if (pollRef.current) clearInterval(pollRef.current);
+    // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ。
+    emailPollStopRef.current?.();
+    emailPollStopRef.current = null;
+    qrPollStopRef.current?.();
+    qrPollStopRef.current = null;
     const start = await loginQrStart(qrAccountId);
     if (!start.ok) {
       setQrExpired(true);
       return;
     }
-    pollRef.current = setInterval(async () => {
-      const res = await api.auth.loginQrPoll(qrAccountId);
-      if (!res.ok) return;
-      if (res.status === "expired" || res.status === "idle") {
-        setQrExpired(true);
-        setPincode(null);
-        if (pollRef.current) clearInterval(pollRef.current);
-        return;
-      }
-      if (res.qrUrl) {
-        setQrUrl(res.qrUrl);
-        setQrExpired(false);
-      }
-      if (res.pincode) setPincode(res.pincode);
-      if (res.status === "completed") {
-        setQrStatus("completed");
-        if (pollRef.current) clearInterval(pollRef.current);
-        await goHome(qrAccountId);
-      }
-    }, 1500);
+    qrPollStopRef.current = startSerialPoll(
+      async () => {
+        const res = await api.auth.loginQrPoll(qrAccountId);
+        if (!res.ok) return true;
+        if (res.status === "expired" || res.status === "idle") {
+          setQrExpired(true);
+          setPincode(null);
+          qrPollStopRef.current = null;
+          return false;
+        }
+        if (res.qrUrl) {
+          setQrUrl(res.qrUrl);
+          setQrExpired(false);
+        }
+        if (res.pincode) setPincode(res.pincode);
+        if (res.status === "completed") {
+          setQrStatus("completed");
+          qrPollStopRef.current = null;
+          await goHome(qrAccountId);
+          return false;
+        }
+        return true;
+      },
+      {
+        intervalMs: 1500,
+        runImmediately: false,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, [qrAccountId, loginQrStart, goHome]);
 
   useEffect(() => {
     return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-      if (emailPollRef.current) clearInterval(emailPollRef.current);
+      qrPollStopRef.current?.();
+      emailPollStopRef.current?.();
+      qrPollStopRef.current = null;
+      emailPollStopRef.current = null;
     };
   }, []);
 

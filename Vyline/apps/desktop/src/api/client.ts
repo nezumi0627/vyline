@@ -71,48 +71,85 @@ function isBackendDown(err: unknown): boolean {
   );
 }
 
-async function request<T>(
-  method: string,
-  path: string,
-  body?: unknown,
-  extraHeaders?: HeadersInit,
-): Promise<T> {
-  let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method,
-      headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
-        ...(extraHeaders ?? {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (err) {
-    if (isBackendDown(err)) {
-      throw new Error("BACKEND_DOWN");
-    }
-    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
-  }
+function responseExcerpt(text: string, maxLength = 180): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
+}
 
+function responseLabel(res: Response): string {
+  const contentType = res.headers.get("content-type")?.split(";", 1)[0]?.trim();
+  return `HTTP ${res.status}${contentType ? ` / ${contentType}` : ""}`;
+}
+
+async function parseJsonResponse<T>(res: Response): Promise<T> {
   const text = await res.text();
   if (!text.trim()) {
     throw new Error(
       res.ok
-        ? "サーバーが空の応答を返しました"
-        : `サーバーエラー HTTP ${res.status}（backend のログを確認）`,
+        ? `サーバーが空の応答を返しました（${responseLabel(res)}）`
+        : `サーバーエラー（${responseLabel(res)}）。backend / reverse proxy のログを確認してください`,
     );
   }
 
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
+    throw new Error(
+      `サーバーがJSONではない応答を返しました（${responseLabel(res)}）: ${responseExcerpt(text)}`,
+    );
   }
+}
+
+async function readHttpError(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => "");
+  if (text.trim()) {
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const message = typeof parsed.error === "string" ? parsed.error : parsed.message;
+      if (typeof message === "string" && message.trim()) return message;
+    } catch {
+      const excerpt = responseExcerpt(text);
+      if (excerpt) return `${fallback}（${responseLabel(res)}）: ${excerpt}`;
+    }
+  }
+  return `${fallback}（${responseLabel(res)}）`;
+}
+
+async function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const sessionToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
+  const installationId = getSubdeviceInstallationId();
+  const headers = new Headers(init.headers);
+  if (sessionToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+  }
+  if (installationId && !headers.has("X-Vyline-Installation-Id")) {
+    headers.set("X-Vyline-Installation-Id", installationId);
+  }
+
+  try {
+    return await fetch(`${BASE}${path}`, { ...init, headers });
+  } catch (err) {
+    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
+    throw new Error(`backend に接続できません（backend が起動しているか確認）: ${String(err)}`);
+  }
+}
+
+async function request<T>(
+  method: string,
+  path: string,
+  body?: unknown,
+  extraHeaders?: HeadersInit,
+): Promise<T> {
+  const hasBody = body !== undefined;
+  const headers = new Headers(extraHeaders);
+  if (hasBody && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const res = await backendFetch(path, {
+    method,
+    headers,
+    body: hasBody ? JSON.stringify(body) : undefined,
+  });
+  return parseJsonResponse<T>(res);
 }
 
 async function uploadBinary<T>(
@@ -120,44 +157,15 @@ async function uploadBinary<T>(
   body: Blob,
   extraHeaders?: HeadersInit,
 ): Promise<T> {
-  let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
-        ...(extraHeaders ?? {}),
-      },
-      body,
-    });
-  } catch (err) {
-    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
-    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
-  }
-
-  const text = await res.text();
+  const headers = new Headers(extraHeaders);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/octet-stream");
+  const res = await backendFetch(path, { method: "POST", headers, body });
   if (res.status === 413) {
     throw new Error(
       "リバースプロキシがアップロードchunkを拒否しました（HTTP 413）。Nginx の client_max_body_size が 512 KiB 未満になっていないか確認してください。",
     );
   }
-  if (!text.trim()) {
-    throw new Error(
-      res.ok
-        ? "サーバーが空の応答を返しました"
-        : `サーバーエラー HTTP ${res.status}（backend のログを確認）`,
-    );
-  }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
-  }
+  return parseJsonResponse<T>(res);
 }
 
 async function uploadAndroidBackupChunked(
@@ -371,13 +379,10 @@ export const api = {
 
     /** チャット履歴を JSON / TXT でダウンロード（復号済み） */
     exportMessages: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
-      const res = await fetch(
-        `${BASE}/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
+      const res = await backendFetch(
+        `/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
       );
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(err?.error ?? `export failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error(await readHttpError(res, "export failed"));
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const match = /filename="([^"]+)"/.exec(disposition);
@@ -687,30 +692,32 @@ export const api = {
       },
     ) => request<ProfileResponse>("PATCH", `/line/${accountId}/profile`, body),
 
-    updateProfileImage: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
-      fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/image`, {
+    updateProfileImage: async (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") => {
+      const res = await backendFetch(`/line/${encodeURIComponent(accountId)}/profile/image`, {
         method: "POST",
         headers: { "Content-Type": mime },
         body: bytes,
-      }).then(async (res) => {
-        const text = await res.text();
-        return JSON.parse(text || "{}") as ProfileResponse & { objId?: string };
-      }),
+      });
+      return parseJsonResponse<ProfileResponse & { objId?: string }>(res);
+    },
 
-    updateProfileBackground: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
-      fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/background`, {
+    updateProfileBackground: async (
+      accountId: string,
+      bytes: ArrayBuffer,
+      mime = "image/jpeg",
+    ) => {
+      const res = await backendFetch(`/line/${encodeURIComponent(accountId)}/profile/background`, {
         method: "POST",
         headers: { "Content-Type": mime },
         body: bytes,
-      }).then(async (res) => {
-        const text = await res.text();
-        return JSON.parse(text || "{}") as {
-          ok: boolean;
-          objId?: string;
-          backgroundUrl?: string;
-          error?: string;
-        };
-      }),
+      });
+      return parseJsonResponse<{
+        ok: boolean;
+        objId?: string;
+        backgroundUrl?: string;
+        error?: string;
+      }>(res);
+    },
 
     renameContact: (accountId: string, mid: string, displayNameOverride: string | null) =>
       request<{ ok: boolean; error?: string }>(

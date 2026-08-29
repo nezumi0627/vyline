@@ -11,6 +11,7 @@ import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 import { api } from "../api/client.js";
 import { VylineSetup } from "../components/vyline-setup.js";
+import { startSerialPoll } from "../lib/serialPoll.js";
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -35,10 +36,17 @@ export function VylineApp() {
   useEffect(() => {
     const token = localStorage.getItem("vyline:subdevice-session");
     if (!token) return;
-    const beat = () => void api.subdevices.heartbeat(token).catch(() => undefined);
-    beat();
-    const timer = window.setInterval(beat, 30_000);
-    return () => window.clearInterval(timer);
+    return startSerialPoll(
+      async () => {
+        await api.subdevices.heartbeat(token);
+        return true;
+      },
+      {
+        intervalMs: 30_000,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, []);
 
   // 同意前は同期・通信を開始しない

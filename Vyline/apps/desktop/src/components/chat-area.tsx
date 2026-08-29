@@ -34,6 +34,7 @@ import {
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { findFirstUnreadMessage } from "@/lib/chatScroll";
+import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -238,9 +239,7 @@ function ChatAreaBase() {
         scrollTop: container.scrollTop,
       };
     }
-    window.dispatchEvent(
-      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-    );
+    emitAppEvent("history:load-older", { chatMid: activeChatId });
   }, [activeChatId, chatMessages.length, containerRef, olderState]);
 
   const handleMessageScroll = useCallback(
@@ -289,23 +288,14 @@ function ChatAreaBase() {
     olderBoundaryArmedRef.current = true;
     prependAnchorRef.current = null;
     setOlderState({ hasMore: true, loading: false });
-    const onOlderState = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
-          chatMid?: string;
-          hasMore?: boolean;
-          loading?: boolean;
-        }>
-      ).detail;
-      if (detail?.chatMid !== activeChatId) return;
-      const next = { hasMore: detail.hasMore ?? false, loading: detail.loading ?? false };
+    return onAppEvent("history:state", (detail) => {
+      if (detail.chatMid !== activeChatId) return;
+      const next = { hasMore: detail.hasMore, loading: detail.loading };
       if (!next.loading && !next.hasMore && prependAnchorRef.current?.chatMid === activeChatId) {
         prependAnchorRef.current = null;
       }
       setOlderState(next);
-    };
-    window.addEventListener("vyline:older-messages-state", onOlderState);
-    return () => window.removeEventListener("vyline:older-messages-state", onOlderState);
+    });
   }, [activeChatId]);
 
   const openedChatRef = useRef<string | null>(null);

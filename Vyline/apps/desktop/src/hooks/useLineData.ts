@@ -20,6 +20,7 @@ import {
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
 import { resolveChatToOpen, useStore } from "../lib/store.js";
+import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
 import {
   HISTORY_PAGE_SIZE,
   MAX_LOCAL_HISTORY_LIMIT,
@@ -356,24 +357,22 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   );
 
   // ChatArea が明示的に1ページ要求した時だけ、古いローカル履歴を追加取得する。
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onLoadOlder = (event: Event) => {
-      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
-      if (chatMid) void loadOlderMessages(chatMid);
-    };
-    window.addEventListener("vyline:load-older-messages", onLoadOlder);
-    return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
-  }, [loadOlderMessages]);
+  useEffect(
+    () =>
+      onAppEvent("history:load-older", ({ chatMid }) => {
+        if (chatMid) void loadOlderMessages(chatMid);
+      }),
+    [loadOlderMessages],
+  );
 
   // 先頭のUIは残件・読み込み中を正しく表示する。
   useEffect(() => {
-    if (!selectedChatMid || typeof window === "undefined") return;
-    window.dispatchEvent(
-      new CustomEvent("vyline:older-messages-state", {
-        detail: { chatMid: selectedChatMid, hasMore: hasMoreMessages, loading: loadingOlder },
-      }),
-    );
+    if (!selectedChatMid) return;
+    emitAppEvent("history:state", {
+      chatMid: selectedChatMid,
+      hasMore: hasMoreMessages,
+      loading: loadingOlder,
+    });
   }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
@@ -409,14 +408,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   // 外部バックアップ復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
   useEffect(() => {
-    if (!accountId || typeof window === "undefined") return;
-    const onRestore = (event: Event) => {
-      const restoredAccountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+    if (!accountId) return;
+    return onAppEvent("backup:restored", ({ accountId: restoredAccountId, chatMids }) => {
       if (restoredAccountId !== accountId) return;
-      const restoredChatMids =
-        (event as CustomEvent<{ chatMids?: string[] }>).detail?.chatMids ?? [];
-      for (const chatMid of restoredChatMids) historyWindows.current.delete(chatMid);
-      const restoreTarget = restoredChatMids[0];
+      for (const chatMid of chatMids) historyWindows.current.delete(chatMid);
+      const restoreTarget = chatMids[0];
       if (restoreTarget) {
         setSelectedChatMid(restoreTarget);
         useStore.getState()._activateChat(restoreTarget);
@@ -426,13 +422,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         const chatMid = restoreTarget ?? selectedChatMidRef.current;
         if (chatMid) await loadMessages(chatMid);
       })();
-    };
-    window.addEventListener("vyline:ios-backup-restored", onRestore);
-    window.addEventListener("vyline:android-backup-restored", onRestore);
-    return () => {
-      window.removeEventListener("vyline:ios-backup-restored", onRestore);
-      window.removeEventListener("vyline:android-backup-restored", onRestore);
-    };
+    });
   }, [accountId, loadBootstrap, loadMessages]);
 
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）

@@ -14,23 +14,11 @@ import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
 import { useStore } from "../lib/store.js";
 import { api } from "../api/client.js";
+import { startSerialPoll } from "../lib/serialPoll.js";
 
 function eventsPollIntervalMs(): number {
   if (typeof document === "undefined") return 2_000;
-
-  if (document.visibilityState === "hidden") return 60_000;
-
-  if (!document.hasFocus()) return 8_000;
-
-  return 2_000;
-}
-
-function chatsPollIntervalMs(): number {
-  if (typeof document === "undefined") return 120_000;
-
-  if (document.visibilityState === "hidden") return 0;
-
-  return 120_000;
+  return document.hasFocus() ? 2_000 : 8_000;
 }
 
 /** @param enabled bootstrap 完了かつログイン済みのときだけ同期 */
@@ -56,17 +44,17 @@ export function useVylineSync(enabled = true) {
   // Beta: one authoritative friend/block-list check at most every two minutes.
   useEffect(() => {
     if (!enabled || !accountId || !betaBlockCheckAuto) return;
-    let cancelled = false;
-    const run = () => {
-      if (cancelled) return;
-      void api.line.verifyFriendBlockStatus(accountId).catch(() => undefined);
-    };
-    run();
-    const timer = window.setInterval(run, 120_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
+    return startSerialPoll(
+      async () => {
+        await api.line.verifyFriendBlockStatus(accountId);
+        return true;
+      },
+      {
+        intervalMs: 120_000,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, [accountId, betaBlockCheckAuto, enabled]);
 
   const syncingChat = useRef(false);
@@ -88,82 +76,49 @@ export function useVylineSync(enabled = true) {
   useEffect(() => {
     if (!enabled || !accountId) return;
 
-    let eventsTimer: ReturnType<typeof setTimeout> | undefined;
+    const stopEventsPoll = startSerialPoll(
+      async () => {
+        await pollIncoming();
+        return true;
+      },
+      {
+        intervalMs: eventsPollIntervalMs,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
 
-    let chatsTimer: ReturnType<typeof setTimeout> | undefined;
-
-    let cancelled = false;
-
-    const scheduleEventsPoll = () => {
-      if (cancelled) return;
-
-      const ms = eventsPollIntervalMs();
-
-      // pollIncoming は単一フライト（pollIncomingInflight）で重複実行されない。
-      // 遅い delta RPC を待たずに次をスケジュールし、実効ポーリング間隔を一定に保つ。
-      eventsTimer = setTimeout(() => {
-        scheduleEventsPoll();
-        if (document.visibilityState !== "hidden") {
-          void pollIncoming();
-        }
-      }, ms);
-    };
-
-    const scheduleChatsPoll = () => {
-      if (cancelled) return;
-
-      const ms = chatsPollIntervalMs();
-
-      if (ms <= 0) {
-        chatsTimer = setTimeout(scheduleChatsPoll, 60_000);
-
-        return;
-      }
-
-      chatsTimer = setTimeout(
-        async () => {
-          if (document.visibilityState !== "hidden") {
-            await refreshChatsSilently();
-          }
-
-          scheduleChatsPoll();
-        },
-        ms + Math.random() * 25_000,
-      );
-    };
-
-    void pollIncoming();
-
-    scheduleEventsPoll();
-
-    scheduleChatsPoll();
+    const stopChatsPoll = startSerialPoll(
+      async () => {
+        await refreshChatsSilently();
+        return true;
+      },
+      {
+        intervalMs: () => 120_000 + Math.random() * 25_000,
+        runImmediately: false,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
 
     const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        void pollIncoming();
-        // アクティブチャットの差分も即時取得
-        const { activeChatId: aid } = useStore.getState();
-        if (aid) void pollMessagesDelta(aid);
-      }
+      if (document.visibilityState !== "visible") return;
+      // Serial poll itself resumes exactly once. Only the active chat delta is
+      // requested separately because it is scoped to the currently open chat.
+      const { activeChatId: aid } = useStore.getState();
+      if (aid) void pollMessagesDelta(aid);
     };
 
     document.addEventListener("visibilitychange", onVisibility);
-
     return () => {
-      cancelled = true;
-
-      if (eventsTimer) clearTimeout(eventsTimer);
-
-      if (chatsTimer) clearTimeout(chatsTimer);
-
+      stopEventsPoll();
+      stopChatsPoll();
       document.removeEventListener("visibilitychange", onVisibility);
     };
   }, [enabled, accountId, pollIncoming, pollMessagesDelta, refreshChatsSilently]);
 
   useEffect(() => {
     if (!enabled || !accountId || !activeChatId || !readReceiptsEnabled) return;
-
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
 
     // 既読者一覧を追い続けるため、既読済みでも直近 15 分の自分のメッセージがあればポーリングする
     const shouldPoll = () => {
@@ -182,17 +137,17 @@ export function useVylineSync(enabled = true) {
       );
     };
 
-    const tick = () => {
-      if (document.visibilityState === "hidden") return;
-
-      if (shouldPoll()) void refreshReadReceipts(activeChatId);
-    };
-
-    tick();
-
-    const t = setInterval(tick, 10_000);
-
-    return () => clearInterval(t);
+    return startSerialPoll(
+      async () => {
+        if (shouldPoll()) await refreshReadReceipts(activeChatId);
+        return true;
+      },
+      {
+        intervalMs: 10_000,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, [enabled, accountId, activeChatId, readReceiptsEnabled, refreshReadReceipts]);
 
   useEffect(() => {

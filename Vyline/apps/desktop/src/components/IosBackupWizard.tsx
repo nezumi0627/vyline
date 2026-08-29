@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { startSerialPoll } from "@/lib/serialPoll";
 import {
   IconArrowLeft,
   IconCheck,
@@ -66,12 +67,13 @@ export function IosBackupWizard({ onClose, onSuccess }: IosBackupWizardProps) {
   const [session, setSession] = useState<IosBackupSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+  const pollStopRef = useRef<(() => void) | null>(null);
 
   useEffect(() => {
-    loadDevices();
+    void loadDevices();
     return () => {
-      if (pollInterval) clearInterval(pollInterval);
+      pollStopRef.current?.();
+      pollStopRef.current = null;
     };
   }, []);
 
@@ -103,7 +105,7 @@ export function IosBackupWizard({ onClose, onSuccess }: IosBackupWizardProps) {
         password,
       });
       if (res.ok && res.sessionId) {
-        pollSession(res.sessionId);
+        pollSession(accountId, res.sessionId);
       } else {
         throw new Error(res.error || "復元セッションの開始に失敗しました");
       }
@@ -113,30 +115,42 @@ export function IosBackupWizard({ onClose, onSuccess }: IosBackupWizardProps) {
     }
   };
 
-  const pollSession = (sessionId: string) => {
-    const interval = setInterval(async () => {
-      try {
-        const res = await api.line.getIosBackupSession(accountId!, sessionId);
-        if (res.ok && res.session) {
-          setSession(res.session);
-          if (res.session.status === "completed") {
-            clearInterval(interval);
-            setStep("complete");
-            onSuccess?.();
-          } else if (res.session.status === "failed") {
-            clearInterval(interval);
-            setError(res.session.error || "復元に失敗しました");
-            setStep("error");
-          }
+  const pollSession = (restoreAccountId: string, sessionId: string) => {
+    pollStopRef.current?.();
+    pollStopRef.current = startSerialPoll(
+      async () => {
+        const res = await api.line.getIosBackupSession(restoreAccountId, sessionId);
+        if (!res.ok || !res.session) return true;
+        setSession(res.session);
+        if (res.session.status === "completed") {
+          pollStopRef.current = null;
+          setStep("complete");
+          onSuccess?.();
+          return false;
         }
-      } catch {
-        // Ignore polling errors
-      }
-    }, 2000);
-    setPollInterval(interval);
+        if (res.session.status === "failed") {
+          pollStopRef.current = null;
+          setError(res.session.error || "復元に失敗しました");
+          setStep("error");
+          return false;
+        }
+        return true;
+      },
+      {
+        intervalMs: 2000,
+        runImmediately: false,
+        pauseWhenHidden: true,
+        // 一時的な通信失敗は次回へ回す。重複リクエストは発生しない。
+        onError: () => undefined,
+      },
+    );
   };
 
   const goBack = () => {
+    if (step === "restoring") {
+      pollStopRef.current?.();
+      pollStopRef.current = null;
+    }
     switch (step) {
       case "device":
         setStep("welcome");

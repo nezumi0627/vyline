@@ -1,5 +1,6 @@
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
+import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
@@ -921,23 +922,19 @@ function SubdevicesSection() {
 
   useEffect(() => {
     if (!pairingUrl || demoMode) return;
-    const timer = window.setInterval(() => {
-      void api.subdevices.list().then((res) => {
+    return startSerialPoll(
+      async () => {
+        const res = await api.subdevices.list();
         if (res.ok) setDevices(res.devices ?? []);
-      });
-    }, 1500);
-    return () => window.clearInterval(timer);
+        return true;
+      },
+      {
+        intervalMs: 1500,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, [pairingUrl, demoMode]);
-
-  useEffect(() => {
-    if (!pairingUrl) return;
-    const timer = window.setInterval(() => {
-      void api.subdevices.list().then((res) => {
-        if (res.ok) setDevices(res.devices ?? []);
-      });
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [pairingUrl]);
 
   const startPairing = async () => {
     if (demoMode) {
