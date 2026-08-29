@@ -32,8 +32,9 @@ import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
-const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
-const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
+const LAN_ACCESS_REQUESTED = process.env.VYLINE_LAN_ACCESS === "true";
+const HOST = LAN_ACCESS_REQUESTED ? "0.0.0.0" : (process.env.VYLINE_HOST?.trim() || "127.0.0.1");
+const LAN_ACCESS = LAN_ACCESS_REQUESTED || !new Set(["localhost", "127.0.0.1", "::1"]).has(HOST);
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
 const CORS_ORIGINS = new Set(
   CORS_ORIGIN.split(",")
@@ -82,6 +83,7 @@ async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
 
 app.use("/line/*", requireLanSubdevice);
 app.use("/debug/*", requireLanSubdevice);
+app.use("/beta/*", requireLanSubdevice);
 
 app.use("/api/*", async (c, next) => {
   if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
