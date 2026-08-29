@@ -2584,6 +2584,7 @@ function chatFromMessageBox(
       statusMessage?: string;
     }
   >,
+  joinedChatsKnown = true,
 ): Chat {
   const mid = String(box.id);
   const meta = boxMeta(box);
@@ -2591,7 +2592,8 @@ function chatFromMessageBox(
 
   if (kind === "group" || kind === "room") {
     const group = groupByMid.get(mid);
-    const left = !group; // messageBox にあるが joined に無い = 退出・キック済み
+    // joinedChats の取得自体が失敗した場合は「退出済み」と誤判定しない。
+    const left = joinedChatsKnown ? !group : false;
     const raw = group?.raw ?? {};
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const chat: Chat = {
@@ -2730,11 +2732,13 @@ async function fetchChatsCore(
 
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
+  let joinedChatsFetchFailed = false;
 
   const [messageBoxes, joinedChats, users] = await Promise.all([
     fetchMessageBoxesCached(accountId, client, { forChats: true }),
     client.fetchJoinedChats().catch((err) => {
-      log.warn({ accountId, err }, "fetchJoinedChats failed — skipping groups");
+      joinedChatsFetchFailed = true;
+      log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
       return [] as Awaited<ReturnType<VylineClient["fetchJoinedChats"]>>;
     }),
     client.fetchUsers().catch((err) => {
@@ -2827,7 +2831,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
-    const chat = chatFromMessageBox(box, groupByMid, userByMid);
+    const chat = chatFromMessageBox(box, groupByMid, userByMid, !joinedChatsFetchFailed);
     seen.add(chat.mid);
     result.push(chat);
   }
@@ -3010,17 +3014,56 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     void vylinePutGroup(accountId, put);
   }
 
+  // 通常RPCに現れない復元済みチャットも一覧から消さない。
+  // upsertChats は復元名・種別・最新履歴を保持するため、ここでディスク順を正本にして
+  // live-only の left / official / profile 情報だけ重ねる。
+  const storedChats = await getStoredChats(accountId);
+  const liveByMid = new Map(result.map((chat) => [chat.mid, chat]));
+  const mergedResult = storedChats.map((stored) => {
+    const live = liveByMid.get(stored.mid);
+    if (!live) return stored;
+    const storedTime = stored.lastMessageTime ?? 0;
+    const liveTime = live.lastMessageTime ?? 0;
+    const useStoredLast = storedTime > liveTime;
+    const liveNameIsFallback =
+      !live.name || live.name === live.mid || live.name === "(No Name)";
+    return {
+      ...stored,
+      ...live,
+      name: liveNameIsFallback && stored.name ? stored.name : live.name,
+      kind: live.kind === "unknown" ? stored.kind : live.kind,
+      hasMessages: stored.hasMessages || live.hasMessages,
+      lastMessageTime: Math.max(storedTime, liveTime),
+      ...(useStoredLast && stored.lastMessageId
+        ? { lastMessageId: stored.lastMessageId }
+        : live.lastMessageId
+          ? { lastMessageId: live.lastMessageId }
+          : stored.lastMessageId
+            ? { lastMessageId: stored.lastMessageId }
+            : {}),
+      ...(useStoredLast && stored.lastMessagePreview
+        ? { lastMessagePreview: stored.lastMessagePreview }
+        : live.lastMessagePreview
+          ? { lastMessagePreview: live.lastMessagePreview }
+          : stored.lastMessagePreview
+            ? { lastMessagePreview: stored.lastMessagePreview }
+            : {}),
+      ...(stored.restoredHistory || live.restoredHistory ? { restoredHistory: true } : {}),
+    };
+  });
+
   log.debug(
     {
       accountId,
-      count: result.length,
+      count: mergedResult.length,
       activeBoxes: messageBoxes.length,
       friends: users.length,
       groups: joinedChats.length,
+      restoredOnly: mergedResult.filter((chat) => !liveByMid.has(chat.mid)).length,
     },
-    "chats fetched (desktop messageBox order)",
+    "chats fetched (desktop messageBox order + restored history)",
   );
-  return result;
+  return mergedResult;
 }
 
 /** 復号済み Thrift メッセージ → API Message */

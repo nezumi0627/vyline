@@ -732,6 +732,7 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         name,
         kind: androidChatKind(chatMid, row ? asNumber(row.type) : 0),
         hasMessages: byChat.length > 0,
+        restoredHistory: true,
         ...(latest
           ? {
               lastMessageTime: latest.createdTime,

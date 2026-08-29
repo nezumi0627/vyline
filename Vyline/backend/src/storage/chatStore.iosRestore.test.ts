@@ -70,6 +70,32 @@ describe("mergeChatDbRecords", () => {
     expect(target.messages["u-chat"]?.["2"]?.text).toBe("imported");
   });
 
+
+  test("repairs a cached c* chat to group and keeps restored-history visibility", () => {
+    const existing = chat("c-group", "c-group", 500);
+    existing.kind = "direct";
+    const imported = chat("c-group", "Restored group", 400);
+    imported.kind = "group";
+    imported.restoredHistory = true;
+    const target: ChatDbRecords = {
+      chats: { "c-group": existing },
+      messages: { "c-group": { "1": message("1", "c-group", "local") } },
+    };
+
+    mergeChatDbRecords(target, {
+      chats: { "c-group": imported },
+      messages: { "c-group": { "2": message("2", "c-group", "restored") } },
+    });
+
+    expect(target.chats["c-group"]).toMatchObject({
+      name: "Restored group",
+      kind: "group",
+      restoredHistory: true,
+      hasMessages: true,
+    });
+    expect(target.messages["c-group"]?.["2"]?.text).toBe("restored");
+  });
+
   test("is idempotent when the same backup is merged twice", () => {
     const target: ChatDbRecords = { chats: {}, messages: {} };
     const incoming = {

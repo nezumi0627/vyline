@@ -38,6 +38,8 @@ export interface StoredChat {
   thumbnailUrl?: string;
   unreadCount?: number;
   isOfficial?: boolean;
+  /** 外部バックアップから復元された履歴を持つ。退出済みグループも履歴として表示するために使う。 */
+  restoredHistory?: boolean;
   updatedAt: string;
 }
 
@@ -258,7 +260,42 @@ export async function upsertChats(
 ): Promise<void> {
   const db = await getDb(accountId);
   for (const chat of chats) {
-    db.chats[chat.mid] = chat;
+    const existing = db.chats[chat.mid];
+    if (!existing) {
+      db.chats[chat.mid] = chat;
+      continue;
+    }
+
+    const incomingTime = chat.lastMessageTime ?? 0;
+    const existingTime = existing.lastMessageTime ?? 0;
+    const keepExistingLast = existingTime > incomingTime;
+    const incomingNameIsFallback =
+      !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
+    const incomingKindIsFallback = chat.kind === "unknown";
+
+    db.chats[chat.mid] = {
+      ...existing,
+      ...chat,
+      name: incomingNameIsFallback && existing.name ? existing.name : chat.name,
+      kind: incomingKindIsFallback ? existing.kind : chat.kind,
+      hasMessages: existing.hasMessages || chat.hasMessages,
+      lastMessageTime: Math.max(existingTime, incomingTime),
+      ...(keepExistingLast && existing.lastMessageId
+        ? { lastMessageId: existing.lastMessageId }
+        : chat.lastMessageId
+          ? { lastMessageId: chat.lastMessageId }
+          : existing.lastMessageId
+            ? { lastMessageId: existing.lastMessageId }
+            : {}),
+      ...(keepExistingLast && existing.lastMessagePreview
+        ? { lastMessagePreview: existing.lastMessagePreview }
+        : chat.lastMessagePreview
+          ? { lastMessagePreview: chat.lastMessagePreview }
+          : existing.lastMessagePreview
+            ? { lastMessagePreview: existing.lastMessagePreview }
+            : {}),
+      ...(existing.restoredHistory || chat.restoredHistory ? { restoredHistory: true } : {}),
+    };
   }
   if (meta?.boxOrder) db.meta.boxOrder = meta.boxOrder;
   if (meta?.lastOpRevision != null) db.meta.lastOpRevision = meta.lastOpRevision;
@@ -489,6 +526,7 @@ function storedChatToChat(stored: StoredChat): Chat {
   if (stored.lastMessagePreview) chat.lastMessagePreview = stored.lastMessagePreview;
   if (stored.unreadCount != null) chat.unreadCount = stored.unreadCount;
   if (stored.isOfficial) chat.isOfficial = true;
+  if (stored.restoredHistory) chat.restoredHistory = true;
   return chat;
 }
 
@@ -675,9 +713,15 @@ export function mergeChatDbRecords(
 
     skippedChats++;
     const incomingIsNewer = (incomingChat.lastMessageTime ?? 0) > (existing.lastMessageTime ?? 0);
+    const incomingKindShouldWin =
+      incomingChat.kind !== "unknown" &&
+      (existing.kind === "unknown" ||
+        ((mid.startsWith("c") || mid.startsWith("r")) && incomingChat.kind === "group"));
     target.chats[mid] = {
       ...existing,
+      kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
       hasMessages: existing.hasMessages || incomingChat.hasMessages,
+      ...(existing.restoredHistory || incomingChat.restoredHistory ? { restoredHistory: true } : {}),
       lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
       ...(incomingIsNewer && incomingChat.lastMessageId
         ? { lastMessageId: incomingChat.lastMessageId }

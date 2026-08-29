@@ -143,6 +143,7 @@ describe("Android LINE backup import", () => {
       name: "Test group",
       kind: "group",
       hasMessages: true,
+      restoredHistory: true,
     });
     expect(parsed.records.messages["c-group"]?.["581758080913244212"]).toMatchObject({
       from: "u-me",
