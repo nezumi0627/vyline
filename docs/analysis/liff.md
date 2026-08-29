@@ -49,11 +49,11 @@ await client.liff.shareMessage(chatMid, message);
 
 ### `sender` と `sentBy` の違い
 
-履歴上、`sentBy` は Vyline の初期 LIFF 実装から存在していた互換 metadata で、`label` / `iconUrl` / `linkUrl` を持つ。一方、`sender` は LINE Messaging API の正式な送信者表示カスタマイズで、`name` / `iconUrl` を持つ。
+Vyline の公開 API では分かりやすい `sender: { name, iconUrl, linkUrl }` を受け付ける。実際の LIFF share 送信時には、この値を LINE 側で表示確認できた `sentBy: { label, iconUrl, linkUrl }` へ変換する。
 
-そのため表示文字列・名前の正本は `sender.name`、アイコンは `sender.iconUrl` を優先する。LINE 公式の `sender` には URL フィールドがないため、URL が必要な場合だけ既存の `sentBy.linkUrl` を併用する。
+つまり呼び出し側の正本は `sender.name` / `sender.iconUrl` / `sender.linkUrl`、wire payload の正本は `sentBy.label` / `sentBy.iconUrl` / `sentBy.linkUrl` とする。UI 側が `sentBy` の命名差を意識する必要はない。
 
-通常の送信では、text / flex / image なども含めて LINE の message JSON をそのまま `sendLiff()` に渡す。表示名・アイコン・URL も message 内の `sender` にまとめて指定する。
+通常の送信では、text / flex / image などの message JSON を `sendLiff()` に渡し、表示名・アイコン・URLだけ `sender` にまとめて指定する。
 
 ```ts
 await client.liff.sendLiff(chatMid, {
@@ -85,9 +85,9 @@ await client.liff.sendLiff(chatMid, {
 }
 ```
 
-`sendLiff()` は内部で正規の `sender` を生成し、`sender.linkUrl` が指定された場合だけ同じ表示名・アイコンを `sentBy` にも複製して URL を保持する。呼び出し側は通常 `sentBy` を意識しなくてよい。`liff.text()` / `withSender()` / `withAttribution()` など既存 helper は互換・低レベル用途として残す。
+`sendLiff()` は送信直前に `sender` を取り除き、同じ値を `sentBy` へ正規化する。実アカウントの許可済みテストグループでも、この形で LIFF share が成功し送信者表示を確認できた。`liff.text()` / `withSender()` / `withAttribution()` は互換・低レベル用途として残す。
 
-`sentBy` を LINE 公式 schema として扱わないこと。現時点で LINE Developers の公式資料上に `sentBy` の仕様は確認できていない。
+`sentBy` は公開 LIFF SDK の一般的な message 型として文書化されている前提にはせず、Vyline では実通信・実機表示で確認した LIFF share 用 wire metadata として扱う。
 
 ## LIFF feature 実装
 
