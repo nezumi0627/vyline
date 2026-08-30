@@ -151,6 +151,46 @@ function createRestoreSession(
   };
 }
 
+async function writeRequestBodyToFile(request: Request, targetPath: string): Promise<number> {
+  const body = request.body;
+  if (!body) return 0;
+
+  const reader = body.getReader();
+  const file = await open(targetPath, "w", 0o600);
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+
+      total += value.byteLength;
+      if (total > MAX_UPLOAD_BYTES) {
+        await reader.cancel("Android backup upload exceeded size limit").catch(() => undefined);
+        throw new Error(
+          `Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`,
+        );
+      }
+
+      let offset = 0;
+      while (offset < value.byteLength) {
+        const { bytesWritten } = await file.write(
+          value,
+          offset,
+          value.byteLength - offset,
+        );
+        if (bytesWritten <= 0) throw new Error("Androidバックアップの保存に失敗しました");
+        offset += bytesWritten;
+      }
+    }
+    await file.sync();
+    return total;
+  } finally {
+    reader.releaseLock();
+    await file.close();
+  }
+}
+
 function queueRestore(
   session: AndroidBackupSession,
   sourcePath: string,
@@ -184,7 +224,7 @@ export async function startAndroidBackupRestore(
   const workDir = await mkdtemp(join(tmpdir(), `vyline-android-${session.id}-`));
   const sourcePath = join(workDir, "source.bin");
   try {
-    const written = await Bun.write(sourcePath, request);
+    const written = await writeRequestBodyToFile(request, sourcePath);
     if (written <= 0) throw new Error("アップロードされたファイルが空です");
     if (written > MAX_UPLOAD_BYTES) {
       throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
@@ -588,7 +628,10 @@ function parseAndroidMediaEntry(
     /(?:^|\/)chats\/([a-z0-9_-]{4,128})\/messages\/(\d+)(\.original|\.thumb)?$/i,
   );
   if (!match) return null;
-  return { chatMid: match[1], fileName: `${match[2]}${match[3] ?? ""}` };
+  const chatMid = match[1];
+  const messageId = match[2];
+  if (!chatMid || !messageId) return null;
+  return { chatMid, fileName: `${messageId}${match[3] ?? ""}` };
 }
 
 export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAndroidDatabase {
@@ -778,13 +821,30 @@ function isStoredUnsent(message: StoredMessage): boolean {
 }
 
 function snapshotFromAndroidMessage(message: StoredMessage): MessageSnapshot {
-  const {
-    chatMid: _chatMid,
-    savedAt: _savedAt,
-    history: _history,
-    revokedSnapshot: _revokedSnapshot,
-    ...snapshot
-  } = message;
+  const snapshot: MessageSnapshot = {
+    id: message.id,
+    from: message.from,
+    to: message.to,
+    text: message.text,
+    contentType: message.contentType,
+    createdTime: message.createdTime,
+    isMyMessage: message.isMyMessage,
+  };
+  if (message.contentMetadata !== undefined) {
+    snapshot.contentMetadata = message.contentMetadata;
+  }
+  if (message.readCount !== undefined) snapshot.readCount = message.readCount;
+  if (message.readBy !== undefined) snapshot.readBy = message.readBy;
+  if (message.seen !== undefined) snapshot.seen = message.seen;
+  if (message.relatedMessageId !== undefined) {
+    snapshot.relatedMessageId = message.relatedMessageId;
+  }
+  if (message.reactions !== undefined) snapshot.reactions = message.reactions;
+  if (message.stickerAnimated !== undefined) {
+    snapshot.stickerAnimated = message.stickerAnimated;
+  }
+  if (message.stickerSticky !== undefined) snapshot.stickerSticky = message.stickerSticky;
+  if (message.messageState !== undefined) snapshot.messageState = message.messageState;
   return snapshot;
 }
 
@@ -1045,7 +1105,13 @@ function sniffMediaMime(bytes: Uint8Array, kind: string): string {
   if (bytes.length >= 3 && Buffer.from(bytes.subarray(0, 3)).toString("ascii") === "ID3") {
     return "audio/mpeg";
   }
-  if (bytes.length >= 2 && bytes[0] === 0xff && (bytes[1] & 0xe0) === 0xe0) {
+  const secondByte = bytes[1];
+  if (
+    bytes.length >= 2 &&
+    bytes[0] === 0xff &&
+    secondByte !== undefined &&
+    (secondByte & 0xe0) === 0xe0
+  ) {
     return "audio/mpeg";
   }
   if (bytes.length >= 5 && Buffer.from(bytes.subarray(0, 5)).toString("ascii") === "%PDF-") {

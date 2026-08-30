@@ -33,8 +33,8 @@ COPY . .
 RUN bun run build
 
 ARG BUN_VERSION=1.4.0
-ARG VYLINE_VERSION=dev
 FROM oven/bun:${BUN_VERSION} AS runtime
+ARG VYLINE_VERSION
 WORKDIR /app
 ENV NODE_ENV=production \
     VYLINE_VERSION=${VYLINE_VERSION} \
@@ -49,6 +49,7 @@ LABEL org.opencontainers.image.title="Vyline" \
       org.opencontainers.image.source="https://github.com/tqmane/vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"
 RUN apt-get update \
+  && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends gosu \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=prod-deps /app/node_modules ./node_modules

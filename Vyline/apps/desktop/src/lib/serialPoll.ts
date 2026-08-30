@@ -1,4 +1,4 @@
-export type SerialPollTask = () => boolean | void | Promise<boolean | void>;
+export type SerialPollTask = () => boolean | undefined | Promise<boolean | undefined>;
 
 export interface SerialPollOptions {
   /** Delay between the end of one run and the start of the next run. */

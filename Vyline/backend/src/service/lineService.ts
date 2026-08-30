@@ -2902,12 +2902,15 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   // chatdb に同じ最終メッセージの復号済みプレビューがある場合は、
   // getMessageBoxes の E2EE プレースホルダで巻き戻さない。
-  const storedChats = await getStoredChats(accountId);
-  const storedByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
+  const storedPreviewChats = await getStoredChats(accountId);
+  const storedByMid = new Map(storedPreviewChats.map((chat) => [chat.mid, chat]));
   for (const chat of result) {
     const stored = storedByMid.get(chat.mid);
-    if (stored && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
-      chat.lastMessagePreview = stored.lastMessagePreview ?? chat.lastMessagePreview;
+    if (
+      stored?.lastMessagePreview &&
+      shouldPreserveResolvedLastMessagePreview(stored, chat)
+    ) {
+      chat.lastMessagePreview = stored.lastMessagePreview;
     }
   }
 
