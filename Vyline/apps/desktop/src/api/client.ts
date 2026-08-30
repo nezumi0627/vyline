@@ -53,10 +53,17 @@ const SUBDEVICE_INSTALLATION_ID_KEY = "vyline:subdevice-installation-id";
 const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function getSubdeviceInstallationId(): string | null {
-  if (typeof localStorage === "undefined" || typeof crypto?.randomUUID !== "function") return null;
+  if (typeof localStorage === "undefined" || typeof crypto?.getRandomValues !== "function")
+    return null;
   const existing = localStorage.getItem(SUBDEVICE_INSTALLATION_ID_KEY);
   if (existing && INSTALLATION_ID_RE.test(existing)) return existing;
-  const created = crypto.randomUUID();
+  // randomUUID is unavailable on plain HTTP LAN origins. getRandomValues is
+  // still cryptographically secure there; generate the same UUID v4 format.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const created = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   localStorage.setItem(SUBDEVICE_INSTALLATION_ID_KEY, created);
   return created;
 }
@@ -1576,14 +1583,14 @@ export const api = {
   },
   diagnostics: {
     list: (mid: string) =>
-      request<{ ok: boolean; entries: unknown[] }>(
+      request<{ ok: boolean; entries: unknown[]; error?: string }>(
         "GET",
         `/diagnostics/${encodeURIComponent(mid)}`,
       ),
     clear: (mid: string) =>
-      request<{ ok: boolean }>("DELETE", `/diagnostics/${encodeURIComponent(mid)}`),
+      request<{ ok: boolean; error?: string }>("DELETE", `/diagnostics/${encodeURIComponent(mid)}`),
     export: (mid: string) =>
-      request<{ ok: boolean; content: string }>(
+      request<{ ok: boolean; content: string; error?: string }>(
         "GET",
         `/diagnostics/${encodeURIComponent(mid)}/export`,
       ),

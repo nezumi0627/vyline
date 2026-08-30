@@ -3,6 +3,7 @@ import { api } from "@/api/client";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
+import type { AccountSettings } from "@vyline/types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
@@ -695,6 +696,7 @@ function HandoffSection() {
   const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
+  const [debugSettings, setDebugSettings] = useState<AccountSettings["debug"] | null>(null);
   useEffect(() => {
     if (mid) {
       setResolvedMid(mid);
@@ -715,6 +717,37 @@ function HandoffSection() {
     };
   }, [accountId, mid, updateSelf]);
   const diagnosticMid = resolvedMid ?? mid;
+  useEffect(() => {
+    setDebugSettings(null);
+    if (!diagnosticMid) return;
+    let cancelled = false;
+    void api.settings
+      .account(diagnosticMid)
+      .then((result) => {
+        if (!cancelled && result.ok) setDebugSettings(result.settings.debug);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [diagnosticMid]);
+  const toggleLogs = async (enabled: boolean) => {
+    if (!diagnosticMid || !debugSettings) return;
+    try {
+      const result = await api.settings.saveAccount(diagnosticMid, {
+        debug: { ...debugSettings, enabled },
+      });
+      if (!result.ok) throw new Error("ログ収集設定を保存できませんでした");
+      setDebugSettings(result.settings.debug);
+      setMessage(
+        enabled
+          ? "これからの通信結果を記録します。問題の操作を再実行してください"
+          : "ログ収集を停止しました",
+      );
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ログ収集設定を保存できませんでした");
+    }
+  };
   const download = (name: string, content: BlobPart, type: string) => {
     const url = URL.createObjectURL(new Blob([content], { type }));
     const anchor = document.createElement("a");
@@ -762,6 +795,7 @@ function HandoffSection() {
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
       const result = await api.diagnostics.export(diagnosticMid);
+      if (!result.ok) throw new Error(result.error ?? "ログ出力に失敗しました");
       download("vyline-diagnostics.json", result.content, "application/json");
       setMessage("サニタイズ済みログを出力しました");
     } catch (error) {
@@ -773,8 +807,15 @@ function HandoffSection() {
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
       const result = await api.diagnostics.list(diagnosticMid);
+      if (!result.ok) throw new Error(result.error ?? "ログ一覧の取得に失敗しました");
       setEntries(result.entries);
-      setMessage(`${result.entries.length}件のログを読み込みました`);
+      setMessage(
+        result.entries.length > 0
+          ? `${result.entries.length}件のログを読み込みました`
+          : debugSettings?.enabled === false
+            ? "ログ収集が無効です。有効にしてから問題の操作を再実行してください"
+            : "記録されたログはまだありません。問題の操作後にもう一度確認してください",
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ログ一覧の取得に失敗しました");
     }
@@ -784,6 +825,7 @@ function HandoffSection() {
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
       const result = await api.diagnostics.export(diagnosticMid);
+      if (!result.ok) throw new Error(result.error ?? "ログ出力に失敗しました");
       const body = [
         "## 問題の概要",
         "",
@@ -831,6 +873,17 @@ function HandoffSection() {
       </Section>
       <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
         <Card>
+          <Row
+            title="診断ログを収集"
+            desc="通信結果と所要時間を記録します。メッセージ本文・認証情報は含みません"
+          >
+            <Toggle
+              checked={debugSettings?.enabled ?? false}
+              disabled={!debugSettings}
+              onChange={(enabled) => void toggleLogs(enabled)}
+              label="診断ログを収集"
+            />
+          </Row>
           <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
             <button
               type="button"
@@ -866,7 +919,11 @@ function HandoffSection() {
                 window.confirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
                   .clear(diagnosticMid)
-                  .then(() => setMessage("ログを削除しました"))
+                  .then((result) => {
+                    if (!result.ok) throw new Error(result.error ?? "ログ削除に失敗しました");
+                    setEntries([]);
+                    setMessage("ログを削除しました");
+                  })
                   .catch((error) =>
                     setMessage(error instanceof Error ? error.message : "ログ削除に失敗しました"),
                   )

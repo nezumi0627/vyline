@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
+import { useAuthStore } from "@/stores/authStore";
 
 const STORAGE_KEY = "vyline:subdevice-session";
 const platform = /iPhone|iPad|iPod/i.test(navigator.userAgent)
@@ -32,6 +33,8 @@ export function SubdevicePage() {
         if (savedToken) {
           const res = await api.subdevices.heartbeat(savedToken);
           if (res.ok && res.device) {
+            if (cancelled) return;
+            useAuthStore.getState().activateSubdevice(res.device.accountId);
             setAccountId(res.device.accountId);
             navigate("/", { replace: true });
             return;
@@ -57,6 +60,7 @@ export function SubdevicePage() {
         return;
       }
       localStorage.setItem(STORAGE_KEY, res.sessionToken);
+      useAuthStore.getState().activateSubdevice(res.device.accountId);
       setAccountId(res.device.accountId);
       navigate("/", { replace: true });
     } catch (error) {

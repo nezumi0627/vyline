@@ -9,7 +9,6 @@ import { ChatShell } from "../components/chat-shell.js";
 import { SettingsSections } from "../components/settings-sections.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
-import { api } from "../api/client.js";
 import { VylineSetup } from "../components/vyline-setup.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
 
@@ -45,7 +44,7 @@ export function VylineApp() {
     if (!token) return;
     return startSerialPoll(
       async () => {
-        await api.subdevices.heartbeat(token);
+        await useAuthStore.getState().refreshAccounts();
         return true;
       },
       {
@@ -96,7 +95,12 @@ export function VylineApp() {
   }
 
   if (accounts.length === 0) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to={localStorage.getItem("vyline:subdevice-session") ? "/subdevice" : "/login"}
+        replace
+      />
+    );
   }
 
   // ログイン後・同意前は利用規約画面のみ（同意しない限りアプリは動作しない）

@@ -30,6 +30,7 @@ import { getSubdeviceSession } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
+import { requestDiagnostics } from "./service/requestDiagnostics.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MAX_REQUEST_BODY_BYTES = Number(
@@ -149,6 +150,15 @@ app.use("/auth/*", async (c, next) => {
   if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
   return requireLanSubdevice(c, next);
 });
+
+app.use("*", requestDiagnostics((c) => {
+  const scope = scopedAccount(c.req.path);
+  if (scope?.kind === "mid") return scope.value;
+  if (scope?.kind === "accountId") {
+    return getClient(scope.value)?.base.profile?.mid;
+  }
+  return undefined;
+}));
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
 app.get("/api/v1/status", (c) =>
