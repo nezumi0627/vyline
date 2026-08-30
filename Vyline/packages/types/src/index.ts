@@ -323,9 +323,10 @@ export type CallResponse = ApiResult<Record<string, never>>;
 export type LoginResult = ApiResult<{ message?: string; accountId?: string }>;
 
 export type QrPollResponse = ApiResult<{
-  status: "idle" | "waiting" | "pending" | "expired" | "completed";
+  status: "idle" | "waiting" | "pending" | "expired" | "completed" | "failed";
   qrUrl: string | null;
   pincode: string | null;
+  error?: string | null;
 }>;
 
 export type EmailPollResponse = ApiResult<{

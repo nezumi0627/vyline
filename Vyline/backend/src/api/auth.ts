@@ -158,14 +158,25 @@ authRouter.post("/login/qr", async (c) => {
 // ─────────────────────────────────────────────
 // GET /auth/login/qr/:id
 // QR 状態をポーリングで取得する
-// status: "idle" | "waiting" | "pending" | "expired" | "completed"
+// status: "idle" | "waiting" | "pending" | "expired" | "completed" | "failed"
 // ─────────────────────────────────────────────
 authRouter.get("/login/qr/:id", (c) => {
   const accountId = c.req.param("id");
-  const { url, expired, pincode, inProgress } = getQrState(accountId);
+  const { url, expired, pincode, inProgress, error } = getQrState(accountId);
 
   if (expired) {
     return c.json({ ok: true, status: "expired", qrUrl: null, pincode: null });
+  }
+
+  if (error && !inProgress) {
+    // Internal transport errors can contain headers/tokens. Do not expose them.
+    return c.json({
+      ok: true,
+      status: "failed",
+      qrUrl: null,
+      pincode: null,
+      error: "QRログインに失敗しました。もう一度お試しください。",
+    });
   }
 
   if (url) {
