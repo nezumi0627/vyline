@@ -45,7 +45,8 @@
     "bump": "bun scripts/bump-version.ts",
     "docs:readme": "bun scripts/generate-readmes.ts",
     "docs:readme:check": "bun scripts/generate-readmes.ts --check",
-    "postinstall": "git config core.hooksPath .githooks"
+    "postinstall": "git config core.hooksPath .githooks",
+    "verify:release": "node scripts/verify-release-architecture.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",

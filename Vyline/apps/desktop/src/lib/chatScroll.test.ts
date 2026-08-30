@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { findFirstUnreadMessage } from "./chatScroll";
+import { findFirstUnreadMessage, isNearScrollBottom } from "./chatScroll";
 
 const message = (id: string, createdAt: number, read: boolean, authorId = "peer") => ({
   id,
@@ -33,5 +33,22 @@ describe("findFirstUnreadMessage", () => {
   it("uses BigInt id as tie-breaker when createdAt is equal", () => {
     const result = findFirstUnreadMessage([message("20", 100, false), message("10", 100, false)]);
     expect(result?.id).toBe("10");
+  });
+});
+
+describe("isNearScrollBottom", () => {
+  it("treats exact and fractional bottom positions as bottom", () => {
+    expect(isNearScrollBottom({ scrollTop: 600, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
+    expect(isNearScrollBottom({ scrollTop: 599.4, scrollHeight: 1000, clientHeight: 400 })).toBe(true);
+  });
+
+  it("returns false when the user is meaningfully above the bottom", () => {
+    expect(isNearScrollBottom({ scrollTop: 560, scrollHeight: 1000, clientHeight: 400 })).toBe(false);
+  });
+
+  it("supports a custom threshold and clamps negative thresholds", () => {
+    const metrics = { scrollTop: 590, scrollHeight: 1000, clientHeight: 400 };
+    expect(isNearScrollBottom(metrics, 12)).toBe(true);
+    expect(isNearScrollBottom(metrics, -1)).toBe(false);
   });
 });

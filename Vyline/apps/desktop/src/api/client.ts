@@ -225,6 +225,7 @@ async function uploadAndroidBackupChunked(
     "POST",
     `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
   );
+}
 
 async function requestBlob<T>(method: string, path: string, blob: Blob): Promise<T> {
   const headers = new Headers({
@@ -235,8 +236,6 @@ async function requestBlob<T>(method: string, path: string, blob: Blob): Promise
     throw new Error(await readHttpError(res, `HTTP ${res.status}`));
   }
   return parseJsonResponse<T>(res);
-}
-
 }
 
 // ─── api ──────────────────────────────────────

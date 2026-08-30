@@ -49,9 +49,7 @@ LABEL org.opencontainers.image.title="Vyline" \
       org.opencontainers.image.source="https://github.com/tqmane/vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"
 RUN apt-get update \
-  && apt-get upgrade -y \
   && apt-get install -y --no-install-recommends gosu \
-  && apt-get autoremove -y \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modules
@@ -64,6 +62,7 @@ RUN mkdir -p /app/data /app/storage \
   && chown -R bun:bun /app/data /app/storage \
   && chmod 0755 /usr/local/bin/vyline-entrypoint
 EXPOSE 3000
+STOPSIGNAL SIGTERM
 VOLUME ["/app/data", "/app/storage"]
 HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
   CMD bun -e 'fetch("http://127.0.0.1:"+(process.env.PORT||3000)+"/healthz").then(function(r){process.exit(r.ok?0:1)},function(){process.exit(1)})'

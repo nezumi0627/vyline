@@ -3,7 +3,6 @@ services:
     image: ${VYLINE_IMAGE:-ghcr.io/tqmane/vyline:latest}
     pull_policy: always
     ports:
-      # LAN から使う場合は 0.0.0.0。ローカル専用なら 127.0.0.1 に変更してください。
       - "${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000"
     volumes:
       - ${VYLINE_DATA_PATH:-./data}:/app/data

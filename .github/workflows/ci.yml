@@ -17,6 +17,7 @@ jobs:
         with:
           bun-version: latest
       - run: bun run docs:readme:check
+      - run: node scripts/verify-release-architecture.mjs
 
   typecheck:
     name: TypeScript
