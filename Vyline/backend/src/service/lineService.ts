@@ -82,6 +82,8 @@ import {
   getMessageHistory,
   warmAccountCache,
   saveBoxOrder,
+  isUnresolvedLastMessagePreview,
+  shouldPreserveResolvedLastMessagePreview,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
@@ -738,6 +740,8 @@ const readRangeBgAt = new Map<string, number>();
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
+const CHAT_PREVIEW_WARM_MAX_ATTEMPTS = 2;
+const chatPreviewWarmAttempts = new Map<string, number>();
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -2529,6 +2533,9 @@ function previewFromBoxMessage(msg: any | undefined): string {
     case "FLEX":
     case "22":
       return "Flexメッセージ";
+    case "UNSENT":
+    case "UNSEND":
+      return "取り消し済みのメッセージ";
     case "E2EE_UNAVAILABLE":
       return "暗号化メッセージ";
     case "NONE":
@@ -2893,42 +2900,73 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     }
   }
 
-  // E2EE の最終メッセージは text が空なので、上位チャットだけ復号してプレビューを埋める
-  if (!opts?.light) {
-    try {
-      await ensureE2EEIdentityCached(client, accountId);
-    } catch {
-      /* ignore */
+  // chatdb に同じ最終メッセージの復号済みプレビューがある場合は、
+  // getMessageBoxes の E2EE プレースホルダで巻き戻さない。
+  const storedChats = await getStoredChats(accountId);
+  const storedByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
+  for (const chat of result) {
+    const stored = storedByMid.get(chat.mid);
+    if (stored && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
+      chat.lastMessagePreview = stored.lastMessagePreview ?? chat.lastMessagePreview;
     }
-    const toEnrich = result
-      .filter((c) => {
-        const box = boxById.get(c.mid) as { lastMessages?: unknown[] } | undefined;
-        const last = box?.lastMessages?.[0] as { chunks?: unknown[]; text?: string } | undefined;
-        return (
-          Array.isArray(last?.chunks) &&
-          last.chunks.length > 0 &&
-          !(typeof last.text === "string" && last.text.trim())
-        );
-      })
-      .slice(0, 30);
+  }
 
-    // プレビュー復号は応答を待たせず非同期で（switch 時の「暗号化メッセージ」化を防ぐ）
+  // E2EE の最終メッセージは text が空。light=true でも履歴全体は読まず、
+  // 各トークの最後の1件だけを有限バッチで復号して一覧プレビューを温める。
+  // これを light で無効化すると「そのトークを開くまで暗号化メッセージ」のままになる。
+  const toEnrich = result.filter((chat) => {
+    if (!isUnresolvedLastMessagePreview(chat.lastMessagePreview)) return false;
+    const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
+    const last = box?.lastMessages?.[0] as { chunks?: unknown[]; text?: string } | undefined;
+    if (
+      !Array.isArray(last?.chunks) ||
+      last.chunks.length === 0 ||
+      (typeof last.text === "string" && last.text.trim())
+    ) {
+      return false;
+    }
+    const cursor = chat.lastMessageId || String(chat.lastMessageTime || 0);
+    const warmKey = `${accountId}:${chat.mid}:${cursor}`;
+    return (chatPreviewWarmAttempts.get(warmKey) ?? 0) < CHAT_PREVIEW_WARM_MAX_ATTEMPTS;
+  });
+  for (const chat of toEnrich) {
+    const cursor = chat.lastMessageId || String(chat.lastMessageTime || 0);
+    const warmKey = `${accountId}:${chat.mid}:${cursor}`;
+    chatPreviewWarmAttempts.set(warmKey, (chatPreviewWarmAttempts.get(warmKey) ?? 0) + 1);
+  }
+
+  // 一覧応答自体はブロックしない。4秒/12秒後の有限 refresh と次回 bootstrap が
+  // この永続化結果を拾う。Promise.all 全件投げは避け、有限バッチで処理する。
+  const previewBatchSize = opts?.light ? 6 : 8;
+  if (toEnrich.length > 0) {
     void (async () => {
       try {
-        await Promise.all(
-          toEnrich.map(async (chat) => {
-            const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
-            const last = box?.lastMessages?.[0] as any;
-            if (!last) return;
-            try {
-              await ensureGroupE2EEKey(client, chat.mid);
-              const dec = await decryptE2EEMessageSafe(client, accountId, chat.mid, last);
-              chat.lastMessagePreview = previewFromBoxMessage(dec);
-            } catch {
-              /* keep fallback preview */
-            }
-          }),
-        );
+        try {
+          await ensureE2EEIdentityCached(client, accountId);
+        } catch {
+          /* individual decrypt may still succeed */
+        }
+        const myMid = await resolveMyMid(client, accountId).catch(() => "");
+        for (let i = 0; i < toEnrich.length; i += previewBatchSize) {
+          const batch = toEnrich.slice(i, i + previewBatchSize);
+          await Promise.all(
+            batch.map(async (chat) => {
+              const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
+              const last = box?.lastMessages?.[0] as any;
+              if (!last) return;
+              try {
+                await ensureGroupE2EEKey(client, chat.mid);
+                const dec = await decryptE2EEMessageSafe(client, accountId, chat.mid, last);
+                const preview = previewFromBoxMessage(dec);
+                if (!preview || isUnresolvedLastMessagePreview(preview)) return;
+                const from = String((dec as { from?: unknown } | null | undefined)?.from ?? "");
+                chat.lastMessagePreview = myMid && from === myMid ? `あなた: ${preview}` : preview;
+              } catch {
+                /* keep cached/fallback preview */
+              }
+            }),
+          );
+        }
         await upsertChats(
           accountId,
           result.map((c) => {

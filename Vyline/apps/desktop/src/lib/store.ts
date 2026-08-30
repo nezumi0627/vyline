@@ -264,7 +264,7 @@ function applyReadWatermarkLocal(
   return changed ? patches : null;
 }
 
-function messagePreview(m: Message): string {
+export function messagePreview(m: Message): string {
   if (m.messageState.startsWith("revoked")) {
     if (m.revokedSnapshot) return `取り消し済み: ${messagePreview(m.revokedSnapshot)}`;
     const last = m.history

@@ -3,6 +3,7 @@ import {
   compareMessagesNewestFirst,
   mergeChatDbRecords,
   rebuildChatDbRecords,
+  shouldPreserveResolvedLastMessagePreview,
   type ChatDbRecords,
   type StoredChat,
   type StoredMessage,
@@ -154,5 +155,38 @@ describe("mergeChatDbRecords", () => {
     expect(target.messages["u-chat"]?.["1"]?.text).toBe("restored text");
     expect(target.messages["u-chat"]?.["1"]?.contentType).toBe("IMAGE");
     expect(target.messages["u-chat"]?.["1"]?.contentMetadata?.FILE_NAME).toBe("photo.jpg");
+  });
+});
+
+describe("chat-list preview persistence", () => {
+  test(
+    "keeps a resolved preview when a light sync returns an E2EE placeholder for the same message",
+    () => {
+      const existing = chat("u-chat", "Preview chat", 1000);
+      existing.lastMessageId = "100";
+      existing.lastMessagePreview = "あなた: hello";
+      const incoming = chat("u-chat", "Preview chat", 1000);
+      incoming.lastMessageId = "100";
+      incoming.lastMessagePreview = "暗号化メッセージ";
+
+      expect(shouldPreserveResolvedLastMessagePreview(existing, incoming)).toBe(true);
+
+      incoming.lastMessageId = "101";
+      expect(shouldPreserveResolvedLastMessagePreview(existing, incoming)).toBe(false);
+    },
+  );
+
+  test("rebuilds a useful latest-message preview without opening the chat", () => {
+    const own = message("20", "u-chat", "hello from me");
+    own.isMyMessage = true;
+    const target: ChatDbRecords = {
+      chats: { "u-chat": chat("u-chat", "Preview chat", 100) },
+      messages: { "u-chat": { "20": own } },
+    };
+
+    rebuildChatDbRecords(target);
+
+    expect(target.chats["u-chat"]?.lastMessagePreview).toBe("あなた: hello from me");
+    expect(target.chats["u-chat"]?.lastMessageId).toBe("20");
   });
 });

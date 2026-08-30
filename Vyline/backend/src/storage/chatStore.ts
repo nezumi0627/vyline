@@ -119,23 +119,124 @@ export function compareMessagesOldestFirst(left: MessageCursor, right: MessageCu
   return byTime || compareMessageIdsAscending(left.id, right.id);
 }
 
-function previewForMessage(message: StoredMessage): string {
-  const text = message.text?.trim();
-  if (text) return text.slice(0, 120);
-  switch (message.contentType.toUpperCase()) {
-    case "IMAGE":
-      return "画像";
-    case "VIDEO":
-      return "動画";
-    case "AUDIO":
-      return "音声";
-    case "FILE":
-      return "ファイル";
-    case "STICKER":
-      return "スタンプ";
-    default:
-      return message.contentType || "メッセージ";
+export const ENCRYPTED_LAST_MESSAGE_PREVIEW = "暗号化メッセージ";
+
+export function isUnresolvedLastMessagePreview(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toUpperCase();
+  return (
+    normalized === ENCRYPTED_LAST_MESSAGE_PREVIEW ||
+    normalized === "E2EE_UNAVAILABLE" ||
+    normalized === "UNSENT" ||
+    normalized === "UNSEND" ||
+    normalized === "(UNSENT)" ||
+    normalized === "(UNSEND)"
+  );
+}
+
+type ChatLastMessageCursor = Pick<StoredChat, "lastMessageId" | "lastMessageTime">;
+
+export function isSameStoredLastMessage(
+  left: ChatLastMessageCursor,
+  right: ChatLastMessageCursor,
+): boolean {
+  if (left.lastMessageId && right.lastMessageId) {
+    return left.lastMessageId === right.lastMessageId;
   }
+  const leftTime = left.lastMessageTime ?? 0;
+  const rightTime = right.lastMessageTime ?? 0;
+  return leftTime > 0 && leftTime === rightTime;
+}
+
+export function shouldPreserveResolvedLastMessagePreview(
+  existing: Pick<StoredChat, "lastMessageId" | "lastMessageTime" | "lastMessagePreview">,
+  incoming: Pick<StoredChat, "lastMessageId" | "lastMessageTime" | "lastMessagePreview">,
+): boolean {
+  return Boolean(
+    existing.lastMessagePreview &&
+      !isUnresolvedLastMessagePreview(existing.lastMessagePreview) &&
+      isUnresolvedLastMessagePreview(incoming.lastMessagePreview) &&
+      isSameStoredLastMessage(existing, incoming),
+  );
+}
+
+function previewForMessage(message: StoredMessage): string {
+  let preview = "";
+  if (message.messageState?.startsWith("revoked")) {
+    const snapshotText = message.revokedSnapshot?.text?.trim();
+    const historyText = message.history
+      ? [...message.history]
+          .reverse()
+          .find((entry) => entry.state === "normal" || entry.state === "edited")
+          ?.text?.trim()
+      : undefined;
+    const previousText = snapshotText || historyText;
+    preview = previousText
+      ? `取り消し済み: ${previousText.slice(0, 100)}`
+      : "取り消し済みのメッセージ";
+  } else {
+    const text = message.text?.trim();
+    if (text) {
+      preview = text.slice(0, 120);
+    } else {
+      switch (message.contentType.toUpperCase()) {
+        case "IMAGE":
+        case "1":
+          preview = "写真";
+          break;
+        case "VIDEO":
+        case "2":
+          preview = "動画";
+          break;
+        case "AUDIO":
+        case "3":
+          preview = "音声";
+          break;
+        case "STICKER":
+        case "7":
+          preview = "スタンプ";
+          break;
+        case "FILE":
+        case "14":
+          preview = "ファイル";
+          break;
+        case "LOCATION":
+        case "15":
+          preview = "位置情報";
+          break;
+        case "CALL":
+        case "6":
+          preview = "通話";
+          break;
+        case "CONTACT":
+        case "13":
+          preview = "連絡先";
+          break;
+        case "E2EE_UNAVAILABLE":
+          preview = ENCRYPTED_LAST_MESSAGE_PREVIEW;
+          break;
+        case "UNSENT":
+        case "UNSEND":
+          preview = "取り消し済みのメッセージ";
+          break;
+        case "NONE":
+        case "0":
+          preview = "";
+          break;
+        default:
+          preview = message.contentType || "メッセージ";
+          break;
+      }
+    }
+  }
+  return message.isMyMessage && preview ? `あなた: ${preview}` : preview;
+}
+
+function messageIsAtLeastAsNewAsChat(message: StoredMessage, chat: StoredChat): boolean {
+  const chatTime = chat.lastMessageTime ?? 0;
+  if (message.createdTime > chatTime) return true;
+  if (message.createdTime < chatTime) return false;
+  if (!chat.lastMessageId) return true;
+  return compareMessageIdsAscending(message.id, chat.lastMessageId) >= 0;
 }
 
 const memory = new Map<string, ChatDb>();
@@ -307,6 +408,7 @@ export async function upsertChats(
     const incomingTime = chat.lastMessageTime ?? 0;
     const existingTime = existing.lastMessageTime ?? 0;
     const keepExistingLast = existingTime > incomingTime;
+    const keepResolvedPreview = shouldPreserveResolvedLastMessagePreview(existing, chat);
     const incomingNameIsFallback =
       !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
     const incomingKindIsFallback = chat.kind === "unknown";
@@ -325,7 +427,7 @@ export async function upsertChats(
           : existing.lastMessageId
             ? { lastMessageId: existing.lastMessageId }
             : {}),
-      ...(keepExistingLast && existing.lastMessagePreview
+      ...((keepExistingLast || keepResolvedPreview) && existing.lastMessagePreview
         ? { lastMessagePreview: existing.lastMessagePreview }
         : chat.lastMessagePreview
           ? { lastMessagePreview: chat.lastMessagePreview }
@@ -348,7 +450,11 @@ export async function upsertMessages(
 ): Promise<void> {
   const db = await getDb(accountId);
   const byChat = db.messages[chatMid] ?? {};
+  let latestIncoming: StoredMessage | undefined;
   for (const message of messages) {
+    if (!latestIncoming || compareMessagesNewestFirst(message, latestIncoming) < 0) {
+      latestIncoming = message;
+    }
     const prev = byChat[message.id];
     const prevRevoked =
       Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
@@ -371,6 +477,29 @@ export async function upsertMessages(
   }
   db.messages[chatMid] = byChat;
   applyLocalReadWatermark(byChat, db.meta.localReadUpTo?.[chatMid]?.messageId);
+
+  // The chat list must be self-contained: once the actual message has been
+  // decrypted/fetched, persist its preview instead of requiring ChatArea to be
+  // opened before the sidebar can render it. Older history pages cannot move the
+  // chat cursor backwards.
+  const chat = db.chats[chatMid];
+  const latestStored = latestIncoming ? byChat[latestIncoming.id] : undefined;
+  if (chat && latestStored && messageIsAtLeastAsNewAsChat(latestStored, chat)) {
+    const incomingPreview = previewForMessage(latestStored);
+    const incomingCursor: StoredChat = {
+      ...chat,
+      lastMessageId: latestStored.id,
+      lastMessageTime: latestStored.createdTime,
+      lastMessagePreview: incomingPreview,
+    };
+    const keepResolvedPreview = shouldPreserveResolvedLastMessagePreview(chat, incomingCursor);
+    chat.lastMessageId = latestStored.id;
+    chat.lastMessageTime = latestStored.createdTime;
+    if (!keepResolvedPreview) chat.lastMessagePreview = incomingPreview;
+    chat.hasMessages = true;
+    chat.updatedAt = new Date().toISOString();
+  }
+
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
   scheduleSave(accountId);
@@ -446,6 +575,8 @@ export async function markMessageRevoked(
   stored.history = [...(stored.history ?? []), entry];
   stored.contentType = "UNSENT";
   stored.text = null;
+  const chat = db.chats[chatMid];
+  if (chat?.lastMessageId === messageId) chat.lastMessagePreview = previewForMessage(stored);
   scheduleSave(accountId);
 }
 
@@ -491,6 +622,8 @@ export async function restoreRevokedMessage(
     if (snapshot.stickerSticky !== undefined) stored.stickerSticky = snapshot.stickerSticky;
     if (snapshot.reactions !== undefined) stored.reactions = snapshot.reactions;
   }
+  const chat = db.chats[chatMid];
+  if (chat?.lastMessageId === messageId) chat.lastMessagePreview = previewForMessage(stored);
   scheduleSave(accountId);
   return { text: restoredText, contentType: restoredContentType };
 }

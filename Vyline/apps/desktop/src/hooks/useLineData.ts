@@ -13,14 +13,18 @@
 import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { api } from "../api/client.js";
 import type { Chat, LineProfile, Message } from "../types/index.js";
-import { looksLikeMid, type ContactInfo } from "../lib/mappers.js";
+import { looksLikeMid, mapMessage, type ContactInfo } from "../lib/mappers.js";
 import {
   vylineClientPut,
   vylineClientPutMany,
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
-import { resolveChatToOpen, useStore } from "../lib/store.js";
+import { messagePreview, resolveChatToOpen, useStore } from "../lib/store.js";
 import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
+import {
+  hydrateBootstrapChatPreviews,
+  mergeResolvedChatPreviews,
+} from "../lib/chatPreview.js";
 import {
   HISTORY_PAGE_SIZE,
   MAX_LOCAL_HISTORY_LIMIT,
@@ -38,6 +42,8 @@ interface UseLineDataOptions {
 export function useLineData({ accountId }: UseLineDataOptions) {
   const [profile, setProfile] = useState<LineProfile | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
+  const chatsRef = useRef(chats);
+  chatsRef.current = chats;
   const [selectedChatMid, setSelectedChatMid] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
@@ -176,16 +182,17 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         const res = await api.line.chats(accountId, opts);
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
-          setChats(res.chats);
+          const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
+          setChats(nextChats);
           const initialChatMid = resolveChatToOpen(
             accountId,
             useStore.getState().activeChatId,
-            res.chats.map((chat) => chat.mid),
+            nextChats.map((chat) => chat.mid),
           );
           setSelectedChatMid((prev) => prev || initialChatMid || "");
-          applyChatsToContactCache(res.chats);
+          applyChatsToContactCache(nextChats);
           setFromLocalCache(Boolean(res.fromCache));
-          const warmTargets = res.chats
+          const warmTargets = nextChats
             .slice(0, 80)
             .filter(
               (c) => !c.thumbnailUrl || !c.name || looksLikeMid(c.name) || c.name === "(No Name)",
@@ -389,13 +396,23 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       }
 
       if (res.chats?.length) {
-        setChats(res.chats);
+        const hydratedChats = hydrateBootstrapChatPreviews(
+          res.chats,
+          res.messagesByChat ?? {},
+          (message, chat) => {
+            const mapped = mapMessage(message, chat.mid, accountId, contactCacheRef.current);
+            const preview = messagePreview(mapped);
+            return mapped.authorId === "me" && preview ? `あなた: ${preview}` : preview;
+          },
+        );
+        const nextChats = mergeResolvedChatPreviews(chatsRef.current, hydratedChats);
+        setChats(nextChats);
         setFromLocalCache(true);
-        applyChatsToContactCache(res.chats);
+        applyChatsToContactCache(nextChats);
         const initialChatMid = resolveChatToOpen(
           accountId,
           useStore.getState().activeChatId,
-          res.chats.map((chat) => chat.mid),
+          nextChats.map((chat) => chat.mid),
         );
         setSelectedChatMid((prev) => prev || initialChatMid || "");
       }
@@ -474,9 +491,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       if (accountIdRef.current !== accountId) return;
 
 
-      window.setTimeout(() => {
-        if (accountIdRef.current === accountId) void loadChats({ light: true });
-      }, 4_000);
+      // E2EE 一覧プレビューの有限 background warm を拾う。常時 prefetch はしない。
+      for (const delay of [4_000, 12_000]) {
+        window.setTimeout(() => {
+          if (accountIdRef.current === accountId) void loadChats({ light: true });
+        }, delay);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accountId のみ
   }, [accountId]);
