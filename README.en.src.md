@@ -54,7 +54,7 @@ It communicates with LINE servers through the independently implemented **`@vyli
 
 | Category | Description |
 | --- | --- |
-| **Login** | QR / Email login, multiple accounts, session restore |
+| **Login** | QR / Email login, multiple accounts, session restore, automatic V3 access-token refresh |
 | **Messages** | Send/receive, reply, unsend, read control, resend |
 | **Mentions** | `@ALL` / `@name`, LINE Desktop-compatible `MENTION` metadata |
 | **Media** | Images, video, audio, LINE emoji (sticon), stickers, automatic image compression, and high-quality image sending |
@@ -124,6 +124,7 @@ See the [contribution guide](docs/CONTRIBUTING.md) and start with an Issue or Pu
 - **Consent gate**: Terms and disclaimers are shown after login. App functionality, including sync, communication, and message display, does not start until consent is completed. Bypassing or modifying the gate is unsupported.
 - **Intended use**: Vyline is intended for education, learning, research, and personal use. Unauthorised access, attacks, harassment, and rights violations are prohibited.
 - **Data storage**: Login information, sessions, encryption keys, and chat history are stored in the local environment or self-hosted environment controlled by the user. Except for communication required for normal operation, they are not sent to external servers operated by Vyline developers.
+- **Login continuity**: For V3-capable logins, Vyline stores the refresh credential and refresh timing locally and automatically refreshes the access token when needed. By default it starts refreshing seven days before LINE's refresh target; Settings > Login & Session can change that margin, for example to one day. Vyline does not need to stay open continuously: startup checks the stored timing and refreshes first when required. Saved sessions remain restorable while LINE-side device authorization stays valid. If device authorization is revoked or expires, interactive login is required. See [token lifecycle](docs/analysis/token-lifecycle.md) for details.
 - **No warranty**: Developers and contributors are not responsible for account suspension, data corruption, loss, legal issues, or other consequences arising from use of the software.
 - **Analysis tools**: `tools/` references [vyline-search](https://github.com/nezumi0627/vyline-search) as a Git submodule. Use it only for education and research and do not redistribute analysis targets or results inappropriately. See [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md).
 - **Beta features**: Features in the Beta Features tab show separate explanations and consent per feature in addition to the overall terms consent. Consent logs and beta-feature results remain on the device; message bodies and check results are not sent to external Vyline services. Normal LINE communication still occurs. This is not legal advice.

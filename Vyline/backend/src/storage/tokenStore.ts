@@ -36,6 +36,26 @@ export function storagePathForAccount(accountId: string): string {
   return join(accountDir(accountId), "protocol.json");
 }
 
+export async function getProtocolTokenState(accountId: string): Promise<{
+  hasRefreshToken: boolean;
+  expire?: number;
+}> {
+  const path = storagePathForAccount(accountId);
+  if (!existsSync(path)) return { hasRefreshToken: false };
+  try {
+    const protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const refreshToken = protocol.refreshToken;
+    const expire = protocol.expire;
+    return {
+      hasRefreshToken: typeof refreshToken === "string" && refreshToken.length > 0,
+      ...(typeof expire === "number" && Number.isFinite(expire) ? { expire } : {}),
+    };
+  } catch (err) {
+    log.warn({ accountId, err }, "failed to inspect protocol token state");
+    return { hasRefreshToken: false };
+  }
+}
+
 export interface TokenEntry {
   authToken: string;
   authTokenProtected?: string;
@@ -330,33 +350,42 @@ export async function listSavedSessions(): Promise<
     displayName?: string;
     picturePath?: string;
     statusMessage?: string;
+    hasRefreshToken?: boolean;
+    tokenRefreshAt?: number;
     hasToken: boolean;
   }>
 > {
   const tokens = await loadTokens();
-  return Object.entries(tokens)
-    .filter(([accountId]) => !accountId.endsWith(":content"))
-    .map(([accountId, entry]) => {
-      const row: {
-        accountId: string;
-        savedAt: string;
-        mid?: string;
-        displayName?: string;
-        picturePath?: string;
-        statusMessage?: string;
-        premium?: TokenEntry["premium"];
-        hasToken: boolean;
-      } = {
-        accountId,
-        savedAt: entry.savedAt,
-        hasToken: Boolean(entry.authToken || entry.authTokenProtected),
-      };
-      if (entry.mid) row.mid = entry.mid;
-      if (entry.displayName) row.displayName = entry.displayName;
-      if (entry.picturePath) row.picturePath = entry.picturePath;
-      if (entry.statusMessage) row.statusMessage = entry.statusMessage;
-      if (entry.premium) row.premium = entry.premium;
-      return row;
-    })
-    .sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+  return Promise.all(
+    Object.entries(tokens)
+      .filter(([accountId]) => !accountId.endsWith(":content"))
+      .map(async ([accountId, entry]) => {
+        const protocolState = await getProtocolTokenState(accountId);
+        const row: {
+          accountId: string;
+          savedAt: string;
+          mid?: string;
+          displayName?: string;
+          picturePath?: string;
+          statusMessage?: string;
+          hasRefreshToken?: boolean;
+          tokenRefreshAt?: number;
+          premium?: TokenEntry["premium"];
+          hasToken: boolean;
+        } = {
+          accountId,
+          savedAt: entry.savedAt,
+          hasToken: Boolean(entry.authToken || entry.authTokenProtected),
+        };
+        if (entry.mid) row.mid = entry.mid;
+        if (entry.displayName) row.displayName = entry.displayName;
+        if (entry.picturePath) row.picturePath = entry.picturePath;
+        if (entry.statusMessage) row.statusMessage = entry.statusMessage;
+        row.hasRefreshToken = protocolState.hasRefreshToken;
+        if (typeof protocolState.expire === "number")
+          row.tokenRefreshAt = protocolState.expire * 1000;
+        if (entry.premium) row.premium = entry.premium;
+        return row;
+      }),
+  ).then((rows) => rows.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1)));
 }

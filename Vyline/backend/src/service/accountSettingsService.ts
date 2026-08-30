@@ -20,6 +20,7 @@ export function defaultAccountSettings(): AccountSettings {
     handoff: {},
     performance: { reducedMotion: false, maxCachedMessages: 120 },
     layout: { initialTab: "home", compact: false },
+    auth: { tokenRefreshLeadSeconds: 7 * 24 * 60 * 60 },
   };
 }
 
@@ -42,6 +43,7 @@ function migrate(value: Partial<AccountSettings>): AccountSettings {
     handoff: { ...base.handoff, ...(value.handoff ?? {}) },
     performance: { ...base.performance, ...(value.performance ?? {}) },
     layout: { ...base.layout, ...(value.layout ?? {}) },
+    auth: { ...base.auth, ...(value.auth ?? {}) },
   };
 }
 
