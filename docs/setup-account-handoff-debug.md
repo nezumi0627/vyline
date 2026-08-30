@@ -40,4 +40,6 @@ VylineData/
 - `GET /api/diagnostics/:mid/export`: サニタイズ済みログを取得
 - `DELETE /api/diagnostics/:mid`: 診断ログを削除
 
+診断ログはアカウント設定の `debug.enabled` が既定で `true` になっており、保存済みセッションがある場合は backend 起動時のセッション復元開始から記録する。設定 > 引継ぎ・診断 > デバッグログから ON / OFF を切り替えられる。OFF の間は `appendDiagnostic` が書き込みを行わず、既存ログは削除しない。
+
 引継ぎ ZIP は `settings.json` のみを含みます。適用前に manifest、SHA-256、作成元、対象アカウント一致、対象ファイルを検証します。import は `overwrite` / `merge` / `cancel` を選べ、上書き前の設定を退避して検証失敗時に復元します。Windowsでは認証tokenをDPAPI(CurrentUser)で保護します。Desktop設定画面には引継ぎ、VylineBackup の作成・一覧・復元、ログ一覧、ログ出力、ログ削除、GitHub Issue作成画面への導線を追加しています。Issue作成はGitHub APIへtokenを渡さず、サニタイズ済みログを本文にしたIssue作成URLを開きます。
