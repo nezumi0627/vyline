@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useStore,
   displayName,
@@ -32,6 +33,7 @@ import {
   IconMemo,
   IconLogout,
   IconChevron,
+  IconShield,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 
@@ -130,8 +132,11 @@ function SidebarBase() {
   const toggleHide = useStore((s) => s.toggleHide);
   const toggleMute = useStore((s) => s.toggleMute);
   const markChatRead = useStore((s) => s.markChatRead);
+  const markAllChatsRead = useStore((s) => s.markAllChatsRead);
   const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
   const readDisabledMids = useStore((s) => s.readDisabledMids);
+  const lockedChatMids = useStore((s) => s.lockedChatMids);
+  const setChatLocked = useStore((s) => s.setChatLocked);
 
   const accountId = useStore((s) => s.accountId);
   const [tab, setTab] = useState<Tab>("all");
@@ -159,12 +164,14 @@ function SidebarBase() {
     let list = chats;
     if (tab === "friend") list = chats.filter((c) => c.type === "friend" && !c.hidden && !c.left);
     else if (tab === "group")
-      list = chats.filter((c) => c.type === "group" && !c.hidden && !c.left);
+      list = chats.filter((c) => c.type === "group" && !c.hidden && (!c.left || c.restoredHistory));
     else if (tab === "hidden") list = chats.filter((c) => c.hidden);
     else if (tab === "official") list = chats.filter((c) => c.isOfficial && !c.hidden && !c.left);
     else
       list = chats.filter(
-        (c) => !c.hidden && (!c.left || (c.members != null && c.members.length > 0)),
+        (c) =>
+          !c.hidden &&
+          (!c.left || c.restoredHistory || (c.members != null && c.members.length > 0)),
       );
 
     if (query.trim()) {
@@ -276,9 +283,26 @@ function SidebarBase() {
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
+  const isChatLocked = menu ? lockedChatMids.includes(menu.chat.id) : false;
 
   const menuItems: MenuItem[] = menu
     ? [
+        {
+          label: isChatLocked ? "チャットのロックを解除" : "チャットをロック",
+          icon: <IconShield size={16} />,
+          danger: !isChatLocked,
+          onClick: () => {
+            if (!menu) return;
+            if (
+              !isChatLocked &&
+              !window.confirm(`「${displayName(menu.chat, false)}」をロックしますか？`)
+            )
+              return;
+            void setChatLocked(menu.chat.id, !isChatLocked).then((ok) => {
+              if (!ok) window.alert("チャットのロック変更に失敗しました");
+            });
+          },
+        },
         {
           label: menu.chat.pinned ? "ピン留めを解除" : "ピン留め",
           icon: <IconPin size={16} />,
@@ -315,7 +339,8 @@ function SidebarBase() {
             void navigator.clipboard.writeText(menu.chat.id);
           },
         },
-        ...(menu.chat.type === "friend" &&
+        ...(!isChatLocked &&
+        menu.chat.type === "friend" &&
         !menu.chat.isSelf &&
         !BLOCK_PROTECTED_MIDS.has(menu.chat.id)
           ? [
@@ -370,8 +395,8 @@ function SidebarBase() {
     : [];
 
   return (
-    <aside className="flex h-full w-full flex-col bg-[var(--vy-sidebar)] md:border-r md:border-[var(--vy-border)]">
-      <div className="flex items-center gap-3 px-4 pt-4 pb-3">
+    <aside className="vy-sidebar flex h-full w-full flex-col bg-[var(--vy-sidebar)] md:border-r md:border-[var(--vy-border)]">
+      <div className="vy-sidebar-profile flex items-center gap-3 px-4 pt-4 pb-3">
         <button
           type="button"
           onClick={() => setScreen("settings")}
@@ -414,7 +439,7 @@ function SidebarBase() {
         </button>
       </div>
 
-      <div className="flex items-center gap-2 px-4 pb-3">
+      <div className="vy-sidebar-tools flex items-center gap-2 px-4 pb-3">
         <div className="flex flex-1 items-center gap-2 rounded-xl bg-[var(--vy-surface-2)] px-3 py-2">
           <IconSearch size={17} className="text-[var(--vy-text-dim)]" />
           <input
@@ -471,13 +496,25 @@ function SidebarBase() {
                     {sort === s && <IconCheck size={15} style={{ color: "var(--vy-accent)" }} />}
                   </button>
                 ))}
+                <div className="my-1 border-t border-[var(--vy-border)]" />
+                <button
+                  type="button"
+                  onClick={() => {
+                    void markAllChatsRead();
+                    setSortOpen(false);
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+                >
+                  <IconCheck size={15} />
+                  すべて既読にする
+                </button>
               </div>
             </>
           )}
         </div>
       </div>
 
-      <div className="flex gap-1 px-3 pb-2" role="tablist">
+      <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -499,7 +536,7 @@ function SidebarBase() {
       </div>
 
       {tab === "group" && (
-        <div className="px-3 pb-2">
+        <div className="vy-sidebar-create-group px-3 pb-2">
           <button
             type="button"
             onClick={() => setCreateGroupOpen(true)}
@@ -512,10 +549,16 @@ function SidebarBase() {
       )}
 
       {sort === "custom" && (
-        <p className="px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">ドラッグして並び替え</p>
+        <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
+          ドラッグして並び替え
+        </p>
       )}
 
-      <div ref={listRef} className="vy-scroll flex-1 overflow-y-auto px-2 pb-3">
+      <div
+        ref={listRef}
+        onScroll={recomputeWin}
+        className="vy-scroll flex-1 overflow-y-auto px-2 pb-3"
+      >
         {filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]">
@@ -536,6 +579,7 @@ function SidebarBase() {
                 draggable={sort === "custom"}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
+                locked={lockedChatMids.includes(chat.id)}
                 onClick={() => openChat(chat.id)}
                 onContextMenu={(e) => openRowMenu(e, chat)}
                 onDragStart={() => onDragStart(chat.id)}
@@ -566,8 +610,10 @@ function SidebarBase() {
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
 
-      {/* account switcher */}
-      <AccountSwitcher />
+      {/* Keep the account switcher available on mobile as well. */}
+      <div className="vy-sidebar-account-switcher">
+        <AccountSwitcher />
+      </div>
     </aside>
   );
 }
@@ -580,6 +626,7 @@ const ChatRow = memo(function ChatRow({
   draggable,
   dragging,
   blocked,
+  locked,
   onClick,
   onContextMenu,
   onDragStart,
@@ -594,6 +641,7 @@ const ChatRow = memo(function ChatRow({
   draggable: boolean;
   dragging: boolean;
   blocked?: boolean;
+  locked?: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: () => void;
@@ -686,12 +734,22 @@ const ChatRow = memo(function ChatRow({
         {blocked && (
           <span
             title="ブロック済み"
+            aria-label="ブロック済み"
             className={cn(
-              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-[0.55rem] font-bold text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
-              active ? "bg-[var(--vy-danger)]" : "bg-[var(--vy-danger)]",
+              "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
+              "bg-[var(--vy-danger)]",
             )}
           >
-            !
+            <IconBlock size={10} />
+          </span>
+        )}
+        {locked && !blocked && (
+          <span
+            title="チャットロック中"
+            aria-label="チャットロック中"
+            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)] shadow-sm ring-2 ring-[var(--vy-surface)]"
+          >
+            <IconShield size={10} />
           </span>
         )}
         <span className="min-w-0 flex-1">
@@ -715,6 +773,7 @@ const ChatRow = memo(function ChatRow({
             {chat.isOfficial && <OfficialBadge />}
             {chat.left && (
               <span
+                title={chat.type === "friend" ? "アカウントは削除済みです" : "退出済み"}
                 className={cn(
                   "shrink-0 rounded px-1 py-0.5 text-[0.65rem] font-medium",
                   active
@@ -722,7 +781,7 @@ const ChatRow = memo(function ChatRow({
                     : "bg-[color-mix(in_oklab,var(--vy-danger)_16%,transparent)] text-[var(--vy-danger)]",
                 )}
               >
-                退出
+                {chat.type === "friend" ? "削除済み" : "退出済み"}
               </span>
             )}
             {preview && preview.time > 0 && (
@@ -771,6 +830,7 @@ const ChatRow = memo(function ChatRow({
 });
 
 function AccountSwitcher() {
+  const navigate = useNavigate();
   const accountId = useStore((s) => s.accountId);
   const accounts = useAuthStore((s) => s.accounts);
   const sessions = useAuthStore((s) => s.sessions);
@@ -790,6 +850,7 @@ function AccountSwitcher() {
     // 別アカウントへの切替はログイン画面を経由する（戻るで元のチャットへ）
     openLogin("manual", id);
     setScreen("login");
+    navigate("/login");
   };
 
   const handleLogout = async () => {
@@ -800,6 +861,7 @@ function AccountSwitcher() {
     setOpen(false);
     openLogin("manual", null);
     setScreen("login");
+    navigate("/login");
   };
 
   return (
@@ -867,6 +929,7 @@ function AccountSwitcher() {
               setOpen(false);
               openLogin("manual", null);
               setScreen("login");
+              navigate("/login");
             }}
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">

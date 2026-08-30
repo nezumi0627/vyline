@@ -10,6 +10,7 @@ import {
 import { api } from "@/api/client";
 import { looksLikeMid } from "@/lib/mappers";
 import { Avatar } from "@/components/vy-ui";
+import { OfficialBadge } from "@/components/official-badge";
 import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
 
 type RichInfo = {
@@ -26,6 +27,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const chats = useStore((s) => s.chats);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const accountId = useStore((s) => s.accountId);
+  const blockedMids = useStore((s) => s.blockedMids);
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [apiCommonGroups, setApiCommonGroups] = useState<Chat[] | null>(null);
@@ -40,6 +42,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   }, [close]);
 
   const member = chat.members?.find((m) => m.id === memberProfile?.memberId);
+  const memberId = member?.id;
   const commonGroups = useMemo(
     () => apiCommonGroups ?? (member ? commonGroupsWith(chats, member.id, chat.id) : []),
     [apiCommonGroups, chats, member, chat.id],
@@ -51,10 +54,10 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   useEffect(() => {
     setApiCommonGroups(null);
     setRich({});
-    if (!accountId || !member || streamerMode) return;
+    if (!accountId || !memberId || streamerMode) return;
     let cancelled = false;
     void api.line
-      .getContact(accountId, member.id)
+      .getContact(accountId, memberId)
       .then((res) => {
         if (cancelled || !res.ok || !res.profile) return;
         setRich({
@@ -86,10 +89,10 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       })
       .catch(() => undefined);
     void api.line
-      .getCommonGroupIds(accountId, member.id, chat.id)
+      .getCommonGroupIds(accountId, memberId, chat.id)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
-        const byId = new Map(chats.map((c) => [c.id, c]));
+        const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));
         setApiCommonGroups(
           res.groups.map((g) => {
             const local = byId.get(g.chatMid);
@@ -112,12 +115,14 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     return () => {
       cancelled = true;
     };
-  }, [accountId, member?.id, chat.id, streamerMode, chats]);
+  }, [accountId, memberId, chat.id, streamerMode]);
 
   if (!member) return null;
 
   const name = memberDisplayName(member.name, streamerMode);
   const glyph = memberGlyph(member.avatar, streamerMode);
+  const isBlocked = blockedMids.includes(member.id);
+  const isOfficial = chat.isOfficial || rich.userType === 2;
 
   const blockMember = async () => {
     if (!accountId || busy) return;
@@ -187,7 +192,10 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
             size={92}
             imageUrl={streamerMode ? undefined : member.avatarUrl}
           />
-          <h2 className="mt-3 text-lg font-bold">{name}</h2>
+          <div className="mt-3 flex items-center gap-1.5">
+            <h2 className="text-lg font-bold">{name}</h2>
+            {!streamerMode && isOfficial && <OfficialBadge className="ml-0" />}
+          </div>
           {!streamerMode && (
             <p className="mt-1 font-mono text-xs break-all text-[var(--vy-text-dim)] select-all">
               {member.id}
@@ -196,14 +204,15 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
             {streamerMode ? "配信者モードで非表示" : `${chat.name} のメンバー`}
           </p>
-          {!streamerMode && rich.statusMessage && (
+          {!streamerMode && (rich.statusMessage || isOfficial || isBlocked) && (
             <div className="mt-4 w-full space-y-2 rounded-2xl border border-white/10 bg-black/10 p-3 text-left text-white backdrop-blur-sm">
               {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
-              {(chat.isOfficial || rich.userType === 2) && (
+              {isOfficial && (
                 <span className="inline-flex rounded-full bg-white/15 px-2.5 py-1 text-[0.65rem] font-medium text-white">
                   公式アカウント
                 </span>
               )}
+              {isBlocked && <TinyInfo label="状態" value="アカウントをブロックしています" />}
             </div>
           )}
         </div>
@@ -226,11 +235,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
               onClick={() => void blockMember()}
               className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)] disabled:opacity-50"
             >
-              {busy
-                ? "処理中…"
-                : useStore.getState().blockedMids.includes(member.id)
-                  ? "ブロックを解除"
-                  : "ブロック"}
+              {busy ? "処理中…" : isBlocked ? "ブロックを解除" : "ブロック"}
             </button>
             {msg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{msg}</p>}
           </div>

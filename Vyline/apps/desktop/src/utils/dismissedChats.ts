@@ -4,6 +4,7 @@
  */
 
 const STORAGE_KEY = "vyline:dismissedChatsByAccount";
+const RESTORED_KEY = "vyline:restoredChatMidsByAccount";
 
 function load(): Record<string, string[]> {
   try {
@@ -28,6 +29,37 @@ export function dismissChatMid(accountId: string, chatMid: string): void {
   set.add(chatMid);
   data[accountId] = [...set];
   save(data);
+}
+
+export function restoreDismissedChatMid(accountId: string, chatMid: string): void {
+  const data = load();
+  const next = (data[accountId] ?? []).filter((mid) => mid !== chatMid);
+  if (next.length === (data[accountId] ?? []).length) return;
+  if (next.length > 0) data[accountId] = next;
+  else delete data[accountId];
+  save(data);
+}
+
+export function markRestoredChatMids(accountId: string, chatMids: string[]): void {
+  if (chatMids.length === 0) return;
+  try {
+    const raw = localStorage.getItem(RESTORED_KEY);
+    const data = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    data[accountId] = [...new Set([...(data[accountId] ?? []), ...chatMids])];
+    localStorage.setItem(RESTORED_KEY, JSON.stringify(data));
+  } catch {
+    /* localStorage may be unavailable in a restricted browser context */
+  }
+}
+
+export function getRestoredChatMids(accountId: string): string[] {
+  try {
+    const raw = localStorage.getItem(RESTORED_KEY);
+    const data = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    return data[accountId] ?? [];
+  } catch {
+    return [];
+  }
 }
 
 export function isChatDismissed(accountId: string, chatMid: string): boolean {

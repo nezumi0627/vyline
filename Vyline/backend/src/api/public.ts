@@ -42,6 +42,12 @@ async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Resp
 }
 
 /** 管理者認証（VYLINE_API_ADMIN_SECRET）。失敗時は Response を返す */
+function requireScope(c: Context<any>, token: ApiToken, scope: "read" | "write"): true | Response {
+  if (!token.scopes.includes(scope))
+    return c.json({ ok: false, error: `token requires ${scope} scope` }, 403);
+  return true;
+}
+
 function requireAdmin(c: Context<any>): true | Response {
   const adminSecret = process.env.VYLINE_API_ADMIN_SECRET;
   if (!adminSecret) {
@@ -87,6 +93,9 @@ publicRouter.get("/accounts", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
+  const permission = requireScope(c, auth.token, "read");
+  if (permission instanceof Response) return permission;
+
   const accounts = listLineAccounts().map((accountId) => ({ accountId }));
   return c.json({ ok: true, accounts });
 });
@@ -97,6 +106,9 @@ publicRouter.get("/accounts", async (c) => {
 publicRouter.get("/accounts/:accountId/getMessageBoxes", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
+
+  const permission = requireScope(c, auth.token, "read");
+  if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
   const light = c.req.query("light") === "1" || c.req.query("light") === "true";
@@ -115,6 +127,9 @@ publicRouter.get("/accounts/:accountId/getMessageBoxes", async (c) => {
 publicRouter.get("/accounts/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
+
+  const permission = requireScope(c, auth.token, "read");
+  if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
@@ -142,6 +157,9 @@ publicRouter.get("/accounts/:accountId/getPreviousMessagesV2WithRequest/:chatMid
 publicRouter.post("/accounts/:accountId/sendMessage/:chatMid", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
+
+  const permission = requireScope(c, auth.token, "write");
+  if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
@@ -173,6 +191,9 @@ publicRouter.get("/accounts/:accountId/fetchOperations", async (c) => {
   if (auth instanceof Response) return auth;
 
   const accountId = c.req.param("accountId");
+  const permission = requireScope(c, auth.token, "read");
+  if (permission instanceof Response) return permission;
+
   const cursorParam = Number(c.req.query("cursor") ?? "0");
   const cursor = Number.isFinite(cursorParam) ? cursorParam : 0;
 
@@ -192,7 +213,13 @@ publicRouter.get("/tokens", async (c) => {
   if (admin instanceof Response) return admin;
 
   const tokens = await listTokens();
-  return c.json({ ok: true, data: tokens });
+  const data = tokens.map(({ name, scopes, createdAt, lastUsedAt }) => ({
+    name,
+    scopes,
+    createdAt,
+    lastUsedAt,
+  }));
+  return c.json({ ok: true, data });
 });
 
 /** POST /v1/tokens — APIトークン作成 */

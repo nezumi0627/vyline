@@ -1,6 +1,6 @@
 # Protocol dictionary — LINE.js 名で Desktop を探す
 
-最終更新: 2026-07-29
+最終更新: 2026-08-24
 
 ---
 
@@ -99,6 +99,5 @@ bun run vyline:focus-recovered -- sendMessage
 ## 関連
 
 - [tools/find-native-symbol.md](../tools/find-native-symbol.md)
-- [tools/focus-recovered-source.md](../tools/focus-recovered-source.md)
 - [tools/desktop-delta.md](../tools/desktop-delta.md)
 - [CONTRIBUTING.md](../CONTRIBUTING.md)

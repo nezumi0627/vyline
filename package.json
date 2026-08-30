@@ -1,6 +1,6 @@
 {
   "name": "vyline",
-  "version": "0.6.0-beta",
+  "version": "0.8.0-beta",
   "private": true,
   "engines": {
     "bun": ">=1.4.0"
@@ -17,8 +17,15 @@
     "server": "bun Vyline/backend/src/index.ts",
     "dev:frontend": "bun run --cwd Vyline/apps/desktop dev",
     "build": "bun run --cwd Vyline/apps/desktop build",
-    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck",
-    "lint": "biome check Vyline",
+    "vyl": "bun Vyline/packages/cli/src/index.ts",
+    "vyl:init": "bun Vyline/packages/cli/src/index.ts init",
+    "vyl:doctor": "bun Vyline/packages/cli/src/index.ts doctor",
+    "vyl:fix": "bun Vyline/packages/cli/src/index.ts fix",
+    "vyl:snapshot": "bun Vyline/packages/cli/src/index.ts snapshot",
+    "package:windows": "bun scripts/build-windows-release.ts",
+    "package:linux": "bun scripts/build-linux-release.ts",
+    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck && bun run --cwd Vyline/packages/cli typecheck && bun run --cwd Vyline/packages/create-plugin typecheck && bun run --cwd Vyline/packages/vyl typecheck",
+    "lint": "biome check Vyline/apps Vyline/backend Vyline/docs Vyline/packages/cli Vyline/packages/create-plugin Vyline/packages/vyl Vyline/packages/ios-backup Vyline/packages/line-types Vyline/packages/loose-types Vyline/packages/plugin Vyline/packages/themes Vyline/packages/types",
     "vyline:delta": "bun Vyline/packages/protocol/src/tools/reportDesktopDelta.ts",
     "vyline:find-native": "bun tools/src/findNativeSymbol.ts",
     "vyline:focus-recovered": "bun tools/src/focusRecoveredSource.ts",
@@ -36,12 +43,27 @@
     "test:api": "bun scripts/apiSmokeTest.ts",
     "update": "git submodule update --init --recursive && git pull --ff-only && bun install && bun run build",
     "bump": "bun scripts/bump-version.ts",
+    "docs:readme": "bun scripts/generate-readmes.ts",
+    "docs:readme:check": "bun scripts/generate-readmes.ts --check",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "^1.4.0",
     "concurrently": "^9.1.2"
+  },
+  "overrides": {
+    "@babel/core": "^7.29.6",
+    "hono": "^4.12.34",
+    "nanoid": "^3.3.18",
+    "postcss": "^8.5.23",
+    "react-router": "^7.18.2",
+    "react-router-dom": "^7.18.2",
+    "shell-quote": "^1.9.0",
+    "thrift": "^0.23.0",
+    "undici": "^7.29.0",
+    "vite": "^6.4.3",
+    "ws": "^8.21.0"
   },
   "trustedDependencies": [
     "@biomejs/biome"

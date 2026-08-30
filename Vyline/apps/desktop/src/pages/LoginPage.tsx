@@ -8,7 +8,7 @@ import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { lineAvatarUrl } from "../utils/lineMedia.js";
 
-type Tab = "email" | "qr" | "token";
+type Tab = "email" | "qr" | "token" | "subdevice";
 type QrStatus = "idle" | "waiting" | "completed";
 type EmailStatus = "idle" | "pending" | "completed" | "failed";
 type TokenStatus = "idle" | "pending" | "completed" | "failed";
@@ -30,6 +30,9 @@ function formatSavedAt(iso: string): string {
 export function LoginPage() {
   const navigate = useNavigate();
   const setScreen = useStore((s) => s.setScreen);
+  const isSubdevice =
+    typeof localStorage !== "undefined" &&
+    Boolean(localStorage.getItem("vyline:subdevice-session"));
   const {
     loginEmail,
     loginQrStart,
@@ -227,6 +230,9 @@ export function LoginPage() {
   }, []);
 
   const savedSessions = sessions.filter((s) => s.hasToken);
+  const loginTabs: Tab[] = isSubdevice
+    ? ["email", "qr", "token", "subdevice"]
+    : ["email", "qr", "token"];
 
   return (
     <>
@@ -323,7 +329,7 @@ export function LoginPage() {
           )}
 
           <div className="flex mb-6 bg-[var(--vy-surface-2)] rounded-xl p-1">
-            {(["email", "qr", "token"] as Tab[]).map((t) => (
+            {loginTabs.map((t) => (
               <button
                 key={t}
                 type="button"
@@ -333,7 +339,13 @@ export function LoginPage() {
                 }`}
                 style={tab === t ? { background: "var(--vy-accent)" } : undefined}
               >
-                {t === "email" ? "メール" : t === "qr" ? "QR コード" : "トークン"}
+                {t === "email"
+                  ? "メール"
+                  : t === "qr"
+                    ? "QR コード"
+                    : t === "token"
+                      ? "トークン"
+                      : "サブデバイス"}
               </button>
             ))}
           </div>
@@ -479,6 +491,22 @@ export function LoginPage() {
                 <p className="text-center text-green-400 py-2">{tokenMsg}</p>
               )}
             </form>
+          )}
+
+          {tab === "subdevice" && (
+            <div className="space-y-4">
+              <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">
+                <p className="font-semibold">PCのVylineに接続</p>
+                <ol className="mt-3 list-decimal space-y-2 pl-5 text-[var(--vy-text-dim)]">
+                  <li>PC側の設定から「サブデバイス」のQRコードを表示します。</li>
+                  <li>スマホの標準カメラでQRコードを読み取ります。</li>
+                  <li>開いたVyline画面で「この端末を接続」を押します。</li>
+                </ol>
+              </div>
+              <p className="text-center text-[0.7rem] text-[var(--vy-text-dim)]">
+                QR読み込み後、この画面ではなく接続確認画面が自動で開きます。
+              </p>
+            </div>
           )}
         </div>
       </div>

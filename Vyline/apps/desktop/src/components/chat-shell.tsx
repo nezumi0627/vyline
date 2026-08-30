@@ -50,13 +50,13 @@ function ChatShellBase() {
   return (
     <div
       ref={shellRef}
-      className="flex h-dvh overflow-hidden bg-[var(--vy-bg)]"
+      className="vy-chat-shell flex h-dvh overflow-hidden bg-[var(--vy-bg)]"
       style={{ ["--sb-w" as string]: `${sidebarWidth}px` }}
     >
       {/* Sidebar */}
       <div
         className={cn(
-          "h-full shrink-0 md:w-[var(--sb-w)]",
+          "vy-chat-sidebar-pane h-full shrink-0 md:w-[var(--sb-w)]",
           collapsed ? "hidden" : activeChatId ? "hidden w-full md:block" : "block w-full",
         )}
       >
@@ -82,14 +82,17 @@ function ChatShellBase() {
       )}
 
       <div
-        className={cn("relative h-full min-w-0 flex-1", activeChatId ? "flex" : "hidden md:flex")}
+        className={cn(
+          "vy-chat-pane relative h-full min-w-0 flex-1",
+          activeChatId ? "flex" : "hidden md:flex",
+        )}
       >
         {/* collapse / expand toggle */}
         <button
           type="button"
           onClick={toggleSidebar}
           aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
-          className="absolute left-2 top-3 z-20 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)]/80 text-[var(--vy-text-dim)] backdrop-blur transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
+          className="absolute left-2 top-3 z-20 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
         >
           <IconPanelLeft size={17} />
         </button>

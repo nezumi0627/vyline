@@ -1,0 +1,30 @@
+{
+  "name": "create-vyline-plugin",
+  "version": "0.1.0",
+  "description": "Create a Vyline plugin scaffold from the command line.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/nezumi0627/vyline#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nezumi0627/vyline.git",
+    "directory": "Vyline/packages/create-plugin"
+  },
+  "bugs": {
+    "url": "https://github.com/nezumi0627/vyline/issues"
+  },
+  "keywords": ["vyline", "plugin", "scaffold", "create", "bun"],
+  "bin": {
+    "create-vyline-plugin": "src/index.ts"
+  },
+  "files": ["src", "README.md", "package.json"],
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "typecheck": "bun --check src/index.ts",
+    "prepublishOnly": "bun run typecheck"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {}
+}

@@ -1,6 +1,6 @@
 # multi-image-send — 引き継ぎメモ
 
-最終更新: 2026-08-22 04:00（夜間検証で大幅更新）
+最終更新: 2026-08-24
 
 ## 2026-08-22 夜間の結論（重要）
 
@@ -13,7 +13,7 @@
 - 対応: `sendMediaBatch` plain 経路を `uploadObjTalkBatch`（reqseq 連番）へ変更
   → 2〜3 枚送信で履歴に IMAGE が出ることを実機確認
 - 応答ヘッダ `x-obs-oid`（== 生成メッセージ ID の実測）をキーに送信バイトを
-  ローカル media cache に置き、自クライアントの即表示を実現
+  サーバー側の永続メディアストレージに置き、自クライアントの再表示を実現
   （reqseq 生成メッセージは contentMetadata に OID を持たないため）
 
 ## 未解決
@@ -44,7 +44,7 @@ POST http://127.0.0.1:3001/line/main/send-media-batch
 # 履歴確認（force でサーバ取得）
 GET http://127.0.0.1:3001/line/main/messages/c1efe9d6cf1848350bc91848a8a29963e?limit=15&force=1
 # → contentType IMAGE が連続してればOK。media は
-# GET /line/main/media/<chatMid>/<messageId> で X-Vyline-Media-Cache: HIT を確認
+# GET /line/main/media/<chatMid>/<messageId> で保存メディアの HIT（互換ヘッダー `X-Vyline-Media-Cache: HIT`）を確認
 ```
 
 ---

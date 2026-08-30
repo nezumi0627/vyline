@@ -1,6 +1,6 @@
 # OpenAPI / Swagger
 
-最終更新: 2026-08-22
+最終更新: 2026-08-27
 
 Vyline バックエンドは 2 種類の API を持つ。
 
@@ -8,6 +8,8 @@ Vyline バックエンドは 2 種類の API を持つ。
 |---|---|---|---|
 | 公開 REST API | `/v1` (`/api/v1`) | Bearer トークン | `openapi.yaml` |
 | BFF（フロントエンド内部 API） | `/line` `/auth` `/debug` `/cdn` | ローカルセッション | `backend/src/api/openapi.line.ts` |
+
+設定・引継ぎ・診断ログも BFF API として実装されている。用途と入出力は [setup-account-handoff-debug.md](../setup-account-handoff-debug.md) を参照する。主な prefix は `/api/settings/accounts`、`/api/handoff`、`/api/diagnostics`。
 
 ## ルート
 

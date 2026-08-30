@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-20
+最終更新: 2026-08-29
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -12,8 +12,33 @@
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
 - **ライセンス**: MIT
-- **ステータス**: Phase 1-3 進行中（E2EE 復号・送信・Desktop 鍵 import・Vyline）
+- **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
+
+---
+
+## 最初に読む順番
+
+この repository は README、docs、submodule、workspace が多い。迷った場合は次の順番で読む。
+
+1. `AGENTS.md`（このファイル）
+2. `docs/README.md`
+3. `docs/onboarding.md`
+4. `docs/architecture.md`
+5. 対象機能に一番近い docs
+6. 実コード
+
+README はユーザー向け入口。実装判断の正本にしない。
+
+### AI が手間取りやすい点
+
+- `Vyline/packages/protocol`、`Vyline/packages/plugin`、`Vyline/packages/themes`、`tools` は submodule/workspace の境界が見えにくい。まず `bun run vyl:doctor` で状態を確認する。
+- docs整理では既存docsをテンプレートへ機械的に当て直さない。新規docsや大改修だけ `docs/templates/` を使い、既存docsは必要箇所だけ直す。
+- README の正本は日本語が `README.src.md`、英語が `README.en.src.md`。`README.md` / `README.en.md` は生成物なので、原則として直接編集しない。README変更は両方の source に同じ内容を反映し、`bun run docs:readme` で生成して差分を確認する。
+- README は元の構成を守る。新導線を入れる場合も、該当セクションへの追記に留める。
+- 日本語と英語の README は情報量を揃える。機能、注意事項、パートナー、References、導入手順などを片方だけに追加しない。生成後は `README.md` と `README.en.md` の見出し・主要項目に欠落がないか確認する。
+- `vyl doctor` / `vyl init` は軽い入口にする。npm publish、Docker build、Trivy container scan、full security scan は通常CLIに入れない。
+- 重い処理は GitHub Actions の manual workflow、release workflow、schedule に寄せる。PRでは軽量チェックを優先する。
 
 ---
 
@@ -65,6 +90,14 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 | 4     | Telegram-like UI                      | in progress |
 | 5     | Quality / perf                        | in progress |
 | 6     | Beta 公開準備                         | in progress |
+
+### 最近の主な変更 (2026-08-27)
+
+- **Vyline Setup / アカウント設定**: 初回 3 ステップ設定、MID ごとの設定スキーマ、原子的 JSON 保存、進捗の復元を追加
+- **引継ぎ / 診断**: 設定のみを含む SHA-256 検証 ZIP の import/export、サニタイズ済み診断ログの確認・出力・削除、GitHub Issue 作成導線を追加
+- **セッション保護**: Windows のトークンを DPAPI(CurrentUser) で保護。サブデバイスをブラウザごとのランダムなインストール ID に結び付け、端末固有情報を保存しない
+- **同期と表示**: 既読反映・未読位置・仮想リストのスクロールを安定化。アカウント切替時に前アカウントの UI 状態を残さない
+- **遠隔利用**: LAN 公開を既定で無効にし、Tailscale の検出と URL 表示を追加
 
 ### 最近の主な変更 (2026-08-18)
 

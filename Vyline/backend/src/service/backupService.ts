@@ -20,7 +20,8 @@ import {
   type StoredChat,
   type StoredMessage,
 } from "../storage/chatStore.js";
-import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
+import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import { safePathComponent } from "../storage/safeFile.js";
 
 const log = childLogger("vyline-backup");
 
@@ -75,9 +76,13 @@ function snapshotPath(id: string): string {
   return join(BACKUP_DIR, `${id}.json`);
 }
 
+function backupAccountComponent(accountId: string): string {
+  return safePathComponent(accountId, "account").replace(/\.+/g, "_");
+}
+
 function idFor(accountId: string, date: Date): string {
   const stamp = date.toISOString().replace(/[:.]/g, "-");
-  return `vyline-backup-${accountId}-${stamp}`;
+  return `vyline-backup-${backupAccountComponent(accountId)}-${stamp}`;
 }
 
 function asString(v: unknown): string {
@@ -138,7 +143,7 @@ export async function createBackup(
         const msg = rawMsg as { contentType?: string };
         const ct = asString(msg.contentType);
         if (!MEDIA_CONTENT_TYPES.has(ct) && !/^[0-9]+$/.test(ct)) continue;
-        const cached = await readMediaCache(accountId, chatMid, messageId);
+        const cached = await readMediaStorage(accountId, chatMid, messageId);
         if (!cached) continue;
         media.push({
           chatMid,
@@ -185,7 +190,7 @@ export async function createBackup(
 
 export async function listBackups(accountId: string): Promise<BackupSummary[]> {
   await ensureBackupDir();
-  const prefix = `vyline-backup-${accountId}-`;
+  const prefix = `vyline-backup-${backupAccountComponent(accountId)}-`;
   let files: string[] = [];
   try {
     files = await readdir(BACKUP_DIR);
@@ -273,7 +278,7 @@ export async function restoreBackup(
     for (const entry of snapshot.media) {
       if (pickChats && !pickChats.has(entry.chatMid)) continue;
       try {
-        await writeMediaCache(
+        await writeMediaStorage(
           accountId,
           entry.chatMid,
           entry.messageId,

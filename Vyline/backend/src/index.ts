@@ -14,26 +14,140 @@ import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
 import { authRouter } from "./api/auth.js";
 import { lineRouter } from "./api/line.js";
+import { agentIRouter } from "./api/agentI.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
 import { publicRouter } from "./api/public.js";
 import { lineOpenApiSpec } from "./api/openapi.line.js";
-import { restoreAllSessions } from "./line/clientManager.js";
+import { getClient, restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
 import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
-import { ensureMediaCacheDir } from "./storage/mediaCache.js";
+import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
+import { subdeviceRouter } from "./api/subdevices.js";
+import { getSubdeviceSession } from "./storage/subdeviceStore.js";
+import { accountSettingsRouter } from "./api/accountSettings.js";
+import { handoffRouter } from "./api/handoff.js";
+import { diagnosticsRouter } from "./api/diagnostics.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
-const HOST = process.env.VYLINE_HOST ?? "127.0.0.1";
+const MAX_REQUEST_BODY_BYTES = Number(
+  process.env.VYLINE_MAX_REQUEST_BODY_BYTES ??
+    process.env.VYLINE_ANDROID_BACKUP_MAX_BYTES ??
+    2 * 1024 * 1024 * 1024,
+);
+const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
+const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
+const CORS_ORIGINS = new Set(
+  CORS_ORIGIN.split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
 const app = new Hono();
 
-app.use("*", cors({ origin: CORS_ORIGIN }));
+function allowedCorsOrigin(origin: string | undefined) {
+  if (!origin) return CORS_ORIGIN;
+  return CORS_ORIGINS.has(origin) ? origin : CORS_ORIGIN;
+}
+
+function subdeviceInstallationId(c: Context) {
+  return c.req.header("x-vyline-installation-id");
+}
+
+function subdeviceBearer(c: Context) {
+  const auth = c.req.header("authorization") ?? "";
+  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+}
+
+function isPublicPairingRequest(path: string, method: string) {
+  if (method === "GET") return /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+$/.test(path);
+  return method === "POST" && /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+\/complete$/.test(path);
+}
+
+function isSubdeviceAuthRequest(path: string) {
+  return /^\/(?:api\/)?auth\/subdevices(?:\/|$)/.test(path);
+}
+
+type AccountScope = { kind: "accountId" | "mid"; value: string };
+
+function scopedAccount(path: string): AccountScope | null {
+  const accountMatch = path.match(/^\/(?:api\/)?(?:line|beta\/agent-i)\/([^/]+)(?:\/|$)/);
+  const midMatch = path.match(/^\/api\/(?:settings\/accounts|handoff|diagnostics)\/([^/]+)(?:\/|$)/);
+  const match = accountMatch ?? midMatch;
+  if (!match) return null;
+  try {
+    return {
+      kind: accountMatch ? "accountId" : "mid",
+      value: decodeURIComponent(match[1]!),
+    };
+  } catch {
+    return { kind: accountMatch ? "accountId" : "mid", value: "" };
+  }
+}
+
+app.use(
+  "*",
+  cors({
+    origin: allowedCorsOrigin,
+    credentials: true,
+  }),
+);
+
+// LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
+// QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
+
+async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  const device = await getSubdeviceSession(subdeviceBearer(c), subdeviceInstallationId(c));
+  if (!device) {
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  const scope = scopedAccount(c.req.path);
+  if (scope?.kind === "accountId" && scope.value !== device.accountId) {
+    return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+  }
+  if (scope?.kind === "mid") {
+    const clientMid = String(getClient(device.accountId)?.base.profile?.mid ?? "");
+    const ownMid = clientMid || (/^u[0-9a-f]{32}$/i.test(device.accountId) ? device.accountId : "");
+    if (!ownMid || scope.value !== ownMid) {
+      return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+    }
+  }
+  return next();
+}
+
+async function requireLocalOnLan(c: Context, next: () => Promise<void>) {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  return c.json({ ok: false, error: "local request required" }, 403);
+}
+
+app.use("/line/*", requireLanSubdevice);
+app.use("/line/:accountId/proxy", requireLocalOnLan);
+app.use("/beta/agent-i/*", requireLanSubdevice);
+app.use("/debug/*", requireLocalOnLan);
+app.use("/api/line/:accountId/proxy", requireLocalOnLan);
+
+app.use("/api/*", async (c, next) => {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
+  if (/^\/api\/debug(?:\/|$)/.test(c.req.path)) return requireLocalOnLan(c, next);
+  if (/^\/api\/auth(?:\/|$)/.test(c.req.path)) {
+    if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
+    return requireLanSubdevice(c, next);
+  }
+  return requireLanSubdevice(c, next);
+});
+app.use("/auth/*", async (c, next) => {
+  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
+  if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
+  return requireLanSubdevice(c, next);
+});
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
 app.get("/api/v1/status", (c) =>
@@ -74,15 +188,22 @@ app.get("/metrics", (c) => {
 });
 app.route("/auth", authRouter);
 app.route("/line", lineRouter);
+app.route("/beta/agent-i", agentIRouter);
 app.route("/debug", debugRouter);
 app.route("/cdn", cdnRouter);
 
 // セルフホスト用: /api プレフィックス付きでも同じルーターへ届ける
 // （フロントは dev では Vite proxy、本番では同オリジンの /api を使う）
 app.route("/api/auth", authRouter);
+app.route("/auth/subdevices", subdeviceRouter);
+app.route("/api/auth/subdevices", subdeviceRouter);
 app.route("/api/line", lineRouter);
+app.route("/api/beta/agent-i", agentIRouter);
 app.route("/api/debug", debugRouter);
 app.route("/api/cdn", cdnRouter);
+app.route("/api/settings/accounts", accountSettingsRouter);
+app.route("/api/handoff", handoffRouter);
+app.route("/api/diagnostics", diagnosticsRouter);
 
 // 公開 REST API（Bearer トークン認証）
 app.route("/v1", publicRouter);
@@ -95,7 +216,9 @@ app.route("/api/v1", publicRouter);
 // /docs, /swagger    — Swagger UI（CDN）
 app.get("/openapi.yaml", async (c) => {
   try {
-    const yamlPath = join(dirname(fileURLToPath(import.meta.url)), "../../../openapi.yaml");
+    const yamlPath =
+      process.env.VYLINE_OPENAPI_PATH ??
+      join(dirname(fileURLToPath(import.meta.url)), "../../../openapi.yaml");
     const yaml = await readFile(yamlPath, "utf8");
     return new Response(yaml, {
       status: 200,
@@ -162,7 +285,7 @@ const MIME: Record<string, string> = {
   ".woff2": "font/woff2",
 };
 
-const SPA_PATHS = new Set(["", "/", "/chat", "/settings", "/login", "/hub"]);
+const SPA_PATHS = new Set(["", "/", "/chat", "/settings", "/login", "/hub", "/subdevice"]);
 
 async function serveStaticFile(path: string) {
   const normalized = normalize(path).replace(/\\/g, "/");
@@ -230,7 +353,8 @@ process.on("unhandledRejection", (reason) => {
 
 await initVylineProfile();
 void ensureCdnCacheDir().catch(() => undefined);
-void ensureMediaCacheDir().catch(() => undefined);
+void ensureMediaStorageDir().catch(() => undefined);
+void import("./tailscale.js").then((m) => m.startTailscaleWatcher(PORT)).catch(() => undefined);
 
 restoreAllSessions().catch((err) => {
   logger.warn({ err }, "session restore had errors");
@@ -250,22 +374,46 @@ async function getCallWsHandlers(): Promise<CallWsHandlers> {
 export default {
   port: PORT,
   hostname: HOST,
+  /** AndroidバックアップZIPは数百MBになるため、ストリーム受信前のBun上限も合わせる。 */
+  maxRequestBodySize: MAX_REQUEST_BODY_BYTES,
   /** 既読取得など LINE RPC が 10s を超えることがある */
   idleTimeout: 120,
-  fetch(req: Request, server: Bun.Server<CallWsData>) {
-    const url = new URL(req.url);
+  async fetch(req: Request, server: Bun.Server<CallWsData>) {
+    const address = server.requestIP(req)?.address ?? "";
+    const local = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+    const headers = new Headers(req.headers);
+    headers.set("x-vyline-local-request", local ? "1" : "0");
+    const request = new Request(req, { headers });
+    const url = new URL(request.url);
     const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
-    if (m && req.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      const accountId = decodeURIComponent(m[1]!);
+    if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      let accountId: string;
+      try {
+        accountId = decodeURIComponent(m[1]!);
+      } catch {
+        return new Response("invalid accountId", { status: 400 });
+      }
+      if (LAN_ACCESS && !local) {
+        const device = await getSubdeviceSession(
+          (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""),
+          request.headers.get("x-vyline-installation-id") ?? undefined,
+        );
+        if (!device) {
+          return new Response("subdevice authentication required", { status: 401 });
+        }
+        if (device.accountId !== accountId) {
+          return new Response("subdevice account mismatch", { status: 403 });
+        }
+      }
       const sessionId = url.searchParams.get("sessionId");
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
       }
-      const ok = server.upgrade(req, { data: { accountId, sessionId } });
+      const ok = server.upgrade(request, { data: { accountId, sessionId } });
       if (ok) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
-    return app.fetch(req, server);
+    return app.fetch(request, server);
   },
   websocket: {
     open(ws: Bun.ServerWebSocket<CallWsData>) {

@@ -78,6 +78,16 @@ export type Message = {
   mentions?: MentionInfo[];
   /** 通話イベント用 */
   callMeta?: CallMessageMeta;
+  /** ノート/アルバム作成時の POSTNOTIFICATION */
+  postNotification?: {
+    kind: "note" | "album" | "unknown";
+    homeId?: string;
+    postId?: string;
+    albumId?: string;
+    title?: string;
+    mediaCount?: number;
+    previewMedias?: Array<{ mediaOid: string; mediaType?: string }>;
+  };
   createdAt: number;
   status: MessageStatus;
   read: boolean;
@@ -173,6 +183,8 @@ export type Chat = {
   muted?: boolean;
   /** 退出・キック済みグループ */
   left?: boolean;
+  /** 外部バックアップから復元された履歴を持つ */
+  restoredHistory?: boolean;
   unread: number;
   /** 一覧用プレビュー（API） */
   lastMessagePreview?: string;
@@ -181,8 +193,11 @@ export type Chat = {
 };
 
 export type ChatSort = "recent" | "unread" | "custom";
+export type AnimationMode = "vyline" | "feather" | "none";
 
 export type Settings = {
+  /** UIモーションの強さ（通信・同期設定とは独立） */
+  animationMode: AnimationMode;
   readReceipts: boolean;
   showReaderList: boolean;
   streamerMode: boolean;
@@ -190,7 +205,6 @@ export type Settings = {
   fontScale: number;
   enterToSend: boolean;
   chatSort: ChatSort;
-  customCursor: boolean;
   bubbleTail: boolean;
   /** ヘッダーに相手のステータスメッセージを表示 */
   showStatusMessage: boolean;
@@ -203,6 +217,14 @@ export type Settings = {
   proxyUrl: string;
   /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
   notificationsEnabled: boolean;
+  /** ベータ: プロフィールにブロック確認導線を表示 */
+  betaBlockCheckManual: boolean;
+  /** ベータ: 友だち全員のブロック状態を自動確認 */
+  betaBlockCheckAuto: boolean;
+  /** ベータ: u* MID を直接指定してプロフィールを検索 */
+  betaMidSearch: boolean;
+  /** ベータ: Agent I AIアシスタント */
+  betaAgentI: boolean;
 };
 
 export type SelfProfile = {

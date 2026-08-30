@@ -1,5 +1,7 @@
 # sync-events — リアルタイムイベント取得の解析メモ
 
+最終更新: 2026-08-24
+
 LINE Desktop / Mobile とのリアルタイム同期には2つの経路が存在する。
 
 ## 1. Talk ポーリング (`pollEvents`)
@@ -53,6 +55,10 @@ HTTP/2 の `/PUSH/1/subs` エンドポイントでサーバーから即座にイ
 | `DESTROY_MESSAGE` | (40 系?) | 取り消し |
 
 > 注: `GET /fetchOperations` の `events` 配列では、push された message を `kind: "message"` としてフロントエンドに渡す。Operation (revoke/read/reaction) は `pushTalkEvent` → `TalkPollEventPayload` として、`kind` で判別してバッファする。
+
+重要: `25` は `SEND_MESSAGE` であり、新着メッセージや既読通知ではない。受信メッセージは `26`、既読通知は `55` / `28` / `91` 系として分類する。`25` を既読・受信分岐へ含めると、送信操作を誤処理して既読通知を取りこぼす。
+
+既読者取得では `getMessageReadRange` の `success` wrapper と、`ranges` 内の単一rangeオブジェクトを正規化してからMID別ウォーターマークへ変換する。
 
 ## 4. Desktop 差分
 

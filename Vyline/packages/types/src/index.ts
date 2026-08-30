@@ -66,6 +66,9 @@ export interface VylineCachedGroup {
   updatedAt: number;
 }
 
+export * from "./accountFeatures.js";
+export * from "./unsendPolicy.js";
+
 // ─── Chat ─────────────────────────────────────
 
 export type ChatKind = "group" | "room" | "direct" | "unknown";
@@ -88,6 +91,8 @@ export interface Chat {
   left?: boolean;
   /** 公式アカウント（userType=BOT） */
   isOfficial?: boolean;
+  /** 外部バックアップから復元された履歴を持つ */
+  restoredHistory?: boolean;
   /** ステータスメッセージ（直接トーク相手） */
   statusMessage?: string;
   /** プロフィール背景 URL */

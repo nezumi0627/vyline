@@ -1,6 +1,6 @@
 # Vyline のアップデート方法
 
-最終更新: 2026-08-22
+最終更新: 2026-08-24
 
 ## ソースから実行している場合
 
@@ -27,9 +27,11 @@ bun run update
 ## Docker の場合
 
 ```bash
-docker compose pull        # ベースイメージの更新（任意）
-docker compose up -d --build
+docker compose pull        # GHCR の最新 Vyline イメージを取得
+docker compose up -d
 ```
+
+ソースコードから再ビルドする場合は `docker compose up -d --build` を使います。
 
 ## 更新前のバックアップ（推奨)
 

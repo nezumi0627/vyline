@@ -27,6 +27,7 @@ export const LIFF_APPS = {
   ladder: "1505962409-q8wjRbnd",
   schedule: "1655112642-8v0aXBwM",
   poll: "1477715170-Pl2JnXpR",
+  stickerShop: "1359301715-JKd7Y7j1",
 } as const;
 
 const UA_LIFF =
@@ -90,6 +91,46 @@ async function getCreds(
   }
 }
 
+async function getCredsWithoutUserContext(
+  client: VylineClient,
+  liffId: string,
+): Promise<LiffCreds> {
+  const key = `sticker-shop-user-context:${liffId}`;
+  const cached = credsCache.get(key);
+  if (cached && Date.now() - cached.at < CREDS_TTL_MS) return cached.creds;
+  const inflight = credsInflight.get(key);
+  if (inflight) return inflight;
+  const job = (async (): Promise<LiffCreds> => {
+    try {
+      // The sticker shop's getFriendProfiles requires the logged-in LIFF
+      // context.  This is the same token shape observed in the supplied HAR.
+      const view = await client.liff.issueView({
+        liffId,
+        ...(client.base.profile?.mid ? { chatMid: client.base.profile.mid } : {}),
+        lang: "ja_JP",
+      });
+      const creds = { accessToken: view.accessToken, idToken: view.idToken };
+      credsCache.set(key, { creds, at: Date.now() });
+      return creds;
+    } catch (error) {
+      log.warn(
+        { liffId, err: error instanceof Error ? error.message : String(error) },
+        "issueLiffView failed; trying without-user-context LIFF token",
+      );
+      const view = await client.base.liff.getLiffViewWithoutUserContext({ request: { liffId } });
+      const creds = { accessToken: view.accessToken, idToken: view.idToken };
+      credsCache.set(key, { creds, at: Date.now() });
+      return creds;
+    }
+  })();
+  credsInflight.set(key, job);
+  try {
+    return await job;
+  } finally {
+    credsInflight.delete(key);
+  }
+}
+
 /** モーダル展開時に先読みして issueLiffView の遅延を隠す（失敗は無視） */
 export async function liffWarm(
   accountId: string,
@@ -107,16 +148,18 @@ export async function liffWarm(
 interface LiffFetchOpts {
   method?: string;
   body?: unknown;
+  bodyText?: string;
   headers?: Record<string, string>;
   tokenHeader?: string;
   serial?: boolean;
+  maxRetries?: number;
 }
 
 async function liffFetch(
   url: string,
   creds: LiffCreds,
   opts: LiffFetchOpts = {},
-  retries = LIFF_FETCH_MAX_RETRIES,
+  retries = opts.maxRetries ?? LIFF_FETCH_MAX_RETRIES,
 ): Promise<unknown> {
   const headers: Record<string, string> = {
     Accept: "application/json, text/plain, */*",
@@ -137,7 +180,11 @@ async function liffFetch(
   try {
     const res = await fetch(url, {
       method: opts.method ?? "GET",
-      ...(opts.body !== undefined ? { body: JSON.stringify(opts.body) } : {}),
+      ...(opts.bodyText !== undefined
+        ? { body: opts.bodyText }
+        : opts.body !== undefined
+          ? { body: JSON.stringify(opts.body) }
+          : {}),
       headers,
       signal: controller.signal,
     });
@@ -168,6 +215,110 @@ async function liffFetch(
   } finally {
     clearTimeout(timer);
   }
+}
+
+type StickerFriendProfile = { name: string; token: string; pictureUrl?: string };
+
+function extractStickerFriendProfiles(
+  value: unknown,
+  out: StickerFriendProfile[] = [],
+): StickerFriendProfile[] {
+  // Some LIFF/Thrift adapters return the TJSON payload as a JSON string.
+  // Normalize that form before walking the response tree.
+  if (typeof value === "string") {
+    try {
+      return extractStickerFriendProfiles(JSON.parse(value), out);
+    } catch {
+      return out;
+    }
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) extractStickerFriendProfiles(item, out);
+    return out;
+  }
+  if (!value || typeof value !== "object") return out;
+  const record = value as Record<string, unknown>;
+  const token = (record["1"] as { str?: unknown } | undefined)?.str;
+  const name = (record["2"] as { str?: unknown } | undefined)?.str;
+  const pictureUrl = (record["3"] as { str?: unknown } | undefined)?.str;
+  if (typeof token === "string" && token.startsWith("V1~") && typeof name === "string") {
+    out.push({
+      name,
+      token,
+      ...(typeof pictureUrl === "string" && pictureUrl ? { pictureUrl } : {}),
+    });
+  }
+  for (const child of Object.values(record)) extractStickerFriendProfiles(child, out);
+  return out;
+}
+
+function stickerGiftResult(value: unknown): { giftable: boolean; code: number | null } {
+  const found: { tf?: boolean; code?: number } = {};
+  const walk = (node: unknown) => {
+    if (Array.isArray(node)) return node.forEach(walk);
+    if (!node || typeof node !== "object") return;
+    const record = node as Record<string, unknown>;
+    const tf = (record["1"] as { tf?: unknown } | undefined)?.tf;
+    const code = (record["2"] as { i32?: unknown } | undefined)?.i32;
+    if (tf === true || tf === 1) found.tf = true;
+    if (tf === false || tf === 0) found.tf = false;
+    if (typeof code === "number") found.code = code;
+    Object.values(record).forEach(walk);
+  };
+  walk(value);
+  return { giftable: found.tf === true, code: found.code ?? null };
+}
+
+/**
+ * Sticker Shop's canFriendReceiveGift check observed in the supplied HAR.
+ * This is a read-only eligibility probe; it does not send or purchase a gift.
+ */
+export async function checkStickerGiftEligibility(
+  accountId: string,
+): Promise<Array<{ name: string; pictureUrl?: string; giftable: boolean; code: number | null }>> {
+  const client = requireClient(accountId);
+  const creds = await getCredsWithoutUserContext(client, LIFF_APPS.stickerShop);
+  const baseHeaders = {
+    Authorization: `Bearer ${creds.accessToken}`,
+    "X-Line-Shop-Credential-Type": "access_token",
+    "X-LAL": "ja_JP",
+    Accept: "application/x-thrift, application/vnd.apache.thrift.json; charset=utf-8",
+    "Content-Type": "application/x-thrift, application/vnd.apache.thrift.json; charset=utf-8",
+    Origin: "https://stickershop.line.me",
+    Referer: "https://stickershop.line.me/",
+  };
+  const profiles = extractStickerFriendProfiles(
+    await liffFetch("https://stickershop.line.me/api/liff", creds, {
+      method: "POST",
+      bodyText: '[1,"getFriendProfiles",1,0,{"2":{"rec":{}}}]',
+      headers: baseHeaders,
+      maxRetries: 0,
+    }),
+  );
+  const unique = new Map(
+    profiles.map((profile) => [`${profile.name}\u0000${profile.token}`, profile]),
+  );
+  const results: Array<{
+    name: string;
+    pictureUrl?: string;
+    giftable: boolean;
+    code: number | null;
+  }> = [];
+  for (const profile of unique.values()) {
+    const response = await liffFetch("https://stickershop.line.me/api/liff", creds, {
+      method: "POST",
+      bodyText: `[1,"canFriendReceiveGift",1,0,{"2":{"rec":{"1":{"str":"stickershop"},"2":{"str":"30372800"},"3":{"str":"${profile.token}"}}}}]`,
+      headers: baseHeaders,
+      maxRetries: 0,
+    });
+    const result = stickerGiftResult(response);
+    results.push({
+      name: profile.name,
+      ...(profile.pictureUrl ? { pictureUrl: profile.pictureUrl } : {}),
+      ...result,
+    });
+  }
+  return results;
 }
 
 const W_LINE_ORIGIN = "https://w.line.me";

@@ -11,7 +11,9 @@ import {
   IconClose,
   IconAtSign,
   IconBellOff,
+  IconSpark,
 } from "@/components/icons";
+import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
 import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
@@ -115,6 +117,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
   const enterToSend = useStore((s) => s.settings.enterToSend);
+  const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -122,6 +125,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const chats = useStore((s) => s.chats);
   const self = useStore((s) => s.self);
   const blockedMids = useStore((s) => s.blockedMids);
+  const lockedChatMids = useStore((s) => s.lockedChatMids);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [picker, setPicker] = useState(false);
@@ -146,6 +150,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     }>
   >([]);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
+  const [agentOpen, setAgentOpen] = useState(false);
 
   // 画像送信中かどうか（楽観メッセージの pending image を検出）
   const sendingImage = messages.some(
@@ -191,6 +196,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const chat = chats.find((c) => c.id === chatId);
   // ブロック中の友だちには送信 UI を出さない
   const blocked = chat?.type === "friend" && blockedMids.includes(chatId);
+  const locked = lockedChatMids.includes(chatId);
 
   // メンションピッカー表示時にグループメンバー未ロードなら自動取得
   useEffect(() => {
@@ -672,6 +678,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
             <IconSend size={19} />
           </button>
         </div>
+      ) : locked ? (
+        <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
+          ロック中のため操作できません
+        </div>
       ) : blocked ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
           ブロック中のため送信できません
@@ -792,6 +802,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
             >
               <IconBellOff size={19} />
             </IconButton>
+            {agentEnabled && draft.trim() && (
+              <IconButton
+                label="AIで文章を整える"
+                active={agentOpen}
+                onClick={() => setAgentOpen(true)}
+              >
+                <IconSpark size={19} />
+              </IconButton>
+            )}
 
             <div className="relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
               {overlaySegments && (
@@ -872,6 +891,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
             )}
           </div>
         </>
+      )}
+      {agentOpen && (
+        <AgentIActionDialog
+          title="AIで文章の構成・表現を整える"
+          prompt=""
+          sourceText={draft}
+          onClose={() => setAgentOpen(false)}
+          onApply={(text) => setDraft(chatId, text)}
+        />
       )}
       <div className="mt-1 flex flex-wrap items-center gap-2 px-1 text-[0.65rem] text-[var(--vy-text-dim)]">
         {muteNext && (

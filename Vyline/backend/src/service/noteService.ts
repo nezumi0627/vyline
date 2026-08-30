@@ -10,21 +10,47 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("note");
 
+export type NoteContentInput = {
+  text?: string;
+  sharedPostId?: string;
+  stickerIds?: string[];
+  stickerPackageIds?: string[];
+  mediaObjectIds?: string[];
+  mediaObjectTypes?: string[];
+  textSizeMode?: "AUTO" | "NORMAL";
+  backgroundColor?: string;
+  textAnimation?: "NONE" | "SLIDE" | "ZOOM" | "BUZZ" | "BOUNCE" | "BLINK";
+  contents?: Record<string, unknown>;
+  postInfo?: Record<string, unknown>;
+};
+
 export async function listNotes(
   accountId: string,
   client: VylineClient,
   homeId: string,
 ): Promise<unknown> {
-  return await client.base.timeline.listPost({ homeId, sourceType: "TALKROOM" });
+  return await client.base.timeline.listPost({ homeId, sourceType: "GROUPHOME" });
+}
+
+export async function getGroupHomeUpdates(
+  client: VylineClient,
+  revision: number,
+): Promise<unknown> {
+  return await client.base.timeline.getGroupHomeUpdates(revision);
 }
 
 export async function createNote(
   accountId: string,
   client: VylineClient,
   homeId: string,
-  text: string,
+  input: NoteContentInput,
 ): Promise<unknown> {
-  const res = await client.base.timeline.createPost({ homeId, text, readPermissionType: "ALL" });
+  const res = await client.base.timeline.createPost({
+    homeId,
+    ...input,
+    readPermissionType: "ALL",
+    sourceType: "GROUPHOME",
+  });
   log.info({ accountId, homeId }, "note created");
   return res;
 }
@@ -54,10 +80,84 @@ export async function shareNoteToChat(
   client: VylineClient,
   homeId: string,
   postId: string,
-  chatMid: string,
 ): Promise<unknown> {
-  // Timeline sharePost itself only accepts the note home and post ID.
-  // Keep chatMid in the BFF contract for compatibility with the UI route.
-  void chatMid;
-  return await client.base.timeline.sharePost({ postId, homeId });
+  const res = await client.base.timeline.sharePost({ postId, homeId });
+  log.info({ accountId, homeId, postId }, "note shared");
+  return res;
+}
+
+export async function updateNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  input: NoteContentInput,
+): Promise<unknown> {
+  return await client.base.timeline.updatePost({ ...input, homeId, postId });
+}
+
+export async function likeNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  likeType?: "1001" | "1002" | "1003" | "1004" | "1005" | "1006",
+): Promise<unknown> {
+  return await client.base.timeline.likePost({
+    contentId: postId,
+    homeId,
+    ...(likeType ? { likeType } : {}),
+  });
+}
+
+export async function unlikeNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
+  return await client.base.timeline.unlikePost({ contentId: postId, homeId });
+}
+
+export async function getNoteLike(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
+  return await client.base.timeline.getLike({ contentId: postId, homeId });
+}
+
+export async function listNoteLikes(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
+  return await client.base.timeline.listLikes({ contentId: postId, homeId });
+}
+
+export async function commentNote(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  commentText: string,
+  contentsList?: unknown[],
+): Promise<unknown> {
+  return await client.base.timeline.createComment({
+    contentId: postId,
+    homeId,
+    commentText,
+    ...(contentsList ? { contentsList } : {}),
+  });
+}
+
+export async function uploadNoteMedia(
+  client: VylineClient,
+  type: "image" | "video",
+  data: Blob,
+): Promise<{ objId: string; objHash: string }> {
+  return await client.base.timeline.uploadNoteMedia(type, data);
+}
+
+export async function uploadNoteCommentImage(
+  client: VylineClient,
+  data: Blob,
+): Promise<{ objId: string; objHash: string }> {
+  return await client.base.timeline.uploadNoteCommentImage(data);
 }

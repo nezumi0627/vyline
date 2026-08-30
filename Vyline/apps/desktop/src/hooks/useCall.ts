@@ -64,7 +64,7 @@ export function useCall(accountId: string | null) {
     cleanupMedia();
     if (sessionId) {
       try {
-        await api.line.endCall(accountId!, sessionId);
+        await api.line.callEnd(accountId!, sessionId);
       } catch {
         /* */
       }
@@ -182,7 +182,7 @@ export function useCall(accountId: string | null) {
         state: "starting",
       });
       const callType = kind === "video" ? "VIDEO" : "AUDIO";
-      const res = await api.line.acquireCallRoute(accountId, to, callType);
+      const res = await api.line.callStart(accountId, to, callType);
       if (!res.ok || !("session" in res) || !res.session) {
         const errMsg = !res.ok && "error" in res ? res.error : "call start failed";
         setCall({

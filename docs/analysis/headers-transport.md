@@ -1,5 +1,7 @@
 # headers-transport — 調査メモ
 
+最終更新: 2026-08-24
+
 確認ポイント:
 
 - `DESKTOPWIN` + TAB 区切り `X-Line-Application`（**Desktop エミュ時のみ**）

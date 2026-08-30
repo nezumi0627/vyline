@@ -1,5 +1,7 @@
 # Desktop LINE におけるメッセージ編集と Premium ゲートの挙動
 
+最終更新: 2026-08-24
+
 > 調査日: 2026-08-20
 > 対象バイナリ: `source/desktop/unpacked_LINE.exe`（LINE Desktop 26.3.0.3916, Themida 解凍済み, 85.5 MB）
 > 手法: `tools/findNativeSymbol.ts` による文字列/LEA-xref 特定 → Ghidra 12.1.2 headless 逆コンパイル

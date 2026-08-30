@@ -62,6 +62,16 @@ export function parseKeybag(backupKeyBag: Uint8Array): ParsedKeybag {
   for (const [tag, data] of loopTLVBlocks(backupKeyBag)) {
     const tagStr = Buffer.from(tag).toString("ascii");
 
+    if (currentClassKey && CLASSKEY_TAGS.some((t) => t.equals(tag))) {
+      if (tagStr === "CLAS") currentClassKey.clas = data;
+      else if (tagStr === "WRAP") currentClassKey.wrap = readUInt32BE(data, 0);
+      else {
+        const key = tagStr.toLowerCase();
+        (currentClassKey as Record<string, Uint8Array>)[key] = data;
+      }
+      continue;
+    }
+
     if (data.length === 4) {
       const value = readUInt32BE(data, 0);
 
@@ -81,16 +91,16 @@ export function parseKeybag(backupKeyBag: Uint8Array): ParsedKeybag {
     }
 
     if (tagStr === "UUID") {
+      if (!currentClassKey && result.uuid.length === 0) {
+        result.uuid = data;
+        continue;
+      }
       if (currentClassKey) {
         const clas = currentClassKey.clas;
         if (!clas) throw new Error("Class key is missing CLAS");
-        result.classKeys.set(clas[0] ?? 0, currentClassKey as ClassKey);
+        result.classKeys.set(readUInt32BE(clas, 0), currentClassKey as ClassKey);
       }
       currentClassKey = { uuid: data };
-    } else if (CLASSKEY_TAGS.some((t) => t.equals(tag))) {
-      if (!currentClassKey) continue;
-      const key = tagStr.toLowerCase();
-      (currentClassKey as Record<string, Uint8Array>)[key] = data;
     } else {
       result.attrs.set(tagStr, data);
     }
@@ -99,7 +109,7 @@ export function parseKeybag(backupKeyBag: Uint8Array): ParsedKeybag {
   if (currentClassKey) {
     const clas = currentClassKey.clas;
     if (!clas) throw new Error("Class key is missing CLAS");
-    result.classKeys.set(clas[0] ?? 0, currentClassKey as ClassKey);
+    result.classKeys.set(readUInt32BE(clas, 0), currentClassKey as ClassKey);
   }
 
   return result;

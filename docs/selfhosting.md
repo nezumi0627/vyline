@@ -1,6 +1,6 @@
 # セルフホスティング（Docker 自宅サーバー）
 
-最終更新: 2026-08-23
+最終更新: 2026-08-24
 
 Vyline はバックエンド（BFF）とフロントエンド（React ビルド）を 1 つの Bun プロセスで配信できます。Docker で自宅サーバーに立てれば、**複数端末（PC・スマホ・タブレット）から同じ LINE セッションを Web ブラウザで使え**、チャット履歴・画像・トークンはサーバー側に永続化されます。端末を変えても履歴は消えません。
 
@@ -15,31 +15,30 @@ docker compose up -d --build
 ```
 
 ブラウザで `http://localhost:3001` を開くと Vyline が起動します。
-**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。外部や同一LANからアクセスする場合は、リバースプロキシ（Nginx / Cloudflare Tunnel 等）を経由させてください。直接 `3001` ポートを公開すると、認証なしで誰でもアクセスできてしまいます。
+**注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。同一LANのスマホ等から使う場合は、[サブデバイス接続ガイド](./subdevices.md) のQRペアリングを使用してください。`VYLINE_LAN_ACCESS=true` なしでLAN公開しないでください。
 
 ### 永続化されるデータ
 
-Docker ボリューム `vyline_data`（→ `/data`）に保存されます:
+Docker Compose の bind mount（`./data` → `/app/data`、`./storage` → `/app/storage`）に保存されます。
 
 | データ                       | 場所                                |
 | ---------------------------- | ----------------------------------- |
-| セッション / トークン        | `/data/tokens.json`                 |
-| E2EE 鍵 / storage            | `/data/storage-<account>.json`      |
-| チャット履歴                 | `/data/chatdb-<account>.json`       |
-| プロフィールキャッシュ       | `/data/vyline-cache-<account>.json` |
-| スタンプ / sticon キャッシュ | `/data/cdn-cache/`                  |
-| 画像・動画メディア           | `/data/media-cache/`                |
-| 操作ロック                   | `/data/feature-locks.json`          |
+| セッション / トークン        | `/app/data/tokens.json`                 |
+| E2EE 鍵 / storage            | `/app/data/storage-<account>.json`      |
+| チャット履歴                 | `/app/data/chatdb-<account>.json`       |
+| プロフィールキャッシュ       | `/app/data/vyline-cache-<account>.json` |
+| スタンプ / sticon キャッシュ | `/app/data/cdn-cache/`                  |
+| 送信済み・取得済みメディア   | `/app/storage/saved-media/`         |
+| 操作ロック                   | `/app/data/feature-locks.json`          |
 
-`docker compose down` してもデータは消えません。完全削除したい場合は `docker volume rm vyline_data` を実行します。
+`docker compose down` してもデータは消えません。完全削除する場合は、停止後にホスト側の `./data` と `./storage` を確認してから削除します。
 
 ### バックアップ
 
-ボリュームを tar で退避:
+ホスト側の bind mount を tar で退避:
 
 ```bash
-docker run --rm -v vyline_data:/data -v "$PWD":/backup alpine \
-  tar czf /backup/vyline-backup-$(date +%Y%m%d).tar.gz -C /data .
+tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 ```
 
 ---
@@ -50,7 +49,9 @@ docker run --rm -v vyline_data:/data -v "$PWD":/backup alpine \
 | -------------------- | ----------------------------------- | ---------------------------------------------------------------------- |
 | `PORT`               | `3001`（Docker Compose では `3000`） | listen ポート                                                          |
 | `VYLINE_HOST`        | `127.0.0.1`             | bind アドレス。Docker では `0.0.0.0`                                   |
-| `VYLINE_DATA_DIR`    | `backend/data/`         | 永続データ（トークン / 履歴 / キャッシュ）の場所                       |
+| `VYLINE_LAN_ACCESS`  | `false`                 | `true` のときだけ同一LANからアクセス可能。未認証APIは拒否される           |
+| `VYLINE_DATA_DIR`    | `backend/data/`         | トークン / 履歴などのデータ場所                                         |
+| `VYLINE_STORAGE_DIR` | `backend/storage/`     | 永続ストレージ（保存メディア、プロフィール等）の場所                    |
 | `VYLINE_CORS_ORIGIN` | `http://localhost:5173` | 許可するブラウザオリジン。**同一オリジンでアクセスする場合は設定不要** |
 | `VYLINE_STATIC_DIR`  | `apps/desktop/dist/`    | 配信するフロントビルドの場所                                           |
 
@@ -58,9 +59,29 @@ docker run --rm -v vyline_data:/data -v "$PWD":/backup alpine \
 
 ---
 
-## 3. ポートフォワード / リバースプロキシ
+## 3. 遠隔アクセス — Tailscale 推奨（最優先）
 
-自宅ルーターで `3001` を外部公開するのは避けてください。**Cloudflare Access（後述）か、最低でもリバースプロキシ + Basic 認証**を挟むことを強く推奨します。
+Vyline の遠隔アクセスは **Tailscale を推奨**します。PC で Vyline を起動した状態で、スマホ／タブレットにも Tailscale をインストールし、**同じアカウントで Tailscale にログイン**すれば、追加のポート開放なしで安全にアクセスできます。
+
+### 手順
+
+1. **PC 側**: [Tailscale](https://tailscale.com/download) をインストールしてログイン → Vyline を起動（`bun run dev` または Docker）
+2. **スマホ側**: Tailscale アプリをインストールして同じアカウントでログイン
+3. **アクセス**: PC の Tailscale IP（`100.x.y.z`）で `http://100.x.y.z:3000`（Docker）または `http://100.x.y.z:3001`（Bun）を開く
+
+Vyline バックエンドは起動時および 30 秒ごとに Tailscale IP を検出し、ログに URL を自動出力します。
+
+```
+Tailscale detected — Vyline accessible via Tailscale {"tailscaleIp":"100.x.y.z","url":"http://100.x.y.z:3000"}
+```
+
+Tailscale が起動していない間は通常の LAN/ローカルアクセスのみ有効です。Tailscale 起動後は自動で URL がログに追加されます。
+
+> Tailscale は WireGuard ベースのメッシュ VPN で、外部公開やリバースプロキシより簡単かつ安全です。家族や自分専用の閉じたネットワークとして使えます。
+
+## 3b. ポートフォワード / リバースプロキシ
+
+自宅ルーターで `3001` を外部公開するのは避けてください。**Tailscale（推奨）か Cloudflare Access（後述）か、最低でもリバースプロキシ + Basic 認証**を挟むことを強く推奨します。
 
 ### Nginx 例
 

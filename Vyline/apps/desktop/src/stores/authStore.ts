@@ -263,6 +263,17 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async (accountId) => {
+        // サブデバイスのログアウトは、この端末の選択状態だけを解除する。
+        // PC側のLINEセッションと保存済みトークンは共有資産なので削除しない。
+        const subdeviceSession =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("vyline:subdevice-session")
+            : null;
+        if (subdeviceSession) {
+          set({ activeAccountId: null, error: null });
+          return;
+        }
+
         await api.auth.deleteAccount(accountId);
         await get().refreshAccounts();
         if (get().activeAccountId === accountId) {

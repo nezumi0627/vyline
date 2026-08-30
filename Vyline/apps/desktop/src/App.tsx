@@ -1,20 +1,18 @@
-import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { LoginPage } from "./pages/LoginPage.js";
 import { VylineApp } from "./pages/VylineApp.js";
-
-const LoginPage = lazy(() =>
-  import("./pages/LoginPage.js").then((module) => ({ default: module.LoginPage })),
-);
+import { SubdevicePage } from "./pages/SubdevicePage.js";
+import { PrDemoPage } from "./pages/PrDemoPage.js";
 
 export function App() {
   return (
     <BrowserRouter>
-      <Suspense fallback={null}>
-        <Routes>
-          <Route path="/login" element={<LoginPage />} />
-          <Route path="/*" element={<VylineApp />} />
-        </Routes>
-      </Suspense>
+      <Routes>
+        <Route path="/pr-demo" element={<PrDemoPage />} />
+        <Route path="/login" element={<LoginPage />} />
+        <Route path="/subdevice" element={<SubdevicePage />} />
+        <Route path="/*" element={<VylineApp />} />
+      </Routes>
     </BrowserRouter>
   );
 }

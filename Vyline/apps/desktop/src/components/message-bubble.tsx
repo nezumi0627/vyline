@@ -32,8 +32,12 @@ import {
   IconEdit,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
-import { segmentUnicodeEmoji } from "@/utils/lineSticon";
-import { lineCdnProxy, hideBrokenMedia } from "@/utils/lineMedia";
+import {
+  segmentTextWithSticon,
+  segmentUnicodeEmoji,
+  type SticonResource,
+} from "@/utils/lineSticon";
+import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
@@ -85,6 +89,208 @@ function LinkPreviewCard({ preview }: { preview: NonNullable<Message["linkPrevie
         <span className="line-clamp-2 block text-xs opacity-80">{preview.description}</span>
       </span>
     </a>
+  );
+}
+
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function findPostRecord(value: unknown): Record<string, unknown> | null {
+  const root = objectRecord(value);
+  if (!root) return null;
+  const result = objectRecord(root.result) ?? root;
+  const post = objectRecord(result.post) ?? objectRecord(result.item) ?? result;
+  return objectRecord(post.contents) ?? post;
+}
+
+function findAlbumRecord(value: unknown, albumId: string): Record<string, unknown> | null {
+  const root = objectRecord(value);
+  const result = objectRecord(root?.result) ?? root;
+  const albums = result?.albums;
+  if (!Array.isArray(albums)) return null;
+  return (
+    (albums.find((album) => {
+      const record = objectRecord(album);
+      return String(record?.albumId ?? record?.id ?? "") === albumId;
+    }) as Record<string, unknown> | undefined) ?? null
+  );
+}
+
+function noteSticons(post: Record<string, unknown> | null): SticonResource[] {
+  const raw = post?.sticonMetas;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const record = objectRecord(item);
+    const productId = String(record?.productId ?? record?.product_id ?? "");
+    const sticonId = String(record?.sticonId ?? record?.sticon_id ?? record?.id ?? "");
+    if (!productId || !sticonId) return [];
+    const S = Number(record?.S ?? record?.start);
+    const E = Number(record?.E ?? record?.end);
+    return [
+      {
+        productId,
+        sticonId,
+        ...(Number.isFinite(S) ? { S } : {}),
+        ...(Number.isFinite(E) ? { E } : {}),
+        ...(typeof record?.alt === "string" ? { alt: record.alt } : {}),
+      },
+    ];
+  });
+}
+
+function NoteText({ text, sticons }: { text: string; sticons: SticonResource[] }) {
+  if (!sticons.length) return <Highlighted text={text} />;
+  return (
+    <>
+      {segmentTextWithSticon(text, sticons).map((segment, index) =>
+        segment.type === "sticon" ? (
+          <img
+            key={`${segment.url}-${index}`}
+            src={segment.url}
+            alt={segment.alt}
+            className="mx-0.5 inline-block h-6 w-6 align-text-bottom object-contain"
+            onError={hideBrokenMedia}
+          />
+        ) : (
+          <span key={index}>{segment.value}</span>
+        ),
+      )}
+    </>
+  );
+}
+
+function PostNotificationCard({
+  message,
+  accountId,
+}: {
+  message: Message;
+  accountId?: string;
+}) {
+  const notification = message.postNotification;
+  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  if (!notification || notification.kind === "unknown") return null;
+
+  const load = async () => {
+    if (!accountId || loading || detail) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const raw =
+        notification.kind === "note" && notification.homeId && notification.postId
+          ? await api.line.notes.get(accountId, notification.homeId, notification.postId)
+          : notification.kind === "album" && notification.albumId
+            ? await api.line.albums.list(accountId)
+            : null;
+      setDetail(
+        notification.kind === "album" && notification.albumId
+          ? findAlbumRecord(raw, notification.albumId)
+          : objectRecord(raw),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const post = notification.kind === "note" ? findPostRecord(detail) : null;
+  const text = typeof post?.text === "string" ? post.text : undefined;
+  const stickers = Array.isArray(post?.stickers) ? post.stickers : [];
+  const media = Array.isArray(post?.media) ? post.media : [];
+  const sticons = noteSticons(post);
+  const sharedPostId = typeof post?.sharedPostId === "string" ? post.sharedPostId : undefined;
+
+  return (
+    <div className="my-1 flex w-full justify-center px-2">
+      <button
+        type="button"
+        onClick={() => void load()}
+        className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] text-left shadow-sm transition-colors hover:bg-[var(--vy-surface-2)]"
+      >
+        <div className="px-4 py-3">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--vy-accent)]">
+            {notification.kind === "album" ? "Album" : "Note"}
+          </p>
+          <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
+            {notification.kind === "album"
+              ? notification.title || "アルバムが更新されました"
+              : "ノートが作成されました"}
+          </p>
+          {notification.kind === "album" && notification.mediaCount != null && (
+            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+              {notification.mediaCount}件のメディア
+            </p>
+          )}
+          {loading && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">読み込み中…</p>}
+          {error && <p className="mt-2 text-xs text-[var(--vy-danger)]">{error}</p>}
+          {text && (
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--vy-text)]">
+              <NoteText text={text} sticons={sticons} />
+            </p>
+          )}
+          {stickers.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {stickers.slice(0, 6).map((value, index) => {
+                const sticker = objectRecord(value);
+                const id = String(sticker?.id ?? sticker?.stickerId ?? "");
+                return id ? (
+                  <img
+                    key={`${id}-${index}`}
+                    src={lineStickerUrl(id)}
+                    alt="スタンプ"
+                    className="h-20 w-20 object-contain"
+                    onError={hideBrokenMedia}
+                  />
+                ) : null;
+              })}
+            </div>
+          )}
+          {media.length > 0 && (
+            <div className="mt-2 grid grid-cols-2 gap-1 overflow-hidden rounded-xl">
+              {media.slice(0, 6).map((value, index) => {
+                const item = objectRecord(value);
+                const objectId = String(item?.objectId ?? "");
+                const type = String(item?.type ?? "PHOTO").toUpperCase();
+                if (!objectId) return null;
+                const src = lineCdnProxy(
+                  `https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`,
+                );
+                return type === "VIDEO" ? (
+                  <video
+                    key={`${objectId}-${index}`}
+                    src={src}
+                    controls
+                    preload="metadata"
+                    className="max-h-48 w-full bg-black object-contain"
+                  />
+                ) : (
+                  <img
+                    key={`${objectId}-${index}`}
+                    src={src}
+                    alt="ノート画像"
+                    className="max-h-48 w-full object-cover"
+                    onError={hideBrokenMedia}
+                  />
+                );
+              })}
+            </div>
+          )}
+          {sharedPostId && (
+            <p className="mt-2 rounded-lg bg-[var(--vy-surface-2)] px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+              共有ノート: {sharedPostId}
+            </p>
+          )}
+          {!detail && !loading && (
+            <p className="mt-2 text-xs text-[var(--vy-text-dim)]">クリックして内容を表示</p>
+          )}
+        </div>
+      </button>
+    </div>
   );
 }
 
@@ -341,7 +547,11 @@ function stickerAnimationUrl(url?: string): string {
 
 function isStickerImageSrc(src?: string): boolean {
   return Boolean(
-    src && (src.startsWith("http") || src.startsWith("/api/") || src.startsWith("data:")),
+    src &&
+      (src.startsWith("http") ||
+        src.startsWith("/api/") ||
+        src.startsWith("/demo/") ||
+        src.startsWith("data:")),
   );
 }
 
@@ -468,6 +678,7 @@ export const MessageBubble = memo(
     mediaGroup?: Message[];
   }) {
     const isMe = message.authorId === "me";
+    const accountId = useStore((s) => s.accountId);
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
     const revokeMessage = useStore((s) => s.revokeMessage);
@@ -602,8 +813,9 @@ export const MessageBubble = memo(
     };
 
     const react = (type: number, mine: boolean) => {
-      const accountId = useStore.getState().accountId;
-      if (!accountId || message.id.startsWith("pending_")) return;
+      const state = useStore.getState();
+      const accountId = state.accountId;
+      if ((!accountId && !state.demoMode) || message.id.startsWith("pending_")) return;
       // 公式アカウント（BOT）はリアクション不可
       if (chat.isOfficial) {
         window.alert("公式アカウントにはリアクションできません");
@@ -626,10 +838,14 @@ export const MessageBubble = memo(
       const store = useStore.getState();
       const myMid = store.self?.mid ?? "";
       store.setMessageReaction(message.id, mine ? "UNDO" : name, myMid);
+      if (store.demoMode) {
+        store.showNotice(mine ? "リアクションを外しました" : "リアクションを追加しました");
+        return;
+      }
       // 削除も同じタイプを送ってサーバ側でトグル（"UNDO" はサーバが ILLEGAL_ARGUMENT で拒否する）
       void api.line
         .reactToMessage(
-          accountId,
+          accountId!,
           message.id,
           name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
         )
@@ -642,13 +858,25 @@ export const MessageBubble = memo(
     };
 
     const handleAnnounce = () => {
-      const accountId = useStore.getState().accountId;
-      if (!accountId) return;
+      const state = useStore.getState();
+      const accountId = state.accountId;
+      if (!accountId && !state.demoMode) return;
       const text = message.text ?? message.altText ?? "";
       if (!text) return;
       const chatId = chat.id;
+      if (state.demoMode) {
+        state.addAnnouncement(chatId, {
+          announcementSeq: String(Date.now()),
+          text,
+          link: `line://nv/chatMsg?chatId=${chatId}&messageId=${message.id}`,
+          creatorMid: state.self?.mid ?? "demo-self",
+          createdTime: Date.now(),
+        });
+        state.showNotice("アナウンスに追加しました");
+        return;
+      }
       void api.line.announce
-        .createChatRoomAnnouncement(accountId, chatId, text, message.id)
+        .createChatRoomAnnouncement(accountId!, chatId, text, message.id)
         .then((res) => {
           if (res.ok && res.data) {
             useStore.getState().addAnnouncement(chatId, {
@@ -903,6 +1131,10 @@ export const MessageBubble = memo(
 
     if (message.kind === "call" && !isRevoked) {
       return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
+    }
+
+    if (message.postNotification && message.postNotification.kind !== "unknown" && !isRevoked) {
+      return <PostNotificationCard message={message} accountId={accountId ?? undefined} />;
     }
 
     if (message.kind === "system" && !isRevoked) {
@@ -1165,6 +1397,15 @@ export const MessageBubble = memo(
                 alt={target.kind === "video" ? "動画サムネイル" : "送信された画像"}
                 video={target.kind === "video"}
               />
+            ) : target.kind === "video" ? (
+              <div className="relative overflow-hidden rounded-xl">
+                <video
+                  src={target.imageSrc.replace(/preview=1/, "preview=0")}
+                  controls
+                  preload="metadata"
+                  className="h-auto w-[260px] max-w-full object-cover"
+                />
+              </div>
             ) : (
               <button
                 type="button"
@@ -1173,30 +1414,14 @@ export const MessageBubble = memo(
                   e.stopPropagation();
                   setLightbox(true);
                 }}
-                aria-label={target.kind === "video" ? "動画を拡大" : "画像を拡大"}
+                aria-label="画像を拡大"
               >
-                {target.kind === "video" ? (
-                  <div className="relative">
-                    <img
-                      src={target.imageSrc}
-                      alt="動画サムネイル"
-                      onError={hideBrokenMedia}
-                      className="h-auto w-[260px] max-w-full object-cover"
-                    />
-                    <span className="absolute inset-0 flex items-center justify-center bg-black/35">
-                      <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
-                        <IconPlay size={22} />
-                      </span>
-                    </span>
-                  </div>
-                ) : (
-                  <img
-                    src={target.imageSrc}
-                    alt="送信された画像"
-                    onError={hideBrokenMedia}
-                    className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
-                  />
-                )}
+                <img
+                  src={target.imageSrc}
+                  alt="送信された画像"
+                  onError={hideBrokenMedia}
+                  className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
+                />
               </button>
             ))}
           {target.kind === "audio" && target.audioSrc && (
@@ -1260,7 +1485,7 @@ export const MessageBubble = memo(
 
         <div
           className={cn(
-            "flex flex-col",
+            "min-w-0 flex flex-col",
             message.kind === "flex" || message.kind === "rich"
               ? "max-w-[min(100%,360px)]"
               : "max-w-[74%]",
@@ -1559,6 +1784,15 @@ export const MessageBubble = memo(
                     alt={message.kind === "video" ? "動画サムネイル" : "送信された画像"}
                     video={message.kind === "video"}
                   />
+                ) : message.kind === "video" ? (
+                  <div className="relative overflow-hidden rounded-xl">
+                    <video
+                      src={message.imageSrc.replace(/preview=1/, "preview=0")}
+                      controls
+                      preload="metadata"
+                      className="h-auto w-[260px] max-w-full object-cover"
+                    />
+                  </div>
                 ) : (
                   <button
                     type="button"
@@ -1568,30 +1802,14 @@ export const MessageBubble = memo(
                       setLightboxMedia(message);
                       setLightbox(true);
                     }}
-                    aria-label={message.kind === "video" ? "動画を拡大" : "画像を拡大"}
+                    aria-label="画像を拡大"
                   >
-                    {message.kind === "video" ? (
-                      <div className="relative">
-                        <img
-                          src={message.imageSrc}
-                          alt="動画サムネイル"
-                          onError={hideBrokenMedia}
-                          className="h-auto w-[260px] max-w-full object-cover"
-                        />
-                        <span className="absolute inset-0 flex items-center justify-center bg-black/35">
-                          <span className="flex h-12 w-12 items-center justify-center rounded-full bg-black/50 text-white">
-                            <IconPlay size={22} />
-                          </span>
-                        </span>
-                      </div>
-                    ) : (
-                      <img
-                        src={message.imageSrc}
-                        alt="送信された画像"
-                        onError={hideBrokenMedia}
-                        className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
-                      />
-                    )}
+                    <img
+                      src={message.imageSrc}
+                      alt="送信された画像"
+                      onError={hideBrokenMedia}
+                      className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
+                    />
                   </button>
                 ))}
               {mediaItems.length <= 1 && message.kind === "audio" && message.audioSrc && (

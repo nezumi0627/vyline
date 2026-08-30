@@ -1,15 +1,24 @@
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
+import type { AnimationMode } from "@/lib/store-types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
+import { BetaSection } from "@/components/beta-consent";
+import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
+import { AndroidBackupPanel } from "@/components/android-backup-panel";
+import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
-  if (diff < 60_000) return "たった今";
+  if (diff < 10_000) return "数秒前";
+  if (diff < 60_000) return `${Math.floor(diff / 1_000)}秒前`;
   if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`;
   if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
-  return `${Math.floor(diff / 86_400_000)}日前`;
+  if (diff < 31 * 86_400_000) return `${Math.floor(diff / 86_400_000)}日前`;
+  if (diff < 365 * 86_400_000) return `${Math.floor(diff / (31 * 86_400_000))}か月前`;
+  return `${Math.floor(diff / (365 * 86_400_000))}年前`;
 }
 
 function formatBytes(bytes: number): string {
@@ -52,8 +61,12 @@ type Section =
   | "privacy"
   | "notifications"
   | "advanced"
+  | "subdevices"
   | "storage"
-  | "info";
+  | "plugins"
+  | "info"
+  | "beta"
+  | "handoff";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
@@ -63,7 +76,11 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+  { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
+  { key: "plugins", label: "プラグイン", icon: <IconSpark size={18} /> },
+  { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
+  { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
@@ -98,10 +115,12 @@ function Card({ children }: { children: React.ReactNode }) {
 export function SettingsSections() {
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
+  const animationMode = settings.animationMode ?? "vyline";
   const updateSetting = useStore((s) => s.updateSetting);
   const self = useStore((s) => s.self);
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [section, setSection] = useState<Section>("read");
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
@@ -109,6 +128,14 @@ export function SettingsSections() {
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
 
   const saveLineProfile = async () => {
+    if (demoMode) {
+      updateSelf({
+        name: nameDraft.trim() || "デモユーザー",
+        status: statusDraft,
+      });
+      setProfileMsg("デモプロフィールを更新しました");
+      return;
+    }
     if (!accountId) {
       setProfileMsg("ログインが必要です");
       return;
@@ -137,6 +164,7 @@ export function SettingsSections() {
         avatarUrl: res.profile.thumbnailUrl || self.avatarUrl,
         mid: res.profile.mid,
         phoneticName: res.profile.phoneticName || self.phoneticName,
+        backgroundUrl: res.profile.backgroundUrl || self.backgroundUrl,
         pictureStatus: res.profile.pictureStatus || self.pictureStatus,
         profileId: res.profile.profileId || self.profileId,
         premium: res.profile.premium ?? self.premium,
@@ -150,12 +178,17 @@ export function SettingsSections() {
   };
 
   const onPickAvatar = async (file: File | null) => {
-    if (!file || !accountId) return;
+    if (!file || (!accountId && !demoMode)) return;
+    if (demoMode) {
+      updateSelf({ avatarUrl: URL.createObjectURL(file) });
+      setProfileMsg("デモアイコンを更新しました");
+      return;
+    }
     setProfileSaving(true);
     setProfileMsg(null);
     try {
       const buf = await file.arrayBuffer();
-      const res = await api.line.updateProfileImage(accountId, buf, file.type || "image/jpeg");
+      const res = await api.line.updateProfileImage(accountId!, buf, file.type || "image/jpeg");
       if (res.ok && res.profile?.thumbnailUrl) {
         updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
         setProfileMsg("アイコンを更新しました");
@@ -170,12 +203,21 @@ export function SettingsSections() {
   };
 
   const onPickBackground = async (file: File | null) => {
-    if (!file || !accountId) return;
+    if (!file || (!accountId && !demoMode)) return;
+    if (demoMode) {
+      updateSelf({ backgroundUrl: URL.createObjectURL(file) });
+      setProfileMsg("デモ背景を更新しました");
+      return;
+    }
     setProfileSaving(true);
     setProfileMsg(null);
     try {
       const buf = await file.arrayBuffer();
-      const res = await api.line.updateProfileBackground(accountId, buf, file.type || "image/jpeg");
+      const res = await api.line.updateProfileBackground(
+        accountId!,
+        buf,
+        file.type || "image/jpeg",
+      );
       if (res.ok) {
         setProfileMsg("背景画像をアップロードしました");
         // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント
@@ -255,7 +297,7 @@ export function SettingsSections() {
           </div>
 
           <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
-            <div className="mx-auto max-w-2xl">
+            <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
                 <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
                   <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
@@ -366,6 +408,7 @@ export function SettingsSections() {
                       />
                     </Row>
                   </Card>
+                  <ReadDisabledChatList />
                   <p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
                     DM
                     では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
@@ -377,6 +420,44 @@ export function SettingsSections() {
               {section === "display" && (
                 <Section title="表示" desc="レイアウトの密度や入力挙動を調整します">
                   <Card>
+                    <div className="py-3.5">
+                      <p className="text-sm font-medium">アニメーション</p>
+                      <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                        画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。
+                      </p>
+                      <div className="mt-3 grid gap-2 sm:grid-cols-3">
+                        {(
+                          [
+                            ["vyline", "Vyline", "軽量な動きと滑らかな表示"],
+                            ["feather", "フェザー", "低スペック端末向け"],
+                            ["none", "オフ", "アニメーションを停止"],
+                          ] as const
+                        ).map(([mode, label, desc]) => (
+                          <button
+                            key={mode}
+                            type="button"
+                            onClick={() => updateSetting("animationMode", mode as AnimationMode)}
+                            aria-pressed={animationMode === mode}
+                            className={cn(
+                              "rounded-xl border px-3 py-2 text-left transition-colors",
+                              animationMode === mode
+                                ? "border-transparent text-[var(--vy-accent-contrast)]"
+                                : "border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]",
+                            )}
+                            style={
+                              animationMode === mode
+                                ? { background: "var(--vy-accent)" }
+                                : undefined
+                            }
+                          >
+                            <span className="block text-xs font-semibold">{label}</span>
+                            <span className="mt-1 block text-[0.65rem] leading-relaxed opacity-80">
+                              {desc}
+                            </span>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
                     <Row title="コンパクト表示" desc="吹き出しの余白を狭くして情報量を増やします">
                       <Toggle
                         checked={settings.compactDensity}
@@ -419,16 +500,6 @@ export function SettingsSections() {
                         checked={settings.bubbleTail}
                         onChange={(v) => updateSetting("bubbleTail", v)}
                         label="吹き出しのしっぽ"
-                      />
-                    </Row>
-                    <Row
-                      title="カスタムカーソル"
-                      desc="Vyline 専用のなめらかなポインターを有効にします（PC のみ）"
-                    >
-                      <Toggle
-                        checked={settings.customCursor}
-                        onChange={(v) => updateSetting("customCursor", v)}
-                        label="カスタムカーソル"
                       />
                     </Row>
                     <div className="py-3.5">
@@ -493,14 +564,504 @@ export function SettingsSections() {
 
               {section === "advanced" && <AdvancedSection />}
 
+              {section === "subdevices" && <SubdevicesSection />}
+
               {section === "storage" && <StorageSection />}
 
+              {section === "plugins" && <PluginsSection />}
+
               {section === "info" && <InfoSection />}
+
+              {section === "handoff" && <HandoffSection />}
+
+              {section === "beta" && (
+                <>
+                  <BetaSection />
+                  {settings.betaAgentI && <AgentIBetaPanel />}
+                </>
+              )}
             </div>
           </div>
         </div>
       </div>
     </div>
+  );
+}
+
+function PluginsSection() {
+  const accountId = useStore((s) => s.accountId);
+  const [plugins, setPlugins] = useState<
+    Array<{
+      id: string;
+      name: string;
+      version: string;
+      description?: string;
+      permissions?: string[];
+      loadable: boolean;
+      enabled: boolean;
+      active: boolean;
+    }>
+  >([]);
+  const [loading, setLoading] = useState(true);
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    if (!accountId) {
+      setPlugins([]);
+      setLoading(false);
+      return;
+    }
+    setLoading(true);
+    setMessage(null);
+    try {
+      const result = await api.line.plugins(accountId);
+      setPlugins(result.plugins ?? []);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "プラグイン一覧を取得できませんでした");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    void load();
+  }, [accountId]);
+
+  const toggle = async (plugin: (typeof plugins)[number]) => {
+    if (!accountId || busyId) return;
+    setBusyId(plugin.id);
+    setMessage(null);
+    try {
+      const result = await api.line.setPluginEnabled(accountId, plugin.id, !plugin.enabled);
+      if (!result.ok) throw new Error(result.error ?? "プラグインの切替に失敗しました");
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "プラグインの切替に失敗しました");
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <Section title="プラグイン" desc="この PC に置いた信頼できるローカルプラグインを管理します">
+      <p className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+        プラグインは Vyline
+        の権限でローカルコードを実行します。内容と要求権限を確認したものだけを有効にしてください。
+      </p>
+      <Card>
+        {loading ? (
+          <p className="py-4 text-sm text-[var(--vy-text-dim)]">読み込み中…</p>
+        ) : plugins.length === 0 ? (
+          <p className="py-4 text-sm leading-relaxed text-[var(--vy-text-dim)]">
+            プラグインはまだありません。`backend/data/plugins` に `manifest.json`
+            を含むフォルダを置くと表示されます。
+          </p>
+        ) : (
+          plugins.map((plugin) => (
+            <Row
+              key={plugin.id}
+              title={`${plugin.name} v${plugin.version}`}
+              desc={`${plugin.description ?? plugin.id}${plugin.permissions?.length ? ` · ${plugin.permissions.join(", ")}` : " · 権限なし"}${!plugin.loadable ? " · 実行ファイルがありません" : plugin.enabled && !plugin.active ? " · 起動に失敗しました。バックエンドログを確認してください" : ""}`}
+            >
+              <Toggle
+                checked={plugin.enabled}
+                onChange={() => void toggle(plugin)}
+                disabled={!accountId || !plugin.loadable || busyId === plugin.id}
+                label={`${plugin.name}を有効にする`}
+              />
+            </Row>
+          ))
+        )}
+      </Card>
+      {message && <p className="mt-3 text-xs text-red-300">{message}</p>}
+      <button
+        type="button"
+        onClick={() => void load()}
+        disabled={loading}
+        className="mt-4 rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+      >
+        再読み込み
+      </button>
+    </Section>
+  );
+}
+
+function HandoffSection() {
+  const mid = useStore((s) => s.self.mid);
+  const accountId = useStore((s) => s.accountId);
+  const updateSelf = useStore((s) => s.updateSelf);
+  const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
+  const [message, setMessage] = useState<string | null>(null);
+  const [entries, setEntries] = useState<unknown[]>([]);
+  useEffect(() => {
+    if (mid) {
+      setResolvedMid(mid);
+      return;
+    }
+    if (!accountId) return;
+    let cancelled = false;
+    void api.line
+      .getProfile(accountId)
+      .then((result) => {
+        if (cancelled || !result.ok || !result.profile?.mid) return;
+        setResolvedMid(result.profile.mid);
+        updateSelf({ mid: result.profile.mid });
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, mid, updateSelf]);
+  const diagnosticMid = resolvedMid ?? mid;
+  const download = (name: string, content: BlobPart, type: string) => {
+    const url = URL.createObjectURL(new Blob([content], { type }));
+    const anchor = document.createElement("a");
+    anchor.href = url;
+    anchor.download = name;
+    anchor.click();
+    URL.revokeObjectURL(url);
+  };
+  const exportHandoff = async () => {
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.handoff.export(diagnosticMid);
+      const bytes = Uint8Array.from(atob(result.archiveBase64), (char) => char.charCodeAt(0));
+      download(result.filename, bytes, "application/zip");
+      setMessage("引継ぎZIPを作成しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "引継ぎZIPの作成に失敗しました");
+    }
+  };
+  const importHandoff = () => {
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".zip";
+    input.onchange = async () => {
+      const file = input.files?.[0];
+      if (!file) return;
+      if (!window.confirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
+      const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
+      try {
+        const result = await api.handoff.import(diagnosticMid, data, "overwrite");
+        setMessage(
+          result.ok ? "引継ぎを適用しました。必要なら再起動してください" : "引継ぎに失敗しました",
+        );
+      } catch (error) {
+        setMessage(error instanceof Error ? error.message : "引継ぎに失敗しました");
+      }
+    };
+    input.click();
+  };
+  const exportLogs = async () => {
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.diagnostics.export(diagnosticMid);
+      download("vyline-diagnostics.json", result.content, "application/json");
+      setMessage("サニタイズ済みログを出力しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ログ出力に失敗しました");
+    }
+  };
+  const loadLogs = async () => {
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.diagnostics.list(diagnosticMid);
+      setEntries(result.entries);
+      setMessage(`${result.entries.length}件のログを読み込みました`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "ログ一覧の取得に失敗しました");
+    }
+  };
+  const reportIssue = async () => {
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    try {
+      const result = await api.diagnostics.export(diagnosticMid);
+      const body = [
+        "## 問題の概要",
+        "",
+        "（ここに問題を記入してください）",
+        "",
+        "## Vyline診断情報",
+        "",
+        "```json",
+        result.content.slice(0, 12000),
+        "```",
+        "",
+      ].join("\n");
+      const url = `https://github.com/nezumi0627/vyline/issues/new?title=${encodeURIComponent("Vyline issue")}&body=${encodeURIComponent(body)}`;
+      window.open(url, "_blank", "noopener,noreferrer");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "Issue作成情報の生成に失敗しました");
+    }
+  };
+  return (
+    <>
+      <Section
+        title="引継ぎ"
+        desc="設定だけを安全に別のVylineへ移行します。認証情報やトークンは含みません。"
+      >
+        <Card>
+          <Row title="引継ぎZIPを作成" desc="manifestと改ざん検知用ハッシュを含めます">
+            <button
+              type="button"
+              onClick={() => void exportHandoff()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              エクスポート
+            </button>
+          </Row>
+          <Row title="引継ぎZIPを適用" desc="適用前に既存設定をバックアップします">
+            <button
+              type="button"
+              onClick={importHandoff}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              インポート
+            </button>
+          </Row>
+        </Card>
+      </Section>
+      <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
+        <Card>
+          <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
+            <button
+              type="button"
+              onClick={() => void exportLogs()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              出力
+            </button>
+          </Row>
+          <Row title="ログ一覧" desc="共有前にサニタイズ済みの内容を確認します">
+            <button
+              type="button"
+              onClick={() => void loadLogs()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              確認
+            </button>
+          </Row>
+          <Row title="GitHubで問題を報告" desc="ログを自動添付したIssue作成画面を開きます">
+            <button
+              type="button"
+              onClick={() => void reportIssue()}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+            >
+              Issue作成
+            </button>
+          </Row>
+          <Row title="ログを削除" desc="保存済みの診断ログを削除します">
+            <button
+              type="button"
+              onClick={() =>
+                diagnosticMid &&
+                window.confirm("保存済みの診断ログをすべて削除しますか？") &&
+                void api.diagnostics
+                  .clear(diagnosticMid)
+                  .then(() => setMessage("ログを削除しました"))
+                  .catch((error) =>
+                    setMessage(error instanceof Error ? error.message : "ログ削除に失敗しました"),
+                  )
+              }
+              className="rounded-lg border border-red-400/50 px-3 py-1.5 text-xs text-red-300"
+            >
+              削除
+            </button>
+          </Row>
+        </Card>
+        {entries.length > 0 && (
+          <pre className="mt-3 max-h-56 overflow-auto rounded-xl bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
+            {JSON.stringify(entries, null, 2)}
+          </pre>
+        )}
+      </Section>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
+    </>
+  );
+}
+
+function SubdevicesSection() {
+  const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
+  const [pairingUrl, setPairingUrl] = useState<string | null>(null);
+  const [devices, setDevices] = useState<
+    Awaited<ReturnType<typeof api.subdevices.list>>["devices"]
+  >(() =>
+    demoMode
+      ? [
+          {
+            id: "demo-tablet",
+            accountId: "demo",
+            name: "デモ iPad",
+            platform: "ios",
+            createdAt: new Date().toISOString(),
+            blocked: false,
+            lastSeenAt: new Date().toISOString(),
+          },
+        ]
+      : [],
+  );
+  const [message, setMessage] = useState<string | null>(null);
+
+  const load = async () => {
+    const res = await api.subdevices.list();
+    if (res.ok) setDevices(res.devices ?? []);
+  };
+  useEffect(() => {
+    if (demoMode) return;
+    void load();
+  }, [demoMode]);
+
+  useEffect(() => {
+    if (!pairingUrl || demoMode) return;
+    const timer = window.setInterval(() => {
+      void api.subdevices.list().then((res) => {
+        if (res.ok) setDevices(res.devices ?? []);
+      });
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [pairingUrl, demoMode]);
+
+  useEffect(() => {
+    if (!pairingUrl) return;
+    const timer = window.setInterval(() => {
+      void api.subdevices.list().then((res) => {
+        if (res.ok) setDevices(res.devices ?? []);
+      });
+    }, 1500);
+    return () => window.clearInterval(timer);
+  }, [pairingUrl]);
+
+  const startPairing = async () => {
+    if (demoMode) {
+      setPairingUrl("https://vyline.invalid/demo-pairing");
+      setMessage("デモ用QRコードです。実際の端末とは接続しません（2分間有効）");
+      return;
+    }
+    if (!accountId) return setMessage("LINEログインが必要です");
+    const res = await api.subdevices.createPairing(accountId, window.location.origin);
+    if (!res.ok || !res.token) return setMessage(res.error ?? "QRコードを作成できませんでした");
+    if (!res.pairingUrl) {
+      setPairingUrl(null);
+      setMessage(
+        res.lanAccessRequired
+          ? "LAN接続が無効です。VYLINE_LAN_ACCESS=true で再起動してからQRを表示してください"
+          : "スマホから到達できるURLを作成できませんでした。PCとスマホが同じLANに接続されているか確認してください",
+      );
+      return;
+    }
+    setPairingUrl(res.pairingUrl);
+    setMessage("スマホの標準カメラでQRコードを読み込んでください（2分間有効）");
+  };
+
+  const action = async (id: string, kind: "remove" | "block" | "unblock") => {
+    if (kind === "remove" && !window.confirm("この端末を削除しますか？再認証は可能です。")) return;
+    if (
+      kind === "block" &&
+      !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
+    )
+      return;
+    if (demoMode) {
+      setDevices((current) =>
+        kind === "remove"
+          ? (current ?? []).filter((device) => device.id !== id)
+          : (current ?? []).map((device) =>
+              device.id === id ? { ...device, blocked: kind === "block" } : device,
+            ),
+      );
+      setMessage(
+        kind === "remove"
+          ? "デモ端末を削除しました"
+          : kind === "block"
+            ? "デモ端末をブロックしました"
+            : "デモ端末のブロックを解除しました",
+      );
+      return;
+    }
+    if (kind === "remove") await api.subdevices.remove(id);
+    if (kind === "block") await api.subdevices.block(id);
+    if (kind === "unblock") await api.subdevices.unblock(id);
+    await load();
+  };
+
+  return (
+    <Section title="サブデバイス" desc="PCで認証したスマホ・タブレットからVylineを利用します">
+      <div className="space-y-4">
+        <Card>
+          <Row title="新しい端末を接続" desc="QRコードは一度だけ利用でき、2分で期限切れになります">
+            <button
+              type="button"
+              onClick={() => void startPairing()}
+              className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-white"
+            >
+              QRを表示
+            </button>
+          </Row>
+        </Card>
+        {pairingUrl && (
+          <div className="flex flex-col items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-white p-5 text-center">
+            <QRCodeSVG value={pairingUrl} size={220} includeMargin />
+            <p className="max-w-sm text-xs text-slate-600">{message}</p>
+            <button
+              type="button"
+              onClick={() => setPairingUrl(null)}
+              className="text-xs text-slate-500 underline"
+            >
+              閉じる
+            </button>
+          </div>
+        )}
+        {message && !pairingUrl && <p className="text-xs text-[var(--vy-text-dim)]">{message}</p>}
+        <Card>
+          {(devices ?? []).length === 0 && (
+            <p className="py-4 text-sm text-[var(--vy-text-dim)]">
+              接続中のサブデバイスはありません。
+            </p>
+          )}
+          {(devices ?? []).map((device) => (
+            <div key={device.id} className="flex items-center justify-between gap-3 py-3.5">
+              <div className="min-w-0">
+                <p className="truncate text-sm font-medium">
+                  {device.name}
+                  {device.blocked ? "（ブロック中）" : ""}
+                </p>
+                <p className="text-xs text-[var(--vy-text-dim)]">
+                  {device.platform} ·{" "}
+                  {device.lastSeenAt
+                    ? Date.now() - Date.parse(device.lastSeenAt) < 90_000
+                      ? "オンライン"
+                      : `オフライン · 最終接続 ${formatRelativeTime(Date.parse(device.lastSeenAt))}`
+                    : "オフライン"}
+                </p>
+              </div>
+              <div className="flex shrink-0 gap-2">
+                <button
+                  type="button"
+                  onClick={() => void action(device.id, device.blocked ? "unblock" : "block")}
+                  className="rounded-lg border border-[var(--vy-border)] px-2 py-1 text-xs"
+                >
+                  {device.blocked ? "解除" : "ブロック"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => void action(device.id, "remove")}
+                  className="rounded-lg border border-[var(--vy-danger)] px-2 py-1 text-xs text-[var(--vy-danger)]"
+                >
+                  削除
+                </button>
+              </div>
+            </div>
+          ))}
+        </Card>
+      </div>
+    </Section>
   );
 }
 
@@ -633,6 +1194,7 @@ type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const activeChatId = useStore((s) => s.activeChatId);
   const pollIncoming = useStore((s) => s.pollIncoming);
   const pollMessagesDelta = useStore((s) => s.pollMessagesDelta);
@@ -644,6 +1206,19 @@ function AdvancedSection() {
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
 
   const handleRestore = async () => {
+    if (demoMode) {
+      setRestoring(true);
+      setRestoreResult(null);
+      await new Promise((resolve) => window.setTimeout(resolve, 500));
+      setRestoreResult({
+        ok: true,
+        imported: 128,
+        skipped: 0,
+        hint: "撮影用データをローカルで復元しました（デモ）",
+      });
+      setRestoring(false);
+      return;
+    }
     if (!accountId) {
       setRestoreResult({ ok: false, error: "ログインが必要です" });
       return;
@@ -664,11 +1239,17 @@ function AdvancedSection() {
   };
 
   const handleSync = async () => {
-    if (!accountId || syncing) return;
+    if ((!accountId && !demoMode) || syncing) return;
     setSyncing(true);
     setSyncMsg(null);
     const start = Date.now();
     try {
+      if (demoMode) {
+        await new Promise((resolve) => window.setTimeout(resolve, 550));
+        setLastSyncAt(Date.now());
+        setSyncMsg("同期完了 · 新着0件（デモ）");
+        return;
+      }
       // 差分同期: イベントポーリング + アクティブチャットのデルタ + チャット一覧更新
       await pollIncoming();
       if (activeChatId) {
@@ -698,7 +1279,7 @@ function AdvancedSection() {
             <button
               type="button"
               onClick={handleSync}
-              disabled={syncing || !accountId}
+              disabled={syncing || (!accountId && !demoMode)}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {syncing ? "同期中…" : "同期"}
@@ -714,7 +1295,7 @@ function AdvancedSection() {
           <button
             type="button"
             onClick={handleRestore}
-            disabled={restoring || !accountId}
+            disabled={restoring || (!accountId && !demoMode)}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {restoring ? "復元中…" : "復元"}
@@ -722,15 +1303,17 @@ function AdvancedSection() {
         </Row>
         <Row
           title="設定をエクスポート"
-          desc="テーマ・非表示リスト・設定をJSONファイルに書き出します"
+          desc="テーマ・表示・チャット整理設定をJSONファイルに書き出します（認証情報・履歴は含みません）"
         >
           <button
             type="button"
             onClick={() => {
               const state = useStore.getState();
               const exportData = {
-                version: 1,
+                format: "vyline-local-settings",
+                version: 2,
                 exportedAt: new Date().toISOString(),
+                contents: ["theme", "preferences", "chat-view"],
                 theme: state.theme,
                 settings: state.settings,
                 hiddenChats: state.chats.filter((c) => c.hidden).map((c) => c.id),
@@ -757,7 +1340,7 @@ function AdvancedSection() {
             エクスポート
           </button>
         </Row>
-        <Row title="設定をインポート" desc="エクスポートしたJSONファイルから設定を復元します">
+        <Row title="設定をインポート" desc="形式と適用内容を確認してから、画面設定だけを復元します">
           <button
             type="button"
             onClick={() => {
@@ -768,9 +1351,23 @@ function AdvancedSection() {
                 const file = input.files?.[0];
                 if (!file) return;
                 try {
+                  if (file.size > 1024 * 1024) throw new Error("設定ファイルが大きすぎます");
                   const text = await file.text();
                   const data = JSON.parse(text);
                   if (!data || typeof data !== "object") throw new Error("Invalid format");
+                  if ("format" in data && data.format !== "vyline-local-settings")
+                    throw new Error("Unsupported format");
+                  const contents = Array.isArray(data.contents)
+                    ? data.contents.filter(
+                        (value: unknown): value is string => typeof value === "string",
+                      )
+                    : ["theme", "preferences", "chat-view"];
+                  if (
+                    !window.confirm(
+                      `次の設定を復元します: ${contents.join("、")}\n認証情報とトーク履歴は変更しません。`,
+                    )
+                  )
+                    return;
                   const state = useStore.getState();
                   // テーマ
                   if (data.theme && typeof data.theme === "object") state.setTheme(data.theme);
@@ -851,6 +1448,10 @@ function AdvancedSection() {
         </Row>
       </Card>
 
+      <div className="mt-4">
+        <VylineBackupPanel accountId={accountId} />
+      </div>
+
       {restoreResult && (
         <div
           className={cn(
@@ -886,17 +1487,173 @@ function AdvancedSection() {
         </div>
       )}
 
-      {!accountId && (
+      {!accountId && !demoMode && (
         <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
           復元には LINE ログインが必要です。
         </p>
       )}
+      <div className="mt-4">
+        <AndroidBackupPanel accountId={accountId} />
+        <IosBackupBetaPanel accountId={accountId} />
+      </div>
     </Section>
+  );
+}
+
+function VylineBackupPanel({ accountId }: { accountId: string | null }) {
+  const [backups, setBackups] = useState<
+    NonNullable<Awaited<ReturnType<typeof api.line.backupList>>["data"]>
+  >([]);
+  const [includeMedia, setIncludeMedia] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = async () => {
+    if (!accountId) return;
+    const result = await api.line.backupList(accountId);
+    if (result.ok) setBackups(result.data ?? []);
+  };
+  useEffect(() => {
+    void load();
+  }, [accountId]);
+  const create = async () => {
+    if (!accountId) return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api.line.backupCreate(accountId, { includeMedia });
+      if (!result.ok) throw new Error(result.error ?? "バックアップを作成できませんでした");
+      setMessage(`${result.summary?.messageCount ?? 0}件のメッセージを保存しました`);
+      await load();
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "バックアップを作成できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const restore = async (id: string, media: boolean) => {
+    if (!accountId || !window.confirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
+      return;
+    setBusy(true);
+    setMessage(null);
+    try {
+      const result = await api.line.backupRestore(accountId, { backupId: id, includeMedia: media });
+      if (!result.ok) throw new Error(result.error ?? "復元できませんでした");
+      setMessage(`復元完了: ${result.restoredMessages ?? 0}件のメッセージ`);
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "復元できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <Section
+      title="VylineBackup"
+      desc="この端末のトーク履歴をスナップショットとして保存・復元します。認証情報は含みません。"
+    >
+      <Card>
+        <Row title="新しいバックアップを作成" desc="履歴をいつでも戻せるよう、このPC内へ保存します">
+          <button
+            type="button"
+            disabled={busy || !accountId}
+            onClick={() => void create()}
+            className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
+          >
+            {busy ? "処理中…" : "作成"}
+          </button>
+        </Row>
+        <label className="flex items-center justify-between py-3 text-xs text-[var(--vy-text-dim)]">
+          <span>画像・動画などの保存済みメディアも含める</span>
+          <input
+            type="checkbox"
+            checked={includeMedia}
+            onChange={(event) => setIncludeMedia(event.target.checked)}
+          />
+        </label>
+        {backups.length === 0 ? (
+          <p className="py-3 text-sm text-[var(--vy-text-dim)]">まだバックアップはありません。</p>
+        ) : (
+          backups.slice(0, 5).map((backup) => (
+            <div
+              key={backup.id}
+              className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
+            >
+              <div className="min-w-0">
+                <p className="text-xs font-medium">{new Date(backup.createdAt).toLocaleString()}</p>
+                <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                  {backup.chatCount}チャット · {backup.messageCount.toLocaleString()}件 ·{" "}
+                  {formatBytes(backup.sizeBytes)}
+                  {backup.includeMedia ? " · メディアあり" : ""}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void restore(backup.id, backup.includeMedia)}
+                className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
+              >
+                復元
+              </button>
+            </div>
+          ))
+        )}
+      </Card>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
+    </Section>
+  );
+}
+
+function ReadDisabledChatList() {
+  const chats = useStore((s) => s.chats);
+  const readDisabledMids = useStore((s) => s.readDisabledMids);
+  const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
+  const disabledChats = chats.filter((chat) => readDisabledMids[chat.id]);
+
+  return (
+    <div className="mt-4">
+      <Card>
+        <div className="py-3.5">
+          <p className="text-sm font-medium">既読オフにしているチャット</p>
+          <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
+            個別に既読を無効化したチャットを確認できます。
+          </p>
+          {disabledChats.length === 0 ? (
+            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">
+              設定されているチャットはありません
+            </p>
+          ) : (
+            <ul className="mt-2 space-y-1">
+              {disabledChats.map((chat) => (
+                <li
+                  key={chat.id}
+                  className="flex items-center gap-2 rounded-lg px-2 py-1.5 hover:bg-[var(--vy-surface-2)]"
+                >
+                  <Avatar
+                    glyph={chat.name.charAt(0) || "?"}
+                    color="var(--vy-accent)"
+                    size={30}
+                    imageUrl={chat.avatarUrl}
+                  />
+                  <span className="min-w-0 flex-1 truncate text-xs font-medium">{chat.name}</span>
+                  <button
+                    type="button"
+                    onClick={() => toggleChatReadDisabled(chat.id)}
+                    className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2 py-1 text-[0.65rem] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
+                  >
+                    既読を有効化
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </Card>
+    </div>
   );
 }
 
 function StorageSection() {
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [storage, setStorage] = useState<{
     ok: boolean;
     driveLetter?: string;
@@ -912,6 +1669,28 @@ function StorageSection() {
   const [msg, setMsg] = useState<string | null>(null);
 
   const load = async () => {
+    if (demoMode) {
+      setStorage({
+        ok: true,
+        driveLetter: "DEMO",
+        disk: {
+          totalBytes: 512 * 1024 ** 3,
+          freeBytes: 338 * 1024 ** 3,
+          usedBytes: 174 * 1024 ** 3,
+        },
+        vylineTotal: 476 * 1024 ** 2,
+        cacheSize: 92 * 1024 ** 2,
+        savedMediaSize: 384 * 1024 ** 2,
+        cache: { cdn: 68 * 1024 ** 2, icons: 24 * 1024 ** 2 },
+        savedMedia: {
+          image: 188 * 1024 ** 2,
+          video: 142 * 1024 ** 2,
+          audio: 18 * 1024 ** 2,
+          file: 36 * 1024 ** 2,
+        },
+      });
+      return;
+    }
     if (!accountId) return;
     setLoading(true);
     setMsg(null);
@@ -930,8 +1709,12 @@ function StorageSection() {
     label: string,
     action: () => Promise<{ ok: boolean; removed?: number }>,
   ) => {
-    if (!accountId) return;
+    if (!accountId && !demoMode) return;
     if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
+    if (demoMode) {
+      setMsg(`${label}を削除しました（デモ）`);
+      return;
+    }
     setLoading(true);
     setMsg(null);
     try {
@@ -951,7 +1734,7 @@ function StorageSection() {
 
   useEffect(() => {
     void load();
-  }, [accountId]);
+  }, [accountId, demoMode]);
 
   const segments = storage
     ? [
@@ -971,23 +1754,22 @@ function StorageSection() {
   return (
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
       {storage && (
-        <div className="mb-6 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+        <div className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
           <div className="p-5">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
-              <div>
-                <p className="text-sm font-medium text-[var(--vy-text-dim)]">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
+                <p className="text-xs text-[var(--vy-text-dim)]">
                   ドライブ {storage.driveLetter ?? "---"}
                 </p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
                 </p>
-                <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
-                  アプリが保存している CDN
-                  キャッシュ、プロフィール画像、チャットメディアの合計です。
+                <p className="mt-2 max-w-md text-sm text-[var(--vy-text-dim)]">
+                  CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。
                 </p>
               </div>
 
-              <div className="rounded-xl border border-[var(--vy-border)] px-4 py-3">
+              <div className="shrink-0 sm:text-right">
                 <p className="text-xs text-[var(--vy-text-dim)]">ドライブ使用率</p>
                 <p className="mt-1 text-xl font-semibold tracking-tight">
                   {formatPercent(diskUsedPct)}
@@ -998,51 +1780,58 @@ function StorageSection() {
               </div>
             </div>
 
-            <div className="mt-5 h-3 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
-              {segments.map((s) => {
-                const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
-                return (
-                  <div
-                    key={s.key}
-                    className="h-full transition-all duration-500"
-                    style={{ background: s.color, width: `${pct}%` }}
-                  />
-                );
-              })}
+            <div className="mt-5">
+              <div className="mb-2 flex items-center justify-between text-xs text-[var(--vy-text-dim)]">
+                <span>保存データの内訳</span>
+                <span>{formatBytes(storage.vylineTotal)} 合計</span>
+              </div>
+              <div className="h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+                {segments.map((s) => {
+                  const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
+                  return (
+                    <div
+                      key={s.key}
+                      className="h-full transition-all duration-500"
+                      style={{ background: s.color, width: `${pct}%` }}
+                    />
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2 text-xs text-[var(--vy-text-dim)]">
+            <div className="mt-4 grid grid-cols-2 gap-x-5 gap-y-2 text-xs sm:grid-cols-3">
               {segments.map((s) => (
-                <span
+                <div
                   key={s.key}
-                  className="inline-flex items-center gap-2 rounded-full border border-[var(--vy-border)] px-3 py-1.5"
+                  className="flex min-w-0 items-center gap-2 text-[var(--vy-text-dim)]"
                 >
-                  <span
-                    className="inline-block h-2 w-2 rounded-full"
-                    style={{ background: s.color }}
-                  />
-                  <span>{s.label}</span>
-                  <span className="font-mono">{formatBytes(s.size)}</span>
-                </span>
+                  <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
+                  <span className="min-w-0 truncate">{s.label}</span>
+                  <span className="ml-auto shrink-0 font-mono text-[var(--vy-text)]">
+                    {formatBytes(s.size)}
+                  </span>
+                </div>
               ))}
             </div>
           </div>
         </div>
       )}
 
-      <div className="mb-3 flex items-center justify-between gap-3">
+      <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <p className="text-sm font-medium">削除候補</p>
-          <p className="text-xs text-[var(--vy-text-dim)]">容量の大きいものから並べています。</p>
+          <p className="text-base font-semibold">保存データ</p>
+          <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+            不要なデータを種類ごとに削除できます。
+          </p>
         </div>
         {storage && (
-          <p className="text-xs text-[var(--vy-text-dim)]">
-            合計 {formatBytes(storage.cacheSize + storage.savedMediaSize)}
-          </p>
+          <span className="shrink-0 rounded-full bg-[var(--vy-surface-2)] px-2.5 py-1 text-xs text-[var(--vy-text-dim)]">
+            {formatBytes(storage.cacheSize + storage.savedMediaSize)}
+          </span>
         )}
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="space-y-2">
         <TypeCard
           title="CDN キャッシュ"
           desc="スタンプ・LINE絵文字など"
@@ -1050,8 +1839,10 @@ function StorageSection() {
           ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
-          onDelete={() => clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))}
-          disabled={loading || !accountId}
+          onDelete={() =>
+            clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))
+          }
+          disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
         <TypeCard
@@ -1064,7 +1855,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("アイコンキャッシュ", () => api.line.clearIconCache(accountId!))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
         <TypeCard
@@ -1079,7 +1870,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存画像", () => api.line.clearSavedMediaByType(accountId!, "image"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#3b82f6"
         />
         <TypeCard
@@ -1094,7 +1885,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存動画", () => api.line.clearSavedMediaByType(accountId!, "video"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#a855f7"
         />
         <TypeCard
@@ -1109,7 +1900,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存音声", () => api.line.clearSavedMediaByType(accountId!, "audio"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#22c55e"
         />
         <TypeCard
@@ -1124,7 +1915,7 @@ function StorageSection() {
           onDelete={() =>
             clearType("保存ファイル", () => api.line.clearSavedMediaByType(accountId!, "file"))
           }
-          disabled={loading || !accountId}
+          disabled={loading || (!accountId && !demoMode)}
           accent="#6b7280"
         />
       </div>
@@ -1166,37 +1957,33 @@ function TypeCard({
 }) {
   const hasData = size > 0;
   return (
-    <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-      <div className="p-5">
-        <div className="flex items-start justify-between gap-4">
-          <div className="flex min-w-0 items-center gap-3">
-            <div
-              className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-xl ${iconBg}`}
-            >
-              {icon}
+    <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
+      <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <div className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg ${iconBg}`}>
+            {icon}
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-baseline justify-between gap-3">
+              <p className="min-w-0 break-words text-sm font-medium">{title}</p>
+              <p className="shrink-0 font-mono text-sm font-semibold">{formatBytes(size)}</p>
             </div>
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium">{title}</p>
-              <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{desc}</p>
+            <div className="mt-2 flex items-center gap-3">
+              <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+                <div
+                  className="h-full rounded-full transition-all duration-500"
+                  style={{
+                    background: accent,
+                    width: `${Math.max(ratio * 100, hasData ? 4 : 0)}%`,
+                  }}
+                />
+              </div>
+              <p className="shrink-0 text-xs text-[var(--vy-text-dim)]">
+                {hasData ? formatPercent(ratio * 100) : "データなし"}
+              </p>
             </div>
+            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{desc}</p>
           </div>
-
-          <div className="shrink-0 text-right">
-            <p className="text-[11px] text-[var(--vy-text-dim)]">使用量</p>
-            <p className="mt-1 font-mono text-base font-semibold">{formatBytes(size)}</p>
-          </div>
-        </div>
-
-        <div className="mt-4">
-          <div className="h-2 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
-            <div
-              className="h-full rounded-full transition-all duration-500"
-              style={{ background: accent, width: `${Math.max(ratio * 100, hasData ? 4 : 0)}%` }}
-            />
-          </div>
-          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            {hasData ? `Vyline 全体の ${formatPercent(ratio * 100)}` : "保存データはありません"}
-          </p>
         </div>
 
         <button
@@ -1204,7 +1991,7 @@ function TypeCard({
           onClick={onDelete}
           disabled={disabled || !hasData}
           className={cn(
-            "mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors",
+            "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors sm:w-20",
             "hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50",
           )}
         >
@@ -1251,12 +2038,12 @@ function InfoSection() {
           </p>
           {updateInfo?.hasUpdate && (
             <a
-              href={updateInfo.url ?? "#"}
+              href={updateInfo.downloadUrl ?? updateInfo.url ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
             >
-              更新あり: v{updateInfo.latestVersion}
+              更新あり: v{updateInfo.latestVersion}（インストーラー）
             </a>
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
@@ -1351,10 +2138,17 @@ function NotificationsSection() {
   const settings = useStore((s) => s.settings);
   const updateSetting = useStore((s) => s.updateSetting);
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
   const toggle = async () => {
+    if (demoMode) {
+      const next = !settings.notificationsEnabled;
+      updateSetting("notificationsEnabled", next);
+      setMsg(next ? "通知を有効にしました（デモ）" : "通知を無効にしました（デモ）");
+      return;
+    }
     if (!accountId) {
       setMsg("ログインが必要です");
       return;
@@ -1387,7 +2181,7 @@ function NotificationsSection() {
             checked={settings.notificationsEnabled}
             onChange={toggle}
             label="通知を有効にする"
-            disabled={saving || !accountId}
+            disabled={saving || (!accountId && !demoMode)}
           />
         </Row>
       </Card>
@@ -1400,6 +2194,7 @@ function PrivacySection() {
   const settings = useStore((s) => s.settings);
   const updateSetting = useStore((s) => s.updateSetting);
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const [proxyUrl, setProxyUrl] = useState(settings.proxyUrl);
   const [proxyMsg, setProxyMsg] = useState<string | null>(null);
   const [blocked, setBlocked] = useState<Array<{ mid: string; name?: string; avatarUrl?: string }>>(
@@ -1409,11 +2204,15 @@ function PrivacySection() {
   const [unblocking, setUnblocking] = useState<Set<string>>(new Set());
 
   const applyProxy = async () => {
-    if (!accountId) return;
+    if (!accountId && !demoMode) return;
     const enabled = useStore.getState().settings.proxyEnabled;
     updateSetting("proxyUrl", proxyUrl);
+    if (demoMode) {
+      setProxyMsg(enabled ? "プロキシを適用しました（デモ）" : "プロキシを無効化しました（デモ）");
+      return;
+    }
     try {
-      const res = await api.line.setProxySettings(accountId, enabled, proxyUrl);
+      const res = await api.line.setProxySettings(accountId!, enabled, proxyUrl);
       setProxyMsg(
         res.ok
           ? enabled
@@ -1427,16 +2226,22 @@ function PrivacySection() {
   };
 
   const loadBlocked = async () => {
-    if (!accountId) return;
+    if (!accountId && !demoMode) return;
     setBlockedLoading(true);
+    if (demoMode) {
+      await new Promise((resolve) => window.setTimeout(resolve, 350));
+      setBlocked([{ mid: "demo-blocked-user", name: "ブロック済みデモ" }]);
+      setBlockedLoading(false);
+      return;
+    }
     try {
-      const res = await api.line.getBlockedContactIds(accountId);
+      const res = await api.line.getBlockedContactIds(accountId!);
       const mids = res.ok ? (res.mids ?? []) : [];
       // プロフィール取得
       const withProfiles = await Promise.all(
         mids.map(async (mid) => {
           try {
-            const prof = await api.line.getContact(accountId, mid);
+            const prof = await api.line.getContact(accountId!, mid);
             if (!prof.ok) return { mid };
             return {
               mid,
@@ -1456,11 +2261,22 @@ function PrivacySection() {
     }
   };
 
+  useEffect(() => {
+    void loadBlocked();
+    // アカウントを切り替えたときも、ブロック一覧を古い内容のまま表示しない。
+  }, [accountId, demoMode]);
+
   const handleUnblock = async (mid: string) => {
-    if (!accountId || unblocking.has(mid)) return;
+    if ((!accountId && !demoMode) || unblocking.has(mid)) return;
     setUnblocking((s) => new Set(s).add(mid));
+    if (demoMode) {
+      setBlocked((prev) => prev.filter((b) => b.mid !== mid));
+      setUnblocking(new Set());
+      setProxyMsg("ブロックを解除しました（デモ）");
+      return;
+    }
     try {
-      const res = await api.line.unblockContact(accountId, mid);
+      const res = await api.line.unblockContact(accountId!, mid);
       if (res.ok) {
         setBlocked((prev) => prev.filter((b) => b.mid !== mid));
         useStore.setState((st) => ({
@@ -1529,7 +2345,7 @@ function PrivacySection() {
               <p className="text-sm font-medium">ブロックリスト</p>
               <button
                 type="button"
-                disabled={!accountId || blockedLoading}
+                disabled={(!accountId && !demoMode) || blockedLoading}
                 onClick={() => void loadBlocked()}
                 className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
               >

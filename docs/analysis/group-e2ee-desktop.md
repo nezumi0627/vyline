@@ -1,4 +1,6 @@
-# グループ E2EE — Desktop / Android 解析と Vyline 取り込み (2026-07-26)
+# グループ E2EE — Desktop / Android 解析と Vyline 取り込み
+
+最終更新: 2026-08-24
 
 ## 公式の挙動（Android smali + linejs 対照）
 

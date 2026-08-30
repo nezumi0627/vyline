@@ -1,5 +1,7 @@
 # findNativeSymbol — Desktop LINE ネイティブシンボル自動特定
 
+最終更新: 2026-08-24
+
 `word` もしくは関数名（例: `sendMessage`）を入力するだけで、Themida unpack 済み
 `LINE.exe` から
 
@@ -45,4 +47,3 @@ bun run search -- find sendMessage --max-functions 10
 ## 関連
 
 - [unpack.md](./unpack.md)
-- [focus-recovered-source.md](./focus-recovered-source.md)

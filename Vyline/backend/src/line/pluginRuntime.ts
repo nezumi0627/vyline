@@ -10,7 +10,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
   PluginContext,
@@ -19,6 +19,7 @@ import type {
   VylinePlugin,
 } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
+import { safePathComponent } from "../storage/safeFile.js";
 import { PLUGIN_DIR } from "./pluginPaths.js";
 
 const log = childLogger("plugins");
@@ -32,6 +33,8 @@ interface ActivePlugin {
   pluginId: string;
   permissions: Set<string>;
   messageHandlers: Set<(m: PluginMessageSnapshot) => void>;
+  plugin: VylinePlugin;
+  context: PluginContext;
 }
 
 const active = new Map<string, ActivePlugin>();
@@ -40,18 +43,30 @@ function key(accountId: string, pluginId: string): string {
   return `${accountId}:${pluginId}`;
 }
 
+function isInside(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return Boolean(rel) && !rel.startsWith("..") && !rel.includes(":");
+}
+
+function settingsPath(accountId: string, pluginId: string): string {
+  const account = safePathComponent(accountId, "account");
+  const plugin = safePathComponent(pluginId, "plugin");
+  return join(SETTINGS_DIR, `${account}.${plugin}.json`);
+}
+
 export function isPluginActive(accountId: string, pluginId: string): boolean {
   return active.has(key(accountId, pluginId));
 }
 
 /** プラグインのエントリポイントファイルを解決する（index.ts → index.js → main） */
 export function resolvePluginEntry(pluginDirName: string, manifestMain?: string): string | null {
-  const dir = join(PLUGIN_DIR, pluginDirName);
+  const dir = resolve(PLUGIN_DIR, pluginDirName);
   const candidates = manifestMain
-    ? [join(dir, manifestMain)]
-    : [join(dir, "index.ts"), join(dir, "index.js")];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
+    ? [resolve(dir, manifestMain)]
+    : [resolve(dir, "index.ts"), resolve(dir, "index.js")];
+  for (const candidate of candidates) {
+    if (!isInside(dir, candidate)) continue;
+    if (existsSync(candidate)) return candidate;
   }
   return null;
 }
@@ -68,9 +83,10 @@ async function makeLogger(pluginId: string): Promise<PluginLogger> {
 
 function readSettingsFile(accountId: string, pluginId: string): Record<string, unknown> {
   try {
-    return JSON.parse(
-      readFileSync(join(SETTINGS_DIR, `${accountId}.${pluginId}.json`), "utf8"),
-    ) as Record<string, unknown>;
+    return JSON.parse(readFileSync(settingsPath(accountId, pluginId), "utf8")) as Record<
+      string,
+      unknown
+    >;
   } catch {
     return {};
   }
@@ -82,11 +98,7 @@ function writeSettingsFile(
   data: Record<string, unknown>,
 ): void {
   mkdirSync(SETTINGS_DIR, { recursive: true });
-  writeFileSync(
-    join(SETTINGS_DIR, `${accountId}.${pluginId}.json`),
-    JSON.stringify(data, null, 2),
-    "utf8",
-  );
+  writeFileSync(settingsPath(accountId, pluginId), JSON.stringify(data, null, 2), "utf8");
 }
 
 /**
@@ -99,6 +111,7 @@ export async function activatePlugin(
   pluginDirName: string,
   permissions: string[],
   loaded?: VylinePlugin,
+  manifestMain?: string,
 ): Promise<boolean> {
   const k = key(accountId, pluginId);
   if (active.has(k)) return true;
@@ -106,11 +119,8 @@ export async function activatePlugin(
   let plugin: VylinePlugin | undefined = loaded;
   try {
     if (!plugin) {
-      // resolvePluginEntry と同じ候補で動的 import（Bun は .ts を直接実行できる）
-      const candidates = ["index.ts", "index.js"].map((f) => join(PLUGIN_DIR, pluginDirName, f));
-      let entry: string | null = null;
-      for (const c of candidates) if (existsSync(c)) entry = c;
-      if (!entry) throw new Error("no entry file (index.ts / index.js)");
+      const entry = resolvePluginEntry(pluginDirName, manifestMain);
+      if (!entry) throw new Error("no loadable entry file");
       const mod = (await import(entry)) as { default?: VylinePlugin };
       plugin = mod.default;
     }
@@ -163,7 +173,14 @@ export async function activatePlugin(
         throw err;
       });
 
-    active.set(k, { accountId, pluginId, permissions: perms, messageHandlers: handlers });
+    active.set(k, {
+      accountId,
+      pluginId,
+      permissions: perms,
+      messageHandlers: handlers,
+      plugin,
+      context: ctx,
+    });
     logger.info(`activated (${[...perms].join(",") || "no permissions"})`);
     return true;
   } catch (err) {
@@ -182,11 +199,9 @@ export async function deactivatePlugin(accountId: string, pluginId: string): Pro
   if (!entry) return;
   active.delete(k);
   try {
-    // deactivate 用に最小コンテキストを再構築（logger だけ必要）
-    const logger = await makeLogger(pluginId);
-    logger.info("deactivated");
-  } catch {
-    /* noop */
+    await entry.plugin.deactivate(entry.context);
+  } catch (error) {
+    log.warn({ accountId, pluginId, error }, "plugin deactivation failed (isolated)");
   }
 }
 

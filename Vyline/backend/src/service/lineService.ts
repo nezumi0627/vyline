@@ -15,6 +15,7 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
+import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
 import {
@@ -47,6 +48,8 @@ import {
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
+import { checkStickerGiftEligibility } from "./liffFeatures.js";
+import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
 import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
@@ -70,9 +73,10 @@ import {
   getStoredMessages,
   getBootstrapPayload,
   getCacheMeta,
-  messageSyncAgeMs,
   upsertChats,
   upsertMessages,
+  markStoredMessagesReadThrough,
+  compareMessagesNewestFirst,
   markMessageRevoked,
   restoreRevokedMessage,
   getMessageHistory,
@@ -85,11 +89,27 @@ import {
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
-import { writeMediaCache } from "../storage/mediaCache.js";
+import { writeMediaStorage } from "../storage/mediaStorage.js";
 import { dispatchPluginMessage } from "../line/pluginRuntime.js";
+import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
+
+export class ChatLockedError extends Error {
+  readonly code = "CHAT_LOCKED";
+
+  constructor() {
+    super("このチャットはロック中のため操作できません");
+    this.name = "ChatLockedError";
+  }
+}
+
+export async function assertChatUnlocked(accountId: string, chatMid: string): Promise<void> {
+  if (await isChatLocked(accountId, chatMid)) throw new ChatLockedError();
+}
+
+export { loadLockedChats, setChatLocked };
 
 const log = childLogger("service:line");
 
@@ -348,7 +368,7 @@ async function ensureGroupE2EEKey(
   const inflight = groupKeyWarmInflight.get(chatMid);
   if (inflight) return inflight;
 
-  const task = (async () => {
+  const task: Promise<void> = (async () => {
     try {
       // 最新鍵だけ先に温める（履歴は prepareGroupKeysForMessages が by-id で補完）
       const last = await client.base.talk.getLastE2EEGroupSharedKey({
@@ -421,6 +441,7 @@ async function decryptViaLetterSealingOrProtocol(
     else if (rawCt === "STICKER" || rawCt === "7") contentType = 7;
     else if (rawCt === "RICH" || rawCt === "17" || rawCt === 17) contentType = 17;
     else if (rawCt === "FLEX" || rawCt === "22" || rawCt === 22) contentType = 22;
+    else if (rawCt === "POSTNOTIFICATION" || rawCt === "16" || rawCt === 16) contentType = 16;
     else {
       const metaCt = Number(msg.contentMetadata?.contentType);
       if (Number.isFinite(metaCt)) contentType = metaCt;
@@ -493,6 +514,7 @@ async function decryptE2EEMessageSafe(
   const ct = msg.contentType;
   if (ct === 0 || ct === "0") msg.contentType = "NONE";
   else if (ct === 15 || ct === "15") msg.contentType = "LOCATION";
+  else if (ct === 16 || ct === "16") msg.contentType = "POSTNOTIFICATION";
   else if (typeof ct === "number") {
     // その他数値はそのまま AAD に使えるよう decryptE2EEDataMessage 経路へ
   }
@@ -716,7 +738,6 @@ const readRangeBgAt = new Map<string, number>();
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
-const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -2060,6 +2081,13 @@ export async function markAsRead(
       lastMessageId: messageId,
       sessionId: 0,
     });
+    await markStoredMessagesReadThrough(accountId, chatMid, messageId);
+    // サーバ側未読を即時0にするためキャッシュを無効化（次の getMessageBoxes / getChats で新鮮な unreadCount を取得）
+    try {
+      invalidateMessageBoxesCache(accountId);
+      chatsCache.delete(accountId);
+      invalidateBoxCursorCache(accountId, chatMid);
+    } catch {}
     log.info({ accountId, chatMid, lastMessageId: messageId }, "chat marked as read");
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
@@ -2071,6 +2099,52 @@ export async function markAsRead(
     log.warn({ accountId, chatMid, err }, "markAsRead failed");
     throw err;
   }
+}
+
+export type ReadTarget = { chatMid: string; lastMessageId: string };
+
+/** getMessageBoxes の結果から通常トークの既読送信対象を抽出する。 */
+export function readTargetsFromMessageBoxes(
+  boxes: ReadonlyArray<{
+    id: string;
+    unreadCount?: string | number | bigint;
+    lastDeliveredMessageId?: { messageId?: string | number | bigint };
+  }>,
+  chatMids?: ReadonlySet<string>,
+): ReadTarget[] {
+  return boxes.flatMap((box) => {
+    if (chatMids && !chatMids.has(box.id)) return [];
+    if (Number(box.unreadCount ?? 0) <= 0) return [];
+    const messageId = String(box.lastDeliveredMessageId?.messageId ?? "").trim();
+    return messageId ? [{ chatMid: box.id, lastMessageId: messageId }] : [];
+  });
+}
+
+/** 複数チャットを既読にする。LINE側に通常トーク用bulk APIはないため順次送信する。 */
+export async function markAsReadBatch(
+  accountId: string,
+  targets: readonly ReadTarget[],
+): Promise<number> {
+  let count = 0;
+  for (const target of targets) {
+    await markAsRead(accountId, target.chatMid, target.lastMessageId);
+    count++;
+  }
+  return count;
+}
+
+/** 未読の通常トークを全て既読にする。Squareのbulk APIは通常トークには使えない。 */
+export async function markAllAsRead(
+  accountId: string,
+  chatMids?: readonly string[],
+): Promise<number> {
+  const client = requireClient(accountId);
+  const boxesResult = await withRetryOnReset(
+    () => client.base.talk.getMessageBoxes({ messageBoxListRequest: {} }),
+    "markAllAsRead.getMessageBoxes",
+  );
+  const allowed = chatMids ? new Set(chatMids) : undefined;
+  return markAsReadBatch(accountId, readTargetsFromMessageBoxes(boxesResult.messageBoxes, allowed));
 }
 
 /**
@@ -2099,30 +2173,17 @@ export async function fetchReadRanges(
   const talk = client.base.talk;
 
   try {
+    // 型付きTalk APIを使う。raw requestへ手動で syncReason を渡すと、
+    // 実装差分によって success list を正しく復号できず空レンジになる。
     const res = await enqueueTalkRpcBackground(accountId, () =>
-      talk.client.request.request(
-        LINEStruct.getMessageReadRange_args({
-          chatIds: [chatMid],
-          syncReason: "OPERATION",
-        }),
-        "getMessageReadRange",
-        talk.protocolType,
-        true,
-        talk.requestPath,
-        {},
+      withTimeout(
+        talk.getMessageReadRange({ chatIds: [chatMid] }),
         READ_RANGE_TIMEOUT_MS,
+        "getMessageReadRange",
       ),
     );
 
-    let ranges: Array<{ chatId?: string; ranges?: unknown }> = [];
-    if (Array.isArray(res)) {
-      ranges = res as Array<{ chatId?: string; ranges?: unknown }>;
-    } else {
-      const wrapped = res as { messageReadRanges?: unknown[] };
-      if (Array.isArray(wrapped.messageReadRanges)) {
-        ranges = wrapped.messageReadRanges as Array<{ chatId?: string; ranges?: unknown }>;
-      }
-    }
+    const ranges = normalizeMessageReadRanges(res);
 
     cacheDict[chatMid] = { at: now, ranges, failStreak: 0 };
     void readRangeStorage.replace(accountId, cacheDict);
@@ -2142,6 +2203,19 @@ export async function fetchReadRanges(
   }
 }
 
+/** getMessageReadRange の生レスポンスを、実装内で扱う配列へ正規化する。 */
+export function normalizeMessageReadRanges(
+  res: unknown,
+): Array<{ chatId?: string; ranges?: unknown }> {
+  if (Array.isArray(res)) return res as Array<{ chatId?: string; ranges?: unknown }>;
+  if (!res || typeof res !== "object") return [];
+  const wrapped = res as { success?: unknown; messageReadRanges?: unknown };
+  const candidate = wrapped.success ?? wrapped.messageReadRanges;
+  return Array.isArray(candidate)
+    ? (candidate as Array<{ chatId?: string; ranges?: unknown }>)
+    : [];
+}
+
 type ReadRangeRow = Record<string, unknown>;
 
 /** Thrift 復号後: 配列または { "0": row } のどちらも来る */
@@ -2150,6 +2224,10 @@ function asReadRangeRows(value: unknown): ReadRangeRow[] {
     return value.filter((v): v is ReadRangeRow => v != null && typeof v === "object");
   }
   if (value && typeof value === "object") {
+    const row = value as ReadRangeRow;
+    if (row.endMessageId != null || row.lastMessageId != null || row.startMessageId != null) {
+      return [row];
+    }
     return Object.values(value as Record<string, unknown>).filter(
       (v): v is ReadRangeRow => v != null && typeof v === "object",
     );
@@ -2265,11 +2343,12 @@ export function attachGroupReadReceipts(
       if (m.readCount == null) m.readCount = 0;
       continue;
     }
-    // プロトコル readCount が無い／小さい場合はレンジ由来で上書き
-    if (m.readCount == null || readers.length > m.readCount) {
-      m.readCount = readers.length;
+    // 別ポーリングで得た既読者を失わない。既読は後から巻き戻らないため単調に保持する。
+    const mergedReaders = [...new Set([...(m.readBy ?? []), ...readers])];
+    if (m.readCount == null || mergedReaders.length > m.readCount) {
+      m.readCount = mergedReaders.length;
     }
-    m.readBy = readers;
+    m.readBy = mergedReaders;
   }
 }
 
@@ -2352,6 +2431,7 @@ export async function getReadReceiptsForChat(
   accountId: string,
   chatMid: string,
   messageIds: string[],
+  opts?: { force?: boolean },
 ): Promise<ReadReceiptsResult> {
   try {
     // Refresh token before making read receipt requests
@@ -2360,7 +2440,7 @@ export async function getReadReceiptsForChat(
 
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
-    const ranges = await fetchReadRanges(accountId, chatMid);
+    const ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
     const out: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }> = {};
 
     if (chatMid.startsWith("u")) {
@@ -2503,6 +2583,7 @@ function chatFromMessageBox(
       statusMessage?: string;
     }
   >,
+  joinedChatsKnown = true,
 ): Chat {
   const mid = String(box.id);
   const meta = boxMeta(box);
@@ -2510,7 +2591,8 @@ function chatFromMessageBox(
 
   if (kind === "group" || kind === "room") {
     const group = groupByMid.get(mid);
-    const left = !group; // messageBox にあるが joined に無い = 退出・キック済み
+    // joinedChats の取得自体が失敗した場合は「退出済み」と誤判定しない。
+    const left = joinedChatsKnown ? !group : false;
     const raw = group?.raw ?? {};
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const chat: Chat = {
@@ -2555,6 +2637,8 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
 }
 
 export async function warmLineCache(accountId: string): Promise<void> {
+  // セッション/プロフィール等の軽量キャッシュだけを温める。
+  // メッセージ履歴の一括インデックスは暗黙実行しない。
   await warmAccountCache(accountId);
 }
 
@@ -2649,11 +2733,13 @@ async function fetchChatsCore(
 
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
+  let joinedChatsFetchFailed = false;
 
   const [messageBoxes, joinedChats, users] = await Promise.all([
     fetchMessageBoxesCached(accountId, client, { forChats: true }),
     client.fetchJoinedChats().catch((err) => {
-      log.warn({ accountId, err }, "fetchJoinedChats failed — skipping groups");
+      joinedChatsFetchFailed = true;
+      log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
       return [] as Awaited<ReturnType<VylineClient["fetchJoinedChats"]>>;
     }),
     client.fetchUsers().catch((err) => {
@@ -2746,7 +2832,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
-    const chat = chatFromMessageBox(box, groupByMid, userByMid);
+    const chat = chatFromMessageBox(box, groupByMid, userByMid, !joinedChatsFetchFailed);
     seen.add(chat.mid);
     result.push(chat);
   }
@@ -2929,17 +3015,55 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     void vylinePutGroup(accountId, put);
   }
 
+  // 通常RPCに現れない復元済みチャットも一覧から消さない。
+  // upsertChats は復元名・種別・最新履歴を保持するため、ここでディスク順を正本にして
+  // live-only の left / official / profile 情報だけ重ねる。
+  const storedChats = await getStoredChats(accountId);
+  const liveByMid = new Map(result.map((chat) => [chat.mid, chat]));
+  const mergedResult = storedChats.map((stored) => {
+    const live = liveByMid.get(stored.mid);
+    if (!live) return stored;
+    const storedTime = stored.lastMessageTime ?? 0;
+    const liveTime = live.lastMessageTime ?? 0;
+    const useStoredLast = storedTime > liveTime;
+    const liveNameIsFallback = !live.name || live.name === live.mid || live.name === "(No Name)";
+    return {
+      ...stored,
+      ...live,
+      name: liveNameIsFallback && stored.name ? stored.name : live.name,
+      kind: live.kind === "unknown" ? stored.kind : live.kind,
+      hasMessages: stored.hasMessages || live.hasMessages,
+      lastMessageTime: Math.max(storedTime, liveTime),
+      ...(useStoredLast && stored.lastMessageId
+        ? { lastMessageId: stored.lastMessageId }
+        : live.lastMessageId
+          ? { lastMessageId: live.lastMessageId }
+          : stored.lastMessageId
+            ? { lastMessageId: stored.lastMessageId }
+            : {}),
+      ...(useStoredLast && stored.lastMessagePreview
+        ? { lastMessagePreview: stored.lastMessagePreview }
+        : live.lastMessagePreview
+          ? { lastMessagePreview: live.lastMessagePreview }
+          : stored.lastMessagePreview
+            ? { lastMessagePreview: stored.lastMessagePreview }
+            : {}),
+      ...(stored.restoredHistory || live.restoredHistory ? { restoredHistory: true } : {}),
+    };
+  });
+
   log.debug(
     {
       accountId,
-      count: result.length,
+      count: mergedResult.length,
       activeBoxes: messageBoxes.length,
       friends: users.length,
       groups: joinedChats.length,
+      restoredOnly: mergedResult.filter((chat) => !liveByMid.has(chat.mid)).length,
     },
-    "chats fetched (desktop messageBox order)",
+    "chats fetched (desktop messageBox order + restored history)",
   );
-  return result;
+  return mergedResult;
 }
 
 /** 復号済み Thrift メッセージ → API Message */
@@ -3157,12 +3281,7 @@ async function processSingleOperation(
   const type = String(op.type ?? "");
 
   // メッセージ系 — op.message があれば直接処理
-  if (
-    type === "RECEIVE_MESSAGE" ||
-    type === "25" ||
-    type === "NOTIFIED_RECEIVE_MESSAGE" ||
-    type === "26"
-  ) {
+  if (isReceiveMessageOperationType(type)) {
     if (op.message) {
       const raw = op.message as Record<string, unknown>;
       const chatMid = chatMidFromRaw(raw, myMid);
@@ -3210,15 +3329,7 @@ async function processSingleOperation(
   }
 
   // 既読通知
-  if (
-    type === "NOTIFIED_READ_MESSAGE" ||
-    type === "25" ||
-    type === "RECEIVE_MESSAGE_RECEIPT" ||
-    type === "28" ||
-    type === "RECEIVE_READ_WATERMARK" ||
-    type === "30" ||
-    type === "29"
-  ) {
+  if (isReadOperationType(type)) {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
       pushTalkEvent(accountId, { kind: "read", chatMid });
@@ -3423,30 +3534,20 @@ export async function fetchMessages(
   const isSpecial = opts?.lite || opts?.delta;
 
   if (opts?.localOnly) {
-    return getStoredMessages(accountId, chatMid, limit);
+    const localOptions = {
+      ...(opts.beforeMessageId ? { beforeMessageId: opts.beforeMessageId } : {}),
+      ...(opts.beforeDeliveredTime != null
+        ? { beforeDeliveredTime: opts.beforeDeliveredTime }
+        : {}),
+    };
+    return getStoredMessages(accountId, chatMid, limit, localOptions);
   }
 
   if (!opts?.force && !isPagination && !isSpecial) {
     const local = await getStoredMessages(accountId, chatMid, limit);
     if (local.length > 0) {
-      const meta = await getCacheMeta(accountId);
-      const age = messageSyncAgeMs(meta, chatMid);
-      if (age == null || age > MESSAGE_LOCAL_STALE_MS) {
-        void enqueueTalkRpcBackground(accountId, () =>
-          fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch((err) => {
-            log.debug(
-              {
-                accountId,
-                chatMid,
-                err: err instanceof Error ? err.message : String(err),
-              },
-              "background message sync failed",
-            );
-          }),
-        );
-      }
-      const cacheDict = await readRangeStorage.load(accountId);
-      const cached = cacheDict[chatMid]?.ranges ?? [];
+      // local-first は本当に local-only にする。表示要求に便乗した履歴RPCは発火させない。
+      // 新着は push / delta、明示同期は force 経路が担当する。
       return local;
     }
   }
@@ -3681,6 +3782,12 @@ async function fetchMessagesInner(
         try {
           const ranges = await fetchReadRanges(accountId, chatMid, { force: true });
           applyReadReceiptsToMessages(messages, ranges, chatMid, myMid);
+          // バックグラウンド取得結果も必ずアカウント別 chatdb に保存する。
+          await upsertMessages(
+            accountId,
+            chatMid,
+            messages.map((m) => ({ ...m, chatMid, savedAt: new Date().toISOString() })),
+          );
           if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
             const readerMids = new Set<string>();
             for (const m of messages) {
@@ -3719,7 +3826,7 @@ async function fetchMessagesInner(
     }
     byId.set(m.id, combined);
   }
-  const out = [...byId.values()].sort((a, b) => b.createdTime - a.createdTime).slice(0, limit);
+  const out = [...byId.values()].sort(compareMessagesNewestFirst).slice(0, limit);
 
   log.debug(
     {
@@ -3874,6 +3981,7 @@ export async function sendMessage(
   text: string,
   opts: SendMessageOptions = {},
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   // ブロック中の友だちには送信しない（サーバ側でも防ぐ）
   if (chatMid.startsWith("u")) {
     const blocked = await getBlockedContactIds(accountId);
@@ -4147,6 +4255,7 @@ export async function sendMedia(
     mediaType?: MediaSendType;
   },
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4233,6 +4342,9 @@ export async function sendMedia(
             undefined,
             filename,
           );
+          // uploadObjTalk の成功後に、送信元バイト列を永続保存する。
+          // OBS の保持期限や 404 に依存せず、自分が送ったメディアを再表示できるようにする。
+          await writeMediaStorage(accountId, chatMid, objId, binary, mime);
           log.info(
             {
               accountId,
@@ -4321,6 +4433,7 @@ export async function sendMediaBatch(
   chatMid: string,
   items: MediaBatchItem[],
 ): Promise<number> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4396,7 +4509,7 @@ export async function sendMediaBatch(
         );
         // reqseq 生成メッセージは OBS から OID が取れないため、
         // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-        // 送信バイトをローカル media cache に置く（自クライアントの即表示用）
+        // 送信バイトを永続メディアストレージに置く。
         let count = 0;
         for (let i = 0; i < uploaded.length; i++) {
           const result = uploaded[i];
@@ -4414,7 +4527,7 @@ export async function sendMediaBatch(
           }
           count++;
           const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
-          void writeMediaCache(
+          await writeMediaStorage(
             accountId,
             chatMid,
             result.objId,
@@ -4564,6 +4677,7 @@ export async function sendSticker(
   chatMid: string,
   opts?: { packageId?: string; stickerId?: string; isPremium?: boolean },
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4860,6 +4974,7 @@ export async function sendCombinationSticker(
   items: CombinationStickerInput[],
   opts?: { idOfPreviousVersionOfCombinationSticker?: string },
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4897,6 +5012,7 @@ export async function sendLineEmoji(
   chatMid: string,
   opts: { packageId: string; sticonId: string },
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
     const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
@@ -4965,7 +5081,11 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
     const found = await findStoredMessageByIdLocal(accountId, messageId);
+    if (!found) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message timestamp unavailable");
+    }
     const chatMid = found?.chatMid;
+    if (chatMid) await assertChatUnlocked(accountId, chatMid);
     if (found) {
       const stored = found.message;
       if (
@@ -4975,6 +5095,10 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
         stored.contentType === "UNSEND"
       ) {
         throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+      }
+      const premium = await fetchPremiumStatus(accountId);
+      if (!canUnsendMessage(stored.createdTime, premium.active)) {
+        throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
       }
     }
     const client = requireClient(accountId);
@@ -5012,6 +5136,7 @@ export async function editMessage(
   messageId: string,
   text: string,
 ): Promise<{ message: Message }> {
+  await assertChatUnlocked(accountId, chatMid);
   return runSendRpc(accountId, async () => {
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
@@ -5172,6 +5297,7 @@ export async function updateChatName(
   chatMid: string,
   name: string,
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   await wrapSession(client).chat.updateName(chatMid, name);
   log.info({ accountId, chatMid, name }, "chat name updated");
@@ -5184,6 +5310,7 @@ export async function updateChatPicture(
   bytes: Uint8Array,
   mime = "image/jpeg",
 ): Promise<{ picturePath: string; objId: string; objHash: string }> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
   const result = await wrapSession(client).chat.uploadAndSetPicture(chatMid, blob);
@@ -5193,6 +5320,7 @@ export async function updateChatPicture(
 
 /** 友だち表示名 override（null で解除） */
 export async function renameContact(accountId: string, input: ContactRenameInput): Promise<void> {
+  await assertChatUnlocked(accountId, input.mid);
   const client = requireClient(accountId);
   await wrapSession(client).contacts.rename(input);
   log.info({ accountId, mid: input.mid }, "contact renamed");
@@ -5207,6 +5335,7 @@ export async function leaveChat(
   accountId: string,
   chatMid: string,
 ): Promise<{ alreadyLeft?: boolean }> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   try {
     await client.base.talk.deleteSelfFromChat({
@@ -5268,6 +5397,160 @@ export async function getBlockedContactIds(accountId: string): Promise<string[]>
     }
   })();
   blockedInflight.set(accountId, task);
+  return task;
+}
+
+export type BlockVerificationStatus = "blocked" | "not_blocked" | "skipped" | "unknown";
+
+export type BlockVerificationResult = {
+  mid: string;
+  status: BlockVerificationStatus;
+  reason: string;
+  official: boolean;
+};
+
+const BLOCK_VERIFICATION_MIN_INTERVAL_MS = Number(
+  process.env.VYLINE_BLOCK_VERIFICATION_MIN_INTERVAL_MS ?? 120_000,
+);
+const blockVerificationLastRun = new Map<string, number>();
+const blockVerificationInflight = new Map<string, Promise<BlockVerificationResult[]>>();
+const blockVerificationLastResults = new Map<string, BlockVerificationResult[]>();
+
+function isOfficialUser(user: { raw?: unknown }): boolean {
+  const userType = (user.raw as { userType?: unknown } | undefined)?.userType;
+  return userType === 2 || userType === "BOT";
+}
+
+/**
+ * Beta-only local verification. The sticker-shop check is a read-only gift
+ * eligibility request; it never sends or purchases a sticker.
+ */
+export async function verifyFriendBlockStatus(
+  accountId: string,
+  targetMid?: string,
+): Promise<BlockVerificationResult[]> {
+  const inflight = blockVerificationInflight.get(accountId);
+  if (inflight) return inflight;
+
+  const now = Date.now();
+  const lastRun = blockVerificationLastRun.get(accountId) ?? 0;
+  if (now - lastRun < BLOCK_VERIFICATION_MIN_INTERVAL_MS) {
+    const cached = blockVerificationLastResults.get(accountId) ?? [];
+    if (!targetMid) return cached;
+    return cached.filter((result) => result.mid === targetMid).length > 0
+      ? cached.filter((result) => result.mid === targetMid)
+      : [
+          {
+            mid: targetMid,
+            status: "unknown",
+            reason: "確認済み結果を再利用できません。2分後に再確認してください",
+            official: false,
+          },
+        ];
+  }
+
+  // ponytail: one sequential list pass is sufficient; per-contact probing would add API load and no stronger evidence.
+  const task: Promise<BlockVerificationResult[]> = (async () => {
+    blockVerificationLastRun.set(accountId, Date.now());
+    try {
+      const client = requireClient(accountId);
+      const users = await client.fetchUsers();
+      const giftResults = await checkStickerGiftEligibility(accountId);
+      const friend = users.find((user) => user.mid === targetMid);
+      const storedChatByMid = new Map(
+        (await getStoredChats(accountId)).map((chat) => [chat.mid, chat]),
+      );
+
+      if (targetMid && !friend) {
+        return [
+          { mid: targetMid, status: "skipped", reason: "not a current friend", official: false },
+        ];
+      }
+
+      if (targetMid && friend && isOfficialUser(friend)) {
+        return [
+          {
+            mid: targetMid,
+            status: "skipped",
+            reason: "official account is excluded",
+            official: true,
+          },
+        ];
+      }
+
+      const candidates = targetMid
+        ? friend && !isOfficialUser(friend)
+          ? [friend]
+          : []
+        : users.filter((user) => !isOfficialUser(user));
+      const results = candidates.map((user): BlockVerificationResult => {
+        const raw = user.raw as {
+          targetProfileDetail?: { profileName?: string; pictureStatus?: string };
+          friendDetail?: { user?: { overriddenName?: string } };
+          pictureStatus?: string;
+        };
+        const storedChat = storedChatByMid.get(user.mid);
+        const names = new Set(
+          [
+            storedChat?.name,
+            raw.friendDetail?.user?.overriddenName,
+            raw.targetProfileDetail?.profileName,
+          ].filter((name): name is string => Boolean(name)),
+        );
+        const pictureUrls = new Set(
+          [
+            storedChat?.thumbnailUrl,
+            pictureStatusToUrl(raw.targetProfileDetail?.pictureStatus ?? raw.pictureStatus),
+          ].filter((url): url is string => Boolean(url)),
+        );
+        const matches = giftResults.filter(
+          (result) =>
+            names.has(result.name) ||
+            Boolean(result.pictureUrl && pictureUrls.has(result.pictureUrl)),
+        );
+        if (matches.length !== 1) {
+          return {
+            mid: user.mid,
+            status: "unknown",
+            reason:
+              matches.length === 0
+                ? `ギフト可否の対象プロフィールを特定できません（ショップ取得件数: ${giftResults.length}）`
+                : "表示名が重複しているため特定できません",
+            official: false,
+          };
+        }
+        const gift = matches[0]!;
+        const blocked = !gift.giftable && gift.code === 16646;
+        return {
+          mid: user.mid,
+          status: gift.giftable ? "not_blocked" : blocked ? "blocked" : "unknown",
+          reason: gift.giftable
+            ? "スタンプをギフト可能"
+            : blocked
+              ? "スタンプをギフト不可（HAR の拒否コード 16646）"
+              : `スタンプをギフト不可（理由コード ${gift.code ?? "不明"}）`,
+          official: false,
+        };
+      });
+      blockVerificationLastResults.set(accountId, results);
+      return results;
+    } catch (error) {
+      if (targetMid) {
+        return [
+          {
+            mid: targetMid,
+            status: "unknown",
+            reason: error instanceof Error ? error.message : String(error),
+            official: false,
+          },
+        ];
+      }
+      throw error;
+    } finally {
+      blockVerificationInflight.delete(accountId);
+    }
+  })();
+  blockVerificationInflight.set(accountId, task);
   return task;
 }
 
@@ -5333,6 +5616,7 @@ export async function inviteToGroupChat(
   chatMid: string,
   memberMids: string[],
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   const mids = [...new Set(memberMids.filter((m) => m.startsWith("u")))];
   if (mids.length === 0) throw new Error("memberMids required");
@@ -5345,6 +5629,7 @@ export async function inviteToGroupChat(
 
 /** 連絡先ブロック — Desktop: TalkService_blockContact */
 export async function blockContactMid(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
   const client = requireClient(accountId);
   await client.base.talk.blockContact({
     reqSeq: await client.base.getReqseq(),
@@ -5355,6 +5640,7 @@ export async function blockContactMid(accountId: string, mid: string): Promise<v
 }
 
 export async function unblockContactMid(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
   const client = requireClient(accountId);
   await client.base.talk.unblockContact({
     reqSeq: await client.base.getReqseq(),
@@ -5426,6 +5712,8 @@ export async function reactToMessage(
   messageId: string,
   reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
 ): Promise<void> {
+  const found = await findStoredMessageByIdLocal(accountId, messageId);
+  if (found) await assertChatUnlocked(accountId, found.chatMid);
   const client = requireClient(accountId);
   // react RPC は稀に 8s 超えるため send キュー + 専用タイムアウトで待つ
   await runSendRpc(
@@ -5594,6 +5882,7 @@ export async function startDirectCall(
   callType: "AUDIO" | "VIDEO" = "AUDIO",
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
   assertDirectCallAllowed(to);
+  await assertChatUnlocked(accountId, to);
   if (await isBotMid(accountId, to)) {
     throw new CallNotAllowedError("BOT / 公式アカウントには通話できません");
   }
@@ -5741,8 +6030,9 @@ export function clearGroupCallStatus(accountId: string): void {
 }
 
 const MEDIA_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "1", "2", "3", "14"]);
-/** media 復号/OBS が失敗した messageId（セッション内での再試行抑止） */
-const mediaFailedIds = new Set<string>();
+/** 一時的な OBS / 復号失敗の連打を抑える短期バックオフ（期限切れにはしない） */
+const mediaFailedAt = new Map<string, number>();
+const MEDIA_FAILURE_BACKOFF_MS = 30_000;
 /** OBS ダウンロードがハングしないよう打ち切る（30s 固まり防止） */
 const MEDIA_OBS_TIMEOUT_MS = Number(process.env.VYLINE_MEDIA_OBS_TIMEOUT_MS ?? 15_000);
 
@@ -5775,7 +6065,7 @@ async function downloadObsMessageBytes(
 
 /**
  * メディア元メッセージを履歴から探す（最近ページに限定・短時間）。
- * 古いメディアはローカルキャッシュ / OBS 直取得に委ねる。
+ * 古いメディアはローカル永続ストレージ / OBS 直取得に委ねる。
  */
 async function findMediaSourceMessage(
   client: NonNullable<ReturnType<typeof getClient>>,
@@ -5852,12 +6142,17 @@ export async function fetchMessageMedia(
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
   const client = requireClient(accountId);
 
-  // 既に失敗済みのメディアは再試行しない（OBS 404 連打防止）
-  if (mediaFailedIds.has(`${accountId}:${messageId}`)) {
-    throw new Error(`media expired or unavailable (cached): ${messageId}`);
+  // 失敗直後だけ短期バックオフし、恒久的な再取得不能にはしない。
+  const failureKey = `${accountId}:${messageId}`;
+  const failedAt = mediaFailedAt.get(failureKey);
+  if (failedAt != null) {
+    if (Date.now() - failedAt < MEDIA_FAILURE_BACKOFF_MS) {
+      throw new Error(`media temporarily unavailable (retry later): ${messageId}`);
+    }
+    mediaFailedAt.delete(failureKey);
   }
 
-  // まずローカルキャッシュの contentMetadata（OID/SID）で OBS を試す — Push を切らない
+  // まずローカル履歴の contentMetadata（OID/SID）で OBS を試す — Push を切らない
   try {
     const cached = await getMessages(accountId, chatMid, 300);
     const hit = cached.find((m) => m.id === messageId);
@@ -5976,7 +6271,7 @@ export async function fetchMessageMedia(
         const msg = err instanceof Error ? err.message : String(err);
         // 404 は期限切れ/削除 — 500 連打しない
         if (msg.includes("404")) {
-          mediaFailedIds.add(`${accountId}:${messageId}`);
+          mediaFailedAt.set(failureKey, Date.now());
           throw new Error(`media expired or unavailable (OBS 404): ${messageId}`);
         }
         throw new Error(`message not found in history and OBS fallback failed: ${msg}`);
@@ -6066,7 +6361,7 @@ export async function fetchMessageMedia(
         await ensureGroupKeyById(client, chatMid, gk);
         return await tryDownload();
       }
-      mediaFailedIds.add(`${accountId}:${messageId}`);
+      mediaFailedAt.set(failureKey, Date.now());
       throw err;
     }
   });

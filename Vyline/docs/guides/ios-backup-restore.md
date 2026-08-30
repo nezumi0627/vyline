@@ -1,6 +1,6 @@
 # iOS バックアップから LINE 履歴を復元する
 
-最終更新: 2026-08-24
+最終更新: 2026-08-29
 
 ---
 
@@ -8,11 +8,32 @@
 
 Vyline では、**iPhone（プライマリデバイス）で作成した暗号化バックアップ**からトーク履歴を取り込めます。
 
+> ⚠️ **実装状況**: 現在は抽出パッケージ、ウィザード UI、API クライアントまでが実装済みです。
+> バックエンドの抽出サービスと BFF ルートが未実装のため、Vyline GUI からの復元はまだ利用できません。
+> 以下の手順は、対応完了後に使用する準備手順です。
+
 > ⚠️ **重要**: **必ずプライマリデバイス（メインの iPhone）で操作してください。**  
 > サブデバイス（iPad、セカンダリ iPhone、LINE Desktop 等）では **トークのバックアップ作成ができません**。
 
 > 🎬 **メディア（画像・動画・音声・ファイル・スタンプ）の復元は Coming Soon**  
 > 現在はテキスト・メタデータのみ復元されます。
+
+---
+
+## 作業前の Snapshot
+
+復元系の操作を試す前に、現在の Vyline データを Snapshot として保存しておくと安全です。
+
+```bash
+bun run vyl snapshot create before-ios-restore
+bun run vyl snapshot list
+```
+
+問題が起きた場合は、作成済み Snapshot から復元できます。
+
+```bash
+bun run vyl snapshot restore snapshots/xxx.tar.gz --force
+```
 
 ---
 
@@ -71,7 +92,7 @@ Vyline では、**iPhone（プライマリデバイス）で作成した暗号�
 
 ---
 
-### Step 3: Vyline 側
+### Step 3: Vyline 側（バックエンド実装後）
 
 1. Vyline を起動
 2. **設定 → 詳細・復元** タブへ移動
@@ -80,7 +101,7 @@ Vyline では、**iPhone（プライマリデバイス）で作成した暗号�
    - **デバイス選択**: 検出されたバックアップから選択（暗号化済みのみ表示）
    - **パスワード入力**: Step 2-2 で設定した暗号化パスワード
    - **復元実行**: 進捗バー表示（DB 抽出 → 解析 → 取り込み）
-5. 完了ダイアログ表示 → **自動で DB/E2EE 更新が走る**
+5. 完了ダイアログ表示 → DB/E2EE 更新を自動実行する
 6. チャット一覧に履歴が反映されることを確認
 
 ---
@@ -121,5 +142,5 @@ Vyline では、**iPhone（プライマリデバイス）で作成した暗号�
 
 ## 関連ドキュメント
 
-- [技術解説: iOS バックアップ抽出の仕組み](../analysis/ios-backup-extract.md)
-- [履歴取り出し作業の全経緯](../analysis/ios-backup-history-extraction.md)
+- [vyl CLI と Snapshot](../vyl-cli.md)
+- [技術解説と履歴取り出しの全経緯](../../../docs/analysis/ios-backup-history-extraction.md)

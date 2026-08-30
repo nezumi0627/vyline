@@ -2,8 +2,9 @@
  * hooks/useLineData.ts
  *
  * Desktop 準拠 local-first:
- * 1. bootstrap（ディスクキャッシュ）で即時表示
- * 2. バックグラウンドで RPC 同期
+ * 1. bootstrap / chatdb で即時表示
+ * 2. チャットごとの履歴ウィンドウを保持し、古い履歴は必要時だけ1ページ取得
+ * 3. 新着同期は push / delta 側に任せ、履歴の暗黙 prefetch は行わない
  *
  * 注意: accountId 変更時だけフルリセット。loadChats の identity 変更で
  * useEffect が回り chats=[] になるループは禁止。
@@ -18,13 +19,20 @@ import {
   vylineClientPutMany,
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
-import { useStore } from "../lib/store.js";
+import { resolveChatToOpen, useStore } from "../lib/store.js";
+import {
+  HISTORY_PAGE_SIZE,
+  MAX_LOCAL_HISTORY_LIMIT,
+  mergeHistoryMessages,
+  readHistoryDepths,
+  rememberHistoryDepth,
+  trimHistoryWindows,
+  type ChatHistoryWindow,
+} from "../lib/chatHistoryWindow.js";
 
 interface UseLineDataOptions {
   accountId: string | null;
 }
-
-const PAGE_SIZE = 50;
 
 export function useLineData({ accountId }: UseLineDataOptions) {
   const [profile, setProfile] = useState<LineProfile | null>(null);
@@ -49,6 +57,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     bootstrap: false,
   });
   const bootstrapMessages = useRef<Map<string, Message[]>>(new Map());
+  const historyWindows = useRef<Map<string, ChatHistoryWindow>>(new Map());
+  const historyDepths = useRef<Map<string, number>>(new Map());
   const messagesRef = useRef(messages);
   messagesRef.current = messages;
   const selectedChatMidRef = useRef(selectedChatMid);
@@ -166,7 +176,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
           setChats(res.chats);
-          setSelectedChatMid((prev) => prev || res.chats?.[0]?.mid || "");
+          const initialChatMid = resolveChatToOpen(
+            accountId,
+            useStore.getState().activeChatId,
+            res.chats.map((chat) => chat.mid),
+          );
+          setSelectedChatMid((prev) => prev || initialChatMid || "");
           applyChatsToContactCache(res.chats);
           setFromLocalCache(Boolean(res.fromCache));
           const warmTargets = res.chats
@@ -196,66 +211,102 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     [prefetchContacts],
   );
 
+  const commitHistoryWindow = useCallback(
+    (chatMid: string, list: Message[], hasMore: boolean) => {
+      if (!accountId) return;
+      const nextWindow: ChatHistoryWindow = {
+        messages: list,
+        hasMore,
+        touchedAt: Date.now(),
+      };
+      historyWindows.current.set(chatMid, nextWindow);
+      rememberHistoryDepth(accountId, historyDepths.current, chatMid, list.length);
+      trimHistoryWindows(historyWindows.current, chatMid);
+
+      if (selectedChatMidRef.current === chatMid) {
+        setMessages(list);
+        setHasMoreMessages(hasMore);
+        setFromLocalCache(true);
+        resolveMessageAuthors(list);
+      }
+    },
+    [accountId, resolveMessageAuthors],
+  );
+
   const loadMessages = useCallback(
-    async (chatMid: string, limit = PAGE_SIZE, opts?: { force?: boolean }) => {
+    async (chatMid: string, limit = HISTORY_PAGE_SIZE, opts?: { force?: boolean }) => {
       if (!accountId || !chatMid) return;
       const gen = ++messagesGen.current;
+      fetchContact(chatMid);
 
-      const boot = bootstrapMessages.current.get(chatMid);
-      if (boot && boot.length > 0 && !opts?.force) {
-        fetchContact(chatMid);
-        const asc = [...boot].reverse();
-        setMessages(asc);
-        setHasMoreMessages(boot.length >= limit);
+      const cachedWindow = historyWindows.current.get(chatMid);
+      if (cachedWindow && !opts?.force) {
+        cachedWindow.touchedAt = Date.now();
+        setMessages(cachedWindow.messages);
+        setHasMoreMessages(cachedWindow.hasMore);
         setFromLocalCache(true);
-        resolveMessageAuthors(asc);
-      } else if (!opts?.force) {
-        // chatdb ローカルを先に描画（ネットワーク待ちを避ける）
+        setLoadingMessages(false);
+        resolveMessageAuthors(cachedWindow.messages);
+
+        // 再入室時は表示を待たせずキャッシュを出し、その後に最新1ページだけローカルDBから統合する。
+        // 3,000件読んだ履歴を3,000件再取得することも、ネットワーク先読みすることもない。
         try {
-          const local = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, limit, {
+          const local = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, HISTORY_PAGE_SIZE, {
             local: true,
           });
-          if (gen === messagesGen.current && selectedChatMidRef.current === chatMid) {
-            if (local.ok && local.messages && local.messages.length > 0) {
-              fetchContact(chatMid);
-              const asc = [...local.messages].reverse();
-              setMessages(asc);
-              setHasMoreMessages(local.hasMore ?? local.messages.length >= limit);
-              setFromLocalCache(true);
-              resolveMessageAuthors(asc);
-            } else {
-              setLoadingMessages(true);
-            }
+          if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+          if (local.ok && local.messages?.length) {
+            const latestAsc = [...local.messages].reverse();
+            const merged = mergeHistoryMessages(cachedWindow.messages, latestAsc);
+            commitHistoryWindow(chatMid, merged, cachedWindow.hasMore);
           }
         } catch {
-          setLoadingMessages(true);
+          /* ローカル差分更新は任意。既存ウィンドウをそのまま表示する。 */
         }
+        return;
+      }
+
+      const rememberedDepth = historyDepths.current.get(chatMid) ?? 0;
+      const localLimit = Math.min(
+        MAX_LOCAL_HISTORY_LIMIT,
+        Math.max(limit, rememberedDepth || HISTORY_PAGE_SIZE),
+      );
+
+      const boot = bootstrapMessages.current.get(chatMid);
+      if (boot?.length && !opts?.force) {
+        const bootAsc = [...boot].reverse();
+        setMessages(bootAsc);
+        setHasMoreMessages(true);
+        setFromLocalCache(true);
+        resolveMessageAuthors(bootAsc);
       } else {
         setLoadingMessages(true);
       }
 
       try {
-        fetchContact(chatMid);
-        const res = await api.line.getPreviousMessagesV2WithRequest(
-          accountId,
-          chatMid,
-          limit,
-          opts,
-        );
-        if (gen !== messagesGen.current) return;
-        if (selectedChatMidRef.current !== chatMid) return;
+        if (!opts?.force) {
+          const local = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, localLimit, { local: true });
+          if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+          if (local.ok && local.messages?.length) {
+            const asc = [...local.messages].reverse();
+            commitHistoryWindow(chatMid, asc, local.hasMore ?? local.messages.length >= localLimit);
+            return;
+          }
+        }
+
+        // ローカルに1件も無い新規チャットだけ、ユーザーが開いたタイミングで1ページ取得する。
+        // これは明示的な foreground fetch で、連続先読みはしない。
+        const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, limit, { force: true });
+        if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
         if (res.ok && res.messages) {
           const asc = [...res.messages].reverse();
-          setMessages(asc);
-          setHasMoreMessages(res.hasMore ?? res.messages.length >= limit);
-          if (res.fromCache) setFromLocalCache(true);
-          resolveMessageAuthors(asc);
+          commitHistoryWindow(chatMid, asc, res.hasMore ?? res.messages.length >= limit);
         }
       } finally {
         if (gen === messagesGen.current) setLoadingMessages(false);
       }
     },
-    [accountId, resolveMessageAuthors, fetchContact],
+    [accountId, commitHistoryWindow, fetchContact, resolveMessageAuthors],
   );
 
   const loadOlderMessages = useCallback(
@@ -273,33 +324,55 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       olderInFlight.current = true;
       setLoadingOlder(true);
       try {
-        const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, PAGE_SIZE, {
+        const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, HISTORY_PAGE_SIZE, {
           beforeMessageId: oldest.id,
           beforeDeliveredTime: oldest.createdTime,
+          local: true,
         });
-        if (gen !== messagesGen.current) return;
-        if (selectedChatMidRef.current !== chatMid) return;
+        if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
         if (!res.ok || !res.messages) {
-          setHasMoreMessages(false);
+          commitHistoryWindow(chatMid, current, false);
           return;
         }
+
         const olderAsc = [...res.messages].reverse();
-        const existing = new Set(messagesRef.current.map((m) => m.id));
-        const fresh = olderAsc.filter((m) => !existing.has(m.id));
-        if (fresh.length === 0) {
-          setHasMoreMessages(false);
+        const merged = mergeHistoryMessages(current, olderAsc);
+        const added = merged.length - current.length;
+        if (added <= 0) {
+          commitHistoryWindow(chatMid, current, false);
           return;
         }
-        setMessages((prev) => [...fresh, ...prev]);
-        setHasMoreMessages(res.hasMore ?? res.messages.length >= PAGE_SIZE);
-        resolveMessageAuthors(fresh);
+
+        const hasMore = res.hasMore ?? res.messages.length >= HISTORY_PAGE_SIZE;
+        commitHistoryWindow(chatMid, merged, hasMore);
       } finally {
         olderInFlight.current = false;
         if (gen === messagesGen.current) setLoadingOlder(false);
       }
     },
-    [accountId, hasMoreMessages, resolveMessageAuthors],
+    [accountId, commitHistoryWindow, hasMoreMessages],
   );
+
+  // ChatArea が明示的に1ページ要求した時だけ、古いローカル履歴を追加取得する。
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onLoadOlder = (event: Event) => {
+      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
+      if (chatMid) void loadOlderMessages(chatMid);
+    };
+    window.addEventListener("vyline:load-older-messages", onLoadOlder);
+    return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
+  }, [loadOlderMessages]);
+
+  // 先頭のUIは残件・読み込み中を正しく表示する。
+  useEffect(() => {
+    if (!selectedChatMid || typeof window === "undefined") return;
+    window.dispatchEvent(
+      new CustomEvent("vyline:older-messages-state", {
+        detail: { chatMid: selectedChatMid, hasMore: hasMoreMessages, loading: loadingOlder },
+      }),
+    );
+  }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
     if (!accountId || inFlight.current.bootstrap) return;
@@ -318,7 +391,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         setChats(res.chats);
         setFromLocalCache(true);
         applyChatsToContactCache(res.chats);
-        setSelectedChatMid((prev) => prev || res.chats[0]?.mid || "");
+        const initialChatMid = resolveChatToOpen(
+          accountId,
+          useStore.getState().activeChatId,
+          res.chats.map((chat) => chat.mid),
+        );
+        setSelectedChatMid((prev) => prev || initialChatMid || "");
       }
     } catch {
       /* bootstrap optional */
@@ -326,6 +404,34 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       inFlight.current.bootstrap = false;
     }
   }, [accountId, applyChatsToContactCache]);
+
+  // 外部バックアップ復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
+  useEffect(() => {
+    if (!accountId || typeof window === "undefined") return;
+    const onRestore = (event: Event) => {
+      const restoredAccountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+      if (restoredAccountId !== accountId) return;
+      const restoredChatMids =
+        (event as CustomEvent<{ chatMids?: string[] }>).detail?.chatMids ?? [];
+      for (const chatMid of restoredChatMids) historyWindows.current.delete(chatMid);
+      const restoreTarget = restoredChatMids[0];
+      if (restoreTarget) {
+        setSelectedChatMid(restoreTarget);
+        useStore.getState()._activateChat(restoreTarget);
+      }
+      void (async () => {
+        await loadBootstrap();
+        const chatMid = restoreTarget ?? selectedChatMidRef.current;
+        if (chatMid) await loadMessages(chatMid);
+      })();
+    };
+    window.addEventListener("vyline:ios-backup-restored", onRestore);
+    window.addEventListener("vyline:android-backup-restored", onRestore);
+    return () => {
+      window.removeEventListener("vyline:ios-backup-restored", onRestore);
+      window.removeEventListener("vyline:android-backup-restored", onRestore);
+    };
+  }, [accountId, loadBootstrap, loadMessages]);
 
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
@@ -338,11 +444,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     setFromLocalCache(false);
     contactFetching.current.clear();
     bootstrapMessages.current.clear();
+    historyWindows.current.clear();
+    historyDepths.current = accountId ? readHistoryDepths(accountId) : new Map();
     if (!accountId) {
       setContactCache(new Map());
       return;
     }
-
     // Vyline ローカルキャッシュを即 hydrate（mid 生出し回避）
     setContactCache(vylineClientToContactMap(accountId));
 
@@ -371,29 +478,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
       void loadProfile();
-      // bootstrap 直後は backend 側の freshness 判定に任せる。
-      // refresh=true は新鮮なローカル cache があっても remote sync を強制するため、
-      // 通常起動では指定しない。
-      await loadChats({ light: true });
+      await loadChats({ refresh: true, light: true });
       if (accountIdRef.current !== accountId) return;
-
-      // 初回インデックス: 過去メッセージ等を chatdb に先読み（1アカウント1回）
-      const indexKey = `vyline:indexed:${accountId}`;
-      const needIndex = typeof localStorage !== "undefined" && !localStorage.getItem(indexKey);
-      if (needIndex) {
-        useStore.getState().setIndexing({
-          active: true,
-          label: "初回インデックス中… 過去のメッセージをキャッシュしています",
-        });
-        try {
-          const idx = await api.line.reindexMessages(accountId);
-          if (idx.ok) localStorage.setItem(indexKey, "1");
-        } catch {
-          /* 初回 index は補助処理なので失敗しても通常起動は継続する */
-        } finally {
-          useStore.getState().setIndexing(null);
-        }
-      }
 
       window.setTimeout(() => {
         if (accountIdRef.current === accountId) void loadChats({ light: true });
@@ -404,8 +490,6 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   useEffect(() => {
     if (!selectedChatMid) return;
-    messagesGen.current += 1;
-    setHasMoreMessages(true);
     void loadMessages(selectedChatMid);
   }, [selectedChatMid, loadMessages]);
 

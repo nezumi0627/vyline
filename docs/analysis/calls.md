@@ -1,6 +1,6 @@
 # Calls — VoIP / Planet / Andromeda
 
-最終更新: 2026-07-29
+最終更新: 2026-08-24
 
 ---
 

@@ -4,15 +4,15 @@
  * HTTP リクエスト/レスポンスの整形のみ担当。
  * ビジネスロジックは service/lineService.ts に委譲する。
  *
- * GET  /line/:accountId/getProfile
+ * GET  /line/:accountId/profile
  * GET  /line/:accountId/chats
  * GET  /line/:accountId/messages/:chatMid?limit=30
  * GET  /line/:accountId/export/:chatMid?format=json|txt
  * GET  /line/:accountId/contact/:targetMid
- * POST /line/:accountId/sendMessage        { chatMid, text }
- * POST /line/:accountId/unsendMessage      { messageId }
- * POST /line/:accountId/sendChatChecked    { chatMid }
- * PATCH /line/:accountId/updateProfileAttributes { displayName?, statusMessage?, … }
+ * POST /line/:accountId/send        { chatMid, text }
+ * POST /line/:accountId/unsend      { messageId }
+ * POST /line/:accountId/read        { chatMid }
+ * PATCH /line/:accountId/profile    { displayName?, statusMessage?, … }
  * POST  /line/:accountId/profile/image       multipart/raw body
  * POST  /line/:accountId/profile/background  multipart/raw body
  * PATCH /line/:accountId/chats/:chatMid      { name? }
@@ -24,22 +24,48 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
-import { readMediaCache, writeMediaCache } from "../storage/mediaCache.js";
+import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import { rebuildAccountChatDb } from "../storage/chatStore.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
+import { isPluginActive } from "../line/pluginRuntime.js";
 import {
+  commentNote,
   createNote,
   deleteNote,
   getNote,
+  getNoteLike,
+  getGroupHomeUpdates,
+  likeNote,
   listNotes,
+  listNoteLikes,
   shareNoteToChat,
+  unlikeNote,
+  updateNote,
+  uploadNoteCommentImage,
+  uploadNoteMedia,
 } from "../service/noteService.js";
-import { getClient } from "../line/clientManager.js";
+import {
+  addAlbumPhotos,
+  createAlbum,
+  deleteAlbum,
+  deleteAlbumPhotos,
+  downloadAlbumMedia,
+  listAlbumPhotos,
+  listAlbums,
+  previewAlbums,
+  shareAlbum,
+  updateAlbum,
+  uploadAlbumMedia,
+} from "../service/albumService.js";
+import { getClient, getContentClient } from "../line/clientManager.js";
 import {
   fetchProfile,
   fetchContactProfile,
   markAsRead,
+  markAllAsRead,
+  markAsReadBatch,
   fetchChats,
   fetchBootstrap,
   fetchMessages,
@@ -81,6 +107,7 @@ import {
   updateChatPicture,
   renameContact,
   getBlockedContactIds,
+  verifyFriendBlockStatus,
   createGroupChat,
   inviteToGroupChat,
   startDirectCall,
@@ -91,6 +118,10 @@ import {
   NotLoggedInError,
   restoreRevokedMessage,
   getMessageHistory,
+  loadLockedChats,
+  setChatLocked,
+  assertChatUnlocked,
+  ChatLockedError,
 } from "../service/lineService.js";
 import {
   LiffNotLoggedInError,
@@ -131,7 +162,7 @@ lineRouter.get("/:accountId/notes", async (c) => {
   const homeId = c.req.query("homeId");
   if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
   try {
-    const client = getClient(accountId);
+    const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     return c.json(await listNotes(accountId, client, homeId));
   } catch (err) {
@@ -139,16 +170,201 @@ lineRouter.get("/:accountId/notes", async (c) => {
   }
 });
 
-lineRouter.post("/:accountId/notes", async (c) => {
+lineRouter.post("/:accountId/notes/updates", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ homeId?: string; text?: string }>();
-  if (!body.homeId || !body.text) {
-    return c.json({ ok: false, error: "homeId and text required" }, 400);
+  const revisionRaw = c.req.query("revision");
+  const revision = Number(revisionRaw);
+  if (!revisionRaw || !Number.isSafeInteger(revision) || revision < 0) {
+    return c.json({ ok: false, error: "revision must be a non-negative integer" }, 400);
   }
   try {
-    const client = getClient(accountId);
+    const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await createNote(accountId, client, body.homeId, body.text));
+    return c.json(await getGroupHomeUpdates(client, revision));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    homeId?: string;
+    text?: string;
+    sharedPostId?: string;
+    stickerIds?: string[];
+    stickerPackageIds?: string[];
+    mediaObjectIds?: string[];
+    mediaObjectTypes?: string[];
+    contents?: Record<string, unknown>;
+    postInfo?: Record<string, unknown>;
+  }>();
+  if (
+    !body.homeId ||
+    (!body.text &&
+      !body.sharedPostId &&
+      !body.stickerIds?.length &&
+      !body.mediaObjectIds?.length &&
+      !body.contents)
+  ) {
+    return c.json({ ok: false, error: "homeId and note content required" }, 400);
+  }
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const { homeId, ...input } = body;
+    return c.json(await createNote(accountId, client, homeId, input));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.patch("/:accountId/notes/:postId", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const body = await c.req.json<Record<string, unknown> & { homeId?: string }>();
+  if (!body.homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const { homeId, ...raw } = body;
+    const input = {
+      ...(typeof raw.text === "string" ? { text: raw.text } : {}),
+      ...(typeof raw.sharedPostId === "string" ? { sharedPostId: raw.sharedPostId } : {}),
+      ...(Array.isArray(raw.stickerIds) ? { stickerIds: raw.stickerIds.map(String) } : {}),
+      ...(Array.isArray(raw.stickerPackageIds)
+        ? { stickerPackageIds: raw.stickerPackageIds.map(String) }
+        : {}),
+      ...(Array.isArray(raw.mediaObjectIds)
+        ? { mediaObjectIds: raw.mediaObjectIds.map(String) }
+        : {}),
+      ...(Array.isArray(raw.mediaObjectTypes)
+        ? { mediaObjectTypes: raw.mediaObjectTypes.map(String) }
+        : {}),
+      ...(raw.contents && typeof raw.contents === "object"
+        ? { contents: raw.contents as Record<string, unknown> }
+        : {}),
+    };
+    return c.json(await updateNote(client, homeId, postId, input));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes/:postId/like", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const body = await c.req.json<{ homeId?: string; likeType?: string }>();
+  if (!body.homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  const allowed = new Set(["1001", "1002", "1003", "1004", "1005", "1006"]);
+  if (body.likeType && !allowed.has(body.likeType)) {
+    return c.json({ ok: false, error: "invalid likeType" }, 400);
+  }
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await likeNote(
+        client,
+        body.homeId,
+        postId,
+        body.likeType as "1001" | "1002" | "1003" | "1004" | "1005" | "1006" | undefined,
+      ),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/notes/:postId/like", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    return c.json(await unlikeNote(client, homeId, postId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/notes/:postId/like", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    return c.json(await getNoteLike(client, homeId, postId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/notes/:postId/likes", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    return c.json(await listNoteLikes(client, homeId, postId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes/:postId/comments", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const body = await c.req.json<{ homeId?: string; text?: string; imageObjectId?: string }>();
+  if (!body.homeId || (!body.text && !body.imageObjectId)) {
+    return c.json({ ok: false, error: "homeId and comment content required" }, 400);
+  }
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const contentsList = body.imageObjectId
+      ? [
+          {
+            categoryId: "media",
+            extData: {
+              objectId: body.imageObjectId,
+              type: "PHOTO",
+              obsNamespace: "cmt",
+              serviceName: "myhome",
+            },
+          },
+        ]
+      : undefined;
+    return c.json(await commentNote(client, body.homeId, postId, body.text ?? "", contentsList));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes/media/:type", async (c) => {
+  const accountId = c.req.param("accountId");
+  const type = c.req.param("type");
+  if (type !== "image" && type !== "video") {
+    return c.json({ ok: false, error: "type must be image or video" }, 400);
+  }
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await uploadNoteMedia(client, type, await c.req.blob()));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes/comment-image", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await uploadNoteCommentImage(client, await c.req.blob()));
   } catch (err) {
     return handleError(err, c);
   }
@@ -160,7 +376,7 @@ lineRouter.get("/:accountId/notes/:postId", async (c) => {
   const homeId = c.req.query("homeId");
   if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
   try {
-    const client = getClient(accountId);
+    const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     return c.json(await getNote(accountId, client, homeId, postId));
   } catch (err) {
@@ -174,7 +390,7 @@ lineRouter.delete("/:accountId/notes/:postId", async (c) => {
   const homeId = c.req.query("homeId");
   if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
   try {
-    const client = getClient(accountId);
+    const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     return c.json(await deleteNote(accountId, client, homeId, postId));
   } catch (err) {
@@ -185,25 +401,259 @@ lineRouter.delete("/:accountId/notes/:postId", async (c) => {
 lineRouter.post("/:accountId/notes/:postId/share", async (c) => {
   const accountId = c.req.param("accountId");
   const postId = c.req.param("postId");
-  const body = await c.req.json<{ homeId?: string; chatMid?: string }>();
-  if (!body.homeId || !body.chatMid) {
-    return c.json({ ok: false, error: "homeId and chatMid required" }, 400);
+  const body = await c.req.json<{ homeId?: string }>();
+  if (!body.homeId) {
+    return c.json({ ok: false, error: "homeId required" }, 400);
   }
   try {
-    const client = getClient(accountId);
+    const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await shareNoteToChat(accountId, client, body.homeId, postId, body.chatMid));
+    return c.json(await shareNoteToChat(accountId, client, body.homeId, postId));
   } catch (err) {
     return handleError(err, c);
   }
 });
-// ─── plugins（基盤: マニフェスト一覧と有効/無効の永続化。コード実行は未対応） ───
+
+// ─── albums（固定操作のみ公開し、任意 path proxy は持たない） ───
+function albumQuery(c: Context): Record<string, string> {
+  return Object.fromEntries(new URL(c.req.url).searchParams.entries());
+}
+
+async function albumClient(c: Context) {
+  const accountId = c.req.param("accountId");
+  if (!accountId) return null;
+  try {
+    return await getContentClient(accountId);
+  } catch {
+    return null;
+  }
+}
+
+lineRouter.get("/:accountId/albums", async (c) => {
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const query = albumQuery(c);
+    if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+    return c.json(
+      await listAlbums(
+        client,
+        query as { chatId: string; cursor?: string; orderBy?: string; include?: string },
+      ),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.get("/:accountId/albums/preview", async (c) => {
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const query = albumQuery(c);
+    if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+    return c.json(
+      await previewAlbums(
+        client,
+        query as { chatId: string; pageSize?: string; thumbnailCount?: string; viewType?: string },
+      ),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.post("/:accountId/albums", async (c) => {
+  const body = await c.req.json<{
+    chatId?: string;
+    title?: string;
+    modifyDuplicateTitle?: boolean;
+  }>();
+  if (!body.chatId || !body.title?.trim())
+    return c.json({ ok: false, error: "chatId and title required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await createAlbum(client, {
+        chatId: body.chatId,
+        title: body.title.trim(),
+        ...(body.modifyDuplicateTitle !== undefined
+          ? { modifyDuplicateTitle: body.modifyDuplicateTitle }
+          : {}),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.patch("/:accountId/albums/:albumId", async (c) => {
+  const body = await c.req.json<{ chatId?: string; title?: string }>();
+  if (!body.chatId || !body.title?.trim())
+    return c.json({ ok: false, error: "chatId and title required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await updateAlbum(client, c.req.param("albumId"), {
+        chatId: body.chatId,
+        title: body.title.trim(),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.delete("/:accountId/albums/:albumId", async (c) => {
+  const chatId = c.req.query("chatId");
+  if (!chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await deleteAlbum(client, c.req.param("albumId"), chatId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.post("/:accountId/albums/:albumId/share", async (c) => {
+  const body = await c.req.json<{ chatId?: string }>();
+  if (!body.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await shareAlbum(client, c.req.param("albumId"), body.chatId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.post("/:accountId/albums/:albumId/media", async (c) => {
+  const chatId = c.req.query("chatId");
+  if (!chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const contentType = c.req.header("content-type");
+    return c.json(
+      await uploadAlbumMedia(client, c.req.param("albumId"), {
+        chatId,
+        data: await c.req.blob(),
+        ...(contentType ? { contentType } : {}),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.post("/:accountId/albums/:albumId/photos", async (c) => {
+  const body = await c.req.json<{
+    chatId?: string;
+    photos?: Parameters<typeof addAlbumPhotos>[2]["photos"];
+  }>();
+  if (!body.chatId || !body.photos?.length)
+    return c.json({ ok: false, error: "chatId and photos required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await addAlbumPhotos(client, c.req.param("albumId"), {
+        chatId: body.chatId,
+        albumId: c.req.param("albumId"),
+        photos: body.photos,
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.delete("/:accountId/albums/:albumId/photos", async (c) => {
+  const body = await c.req.json<{ chatId?: string; photoIds?: string[] }>();
+  if (!body.chatId || !body.photoIds?.length)
+    return c.json({ ok: false, error: "chatId and photoIds required" }, 400);
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await deleteAlbumPhotos(client, c.req.param("albumId"), body.chatId, body.photoIds),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.get("/:accountId/albums/:albumId/photos", async (c) => {
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const query = albumQuery(c);
+    if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+    return c.json(
+      await listAlbumPhotos(client, c.req.param("albumId"), {
+        chatId: query.chatId,
+        ...(query.cursor !== undefined ? { cursor: query.cursor } : {}),
+        ...(query.pageSize !== undefined ? { pageSize: query.pageSize } : {}),
+        ...(query.orderBy !== undefined ? { orderBy: query.orderBy } : {}),
+        ...(query.include !== undefined ? { include: query.include } : {}),
+        ...(query.filterType !== undefined ? { filterType: query.filterType } : {}),
+        ...(query.targetUser !== undefined ? { targetUser: query.targetUser } : {}),
+      }),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+lineRouter.get("/:accountId/albums/:albumId/media/:oid", async (c) => {
+  try {
+    const client = await albumClient(c);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const query = albumQuery(c);
+    if (!query.chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+    const mediaType = query.mediaType === "video" ? "video" : "image";
+    const response = await downloadAlbumMedia(client, c.req.param("albumId"), {
+      chatId: query.chatId,
+      oid: c.req.param("oid"),
+      mediaType,
+    });
+    return new Response(response.body, {
+      status: 200,
+      headers: {
+        "content-type":
+          response.headers.get("content-type") ??
+          (mediaType === "video" ? "video/mp4" : "image/jpeg"),
+        "cache-control": "private, max-age=300",
+      },
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── Chat safety locks ─────────────────────────
+
+lineRouter.get("/:accountId/chat-locks", async (c) => {
+  return c.json({ ok: true, chatMids: await loadLockedChats(c.req.param("accountId")) });
+});
+
+lineRouter.put("/:accountId/chat-locks/:chatMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const body = await c.req.json<{ locked?: boolean }>();
+  if (typeof body.locked !== "boolean") {
+    return c.json({ ok: false, error: "locked must be boolean" }, 400);
+  }
+  try {
+    const chatMids = await setChatLocked(accountId, chatMid, body.locked);
+    return c.json({ ok: true, locked: body.locked, chatMids });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+// ─── plugins（ローカルの信頼済みプラグインのみ実行） ───
 lineRouter.get("/:accountId/plugins", async (c) => {
   const accountId = c.req.param("accountId");
   const states = getPluginStates(accountId);
   return c.json({
-    plugins: listPlugins().map((p) => ({ ...p, enabled: states[p.id] === true })),
-    runtimePending: true,
+    plugins: listPlugins().map((p) => ({
+      ...p,
+      enabled: states[p.id] === true,
+      active: isPluginActive(accountId, p.id),
+    })),
   });
 });
 
@@ -242,6 +692,9 @@ function handleError(err: unknown, c: Context<any, any, any>) {
   }
   if (err instanceof CallNotAllowedError) {
     return c.json({ ok: false, error: err.message }, 403);
+  }
+  if (err instanceof ChatLockedError) {
+    return c.json({ ok: false, error: err.message, code: "CHAT_LOCKED" }, 423);
   }
   const message = err instanceof Error ? err.message : String(err);
   const code =
@@ -313,7 +766,7 @@ function handleError(err: unknown, c: Context<any, any, any>) {
   return c.json({ ok: false, error: message }, 500);
 }
 
-// ─── GET /line/:accountId/getProfile ─────────
+// ─── GET /line/:accountId/profile ─────────────
 
 lineRouter.get("/:accountId/getProfile", async (c) => {
   const accountId = c.req.param("accountId");
@@ -367,12 +820,15 @@ lineRouter.get("/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const limitParam = Number(c.req.query("limit") ?? "30");
-  const limit = Math.min(Math.max(1, limitParam), 100);
+  const localOnly = c.req.query("local") === "1";
+  // ネットワーク RPC は従来通り最大100件。ローカル chatdb の再入室復元だけは、
+  // 前回ユーザーが見た深度を1回で戻せるよう上限を広げる。
+  const limitMax = localOnly ? 10_000 : 100;
+  const limit = Math.min(Math.max(1, limitParam), limitMax);
   const beforeMessageId = c.req.query("beforeMessageId") || undefined;
   const beforeDeliveredTimeRaw = c.req.query("beforeDeliveredTime");
   const beforeDeliveredTime = beforeDeliveredTimeRaw ? Number(beforeDeliveredTimeRaw) : undefined;
   const force = c.req.query("force") === "1";
-  const localOnly = c.req.query("local") === "1";
 
   try {
     const fetchOpts: {
@@ -387,11 +843,14 @@ lineRouter.get("/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c
     }
     if (force) fetchOpts.force = true;
     if (localOnly) fetchOpts.localOnly = true;
-    const messages = await fetchMessages(accountId, chatMid, limit, fetchOpts);
+    const fetchLimit = localOnly ? limit + 1 : limit;
+    const fetched = await fetchMessages(accountId, chatMid, fetchLimit, fetchOpts);
+    const hasMore = localOnly ? fetched.length > limit : fetched.length >= limit;
+    const messages = localOnly && fetched.length > limit ? fetched.slice(0, limit) : fetched;
     return c.json({
       ok: true,
       messages,
-      hasMore: messages.length >= limit,
+      hasMore,
       fromCache: localOnly || (!force && !beforeMessageId),
     });
   } catch (err) {
@@ -405,7 +864,18 @@ lineRouter.get("/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c
   }
 });
 
-// ─── GET /line/:accountId/fetchOperations ─────
+// ─── POST /line/:accountId/chatdb/rebuild ────
+// 既存DBを退避して、復元・同期混在後の時系列と最新チャット要約を正規化する。
+lineRouter.post("/:accountId/chatdb/rebuild", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    return c.json({ ok: true, ...(await rebuildAccountChatDb(accountId)) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── GET /line/:accountId/events/poll ─────────
 // Talk Push バッファから新着メッセージを取得（フロント定期 poll 用）
 
 lineRouter.get("/:accountId/fetchOperations", async (c) => {
@@ -427,7 +897,7 @@ lineRouter.get("/:accountId/fetchOperations", async (c) => {
 // ─── GET /line/:accountId/messages/:chatMid/delta ───
 // after より新しいメッセージのみ（Push 取りこぼし fallback）
 
-lineRouter.get("/:accountId/messages/:chatMid/delta", async (c) => {
+lineRouter.get("/:accountId/getMessageDelta/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const after = c.req.query("after") ?? "";
@@ -455,8 +925,8 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   const preview = (c.req.query("preview") ?? "1") !== "0";
 
   try {
-    // サーバー側キャッシュ優先（端末乗り換え後も画像を保持）
-    const cached = await readMediaCache(accountId, chatMid, messageId);
+    // サーバー側の永続保存を優先（端末乗り換え後もメディアを保持）
+    const cached = await readMediaStorage(accountId, chatMid, messageId);
     if (cached) {
       return new Response(cached.buf as unknown as BodyInit, {
         status: 200,
@@ -468,7 +938,7 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
       });
     }
     const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
-    void writeMediaCache(accountId, chatMid, messageId, bytes, contentType);
+    void writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
@@ -540,7 +1010,7 @@ lineRouter.get("/:accountId/export/:chatMid", async (c) => {
 
 // ─── GET /line/:accountId/contact/:targetMid ──
 
-lineRouter.get("/:accountId/contact/:targetMid", async (c) => {
+lineRouter.get("/:accountId/getContact/:targetMid", async (c) => {
   const accountId = c.req.param("accountId");
   const targetMid = c.req.param("targetMid");
   try {
@@ -552,7 +1022,7 @@ lineRouter.get("/:accountId/contact/:targetMid", async (c) => {
   }
 });
 
-// ─── POST /line/:accountId/sendMessage ────────
+// ─── POST /line/:accountId/send ───────────────
 
 lineRouter.post("/:accountId/sendMessage", async (c) => {
   const accountId = c.req.param("accountId");
@@ -625,7 +1095,7 @@ lineRouter.get("/:accountId/stickers", async (c) => {
   }
 });
 
-// ─── POST /line/:accountId/canCreateCombinationSticker ──────────
+// ─── POST /line/:accountId/combination-stickers/can-create ───────
 // { packageIds: string[] }
 
 lineRouter.post("/:accountId/canCreateCombinationSticker", async (c) => {
@@ -659,7 +1129,7 @@ lineRouter.post("/:accountId/isStickerAvailableForCombinationSticker", async (c)
   }
 });
 
-// ─── POST /line/:accountId/createCombinationSticker ──
+// ─── POST /line/:accountId/combination-stickers ───────
 // { items: [{ packageId, stickerId }], idOfPreviousVersionOfCombinationSticker? }
 
 lineRouter.post("/:accountId/createCombinationSticker", async (c) => {
@@ -835,7 +1305,7 @@ lineRouter.post("/:accountId/send-media-batch", async (c) => {
   }
 });
 
-// ─── POST /line/:accountId/unsendMessage ──────
+// ─── POST /line/:accountId/unsend ─────────────
 
 lineRouter.post("/:accountId/unsendMessage", async (c) => {
   const accountId = c.req.param("accountId");
@@ -877,7 +1347,7 @@ lineRouter.post("/:accountId/restore", async (c) => {
 
 // ─── GET /line/:accountId/messages/:chatMid/:messageId/history ──
 
-lineRouter.get("/:accountId/messages/:chatMid/:messageId/history", async (c) => {
+lineRouter.get("/:accountId/getMessageHistory/:chatMid/:messageId", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const messageId = c.req.param("messageId");
@@ -910,7 +1380,7 @@ lineRouter.post("/:accountId/edit", async (c) => {
 
 // ─── GET /line/:accountId/edit-notice/:chatMid ──
 
-lineRouter.get("/:accountId/edit-notice/:chatMid", async (c) => {
+lineRouter.get("/:accountId/getEditNotice/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
 
@@ -922,7 +1392,7 @@ lineRouter.get("/:accountId/edit-notice/:chatMid", async (c) => {
   }
 });
 
-// ─── POST /line/:accountId/sendChatChecked ────
+// ─── POST /line/:accountId/read ───────────────
 
 lineRouter.post("/:accountId/sendChatChecked", async (c) => {
   const accountId = c.req.param("accountId");
@@ -940,7 +1410,35 @@ lineRouter.post("/:accountId/sendChatChecked", async (c) => {
   }
 });
 
-// ─── GET /line/:accountId/getMessageReadRange/:chatMid ───
+lineRouter.post("/:accountId/read-batch", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    targets?: Array<{ chatMid?: string; lastMessageId?: string }>;
+  }>();
+  const targets = (body.targets ?? [])
+    .filter((target) => target.chatMid && target.lastMessageId)
+    .map((target) => ({ chatMid: target.chatMid!, lastMessageId: target.lastMessageId! }));
+  if (targets.length === 0) return c.json({ ok: false, error: "targets required" }, 400);
+  try {
+    return c.json({ ok: true, count: await markAsReadBatch(accountId, targets) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/read-all", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req
+    .json<{ chatMids?: string[] }>()
+    .catch(() => ({}) as { chatMids?: string[] });
+  try {
+    return c.json({ ok: true, count: await markAllAsRead(accountId, body.chatMids) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── GET /line/:accountId/read-receipts/:chatMid ───
 // 自分の送信メッセージの既読状態を軽量取得（ポーリング用）
 
 type ReadReceiptPayload = {
@@ -956,6 +1454,7 @@ lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const idsParam = c.req.query("ids") ?? "";
+  const force = c.req.query("force") === "1";
   const messageIds = idsParam
     .split(",")
     .map((s) => s.trim())
@@ -966,7 +1465,8 @@ lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
     return c.json({ ok: false, error: "ids query required" }, 400);
   }
 
-  const inflightKey = `${accountId}:${chatMid}`;
+  // 同一チャットでも要求する messageIds が違えば結果も違う。
+  const inflightKey = `${accountId}:${chatMid}:${force ? "force:" : ""}${[...new Set(messageIds)].sort().join(",")}`;
 
   try {
     const existing = readReceiptInflight.get(inflightKey);
@@ -974,7 +1474,7 @@ lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
       existing ??
       (() => {
         const p = (async (): Promise<ReadReceiptPayload> => {
-          const result = await getReadReceiptsForChat(accountId, chatMid, messageIds);
+          const result = await getReadReceiptsForChat(accountId, chatMid, messageIds, { force });
           const payload: ReadReceiptPayload = {
             receipts: result.receipts,
             ...(result.peerReadUpTo ? { peerReadUpTo: result.peerReadUpTo } : {}),
@@ -1006,7 +1506,7 @@ lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
   }
 });
 
-// ─── PATCH /line/:accountId/updateProfileAttributes ──
+// ─── PATCH /line/:accountId/profile ───────────
 // Desktop: TalkService_updateProfileAttributes
 
 lineRouter.patch("/:accountId/updateProfileAttributes", async (c) => {
@@ -1042,13 +1542,17 @@ lineRouter.get("/:accountId/vyline/cache", async (c) => {
 });
 
 // ─── DELETE /line/:accountId/vyline/cache ─────────
-// メディア一時キャッシュ（data/media-cache）を削除
+// 再取得可能な CDN / アイコンキャッシュだけを削除する。
+// 送信済みメディアは /saved-media で明示的に削除する。
 
 lineRouter.delete("/:accountId/vyline/cache", async (c) => {
-  const accountId = c.req.param("accountId");
   try {
-    const { clearMediaCache } = await import("../storage/mediaCache.js");
-    const removed = await clearMediaCache();
+    const [{ clearCdnCache }, { clearIconCache }] = await Promise.all([
+      import("../storage/cdnAssetCache.js"),
+      import("../storage/cdnAssetCache.js"),
+    ]);
+    const [cdnRemoved, iconRemoved] = await Promise.all([clearCdnCache(), clearIconCache()]);
+    const removed = cdnRemoved + iconRemoved;
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -1086,7 +1590,7 @@ lineRouter.post("/:accountId/vyline/warm", async (c) => {
 
 // ─── GET /line/:accountId/chats/:chatMid/members
 
-lineRouter.get("/:accountId/chats/:chatMid/members", async (c) => {
+lineRouter.get("/:accountId/getChatMembers/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   try {
@@ -1134,7 +1638,7 @@ lineRouter.post("/:accountId/profile/background", async (c) => {
 // ─── GET /line/:accountId/common-groups/:targetMid ─
 // 共通のグループ（VylineCache 一括読み・RPC なし）
 
-lineRouter.get("/:accountId/common-groups/:targetMid", async (c) => {
+lineRouter.get("/:accountId/getCommonGroupIds/:targetMid", async (c) => {
   const accountId = c.req.param("accountId");
   const targetMid = c.req.param("targetMid");
   const exclude = c.req.query("exclude");
@@ -1153,7 +1657,7 @@ lineRouter.get("/:accountId/common-groups/:targetMid", async (c) => {
 // ─── PATCH /line/:accountId/chats/:chatMid ────
 // Desktop: TalkService_updateChat (NAME)
 
-lineRouter.patch("/:accountId/updateChat/:chatMid", async (c) => {
+lineRouter.patch("/:accountId/chats/:chatMid", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const body = await c.req.json<{ name?: string }>();
@@ -1249,7 +1753,20 @@ lineRouter.get("/:accountId/getBlockedContactIds", async (c) => {
   }
 });
 
-// ─── POST /line/:accountId/setNotificationsEnabled ────────
+// ─── POST /line/:accountId/block-verification ─────────────
+// Beta: authoritative friend/block-list check only; no message or sticker probe.
+lineRouter.post("/:accountId/block-verification", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body: { mid?: string } = await c.req.json<{ mid?: string }>().catch(() => ({}));
+  try {
+    const results = await verifyFriendBlockStatus(accountId, body.mid);
+    return c.json({ ok: true, results });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+// ─── POST /line/:accountId/notifications ────────
 // モバイルプッシュ通知の有効/無効を切替 (TalkService_setNotificationsEnabled, type=USER)
 
 lineRouter.post("/:accountId/setNotificationsEnabled", async (c) => {
@@ -1860,6 +2377,121 @@ lineRouter.delete("/:accountId/removeChatRoomAnnouncement/:chatMid/:seq", async 
   }
 });
 
+// ─── iTunes / Apple Devices: iOS バックアップ復元 ───
+
+lineRouter.get("/:accountId/ios-backups", async (c) => {
+  try {
+    const { listIosBackups } = await import("../service/iosBackupService.js");
+    const devices = await listIosBackups();
+    return c.json({
+      ok: true,
+      devices: devices.map(({ backupRoot: _backupRoot, ...device }) => device),
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/ios-backup", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const body = await c.req.json<{ udid?: string; password?: string }>();
+    if (!body.udid || !body.password) {
+      return c.json({ ok: false, error: "udid と password が必要です" }, 400);
+    }
+    const { startIosBackupRestore } = await import("../service/iosBackupService.js");
+    const session = await startIosBackupRestore(accountId, body.udid, body.password);
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/restore/ios-backup/:sessionId", async (c) => {
+  const { getIosBackupSession } = await import("../service/iosBackupService.js");
+  const session = getIosBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
+  return session
+    ? c.json({ ok: true, session })
+    : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);
+});
+
+// ─── Android: naver_line DB / LEINs バックアップ復元 ───
+
+lineRouter.post("/:accountId/restore/android-backup", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!c.req.raw.body) {
+    return c.json({ ok: false, error: "Androidバックアップファイルが必要です" }, 400);
+  }
+  try {
+    const sourceName = c.req.header("X-Vyline-Backup-Name") ?? "naver_line";
+    const includeMedia = c.req.query("includeMedia") === "1";
+    const { startAndroidBackupRestore } = await import("../service/androidBackupService.js");
+    const session = await startAndroidBackupRestore(accountId, sourceName, c.req.raw, includeMedia);
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const body = await c.req.json<{
+      sourceName?: string;
+      includeMedia?: boolean;
+      expectedBytes?: number;
+    }>();
+    const { createAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
+    const upload = await createAndroidBackupChunkUpload(
+      accountId,
+      body.sourceName ?? "naver_line",
+      body.includeMedia === true,
+      Number(body.expectedBytes ?? 0),
+    );
+    return c.json({ ok: true, ...upload });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/chunks/:index", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!c.req.raw.body) {
+    return c.json({ ok: false, error: "chunkデータが必要です" }, 400);
+  }
+  try {
+    const { appendAndroidBackupChunk } = await import("../service/androidBackupService.js");
+    const result = await appendAndroidBackupChunk(
+      accountId,
+      c.req.param("uploadId"),
+      Number(c.req.param("index")),
+      c.req.raw,
+    );
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/complete", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const { completeAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
+    const session = await completeAndroidBackupChunkUpload(accountId, c.req.param("uploadId"));
+    return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/restore/android-backup/:sessionId", async (c) => {
+  const { getAndroidBackupSession } = await import("../service/androidBackupService.js");
+  const session = getAndroidBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
+  return session
+    ? c.json({ ok: true, session })
+    : c.json({ ok: false, error: "復元セッションが見つかりません" }, 404);
+});
+
 // ─── VylineBackup: スナップショット作成 / 一覧 / 復元 ───
 
 lineRouter.get("/:accountId/backup/chats", async (c) => {
@@ -1927,6 +2559,50 @@ lineRouter.delete("/:accountId/backup/:backupId", async (c) => {
   }
 });
 
+// ─── Credentials: encrypted handoff / channel-token lifecycle ───
+
+lineRouter.post("/:accountId/credentials/handoff/export", async (c) => {
+  const accountId = c.req.param("accountId");
+  const { passphrase } = await c.req.json<{ passphrase: string }>();
+  try {
+    const { exportCredentialHandoff } = await import("../storage/tokenStore.js");
+    return c.json({ ok: true, bundle: await exportCredentialHandoff(accountId, passphrase) });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/credentials/handoff/import", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{
+    passphrase: string;
+    bundle: import("../storage/tokenStore.js").CredentialHandoffBundle;
+  }>();
+  try {
+    const { importCredentialHandoff } = await import("../storage/tokenStore.js");
+    await importCredentialHandoff(body.bundle, body.passphrase, accountId);
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/credentials/channel/:channelId/reissue", async (c) => {
+  const accountId = c.req.param("accountId");
+  const channelId = c.req.param("channelId");
+  try {
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const base = client.base as typeof client.base & {
+      channelTokens: { reissue(id: string, approve?: boolean): Promise<string> };
+    };
+    await base.channelTokens.reissue(channelId, true);
+    return c.json({ ok: true, channelId, reissued: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.get("/:accountId/log", async (c) => {
   const accountId = c.req.param("accountId");
   const { readRecentMessageLog } = await import("../storage/messageLog.js");
@@ -1987,8 +2663,8 @@ lineRouter.delete("/:accountId/vyline/cache/icons", async (c) => {
 lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const { clearMediaCache } = await import("../storage/mediaCache.js");
-    const removed = await clearMediaCache();
+    const { clearMediaStorage } = await import("../storage/mediaStorage.js");
+    const removed = await clearMediaStorage();
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -2003,8 +2679,8 @@ lineRouter.delete("/:accountId/vyline/saved-media/:type", async (c) => {
     return c.json({ ok: false, error: "invalid media type" }, 400);
   }
   try {
-    const { clearMediaCacheType } = await import("../storage/mediaCache.js");
-    const removed = await clearMediaCacheType(type as "image" | "video" | "audio" | "file");
+    const { clearMediaStorageType } = await import("../storage/mediaStorage.js");
+    const removed = await clearMediaStorageType(type as "image" | "video" | "audio" | "file");
     return c.json({ ok: true, removed, type });
   } catch (err) {
     return handleError(err, c);

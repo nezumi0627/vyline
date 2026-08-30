@@ -1,0 +1,33 @@
+{
+  "name": "vyl",
+  "version": "0.1.0",
+  "description": "Short bunx entrypoint for the Vyline CLI.",
+  "license": "MIT",
+  "type": "module",
+  "homepage": "https://github.com/nezumi0627/vyline#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/nezumi0627/vyline.git",
+    "directory": "Vyline/packages/vyl"
+  },
+  "bugs": {
+    "url": "https://github.com/nezumi0627/vyline/issues"
+  },
+  "keywords": ["vyline", "vyl", "bunx", "cli"],
+  "bin": {
+    "vyl": "src/index.ts",
+    "vyline": "src/index.ts"
+  },
+  "files": ["src", "README.md", "package.json"],
+  "scripts": {
+    "dev": "bun src/index.ts",
+    "typecheck": "bun --check src/index.ts",
+    "prepublishOnly": "bun run typecheck"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "dependencies": {
+    "@vyline/cli": "0.1.0"
+  }
+}

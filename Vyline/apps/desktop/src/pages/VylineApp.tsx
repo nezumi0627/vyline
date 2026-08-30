@@ -1,22 +1,16 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
 import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
-import { CustomCursor } from "../components/vyline-cursor.js";
+import { HubHome } from "../components/hub-home.js";
 import { ChatShell } from "../components/chat-shell.js";
+import { SettingsSections } from "../components/settings-sections.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
-
-const HubHome = lazy(() =>
-  import("../components/hub-home.js").then((module) => ({ default: module.HubHome })),
-);
-const SettingsSections = lazy(() =>
-  import("../components/settings-sections.js").then((module) => ({
-    default: module.SettingsSections,
-  })),
-);
+import { api } from "../api/client.js";
+import { VylineSetup } from "../components/vyline-setup.js";
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -28,11 +22,24 @@ export function VylineApp() {
   const showUpdateNote = useStore((s) => s.showUpdateNote);
   const indexing = useStore((s) => s.indexing);
   const notice = useStore((s) => s.notice);
+  const mid = useStore((s) => s.self.mid);
+  const profileName = useStore((s) => s.self.name);
+  const accountId = useStore((s) => s.accountId);
   const [consented, setConsented] = useState(() => hasTosConsent());
+  const [setupDone, setSetupDone] = useState(false);
 
   useEffect(() => {
     void bootstrap();
   }, [bootstrap]);
+
+  useEffect(() => {
+    const token = localStorage.getItem("vyline:subdevice-session");
+    if (!token) return;
+    const beat = () => void api.subdevices.heartbeat(token).catch(() => undefined);
+    beat();
+    const timer = window.setInterval(beat, 30_000);
+    return () => window.clearInterval(timer);
+  }, []);
 
   // 同意前は同期・通信を開始しない
   useVylineSync(initialized && accounts.length > 0 && consented);
@@ -70,22 +77,36 @@ export function VylineApp() {
     );
   }
 
+  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
+    return (
+      <VylineSetup
+        mid={mid}
+        accountId={accountId}
+        profileName={profileName}
+        onComplete={() => setSetupDone(true)}
+      />
+    );
+  }
+
   return (
     <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
-      <CustomCursor />
       {indexing?.active && <FloatNotice>{indexing.label}</FloatNotice>}
       {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
       {screen === "home" && showUpdateNote && (
-        <Suspense fallback={null}>
+        <div className="vy-screen-enter h-full">
           <HubHome />
-        </Suspense>
+        </div>
       )}
-      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && <ChatShell />}
+      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && (
+        <div className="vy-screen-enter h-full">
+          <ChatShell />
+        </div>
+      )}
       {screen === "settings" && (
-        <Suspense fallback={null}>
+        <div className="vy-screen-enter h-full">
           <SettingsSections />
-        </Suspense>
+        </div>
       )}
     </main>
   );

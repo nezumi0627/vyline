@@ -18,6 +18,7 @@ import type {
 } from "@vyline/types";
 import { childLogger } from "../logger.js";
 import { accountFile, readAccountJson } from "./accountDirs.js";
+import { writeTextAtomic } from "./safeFile.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -26,8 +27,6 @@ const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
-/** チャットあたりの保持上限。無制限保存はメモリ・ディスク・全体書き込みを肥大させるため抑止 */
-const MAX_MESSAGES_PER_CHAT_DB = Number(process.env.VYLINE_CHATDB_MAX_MSGS_PER_CHAT ?? 500);
 
 export interface StoredChat {
   mid: string;
@@ -40,6 +39,8 @@ export interface StoredChat {
   thumbnailUrl?: string;
   unreadCount?: number;
   isOfficial?: boolean;
+  /** 外部バックアップから復元された履歴を持つ。退出済みグループも履歴として表示するために使う。 */
+  restoredHistory?: boolean;
   updatedAt: string;
 }
 
@@ -74,6 +75,8 @@ interface ChatDbMeta {
   chatsSyncedAt?: string;
   /** chatMid → ISO */
   messagesSyncedAt?: Record<string, string>;
+  /** 自分が受信メッセージを既読にした最終位置（復元DBにも適用する）。 */
+  localReadUpTo?: Record<string, { messageId: string; at: string }>;
 }
 
 interface ChatDb {
@@ -82,9 +85,64 @@ interface ChatDb {
   messages: Record<string, Record<string, StoredMessage>>;
 }
 
+export interface ChatDbRecords {
+  chats: Record<string, StoredChat>;
+  messages: Record<string, Record<string, StoredMessage>>;
+}
+
+export interface ChatDbMergeResult {
+  importedChats: number;
+  skippedChats: number;
+  importedMessages: number;
+  skippedMessages: number;
+}
+
+type MessageCursor = Pick<StoredMessage, "id" | "createdTime">;
+
+function compareMessageIdsAscending(left: string, right: string): number {
+  if (left === right) return 0;
+  try {
+    return BigInt(left) < BigInt(right) ? -1 : 1;
+  } catch {
+    return left.localeCompare(right);
+  }
+}
+
+/** 全経路で共通に使う複合順序: 新しい時刻、同時刻なら大きいメッセージIDが先。 */
+export function compareMessagesNewestFirst(left: MessageCursor, right: MessageCursor): number {
+  const byTime = right.createdTime - left.createdTime;
+  return byTime || -compareMessageIdsAscending(left.id, right.id);
+}
+
+export function compareMessagesOldestFirst(left: MessageCursor, right: MessageCursor): number {
+  const byTime = left.createdTime - right.createdTime;
+  return byTime || compareMessageIdsAscending(left.id, right.id);
+}
+
+function previewForMessage(message: StoredMessage): string {
+  const text = message.text?.trim();
+  if (text) return text.slice(0, 120);
+  switch (message.contentType.toUpperCase()) {
+    case "IMAGE":
+      return "画像";
+    case "VIDEO":
+      return "動画";
+    case "AUDIO":
+      return "音声";
+    case "FILE":
+      return "ファイル";
+    case "STICKER":
+      return "スタンプ";
+    default:
+      return message.contentType || "メッセージ";
+  }
+}
+
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
+const dirtyVersion = new Map<string, number>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const flushInFlight = new Map<string, Promise<void>>();
 
 function dbPath(accountId: string): string {
   return accountFile(accountId, "chatdb.json");
@@ -155,26 +213,75 @@ function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
 
 function scheduleSave(accountId: string): void {
   dirty.add(accountId);
+  dirtyVersion.set(accountId, (dirtyVersion.get(accountId) ?? 0) + 1);
   const prev = saveTimers.get(accountId);
   if (prev) clearTimeout(prev);
   saveTimers.set(
     accountId,
     setTimeout(() => {
-      void flushDb(accountId);
+      saveTimers.delete(accountId);
+      // Background saves are best-effort, but failures remain dirty so an
+      // explicit restore/rebuild flush can retry and surface the error.
+      void flushDb(accountId).catch(() => undefined);
     }, SAVE_DEBOUNCE_MS),
   );
 }
 
+/** 既読情報はサーバ応答の欠落で巻き戻さない。未読を既読へ昇格させるのは明示値だけにする。 */
+export function mergeStoredReadState(
+  previous: Pick<StoredMessage, "seen" | "readCount" | "readBy"> | undefined,
+  incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy">,
+): Pick<StoredMessage, "seen" | "readCount" | "readBy"> {
+  const readBy = [...new Set([...(previous?.readBy ?? []), ...(incoming.readBy ?? [])])];
+  const readCount = Math.max(previous?.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
+  return {
+    ...(previous?.seen === true || incoming.seen === true ? { seen: true } : {}),
+    ...(readCount > 0 ? { readCount } : {}),
+    ...(readBy.length > 0 ? { readBy } : {}),
+  };
+}
+
 async function flushDb(accountId: string): Promise<void> {
+  const existingFlush = flushInFlight.get(accountId);
+  if (existingFlush) return existingFlush;
   if (!dirty.has(accountId)) return;
-  dirty.delete(accountId);
-  const db = memory.get(accountId);
-  if (!db) return;
-  await ensureDataDir();
+
+  const run = (async () => {
+    while (dirty.has(accountId)) {
+      const db = memory.get(accountId);
+      if (!db) {
+        dirty.delete(accountId);
+        return;
+      }
+
+      await ensureDataDir();
+      const version = dirtyVersion.get(accountId) ?? 0;
+      // Serialize before the asynchronous write starts so mutations that occur
+      // during I/O can be detected by dirtyVersion and written in a second pass.
+      const serialized = JSON.stringify(db);
+      try {
+        await writeTextAtomic(dbPath(accountId), serialized);
+      } catch (err) {
+        // Never convert a failed restore into a successful in-memory-only one.
+        // Keep the DB dirty and let explicit flush callers observe the error.
+        dirty.add(accountId);
+        log.warn({ accountId, err }, "failed to save chat db");
+        throw err;
+      }
+
+      if ((dirtyVersion.get(accountId) ?? 0) === version) {
+        dirty.delete(accountId);
+      }
+      // If another mutation happened while writing, dirty remains set and the
+      // loop atomically writes the newer snapshot before resolving.
+    }
+  })();
+
+  flushInFlight.set(accountId, run);
   try {
-    await writeFile(dbPath(accountId), JSON.stringify(db), "utf-8");
-  } catch (err) {
-    log.warn({ accountId, err }, "failed to save chat db");
+    await run;
+  } finally {
+    if (flushInFlight.get(accountId) === run) flushInFlight.delete(accountId);
   }
 }
 
@@ -191,7 +298,42 @@ export async function upsertChats(
 ): Promise<void> {
   const db = await getDb(accountId);
   for (const chat of chats) {
-    db.chats[chat.mid] = chat;
+    const existing = db.chats[chat.mid];
+    if (!existing) {
+      db.chats[chat.mid] = chat;
+      continue;
+    }
+
+    const incomingTime = chat.lastMessageTime ?? 0;
+    const existingTime = existing.lastMessageTime ?? 0;
+    const keepExistingLast = existingTime > incomingTime;
+    const incomingNameIsFallback =
+      !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
+    const incomingKindIsFallback = chat.kind === "unknown";
+
+    db.chats[chat.mid] = {
+      ...existing,
+      ...chat,
+      name: incomingNameIsFallback && existing.name ? existing.name : chat.name,
+      kind: incomingKindIsFallback ? existing.kind : chat.kind,
+      hasMessages: existing.hasMessages || chat.hasMessages,
+      lastMessageTime: Math.max(existingTime, incomingTime),
+      ...(keepExistingLast && existing.lastMessageId
+        ? { lastMessageId: existing.lastMessageId }
+        : chat.lastMessageId
+          ? { lastMessageId: chat.lastMessageId }
+          : existing.lastMessageId
+            ? { lastMessageId: existing.lastMessageId }
+            : {}),
+      ...(keepExistingLast && existing.lastMessagePreview
+        ? { lastMessagePreview: existing.lastMessagePreview }
+        : chat.lastMessagePreview
+          ? { lastMessagePreview: chat.lastMessagePreview }
+          : existing.lastMessagePreview
+            ? { lastMessagePreview: existing.lastMessagePreview }
+            : {}),
+      ...(existing.restoredHistory || chat.restoredHistory ? { restoredHistory: true } : {}),
+    };
   }
   if (meta?.boxOrder) db.meta.boxOrder = meta.boxOrder;
   if (meta?.lastOpRevision != null) db.meta.lastOpRevision = meta.lastOpRevision;
@@ -215,6 +357,7 @@ export async function upsertMessages(
     const next: StoredMessage = {
       ...message,
       history: prev?.history?.length ? prev.history : message.history,
+      ...mergeStoredReadState(prev, message),
     };
     const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
     if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
@@ -227,16 +370,57 @@ export async function upsertMessages(
     byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
-  // 上限を超えたら古いものから落とす（全ファイル書き換えコストの抑止）
-  const ids = Object.keys(byChat);
-  if (ids.length > MAX_MESSAGES_PER_CHAT_DB) {
-    const drop = ids
-      .sort((a, b) => (byChat[a]?.createdTime ?? 0) - (byChat[b]?.createdTime ?? 0))
-      .slice(0, ids.length - MAX_MESSAGES_PER_CHAT_DB);
-    for (const id of drop) delete byChat[id];
-  }
+  applyLocalReadWatermark(byChat, db.meta.localReadUpTo?.[chatMid]?.messageId);
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
+  scheduleSave(accountId);
+}
+
+/**
+ * 自分が送った既読位置を、受信メッセージだけへ単調に反映する。
+ * 相手が読んだ自分のメッセージの既読状態とは別の情報である。
+ */
+export function applyLocalReadWatermark(
+  messages: Record<string, StoredMessage>,
+  upToMessageId: string | undefined,
+): void {
+  if (!upToMessageId) return;
+  let upTo: bigint;
+  try {
+    upTo = BigInt(upToMessageId);
+  } catch {
+    return;
+  }
+  for (const message of Object.values(messages)) {
+    if (message.isMyMessage) continue;
+    try {
+      if (BigInt(message.id) <= upTo) message.seen = true;
+    } catch {
+      /* non-numeric local IDs cannot be part of a server read range */
+    }
+  }
+}
+
+/** 既読リクエスト成功後、同じ地点以前の受信メッセージをDBへ単調に保存する。 */
+export async function markStoredMessagesReadThrough(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<void> {
+  const db = await getDb(accountId);
+  const current = db.meta.localReadUpTo?.[chatMid]?.messageId;
+  try {
+    if (current && BigInt(current) > BigInt(messageId)) return;
+  } catch {
+    /* replace malformed legacy cursor */
+  }
+  db.meta.localReadUpTo = {
+    ...db.meta.localReadUpTo,
+    [chatMid]: { messageId, at: new Date().toISOString() },
+  };
+  applyLocalReadWatermark(db.messages[chatMid] ?? {}, messageId);
+  const chat = db.chats[chatMid];
+  if (chat) chat.unreadCount = 0;
   scheduleSave(accountId);
 }
 
@@ -325,12 +509,33 @@ export async function getMessages(
   accountId: string,
   chatMid: string,
   limit: number,
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number },
 ): Promise<StoredMessage[]> {
   const db = await getDb(accountId);
   const byChat = db.messages[chatMid];
   if (!byChat) return [];
+  const beforeTime = opts?.beforeDeliveredTime;
+  const beforeIdBigInt = opts?.beforeMessageId
+    ? (() => {
+        try {
+          return BigInt(opts.beforeMessageId);
+        } catch {
+          return null;
+        }
+      })()
+    : null;
   return Object.values(byChat)
-    .sort((a, b) => b.createdTime - a.createdTime)
+    .filter((message) => {
+      if (beforeTime == null) return true;
+      if (message.createdTime < beforeTime) return true;
+      if (message.createdTime > beforeTime || beforeIdBigInt == null) return false;
+      try {
+        return BigInt(message.id) < beforeIdBigInt;
+      } catch {
+        return false;
+      }
+    })
+    .sort(compareMessagesNewestFirst)
     .slice(0, limit);
 }
 
@@ -359,14 +564,20 @@ function storedChatToChat(stored: StoredChat): Chat {
   if (stored.lastMessagePreview) chat.lastMessagePreview = stored.lastMessagePreview;
   if (stored.unreadCount != null) chat.unreadCount = stored.unreadCount;
   if (stored.isOfficial) chat.isOfficial = true;
+  if (stored.restoredHistory) chat.restoredHistory = true;
   return chat;
 }
 
 function storedMessageToMessage(stored: StoredMessage): Message {
+  // Older Android/iOS restores stored received group messages with to=self MID.
+  // Normalize on read so already-imported histories become visible immediately
+  // after upgrading, without requiring users to delete or re-import chatdb.
+  const to =
+    stored.chatMid.startsWith("c") || stored.chatMid.startsWith("r") ? stored.chatMid : stored.to;
   const msg: Message = {
     id: stored.id,
     from: stored.from,
-    to: stored.to,
+    to,
     text: stored.text,
     contentType: stored.contentType,
     createdTime: stored.createdTime,
@@ -418,8 +629,9 @@ export async function getStoredMessages(
   accountId: string,
   chatMid: string,
   limit: number,
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number },
 ): Promise<Message[]> {
-  const stored = await getMessages(accountId, chatMid, limit);
+  const stored = await getMessages(accountId, chatMid, limit, opts);
   return stored.map(storedMessageToMessage);
 }
 
@@ -510,14 +722,172 @@ export async function importChatDb(
     }
     db.messages[chatMid] = target;
   }
+  for (const [chatMid, messages] of Object.entries(db.messages)) {
+    applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
+  }
   if (data.meta?.boxOrder) db.meta.boxOrder = data.meta.boxOrder;
   if (data.meta?.chatsSyncedAt) db.meta.chatsSyncedAt = data.meta.chatsSyncedAt;
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   for (const [chatMid, iso] of Object.entries(data.meta?.messagesSyncedAt ?? {})) {
     db.meta.messagesSyncedAt[chatMid] = iso;
   }
+  rebuildChatDbRecords(db);
   scheduleSave(accountId);
   return { chats: chatCount, messages: messageCount };
+}
+
+/** 外部履歴を追加専用でマージする。既存メッセージは上書きしないため再実行できる。 */
+export function mergeChatDbRecords(
+  target: ChatDbRecords,
+  incoming: ChatDbRecords,
+): ChatDbMergeResult {
+  let importedChats = 0;
+  let skippedChats = 0;
+  let importedMessages = 0;
+  let skippedMessages = 0;
+
+  for (const [mid, incomingChat] of Object.entries(incoming.chats ?? {})) {
+    const existing = target.chats[mid];
+    if (!existing) {
+      target.chats[mid] = incomingChat;
+      importedChats++;
+      continue;
+    }
+
+    skippedChats++;
+    const incomingIsNewer = (incomingChat.lastMessageTime ?? 0) > (existing.lastMessageTime ?? 0);
+    const incomingKindShouldWin =
+      incomingChat.kind !== "unknown" &&
+      (existing.kind === "unknown" ||
+        ((mid.startsWith("c") || mid.startsWith("r")) && incomingChat.kind === "group"));
+    target.chats[mid] = {
+      ...existing,
+      kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
+      hasMessages: existing.hasMessages || incomingChat.hasMessages,
+      ...(existing.restoredHistory || incomingChat.restoredHistory
+        ? { restoredHistory: true }
+        : {}),
+      lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
+      ...(incomingIsNewer && incomingChat.lastMessageId
+        ? { lastMessageId: incomingChat.lastMessageId }
+        : {}),
+      ...(incomingIsNewer && incomingChat.lastMessagePreview
+        ? { lastMessagePreview: incomingChat.lastMessagePreview }
+        : {}),
+      ...(existing.name === existing.mid && incomingChat.name ? { name: incomingChat.name } : {}),
+    };
+  }
+
+  for (const [chatMid, incomingMessages] of Object.entries(incoming.messages ?? {})) {
+    const targetMessages = target.messages[chatMid] ?? {};
+    for (const [id, incomingMessage] of Object.entries(incomingMessages)) {
+      const existing = targetMessages[id];
+      if (existing) {
+        // 通常同期を優先しつつ、iOS側にしかない本文・メディア情報は欠損補完する。
+        targetMessages[id] = {
+          ...incomingMessage,
+          ...existing,
+          text: existing.text ?? incomingMessage.text,
+          contentType:
+            existing.contentType && existing.contentType !== "NONE"
+              ? existing.contentType
+              : incomingMessage.contentType,
+          contentMetadata: {
+            ...(incomingMessage.contentMetadata ?? {}),
+            ...(existing.contentMetadata ?? {}),
+          },
+          createdTime:
+            Number.isFinite(existing.createdTime) && existing.createdTime > 0
+              ? existing.createdTime
+              : incomingMessage.createdTime,
+          savedAt: existing.savedAt || incomingMessage.savedAt,
+        };
+        skippedMessages++;
+        continue;
+      }
+      targetMessages[id] = incomingMessage;
+      importedMessages++;
+    }
+
+    target.messages[chatMid] = targetMessages;
+  }
+
+  rebuildChatDbRecords(target);
+  return { importedChats, skippedChats, importedMessages, skippedMessages };
+}
+
+/**
+ * iOS復元・通常同期で混在したレコードを、複合時刻順と実メッセージの最新値で正規化する。
+ * レコードは削除せず、同一IDは既存の正本を保持する。
+ */
+export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; messages: number } {
+  let messages = 0;
+  const allMids = new Set([...Object.keys(target.chats), ...Object.keys(target.messages)]);
+  for (const chatMid of allMids) {
+    const byChat = target.messages[chatMid] ?? {};
+    // Repair legacy restore records in-place as well. LINE group/room messages
+    // always target the chat MID, regardless of who sent them.
+    if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+      for (const message of Object.values(byChat)) message.to = chatMid;
+    }
+    const ordered = Object.values(byChat).sort(compareMessagesOldestFirst);
+    target.messages[chatMid] = Object.fromEntries(ordered.map((message) => [message.id, message]));
+    messages += ordered.length;
+    const latest = ordered.at(-1);
+    if (!latest) continue;
+    const existing = target.chats[chatMid];
+    target.chats[chatMid] = {
+      mid: chatMid,
+      name: existing?.name || chatMid,
+      kind: existing?.kind ?? "direct",
+      hasMessages: true,
+      lastMessageTime: latest.createdTime,
+      lastMessageId: latest.id,
+      lastMessagePreview: previewForMessage(latest),
+      ...(existing?.thumbnailUrl ? { thumbnailUrl: existing.thumbnailUrl } : {}),
+      ...(existing?.unreadCount != null ? { unreadCount: existing.unreadCount } : {}),
+      ...(existing?.isOfficial != null ? { isOfficial: existing.isOfficial } : {}),
+      ...(existing?.restoredHistory ? { restoredHistory: true } : {}),
+      updatedAt: existing?.updatedAt ?? latest.savedAt,
+    };
+  }
+  return { chats: Object.keys(target.chats).length, messages };
+}
+
+/** iOS / 外部履歴復元用の永続マージ。 */
+export async function mergeImportedChatDb(
+  accountId: string,
+  incoming: ChatDbRecords,
+): Promise<ChatDbMergeResult> {
+  const db = await getDb(accountId);
+  const result = mergeChatDbRecords(db, incoming);
+  for (const [chatMid, messages] of Object.entries(db.messages)) {
+    applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
+  }
+  // mergeChatDbRecords can normalize/repair records even when every incoming
+  // message ID already exists, so every restore attempt must become durable.
+  scheduleSave(accountId);
+  return result;
+}
+
+/** 現在のアカウントDBを退避してから、順序とチャット要約を再構築する。 */
+export async function rebuildAccountChatDb(
+  accountId: string,
+): Promise<{ chats: number; messages: number; backupFile: string }> {
+  const db = await getDb(accountId);
+  await flushDb(accountId);
+  const stamp = new Date().toISOString().replace(/[:.]/g, "-");
+  const backupFile = `chatdb.before-rebuild-${stamp}.json`;
+  await writeFile(accountFile(accountId, backupFile), JSON.stringify(db), "utf8");
+  const result = rebuildChatDbRecords(db);
+  scheduleSave(accountId);
+  await flushDb(accountId);
+  return { ...result, backupFile };
+}
+
+/** 復元完了時に、遅延保存を待たずにDBへ確実に書き出す。 */
+export async function flushAccountChatDb(accountId: string): Promise<void> {
+  await flushDb(accountId);
 }
 
 /** VylineBackup: チャット一覧とメッセージ件数（選択 UI 用） */

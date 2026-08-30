@@ -18,7 +18,7 @@
 |------|------|----------|
 | A | SBC / E2EE 鍵バックアップ | EKB / LKBS4 実装完了、16鍵復元確認。だが LKBS4 が `NO_BACKUP` 返却 → iOS トークバックアップは iCloud 保存のため Desktop SBC から取得不可と確定 |
 | B | **iOS ローカル暗号化バックアップ抽出（本編）** | **完全成功**：暗号化バックアップ解除 → 41 DB 復号 → 131 チャット × 30,111 件メッセージを JSONL 化 |
-| 現在 | **TypeScript 移植・Vyline 統合** | 外部 Python 依存を排除し、独立パッケージ `@vyline/ios-backup` として内蔵化中 |
+| 現在 | **TypeScript 移植済み、統合は未完了** | `@vyline/ios-backup` のコアと GUI/API クライアントは存在するが、バックエンド抽出サービスと BFF ルートは未実装 |
 
 ---
 
@@ -142,34 +142,35 @@
 
 ## 🏗️ 実装タスク分解
 
-### Phase 1: `@vyline/ios-backup` パッケージ作成
-- [ ] `packages/ios-backup/` ディレクトリ作成（package.json, tsconfig, src/）
-- [ ] `src/keybag.ts` — 鍵袋 TLV パーサ + RFC3394 unwrap
-- [ ] `src/manifest.ts` — Manifest.db 復号（AES-CBC iv=0）
-- [ ] `src/bplist.ts` — 最小 bplist パーサ（ZCONTENTMETADATA 用）
-- [ ] `src/extract.ts` — メイン抽出ロジック（Manifest → domain 抽出 → SQLite コピー）
-- [ ] `src/parse.ts` — Line.sqlite / UnifiedGroup.sqlite 解析 → ChatHistory 型
-- [ ] `src/index.ts` — 公開 API エクスポート
-- [ ] テスト: 実バックアップで 41 DB 抽出 → 30k msg パース検証
-- [ ] Git Submodule 化: `git submodule add <url> packages/ios-backup`
+### Phase 1: `@vyline/ios-backup` パッケージ
+- [x] `packages/ios-backup/` の `package.json`、`tsconfig.json`、`src/` を作成
+- [x] `src/keybag.ts` — 鍵袋 TLV パーサ + RFC3394 unwrap
+- [x] `src/manifest.ts` — Manifest.db 復号（AES-CBC iv=0）
+- [x] `src/bplist.ts` — 最小 bplist パーサ（ZCONTENTMETADATA 用）
+- [x] `src/extract.ts` — Manifest からの DB 抽出
+- [x] `src/parse.ts` — Line.sqlite / UnifiedGroup.sqlite 解析
+- [x] `src/index.ts` — 公開 API エクスポート
+- [ ] 実バックアップを使った自動テスト
+- [ ] Git Submodule 化（現状は本リポジトリ内の通常パッケージ）
 
 ### Phase 2: Vyline Backend 統合
-- [ ] `backend/src/tools/iosLineExtract.ts` — CLI エントリ（`bun run ios:extract`）
-- [ ] `backend/src/service/iosBackupService.ts` — サービス層（進捗コールバック付き）
-- [ ] `backend/src/api/iosBackup.ts` — BFF ルート（POST /api/ios-backup/extract）
+- [ ] `backend/src/tools/iosLineExtract.ts` — CLI エントリ（現状は不存在）
+- [ ] `backend/src/service/iosBackupService.ts` — サービス層（現状は不存在）
+- [ ] `backend/src/api/line.ts` — iOS バックアップ BFF ルート（現状は不存在）
 - [ ] 進捗 WebSocket / SSE 通知（フロント表示用）
 
 ### Phase 3: Vyline Frontend 統合
-- [ ] `apps/desktop/src/pages/SettingsBackup.tsx` — バックアップタブ UI
-- [ ] `apps/desktop/src/components/IosBackupWizard.tsx` — ウィザード（フォルダ選択→PW入力→実行→完了）
+- [x] `apps/desktop/src/components/IosBackupWizard.tsx` — ウィザード UI
+- [x] `apps/desktop/src/api/client.ts` — iOS バックアップ API クライアント定義
+- [ ] `apps/desktop/src/components/settings-sections.tsx` — 設定画面への接続確認
 - [ ] 進捗バー・ログ表示・エラーハンドリング
 - [ ] **「メディアの復元は Coming Soon」** バッジ・ツールチップ配置
 - [ ] 完了後の自動リフレッシュ（`hydrateLineData` / `pollMessagesDelta` 再実行）
 
 ### Phase 4: ドキュメント整備
-- [ ] `docs/guides/ios-backup-restore.md` — ユーザー向け手順書（本ファイルの Step 1-3 を整形）
-- [ ] `docs/analysis/ios-backup-extract.md` — 技術解説（本ファイルの技術的知見・実装詳細）
-- [ ] `README.md` 索引へのリンク追加
+- [x] `Vyline/docs/guides/ios-backup-restore.md` — ユーザー向け手順書
+- [x] `docs/analysis/ios-backup-history-extraction.md` — 技術解説
+- [x] `docs/README.md` と `docs/analysis/README.md` の索引更新
 - [ ] `CHANGELOG.md` エントリ追加
 
 ---
@@ -214,14 +215,15 @@ docs/analysis/edb-decrypt.md
 
 ### C. 新規作成対象
 ```
-Vyline/packages/ios-backup/                    # 新パッケージ（Submodule）
-Vyline/backend/src/tools/iosLineExtract.ts     # CLI
-Vyline/backend/src/service/iosBackupService.ts # サービス
-Vyline/backend/src/api/iosBackup.ts            # BFF ルート
-Vyline/apps/desktop/src/pages/SettingsBackup.tsx
+Vyline/packages/ios-backup/                    # 本リポジトリ内のパッケージ
+Vyline/backend/src/tools/iosLineExtract.ts     # 未実装
+Vyline/backend/src/service/iosBackupService.ts # 未実装
+Vyline/backend/src/api/line.ts                 # iOS ルート未実装
+Vyline/apps/desktop/src/components/settings-sections.tsx
 Vyline/apps/desktop/src/components/IosBackupWizard.tsx
-docs/guides/ios-backup-restore.md
-docs/analysis/ios-backup-extract.md
+Vyline/apps/desktop/src/api/client.ts
+Vyline/docs/guides/ios-backup-restore.md
+docs/analysis/ios-backup-history-extraction.md
 ```
 
 ---
@@ -233,16 +235,16 @@ docs/analysis/ios-backup-extract.md
 3. Vyline GUI から「iTunesから履歴を復元」ウィザードが完走し、チャット一覧に履歴が表示される
 4. 復元後、自動で `vylineCache` / E2EE 鍵 / メッセージログ / ストアが更新される
 5. 「メディアの復元は Coming Soon」が GUI とドキュメントに明記されている
-6. ユーザー向け手順書（Step 1-3）が `docs/guides/ios-backup-restore.md` にあり、設定画面からリンクされている
-7. 全変更が feature ブランチ経由で PR 作成・マージ済み
+6. ユーザー向け手順書が `Vyline/docs/guides/ios-backup-restore.md` にある
+7. バックエンド抽出サービスと BFF ルートが実装されるまで、GUI の復元操作は未提供として扱う
 
 ---
 
 ## 📝 次のアクション
 
-1. **このドキュメントを確認・承認**
-2. `packages/ios-backup/` 作成 → Phase 1 着手
-3. 並行して Phase 2-4 の雛形作成
+1. バックエンド抽出 CLI とサービスを実装する
+2. `line.ts` に BFF ルートを追加する
+3. GUI の API 呼び出しを実機バックアップで検証する
 4. 動作確認 → PR 作成 → マージ
 
 ---

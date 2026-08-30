@@ -2,6 +2,21 @@
 @tailwind components;
 @tailwind utilities;
 
+.pr-demo-stage {
+  padding: 18px;
+  background: radial-gradient(
+      circle at 18% 12%,
+      color-mix(in oklab, var(--vy-accent) 34%, transparent),
+      transparent 34%
+    ), radial-gradient(circle at 86% 88%, rgba(34, 197, 94, 0.2), transparent 30%),
+    linear-gradient(145deg, #111827, #0f172a 52%, #172554);
+}
+
+.pr-demo-shell > * {
+  height: 100%;
+  min-height: 0;
+}
+
 /*
   VyTheme (Telegram Night default). ThemeApplier が実行時に上書き。
   Tailwind v3 — @tailwind base/components/utilities
@@ -199,6 +214,44 @@
   animation: vy-scale-in 0.16s ease-out;
 }
 
+@keyframes vy-screen-in {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.vy-screen-enter {
+  animation: vy-screen-in 180ms ease-out both;
+}
+.vy-section-enter {
+  animation: vy-screen-in 160ms ease-out both;
+}
+
+/* Motion modes share the same components; only CSS timing/participation changes. */
+html[data-animation-mode="feather"] .vy-screen-enter,
+html[data-animation-mode="feather"] .vy-section-enter {
+  animation-duration: 90ms;
+}
+html[data-animation-mode="feather"] .vy-pop-in,
+html[data-animation-mode="feather"] .vy-msg-enter,
+html[data-animation-mode="feather"] .vy-drawer-in,
+html[data-animation-mode="feather"] .vy-fade-in,
+html[data-animation-mode="feather"] .vy-scale-in,
+html[data-animation-mode="feather"] .vy-emoji-pop,
+html[data-animation-mode="feather"] .vy-sticker-pop {
+  animation-duration: 90ms;
+}
+html[data-animation-mode="none"] * {
+  animation-duration: 0.001ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.001ms !important;
+  scroll-behavior: auto !important;
+}
+
 @keyframes vy-shake {
   0%,
   100% {
@@ -259,47 +312,6 @@
   border-radius: var(--vy-message-radius, 14px);
 }
 
-/* --- VylineCursor --- */
-html.vyline-cursor-on,
-html.vyline-cursor-on * {
-  cursor: none !important;
-}
-.vyline-cursor-layer {
-  position: fixed;
-  inset: 0;
-  z-index: 99999;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-.vyline-cursor-dot {
-  position: fixed;
-  top: 0;
-  left: 0;
-  width: 6px;
-  height: 6px;
-  border-radius: 999px;
-  will-change: transform;
-  pointer-events: none;
-  transition: scale 80ms ease, opacity 120ms ease;
-  box-shadow: 0 0 8px color-mix(in oklab, var(--vy-accent) 50%, transparent);
-}
-.vyline-cursor-ring {
-  position: fixed;
-  top: 0;
-  left: 0;
-  border-radius: 999px;
-  border: 1.5px solid color-mix(in oklab, var(--vy-accent) 70%, transparent);
-  will-change: transform, width, height;
-  pointer-events: none;
-  transition:
-    width 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    height 160ms cubic-bezier(0.22, 1, 0.36, 1),
-    background 160ms ease,
-    border-color 160ms ease,
-    scale 80ms ease,
-    opacity 120ms ease;
-}
-
 /* --- Typography / density / radius (settings) --- */
 :root {
   --vy-font-scale: 1;
@@ -353,6 +365,9 @@ header,
   font-size: calc(0.95rem * var(--vy-font-scale, 1)) !important;
   line-height: 1.45;
 }
+.vy-msg-text {
+  overflow-wrap: anywhere;
+}
 .vy-chat-header-title {
   font-size: calc(1.15rem * var(--vy-font-scale, 1)) !important;
   line-height: 1.35;
@@ -397,8 +412,161 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
   .vy-drawer-panel,
   .vy-fade-in,
   .vy-scale-in,
+  .vy-screen-enter,
+  .vy-section-enter,
   .vy-emoji-pop,
   .vy-sticker-pop {
     animation: none;
+  }
+}
+
+/* Temporary PR demo stage: deterministic backdrop and restrained motion for recording. */
+.pr-demo {
+  position: relative;
+  isolation: isolate;
+  background: radial-gradient(circle at 72% 40%, rgba(42, 171, 238, 0.22), transparent 30%), #09111c;
+}
+.pr-demo::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  opacity: 0.18;
+  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
+  background-size: 56px 56px;
+  mask-image: linear-gradient(to bottom, black, transparent 80%);
+}
+.pr-demo-orbit {
+  position: absolute;
+  z-index: -1;
+  width: 36rem;
+  height: 36rem;
+  border: 1px solid rgba(42, 171, 238, 0.14);
+  border-radius: 50%;
+  animation: pr-demo-float 12s ease-in-out infinite;
+}
+.pr-demo-orbit-one {
+  right: -14rem;
+  top: 10%;
+}
+.pr-demo-orbit-two {
+  left: -20rem;
+  bottom: -18rem;
+  animation-delay: -5s;
+}
+.pr-demo-copy {
+  animation: pr-demo-copy-in .55s ease both;
+}
+.pr-demo-device {
+  animation: pr-demo-device-in .7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
+}
+@keyframes pr-demo-copy-in {
+  from {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes pr-demo-device-in {
+  from {
+    opacity: 0;
+    transform: translateX(30px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0) scale(1);
+  }
+}
+@keyframes pr-demo-float {
+  0%,
+  100% {
+    transform: translate(0, 0) rotate(0deg);
+  }
+  50% {
+    transform: translate(12px, -18px) rotate(6deg);
+  }
+}
+
+/* --- Responsive chat layouts ---
+   Mobile is intentionally list-first. Tablet keeps the two-pane desktop model,
+   but trims chrome so the conversation has room for touch interaction. */
+@media (max-width: 767px) {
+  .vy-sidebar-tabs,
+  .vy-sidebar-create-group,
+  .vy-sidebar-sort-hint {
+    display: none;
+  }
+
+  .vy-sidebar-tools {
+    padding: 0.75rem;
+  }
+
+  .vy-sidebar-tools > div:first-child {
+    min-height: 2.75rem;
+  }
+
+  .vy-sidebar .vy-sidebar-row {
+    min-height: 4.25rem;
+    padding: 0.75rem 0.625rem;
+  }
+
+  .vy-chat-pane header {
+    padding-left: 0.5rem;
+    padding-right: 0.5rem;
+  }
+
+  .vy-chat-pane header > button:first-child {
+    flex: 0 0 auto;
+  }
+}
+
+@media (min-width: 768px) and (max-width: 1023px) {
+  .vy-chat-shell {
+    --sb-w: 19rem !important;
+  }
+
+  .vy-chat-sidebar-pane {
+    width: var(--sb-w) !important;
+  }
+
+  .vy-sidebar-profile {
+    gap: 0.5rem;
+    padding: 0.75rem;
+  }
+
+  .vy-sidebar-profile > button:nth-of-type(2) {
+    display: none;
+  }
+
+  .vy-sidebar-tools {
+    padding: 0 0.75rem 0.625rem;
+  }
+
+  .vy-sidebar-tabs {
+    overflow-x: auto;
+    padding-inline: 0.625rem;
+  }
+
+  .vy-sidebar-tabs button {
+    flex: 0 0 auto;
+    min-width: 3.5rem;
+  }
+
+  .vy-sidebar .vy-sidebar-row {
+    gap: 0.625rem;
+    padding: 0.625rem;
+  }
+
+  .vy-chat-pane header {
+    padding-left: 0.75rem;
+    padding-right: 0.75rem;
+  }
+
+  .vy-chat-pane header > button:not(:first-child) {
+    flex: 0 0 auto;
   }
 }
