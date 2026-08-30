@@ -1429,6 +1429,27 @@ export const api = {
             imageObjectId,
           },
         ),
+      comments: (accountId: string, postId: string, homeId: string) =>
+        request<unknown>(
+          "GET",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments?homeId=${encodeURIComponent(homeId)}`,
+        ),
+      deleteComment: (accountId: string, postId: string, commentId: string, homeId: string) =>
+        request<unknown>(
+          "DELETE",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?homeId=${encodeURIComponent(homeId)}`,
+        ),
+      likeComment: (accountId: string, commentId: string, homeId: string, likeType?: string) =>
+        request<unknown>(
+          "POST",
+          `/line/${accountId}/notes/comments/${encodeURIComponent(commentId)}/like`,
+          { homeId, likeType },
+        ),
+      unlikeComment: (accountId: string, commentId: string, homeId: string) =>
+        request<unknown>(
+          "DELETE",
+          `/line/${accountId}/notes/comments/${encodeURIComponent(commentId)}/like?homeId=${encodeURIComponent(homeId)}`,
+        ),
       uploadMedia: (accountId: string, type: "image" | "video", blob: Blob) =>
         requestBlob<{ objId: string; objHash: string }>(
           "POST",

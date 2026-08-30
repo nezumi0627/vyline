@@ -428,6 +428,19 @@ function collectPost(value: unknown): Record<string, unknown> | null {
   return record(result?.post) ?? record(feed?.post) ?? record(result?.item) ?? result;
 }
 
+function collectComments(value: unknown): Array<Record<string, unknown>> {
+  const root = record(value);
+  const result = record(root?.result) ?? root;
+  if (!result) return [];
+  for (const key of ["comments", "commentList", "items"]) {
+    const list = result[key];
+    if (Array.isArray(list)) {
+      return list.filter((item): item is Record<string, unknown> => !!record(item));
+    }
+  }
+  return [];
+}
+
 type NoteView = {
   id: string;
   homeId: string;
@@ -529,8 +542,12 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
           {item.media.slice(0, compact ? 2 : 6).map((media, index) => {
             const objectId = String(media.objectId ?? media.id ?? "");
             if (!objectId) return null;
+            const serviceName = String(media.serviceName ?? "myhome");
+            const obsNamespace = String(
+              media.obsNamespace ?? (serviceName === "privnote" ? "post" : "h"),
+            );
             const src = lineCdnProxy(
-              `https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`,
+              `https://obs.line-apps.com/r/${encodeURIComponent(serviceName)}/${encodeURIComponent(obsNamespace)}/${encodeURIComponent(objectId)}`,
             );
             return String(media.type ?? "PHOTO").toUpperCase() === "VIDEO" ? (
               <video
@@ -579,6 +596,7 @@ export function NoteModal({
   const [stickerPackageId, setStickerPackageId] = useState("");
   const [sharedPostId, setSharedPostId] = useState("");
   const [comment, setComment] = useState("");
+  const [comments, setComments] = useState<Array<Record<string, unknown>>>([]);
   const [media, setMedia] = useState<Array<{ id: string; type: "PHOTO" | "VIDEO" }>>([]);
   const [likeType, setLikeType] = useState("1001");
   const [likeInfo, setLikeInfo] = useState("");
@@ -634,6 +652,18 @@ export function NoteModal({
     setText(item.text);
     setMode("detail");
   };
+
+  const refreshComments = async (postId = selectedId) => {
+    if (!postId) return;
+    setComments(collectComments(await api.line.notes.comments(accountId, postId, chatId)));
+  };
+
+  useEffect(() => {
+    if (mode !== "detail" || !selectedId) return;
+    void refreshComments(selectedId).catch((e) =>
+      setError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [mode, selectedId, accountId, chatId]);
 
   const selectedPost = posts.find((post) => noteView(post).id === selectedId);
   const selectedSummary = selectedPost ? noteView(selectedPost) : null;
@@ -808,6 +838,78 @@ export function NoteModal({
       </div>
       <div className="rounded-2xl border border-[var(--vy-border)] p-3">
         <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">コメント</p>
+        {comments.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {comments.map((item, index) => {
+              const id = String(item.commentId ?? item.id ?? "");
+              const text = String(item.commentText ?? item.text ?? "");
+              const contentsList = Array.isArray(item.contentsList) ? item.contentsList : [];
+              return (
+                <div key={id || index} className="rounded-xl bg-[var(--vy-surface-2)] px-3 py-2.5">
+                  {text && <p className="whitespace-pre-wrap break-words text-sm">{text}</p>}
+                  {contentsList.map((content, mediaIndex) => {
+                    const ext = record(record(content)?.extData);
+                    const objectId = String(ext?.objectId ?? "");
+                    if (!objectId) return null;
+                    const serviceName = String(ext?.serviceName ?? "myhome");
+                    const obsNamespace = String(ext?.obsNamespace ?? "cmt");
+                    return (
+                      <img
+                        key={`${objectId}-${mediaIndex}`}
+                        src={lineCdnProxy(
+                          `https://obs.line-apps.com/r/${encodeURIComponent(serviceName)}/${encodeURIComponent(obsNamespace)}/${encodeURIComponent(objectId)}`,
+                        )}
+                        alt="コメント画像"
+                        className="mt-2 max-h-44 rounded-lg object-contain"
+                      />
+                    );
+                  })}
+                  {id && (
+                    <div className="mt-2 flex gap-3 text-xs text-[var(--vy-text-dim)]">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await api.line.notes.likeComment(accountId, id, chatId, likeType);
+                            await refreshComments();
+                          }, false)
+                        }
+                      >
+                        リアクション
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await api.line.notes.unlikeComment(accountId, id, chatId);
+                            await refreshComments();
+                          }, false)
+                        }
+                      >
+                        解除
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="text-red-400"
+                        onClick={() =>
+                          void run(async () => {
+                            await api.line.notes.deleteComment(accountId, selectedId, id, chatId);
+                            await refreshComments();
+                          }, false)
+                        }
+                      >
+                        取り消し
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className="flex gap-2">
           <input
             className={cn(inputCls, "flex-1")}
@@ -820,10 +922,11 @@ export function NoteModal({
             disabled={busy || !comment.trim()}
             className="rounded-lg bg-[var(--vy-accent)] px-3 text-sm text-[var(--vy-accent-contrast)] disabled:opacity-50"
             onClick={() =>
-              void run(
-                () => api.line.notes.comment(accountId, selectedId, chatId, comment.trim()),
-                false,
-              )
+              void run(async () => {
+                await api.line.notes.comment(accountId, selectedId, chatId, comment.trim());
+                setComment("");
+                await refreshComments();
+              }, false)
             }
           >
             送信
@@ -847,6 +950,8 @@ export function NoteModal({
                   comment.trim(),
                   uploaded.objId,
                 );
+                setComment("");
+                await refreshComments();
               }, false);
               e.currentTarget.value = "";
             }}

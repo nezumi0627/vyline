@@ -147,6 +147,44 @@ export async function commentNote(
   });
 }
 
+export async function listNoteComments(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+): Promise<unknown> {
+  return await client.base.timeline.listComments({ contentId: postId, homeId });
+}
+
+export async function deleteNoteComment(
+  client: VylineClient,
+  homeId: string,
+  postId: string,
+  commentId: string,
+): Promise<unknown> {
+  return await client.base.timeline.deleteComment({ contentId: postId, commentId, homeId });
+}
+
+export async function likeNoteComment(
+  client: VylineClient,
+  homeId: string,
+  commentId: string,
+  likeType?: "1001" | "1002" | "1003" | "1004" | "1005" | "1006",
+): Promise<unknown> {
+  return await client.base.timeline.likeComment({
+    commentId,
+    homeId,
+    ...(likeType ? { likeType } : {}),
+  });
+}
+
+export async function unlikeNoteComment(
+  client: VylineClient,
+  homeId: string,
+  commentId: string,
+): Promise<unknown> {
+  return await client.base.timeline.unlikeComment({ commentId, homeId });
+}
+
 export async function uploadNoteMedia(
   client: VylineClient,
   type: "image" | "video",
