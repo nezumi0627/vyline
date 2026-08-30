@@ -2665,9 +2665,8 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      // disk cache の freshness を正本にする。
-      // プロセス再起動直後は memory cache が空でも、disk cache が新鮮なら
-      // remote RPC を再実行する理由はない。
+      // disk cache の freshness を正本にする。プロセス再起動直後に memory cache が
+      // 空でも、disk cache が新鮮なら remote RPC は再実行しない。
       const needsBg = Boolean(opts?.refresh) || chatsAge > CHATS_CACHE_MS;
 
       if (needsBg) {

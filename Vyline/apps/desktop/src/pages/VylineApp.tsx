@@ -1,16 +1,23 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
 import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
-import { HubHome } from "../components/hub-home.js";
 import { ChatShell } from "../components/chat-shell.js";
-import { SettingsSections } from "../components/settings-sections.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 import { api } from "../api/client.js";
 import { VylineSetup } from "../components/vyline-setup.js";
+
+const HubHome = lazy(() =>
+  import("../components/hub-home.js").then((module) => ({ default: module.HubHome })),
+);
+const SettingsSections = lazy(() =>
+  import("../components/settings-sections.js").then((module) => ({
+    default: module.SettingsSections,
+  })),
+);
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -95,7 +102,9 @@ export function VylineApp() {
       {notice && !indexing?.active && <FloatNotice>{notice}</FloatNotice>}
       {screen === "home" && showUpdateNote && (
         <div className="vy-screen-enter h-full">
-          <HubHome />
+          <Suspense fallback={null}>
+            <HubHome />
+          </Suspense>
         </div>
       )}
       {(screen === "chat" || (screen === "home" && !showUpdateNote)) && (
@@ -105,7 +114,9 @@ export function VylineApp() {
       )}
       {screen === "settings" && (
         <div className="vy-screen-enter h-full">
-          <SettingsSections />
+          <Suspense fallback={null}>
+            <SettingsSections />
+          </Suspense>
         </div>
       )}
     </main>

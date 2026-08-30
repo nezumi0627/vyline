@@ -103,9 +103,9 @@ Vyline は個人開発のオープンソースプロジェクトです。支援�
 
 ### Development Partner
 
-- [REINs](https://github.com/areteruhiro/LEINs) — Development Partner
+- [LEINs](https://github.com/areteruhiro/LEINs) — Development Partner
 
-Vyline と REINs は、それぞれ独立したプロジェクトとして開発・運営を続けながら、必要に応じて開発や技術研究で協力します。
+Vyline と LEINs は、それぞれ独立したプロジェクトとして開発・運営を続けながら、必要に応じて開発や技術研究で協力します。
 
 ### メンテナー・コントリビューター募集
 
