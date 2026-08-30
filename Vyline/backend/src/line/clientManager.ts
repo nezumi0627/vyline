@@ -717,11 +717,17 @@ async function restoreAllSessionsImpl(): Promise<void> {
             { event: "session-restore-failed", accountId: id },
           ).catch(() => undefined);
         }
+        const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
+        if (expiredDevice) {
+          removeClient(id);
+          await updateSessionMeta(id, { reauthRequired: true });
+          log.warn({ accountId: id }, "saved session expired; reauthentication required");
+          return;
+        }
         const authFailed =
           msg.includes("AUTHENTICATION_FAILED") ||
           msg.includes("Authentication Failed") ||
           msg.includes("status=403") ||
-          msg.includes("NOT_AUTHORIZED_DEVICE") ||
           msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
           msg.includes("logged out");
         if (authFailed) {

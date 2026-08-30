@@ -61,21 +61,30 @@ function sanitizeText(text: string | null | undefined): string | undefined {
 function parsePostNotification(meta: Record<string, unknown> | null) {
   if (!meta) return undefined;
   const serviceType = String(meta.serviceType ?? meta.SERVICE_TYPE ?? "").toUpperCase();
-  const postEndUrl = typeof meta.postEndUrl === "string" ? meta.postEndUrl : "";
+  const postEndUrlValue = meta.postEndUrl ?? meta.POST_END_URL;
+  const postEndUrl = typeof postEndUrlValue === "string" ? postEndUrlValue : "";
   const params = (() => {
     try {
-      return postEndUrl ? new URL(postEndUrl).searchParams : null;
+      return postEndUrl ? new URL(postEndUrl, "https://line.me").searchParams : null;
     } catch {
       return null;
     }
   })();
-  const homeId = String(meta.chatId ?? meta.homeId ?? params?.get("homeId") ?? "") || undefined;
+  const homeId =
+    String(meta.chatId ?? meta.homeId ?? meta.HOME_ID ?? params?.get("homeId") ?? "") || undefined;
   const albumId =
     String(
-      meta.cafeId ?? meta.albumId ?? params?.get("albumIdV2") ?? params?.get("albumId") ?? "",
+      meta.albumIdV2 ??
+        meta.albumId ??
+        meta.ALBUM_ID ??
+        params?.get("albumIdV2") ??
+        params?.get("albumId") ??
+        "",
     ) || undefined;
   const postId =
-    String(meta.postId ?? meta.POST_ID ?? meta.noteId ?? params?.get("postId") ?? "") || undefined;
+    String(
+      meta.postId ?? meta.POST_ID ?? meta.noteId ?? meta.NOTE_ID ?? params?.get("postId") ?? "",
+    ) || undefined;
   const previewMedias = (() => {
     const raw = meta.previewMedias;
     if (typeof raw !== "string" || !raw.trim()) return undefined;
@@ -101,6 +110,12 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
       return undefined;
     }
   })();
+  // POSTNOTIFICATION の note metadata にも cafeId が含まれるため、cafeId 単体を
+  // albumId として扱うとノート通知が ALBUM に誤分類される。明示的な note 証拠を
+  // album より先に評価し、album は AB / albumId(V2) のみに限定する。
+  if (postId || serviceType === "NOTE" || serviceType === "NT") {
+    return { kind: "note" as const, homeId, postId };
+  }
   if (serviceType === "AB" || albumId) {
     return {
       kind: "album" as const,
@@ -110,9 +125,6 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
       mediaCount: Number(meta.mediaCount) || undefined,
       previewMedias,
     };
-  }
-  if (postId || serviceType === "NOTE" || serviceType === "NT") {
-    return { kind: "note" as const, homeId, postId };
   }
   return { kind: "unknown" as const, homeId };
 }

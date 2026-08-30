@@ -68,4 +68,26 @@ describe("tokenStore account isolation and handoff", () => {
     expect(restoredProtocol).toContain("refresh-secret");
     expect(restoredProtocol).toContain("channel-secret");
   }, 20_000);
+
+  test("reauth state keeps credentials and is cleared by a successful token save", async () => {
+    await tokenStore.saveToken("expired", "old-token", { displayName: "Expired" });
+    const protocolPath = tokenStore.storagePathForAccount("expired");
+    await writeFile(protocolPath, JSON.stringify({ qrCert: "keep-me" }), "utf8");
+
+    await tokenStore.updateSessionMeta("expired", { reauthRequired: true });
+    expect(
+      (await tokenStore.listSavedSessions()).find(
+        (s: { accountId: string; reauthRequired?: boolean }) => s.accountId === "expired",
+      ),
+    ).toMatchObject({ hasToken: true, reauthRequired: true });
+
+    await tokenStore.saveToken("expired", "new-token");
+    expect((await tokenStore.getToken("expired"))?.authToken).toBe("new-token");
+    expect(
+      (await tokenStore.listSavedSessions()).find(
+        (s: { accountId: string; reauthRequired?: boolean }) => s.accountId === "expired",
+      )?.reauthRequired,
+    ).toBeUndefined();
+    expect(await readFile(protocolPath, "utf8")).toContain("keep-me");
+  }, 20_000);
 });

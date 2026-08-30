@@ -51,6 +51,13 @@ interface AuthState {
 
 const BACKEND_STARTUP_BACKOFF_MS = 500;
 const BACKEND_STARTUP_BACKOFF_MAX_MS = 5_000;
+const CONTENT_SESSION_SUFFIX = ":content";
+
+export function normalizeAccountId(accountId: string | null): string | null {
+  return accountId?.endsWith(CONTENT_SESSION_SUFFIX)
+    ? accountId.slice(0, -CONTENT_SESSION_SUFFIX.length)
+    : accountId;
+}
 
 function isBackendStartupError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -79,7 +86,7 @@ export const useAuthStore = create<AuthState>()(
       pendingLoginAccountId: null,
       loginMode: "auto",
 
-      setActiveAccount: (id) => set({ activeAccountId: id }),
+      setActiveAccount: (id) => set({ activeAccountId: normalizeAccountId(id) }),
 
       setPendingLogin: (id) => set({ pendingLoginAccountId: id }),
 
@@ -107,11 +114,13 @@ export const useAuthStore = create<AuthState>()(
 
         set({ accounts: active, saved, sessions });
 
-        const current = get().activeAccountId;
+        const current = normalizeAccountId(get().activeAccountId);
         if (active.length === 0) {
           set({ activeAccountId: null });
         } else if (!current || !active.includes(current)) {
           set({ activeAccountId: active[0] ?? null });
+        } else if (current !== get().activeAccountId) {
+          set({ activeAccountId: current });
         }
       },
 
@@ -142,7 +151,7 @@ export const useAuthStore = create<AuthState>()(
 
       onLoginSuccess: async (accountId) => {
         set({
-          activeAccountId: accountId,
+          activeAccountId: normalizeAccountId(accountId),
           error: null,
           loginMode: "auto",
           pendingLoginAccountId: null,
@@ -150,7 +159,7 @@ export const useAuthStore = create<AuthState>()(
         // 少し待ってトークン保存・プロフィール追記を待つ
         await sleep(400);
         await get().refreshAccounts();
-        set({ activeAccountId: accountId });
+        set({ activeAccountId: normalizeAccountId(accountId) });
       },
 
       loginEmail: async (accountId, email, password) => {
@@ -201,7 +210,7 @@ export const useAuthStore = create<AuthState>()(
             return { ok: false, error: message };
           }
           await get().refreshAccounts();
-          set({ activeAccountId: accountId });
+          set({ activeAccountId: normalizeAccountId(accountId) });
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -222,7 +231,7 @@ export const useAuthStore = create<AuthState>()(
             return { ok: false, error: message };
           }
           await get().refreshAccounts();
-          set({ activeAccountId: accountId });
+          set({ activeAccountId: normalizeAccountId(accountId) });
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -243,7 +252,7 @@ export const useAuthStore = create<AuthState>()(
             return { ok: false, error: message };
           }
           await get().refreshAccounts();
-          set({ activeAccountId: accountId });
+          set({ activeAccountId: normalizeAccountId(accountId) });
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -284,6 +293,14 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "vyline:auth",
       partialize: (s) => ({ activeAccountId: s.activeAccountId }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<AuthState>;
+        return {
+          ...current,
+          ...saved,
+          activeAccountId: normalizeAccountId(saved.activeAccountId ?? null),
+        };
+      },
     },
   ),
 );

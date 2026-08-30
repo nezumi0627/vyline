@@ -5,6 +5,8 @@ import { mapMember } from "@/lib/mappers";
 import type { Member } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { IconClose } from "@/components/icons";
+import { lineCdnProxy, lineStickerUrl } from "@/utils/lineMedia";
+import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> => {
   return new Promise((resolve) => {
@@ -113,11 +115,19 @@ function collectAlbumPhotos(value: unknown): Array<Record<string, unknown>> {
     : [];
 }
 
-function AlbumModal({
+export function AlbumModal({
   accountId,
   chatId,
   onClose,
-}: { accountId: string; chatId: string; onClose: () => void }) {
+  embedded = false,
+  initialAlbumId,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+  embedded?: boolean;
+  initialAlbumId?: string;
+}) {
   const [albums, setAlbums] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [photos, setPhotos] = useState<Array<Record<string, unknown>>>([]);
@@ -153,6 +163,10 @@ function AlbumModal({
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (initialAlbumId) void openAlbum(initialAlbumId);
+  }, [accountId, chatId, initialAlbumId]);
 
   const runAlbum = async (task: () => Promise<unknown>, reopen = false) => {
     setBusy(true);
@@ -195,8 +209,8 @@ function AlbumModal({
     }
   };
 
-  return (
-    <Modal title="アルバム" onClose={onClose}>
+  const content = (
+    <>
       <ErrorText error={error} />
       <div className="mb-3 grid grid-cols-2 gap-2">
         <button
@@ -374,6 +388,14 @@ function AlbumModal({
           </div>
         </>
       )}
+    </>
+  );
+
+  return embedded ? (
+    <div className="px-1 pb-4">{content}</div>
+  ) : (
+    <Modal title="アルバム" onClose={onClose}>
+      {content}
     </Modal>
   );
 }
@@ -387,28 +409,186 @@ function collectPosts(value: unknown): Array<Record<string, unknown>> {
       : root;
   for (const key of ["posts", "items", "postList", "feeds"]) {
     const list = result[key];
-    if (Array.isArray(list))
-      return list.filter((x): x is Record<string, unknown> => !!x && typeof x === "object");
+    if (Array.isArray(list)) {
+      return list.flatMap((value) => {
+        if (!value || typeof value !== "object") return [];
+        const record = value as Record<string, unknown>;
+        const post = record.post;
+        return post && typeof post === "object" ? [post as Record<string, unknown>] : [record];
+      });
+    }
   }
   return [];
 }
 
-function noteSummary(post: Record<string, unknown>): { id: string; text: string } {
+function collectPost(value: unknown): Record<string, unknown> | null {
+  const root = record(value);
+  const result = record(root?.result) ?? root;
+  const feed = record(result?.feed);
+  return record(result?.post) ?? record(feed?.post) ?? record(result?.item) ?? result;
+}
+
+function collectComments(value: unknown): Array<Record<string, unknown>> {
+  const root = record(value);
+  const result = record(root?.result) ?? root;
+  if (!result) return [];
+  for (const key of ["comments", "commentList", "items"]) {
+    const list = result[key];
+    if (Array.isArray(list)) {
+      return list.filter((item): item is Record<string, unknown> => !!record(item));
+    }
+  }
+  return [];
+}
+
+type NoteView = {
+  id: string;
+  homeId: string;
+  text: string;
+  sticons: SticonResource[];
+  stickers: Array<Record<string, unknown>>;
+  media: Array<Record<string, unknown>>;
+  sharedPostId: string;
+  createdTime: number;
+};
+
+function record(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function noteView(post: Record<string, unknown>): NoteView {
   const contents =
     post.contents && typeof post.contents === "object"
       ? (post.contents as Record<string, unknown>)
       : post;
+  const info = record(post.postInfo) ?? post;
+  const sticons = Array.isArray(contents.sticonMetas)
+    ? contents.sticonMetas.flatMap((value) => {
+        const item = record(value);
+        const productId = String(item?.productId ?? "");
+        const sticonId = String(item?.sticonId ?? item?.id ?? "");
+        if (!productId || !sticonId) return [];
+        const S = Number(item?.S);
+        const E = Number(item?.E);
+        return [
+          {
+            productId,
+            sticonId,
+            ...(Number.isFinite(S) ? { S } : {}),
+            ...(Number.isFinite(E) ? { E } : {}),
+          },
+        ];
+      })
+    : [];
   return {
-    id: String(post.postId ?? post.id ?? contents.postId ?? ""),
+    id: String(info.postId ?? post.postId ?? post.id ?? ""),
+    homeId: String(info.homeId ?? post.homeId ?? ""),
     text: String(contents.text ?? post.text ?? "").trim(),
+    sticons,
+    stickers: Array.isArray(contents.stickers)
+      ? contents.stickers.filter((value): value is Record<string, unknown> => !!record(value))
+      : [],
+    media: Array.isArray(contents.media)
+      ? contents.media.filter((value): value is Record<string, unknown> => !!record(value))
+      : [],
+    sharedPostId: String(contents.sharedPostId ?? post.sharedPostId ?? ""),
+    createdTime: Number(info.createdTime ?? post.createdTime ?? 0),
   };
 }
 
-function NoteModal({
+function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean }) {
+  return (
+    <>
+      {item.text && (
+        <p
+          className={cn(
+            "whitespace-pre-wrap break-words text-sm leading-6 text-[var(--vy-text)]",
+            compact && "line-clamp-3",
+          )}
+        >
+          {segmentTextWithSticon(item.text, item.sticons).map((segment, index) =>
+            segment.type === "sticon" ? (
+              <img
+                key={`${segment.url}-${index}`}
+                src={segment.url}
+                alt={segment.alt}
+                className="mx-0.5 inline-block h-6 w-6 align-text-bottom object-contain"
+              />
+            ) : (
+              <span key={index}>{segment.value}</span>
+            ),
+          )}
+        </p>
+      )}
+      {item.stickers.length > 0 && (
+        <div className="mt-2 flex flex-wrap gap-2">
+          {item.stickers.slice(0, compact ? 2 : 6).map((sticker, index) => {
+            const id = String(sticker.id ?? sticker.stickerId ?? "");
+            return id ? (
+              <img
+                key={`${id}-${index}`}
+                src={lineStickerUrl(id)}
+                alt="スタンプ"
+                className="h-16 w-16 object-contain"
+              />
+            ) : null;
+          })}
+        </div>
+      )}
+      {item.media.length > 0 && (
+        <div className="mt-2 grid grid-cols-2 gap-1 overflow-hidden rounded-xl">
+          {item.media.slice(0, compact ? 2 : 6).map((media, index) => {
+            const objectId = String(media.objectId ?? media.id ?? "");
+            if (!objectId) return null;
+            const serviceName = String(media.serviceName ?? "myhome");
+            const obsNamespace = String(
+              media.obsNamespace ?? (serviceName === "privnote" ? "post" : "h"),
+            );
+            const src = lineCdnProxy(
+              `https://obs.line-apps.com/r/${encodeURIComponent(serviceName)}/${encodeURIComponent(obsNamespace)}/${encodeURIComponent(objectId)}`,
+            );
+            return String(media.type ?? "PHOTO").toUpperCase() === "VIDEO" ? (
+              <video
+                key={`${objectId}-${index}`}
+                src={src}
+                controls={!compact}
+                preload="metadata"
+                className="max-h-48 w-full bg-black object-contain"
+              />
+            ) : (
+              <img
+                key={`${objectId}-${index}`}
+                src={src}
+                alt="ノート画像"
+                className="max-h-48 w-full object-cover"
+              />
+            );
+          })}
+        </div>
+      )}
+      {!item.text && item.stickers.length === 0 && item.media.length === 0 && (
+        <p className="text-sm text-[var(--vy-text-dim)]">（内容のないノート）</p>
+      )}
+    </>
+  );
+}
+
+export function NoteModal({
   accountId,
   chatId,
   onClose,
-}: { accountId: string; chatId: string; onClose: () => void }) {
+  embedded = false,
+  initialPostId,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+  embedded?: boolean;
+  initialPostId?: string;
+}) {
+  const [mode, setMode] = useState<"list" | "create" | "detail" | "edit">("list");
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [text, setText] = useState("");
@@ -416,6 +596,7 @@ function NoteModal({
   const [stickerPackageId, setStickerPackageId] = useState("");
   const [sharedPostId, setSharedPostId] = useState("");
   const [comment, setComment] = useState("");
+  const [comments, setComments] = useState<Array<Record<string, unknown>>>([]);
   const [media, setMedia] = useState<Array<{ id: string; type: "PHOTO" | "VIDEO" }>>([]);
   const [likeType, setLikeType] = useState("1001");
   const [likeInfo, setLikeInfo] = useState("");
@@ -432,8 +613,60 @@ function NoteModal({
   };
 
   useEffect(() => {
-    void refresh();
-  }, [accountId, chatId]);
+    let cancelled = false;
+    void (async () => {
+      await refresh();
+      if (!initialPostId) return;
+      try {
+        const post = collectPost(await api.line.notes.get(accountId, chatId, initialPostId));
+        if (cancelled) return;
+        if (!post) throw new Error("対象のノートを取得できませんでした");
+        const normalizedPost = noteView(post).id ? post : { ...post, postId: initialPostId };
+        setPosts((current) => [
+          normalizedPost,
+          ...current.filter((item) => noteView(item).id !== initialPostId),
+        ]);
+        setSelectedId(initialPostId);
+        setText(noteView(normalizedPost).text);
+        setMode("detail");
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, chatId, initialPostId]);
+
+  const resetDraft = () => {
+    setText("");
+    setStickerId("");
+    setStickerPackageId("");
+    setSharedPostId("");
+    setMedia([]);
+  };
+
+  const selectPost = (post: Record<string, unknown>) => {
+    const item = noteView(post);
+    setSelectedId(item.id);
+    setText(item.text);
+    setMode("detail");
+  };
+
+  const refreshComments = async (postId = selectedId) => {
+    if (!postId) return;
+    setComments(collectComments(await api.line.notes.comments(accountId, postId, chatId)));
+  };
+
+  useEffect(() => {
+    if (mode !== "detail" || !selectedId) return;
+    void refreshComments(selectedId).catch((e) =>
+      setError(e instanceof Error ? e.message : String(e)),
+    );
+  }, [mode, selectedId, accountId, chatId]);
+
+  const selectedPost = posts.find((post) => noteView(post).id === selectedId);
+  const selectedSummary = selectedPost ? noteView(selectedPost) : null;
 
   const noteInput = () => ({
     homeId: chatId,
@@ -477,199 +710,237 @@ function NoteModal({
     }
   };
 
-  return (
-    <Modal title="ノート" onClose={onClose}>
-      <ErrorText error={error} />
-      <Field label="本文">
+  const editor = (
+    <div className="space-y-4">
+      <div>
+        <p className="mb-1.5 text-xs font-medium text-[var(--vy-text-dim)]">本文</p>
         <textarea
-          className={cn(inputCls, "min-h-24 resize-y")}
+          className={cn(inputCls, "min-h-32 resize-y")}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="ノート本文"
+          placeholder="ノートを書いてください"
         />
-      </Field>
-      <div className="grid grid-cols-2 gap-2">
-        <Field label="スタンプID（任意）">
-          <input
-            className={inputCls}
-            value={stickerId}
-            onChange={(e) => setStickerId(e.target.value)}
-          />
-        </Field>
-        <Field label="パッケージID">
-          <input
-            className={inputCls}
-            value={stickerPackageId}
-            onChange={(e) => setStickerPackageId(e.target.value)}
-          />
-        </Field>
       </div>
-      <Field label="共有元 postId（任意）">
-        <input
-          className={inputCls}
-          value={sharedPostId}
-          onChange={(e) => setSharedPostId(e.target.value)}
-        />
-      </Field>
-      <Field label="画像・動画">
+      <label className="flex cursor-pointer items-center justify-between rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-3">
+        <span>
+          <span className="block text-sm font-medium">画像・動画を追加</span>
+          <span className="block text-xs text-[var(--vy-text-dim)]">
+            {media.length ? `${media.length}件アップロード済み` : "複数選択できます"}
+          </span>
+        </span>
+        <span className="text-lg">＋</span>
         <input
           type="file"
           accept="image/*,video/*"
           multiple
+          className="hidden"
           onChange={(e) => {
             for (const file of Array.from(e.target.files ?? [])) void upload(file);
             e.currentTarget.value = "";
           }}
         />
-        {media.length > 0 && (
-          <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-            アップロード済み {media.length}件
+      </label>
+      <details className="rounded-xl border border-[var(--vy-border)] px-3 py-2.5">
+        <summary className="cursor-pointer text-xs font-medium text-[var(--vy-text-dim)]">
+          詳細オプション
+        </summary>
+        <div className="mt-3 space-y-3">
+          <div className="grid grid-cols-2 gap-2">
+            <Field label="スタンプID">
+              <input
+                className={inputCls}
+                value={stickerId}
+                onChange={(e) => setStickerId(e.target.value)}
+              />
+            </Field>
+            <Field label="パッケージID">
+              <input
+                className={inputCls}
+                value={stickerPackageId}
+                onChange={(e) => setStickerPackageId(e.target.value)}
+              />
+            </Field>
+          </div>
+          <Field label="共有元 postId">
+            <input
+              className={inputCls}
+              value={sharedPostId}
+              onChange={(e) => setSharedPostId(e.target.value)}
+            />
+          </Field>
+        </div>
+      </details>
+      <div className="flex gap-2 pt-1">
+        <button
+          type="button"
+          className="flex-1 rounded-xl border border-[var(--vy-border)] py-2.5 text-sm"
+          onClick={() => {
+            resetDraft();
+            setMode(mode === "edit" ? "detail" : "list");
+          }}
+        >
+          キャンセル
+        </button>
+        <button
+          type="button"
+          disabled={busy || (!text.trim() && media.length === 0 && !stickerId.trim())}
+          className="flex-1 rounded-xl bg-[var(--vy-accent)] py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+          onClick={() =>
+            void run(async () => {
+              if (mode === "edit" && selectedId) {
+                await api.line.notes.update(accountId, selectedId, noteInput());
+                setMode("detail");
+              } else {
+                await api.line.notes.create(accountId, noteInput());
+                resetDraft();
+                setMode("list");
+              }
+            })
+          }
+        >
+          {mode === "edit" ? "変更を保存" : "投稿する"}
+        </button>
+      </div>
+    </div>
+  );
+
+  const detail = selectedSummary ? (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4">
+        <NoteBody item={selectedSummary} />
+        {selectedSummary.createdTime > 0 && (
+          <p className="mt-3 text-[10px] text-[var(--vy-text-dim)]">
+            {new Date(selectedSummary.createdTime).toLocaleString("ja-JP")}
           </p>
         )}
-      </Field>
-      <div className="mb-4 grid grid-cols-2 gap-2">
+        {selectedSummary.sharedPostId && (
+          <p className="mt-2 break-all text-xs text-[var(--vy-text-dim)]">
+            共有元: {selectedSummary.sharedPostId}
+          </p>
+        )}
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="button"
+          className="flex-1 rounded-xl border border-[var(--vy-border)] py-2 text-sm"
+          onClick={() => setMode("edit")}
+        >
+          編集
+        </button>
         <button
           type="button"
           disabled={busy}
-          className="rounded-lg bg-[var(--vy-accent)] py-2 font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
-          onClick={() => void run(() => api.line.notes.create(accountId, noteInput()))}
+          className="flex-1 rounded-xl border border-[var(--vy-border)] py-2 text-sm disabled:opacity-50"
+          onClick={() => void run(() => api.line.notes.share(accountId, selectedId, chatId), false)}
         >
-          新規作成
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selectedId}
-          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-          onClick={() => void run(() => api.line.notes.update(accountId, selectedId, noteInput()))}
-        >
-          選択ノートを更新
+          チャットへ共有
         </button>
       </div>
-      <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs text-[var(--vy-text-dim)]">ノート一覧</span>
-        <button
-          type="button"
-          className="text-xs text-[var(--vy-accent)]"
-          onClick={() => void refresh()}
-        >
-          再読み込み
-        </button>
-      </div>
-      <div className="mb-4 max-h-48 space-y-1 overflow-y-auto">
-        {posts.length === 0 ? (
-          <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">ノートがありません</p>
-        ) : (
-          posts.map((post, index) => {
-            const item = noteSummary(post);
-            return (
-              <button
-                type="button"
-                key={item.id || index}
-                className={cn(
-                  "w-full rounded-lg border px-3 py-2 text-left",
-                  selectedId === item.id
-                    ? "border-[var(--vy-accent)]"
-                    : "border-[var(--vy-border)]",
-                )}
-                onClick={() => {
-                  setSelectedId(item.id);
-                  setText(item.text);
-                }}
-              >
-                <span className="block truncate text-sm">
-                  {item.text || "（メディア/スタンプノート）"}
-                </span>
-                <span className="block truncate text-[10px] text-[var(--vy-text-dim)]">
-                  {item.id}
-                </span>
-              </button>
-            );
-          })
+      <div className="rounded-2xl border border-[var(--vy-border)] p-3">
+        <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">コメント</p>
+        {comments.length > 0 && (
+          <div className="mb-3 space-y-2">
+            {comments.map((item, index) => {
+              const id = String(item.commentId ?? item.id ?? "");
+              const text = String(item.commentText ?? item.text ?? "");
+              const contentsList = Array.isArray(item.contentsList) ? item.contentsList : [];
+              return (
+                <div key={id || index} className="rounded-xl bg-[var(--vy-surface-2)] px-3 py-2.5">
+                  {text && <p className="whitespace-pre-wrap break-words text-sm">{text}</p>}
+                  {contentsList.map((content, mediaIndex) => {
+                    const ext = record(record(content)?.extData);
+                    const objectId = String(ext?.objectId ?? "");
+                    if (!objectId) return null;
+                    const serviceName = String(ext?.serviceName ?? "myhome");
+                    const obsNamespace = String(ext?.obsNamespace ?? "cmt");
+                    return (
+                      <img
+                        key={`${objectId}-${mediaIndex}`}
+                        src={lineCdnProxy(
+                          `https://obs.line-apps.com/r/${encodeURIComponent(serviceName)}/${encodeURIComponent(obsNamespace)}/${encodeURIComponent(objectId)}`,
+                        )}
+                        alt="コメント画像"
+                        className="mt-2 max-h-44 rounded-lg object-contain"
+                      />
+                    );
+                  })}
+                  {id && (
+                    <div className="mt-2 flex gap-3 text-xs text-[var(--vy-text-dim)]">
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await api.line.notes.likeComment(accountId, id, chatId, likeType);
+                            await refreshComments();
+                          }, false)
+                        }
+                      >
+                        リアクション
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={() =>
+                          void run(async () => {
+                            await api.line.notes.unlikeComment(accountId, id, chatId);
+                            await refreshComments();
+                          }, false)
+                        }
+                      >
+                        解除
+                      </button>
+                      <button
+                        type="button"
+                        disabled={busy}
+                        className="text-red-400"
+                        onClick={() =>
+                          void run(async () => {
+                            await api.line.notes.deleteComment(accountId, selectedId, id, chatId);
+                            await refreshComments();
+                          }, false)
+                        }
+                      >
+                        取り消し
+                      </button>
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
         )}
-      </div>
-      <Field label="コメント">
         <div className="flex gap-2">
           <input
             className={cn(inputCls, "flex-1")}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
+            placeholder="コメントを入力"
           />
           <button
             type="button"
-            disabled={busy || !selectedId || !comment.trim()}
-            className="rounded-lg border border-[var(--vy-border)] px-3 disabled:opacity-50"
+            disabled={busy || !comment.trim()}
+            className="rounded-lg bg-[var(--vy-accent)] px-3 text-sm text-[var(--vy-accent-contrast)] disabled:opacity-50"
             onClick={() =>
-              void run(
-                () => api.line.notes.comment(accountId, selectedId, chatId, comment.trim()),
-                false,
-              )
+              void run(async () => {
+                await api.line.notes.comment(accountId, selectedId, chatId, comment.trim());
+                setComment("");
+                await refreshComments();
+              }, false)
             }
           >
             送信
           </button>
         </div>
-      </Field>
-      <div className="grid grid-cols-2 gap-2">
-        <select className={inputCls} value={likeType} onChange={(e) => setLikeType(e.target.value)}>
-          {["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => (
-            <option key={v} value={v}>
-              リアクション {v}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          disabled={busy || !selectedId}
-          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-          onClick={() =>
-            void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)
-          }
-        >
-          リアクション
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selectedId}
-          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-          onClick={() =>
-            void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)
-          }
-        >
-          リアクション解除
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selectedId}
-          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-          onClick={() =>
-            void run(async () => {
-              const [mine, list] = await Promise.all([
-                api.line.notes.getLike(accountId, selectedId, chatId),
-                api.line.notes.listLikes(accountId, selectedId, chatId),
-              ]);
-              setLikeInfo(JSON.stringify({ mine, list }));
-            }, false)
-          }
-        >
-          リアクション確認
-        </button>
-        <button
-          type="button"
-          disabled={busy || !selectedId}
-          className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
-          onClick={() => void run(() => api.line.notes.share(accountId, selectedId, chatId), false)}
-        >
-          このチャットへ共有
-        </button>
-        <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">
-          コメント画像
+        <label className="mt-2 inline-block cursor-pointer text-xs text-[var(--vy-accent)]">
+          画像を添付
           <input
             type="file"
             accept="image/*"
             className="hidden"
             onChange={(e) => {
               const file = e.target.files?.[0];
-              if (!file || !selectedId) return;
+              if (!file) return;
               void run(async () => {
                 const uploaded = await api.line.notes.uploadCommentImage(accountId, file);
                 await api.line.notes.comment(
@@ -679,29 +950,173 @@ function NoteModal({
                   comment.trim(),
                   uploaded.objId,
                 );
+                setComment("");
+                await refreshComments();
               }, false);
               e.currentTarget.value = "";
             }}
           />
         </label>
+      </div>
+      <details className="rounded-2xl border border-[var(--vy-border)] p-3">
+        <summary className="cursor-pointer text-xs font-medium text-[var(--vy-text-dim)]">
+          リアクション・その他
+        </summary>
+        <div className="mt-3 grid grid-cols-2 gap-2">
+          <select
+            className={inputCls}
+            value={likeType}
+            onChange={(e) => setLikeType(e.target.value)}
+          >
+            {["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => (
+              <option key={v} value={v}>
+                リアクション {v}
+              </option>
+            ))}
+          </select>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+            onClick={() =>
+              void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)
+            }
+          >
+            リアクション
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+            onClick={() =>
+              void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)
+            }
+          >
+            解除
+          </button>
+          <button
+            type="button"
+            disabled={busy}
+            className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
+            onClick={() =>
+              void run(async () => {
+                const [mine, list] = await Promise.all([
+                  api.line.notes.getLike(accountId, selectedId, chatId),
+                  api.line.notes.listLikes(accountId, selectedId, chatId),
+                ]);
+                setLikeInfo(JSON.stringify({ mine, list }));
+              }, false)
+            }
+          >
+            確認
+          </button>
+        </div>
+        {likeInfo && (
+          <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>
+        )}
+      </details>
+      <button
+        type="button"
+        disabled={busy}
+        className="w-full rounded-xl border border-red-500/40 py-2.5 text-sm text-red-400 disabled:opacity-50"
+        onClick={() =>
+          void run(async () => {
+            await api.line.notes.remove(accountId, chatId, selectedId);
+            setSelectedId("");
+            resetDraft();
+            setMode("list");
+          })
+        }
+      >
+        ノートを削除
+      </button>
+    </div>
+  ) : null;
+
+  const list = (
+    <div>
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div>
+          <p className="text-sm font-semibold">ノート</p>
+          <p className="text-xs text-[var(--vy-text-dim)]">{posts.length}件</p>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            className="rounded-lg px-2.5 py-2 text-xs text-[var(--vy-accent)]"
+            onClick={() => void refresh()}
+          >
+            再読み込み
+          </button>
+          <button
+            type="button"
+            className="rounded-xl bg-[var(--vy-accent)] px-3.5 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)]"
+            onClick={() => {
+              setSelectedId("");
+              resetDraft();
+              setMode("create");
+            }}
+          >
+            ＋ 新規作成
+          </button>
+        </div>
+      </div>
+      <div className="space-y-2">
+        {posts.length === 0 ? (
+          <div className="rounded-2xl border border-dashed border-[var(--vy-border)] px-4 py-10 text-center">
+            <p className="text-sm font-medium">ノートはまだありません</p>
+            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+              右上の「新規作成」から追加できます
+            </p>
+          </div>
+        ) : (
+          posts.map((post, index) => {
+            const item = noteView(post);
+            return (
+              <button
+                type="button"
+                key={item.id || index}
+                className="w-full rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-left transition-colors hover:bg-[var(--vy-surface-3)]"
+                onClick={() => selectPost(post)}
+              >
+                <NoteBody item={item} compact />
+                {item.createdTime > 0 && (
+                  <span className="mt-2 block text-[10px] text-[var(--vy-text-dim)]">
+                    {new Date(item.createdTime).toLocaleString("ja-JP")}
+                  </span>
+                )}
+                <span className="mt-2 block text-[10px] text-[var(--vy-text-dim)]">
+                  詳細を見る →
+                </span>
+              </button>
+            );
+          })
+        )}
+      </div>
+    </div>
+  );
+
+  const content = (
+    <>
+      <ErrorText error={error} />
+      {mode !== "list" && (
         <button
           type="button"
-          disabled={busy || !selectedId}
-          className="rounded-lg border border-red-500/40 py-2 text-red-400 disabled:opacity-50"
-          onClick={() =>
-            void run(async () => {
-              await api.line.notes.remove(accountId, chatId, selectedId);
-              setSelectedId("");
-              setText("");
-            })
-          }
+          className="mb-4 text-xs font-medium text-[var(--vy-accent)]"
+          onClick={() => setMode(mode === "edit" ? "detail" : "list")}
         >
-          削除
+          ← {mode === "edit" ? "ノートに戻る" : "一覧に戻る"}
         </button>
-      </div>
-      {likeInfo && (
-        <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>
       )}
+      {mode === "list" ? list : mode === "create" || mode === "edit" ? editor : detail}
+    </>
+  );
+
+  return embedded ? (
+    <div className="px-1 pb-4">{content}</div>
+  ) : (
+    <Modal title="ノート" onClose={onClose}>
+      {content}
     </Modal>
   );
 }
@@ -1143,10 +1558,10 @@ export function PlusMenu({ chatId }: { chatId: string }) {
   const accountId = useStore((s) => s.accountId);
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | "note" | "album" | null>(null);
+  const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | null>(null);
 
   const items: {
-    key: "schedule" | "ladder" | "poll" | "note" | "album";
+    key: "schedule" | "ladder" | "poll";
     label: string;
     icon: string;
     disabled?: boolean;
@@ -1154,8 +1569,6 @@ export function PlusMenu({ chatId }: { chatId: string }) {
     { key: "schedule", label: "イベントを作成", icon: "📅" },
     { key: "ladder", label: "あみだくじ", icon: "🎯", disabled: chat?.type !== "group" },
     { key: "poll", label: "アンケート", icon: "🗳️" },
-    { key: "note", label: "ノート", icon: "📝", disabled: chat?.type !== "group" },
-    { key: "album", label: "アルバム", icon: "🖼️", disabled: chat?.type !== "group" },
   ];
 
   return (
@@ -1209,12 +1622,6 @@ export function PlusMenu({ chatId }: { chatId: string }) {
       )}
       {mode === "poll" && accountId && (
         <PollModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
-      )}
-      {mode === "note" && accountId && (
-        <NoteModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
-      )}
-      {mode === "album" && accountId && (
-        <AlbumModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
       )}
     </>
   );

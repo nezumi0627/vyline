@@ -32,6 +32,7 @@ import { getPluginStates, listPlugins, setPluginState } from "../line/pluginMana
 import { isPluginActive } from "../line/pluginRuntime.js";
 import {
   commentNote,
+  deleteNoteComment,
   createNote,
   deleteNote,
   getNote,
@@ -40,8 +41,11 @@ import {
   likeNote,
   listNotes,
   listNoteLikes,
+  listNoteComments,
+  likeNoteComment,
   shareNoteToChat,
   unlikeNote,
+  unlikeNoteComment,
   updateNote,
   uploadNoteCommentImage,
   uploadNoteMedia,
@@ -339,6 +343,74 @@ lineRouter.post("/:accountId/notes/:postId/comments", async (c) => {
         ]
       : undefined;
     return c.json(await commentNote(client, body.homeId, postId, body.text ?? "", contentsList));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/notes/:postId/comments", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await listNoteComments(client, homeId, postId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/notes/:postId/comments/:commentId", async (c) => {
+  const accountId = c.req.param("accountId");
+  const postId = c.req.param("postId");
+  const commentId = c.req.param("commentId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await deleteNoteComment(client, homeId, postId, commentId));
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/notes/comments/:commentId/like", async (c) => {
+  const accountId = c.req.param("accountId");
+  const commentId = c.req.param("commentId");
+  const body = await c.req.json<{ homeId?: string; likeType?: string }>();
+  if (!body.homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  const allowed = new Set(["1001", "1002", "1003", "1004", "1005", "1006"]);
+  if (body.likeType && !allowed.has(body.likeType)) {
+    return c.json({ ok: false, error: "invalid likeType" }, 400);
+  }
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await likeNoteComment(
+        client,
+        body.homeId,
+        commentId,
+        body.likeType as "1001" | "1002" | "1003" | "1004" | "1005" | "1006" | undefined,
+      ),
+    );
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/notes/comments/:commentId/like", async (c) => {
+  const accountId = c.req.param("accountId");
+  const commentId = c.req.param("commentId");
+  const homeId = c.req.query("homeId");
+  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
+  try {
+    const client = await getContentClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await unlikeNoteComment(client, homeId, commentId));
   } catch (err) {
     return handleError(err, c);
   }
