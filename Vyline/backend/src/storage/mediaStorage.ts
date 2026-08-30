@@ -10,8 +10,8 @@
  */
 
 import { createHash } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -141,6 +141,71 @@ export async function readMediaStorage(
     } catch {}
   }
   return null;
+}
+
+/** Inspect saved media without reading a potentially multi-GB video into RAM. */
+export async function statMediaStorage(accountId: string, chatMid: string, messageId: string) {
+  const hash = key(accountId, chatMid, messageId);
+  for (const root of new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)])) {
+    const dir = join(root, hash.slice(0, 2));
+    const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    const entry = entries.find((entry) => entry.isFile() && entry.name.startsWith(`${hash}.`));
+    if (entry) {
+      const path = join(dir, entry.name);
+      return { path, sizeBytes: (await stat(path)).size };
+    }
+  }
+  return null;
+}
+
+/** Import large attachments without buffering them or overwriting saved media. */
+export async function importMediaStorageFile(
+  accountId: string, chatMid: string, messageId: string, sourcePath: string, contentType: string,
+): Promise<boolean> {
+  if (await statMediaStorage(accountId, chatMid, messageId)) return false;
+  const path = diskPath(accountId, chatMid, messageId, contentType);
+  await mkdir(dirname(path), { recursive: true });
+  try {
+    await copyFile(sourcePath, path, constants.COPYFILE_EXCL);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EEXIST") return false;
+    throw error;
+  }
+}
+
+/** Legacy media is keyed by account/chat/message hashes, not by directory. */
+export async function getAccountMediaStorageSize(
+  accountId: string,
+  messages: Record<string, Record<string, { id: string }>>,
+): Promise<number> {
+  const hashes = new Set<string>();
+  for (const [chatMid, byId] of Object.entries(messages)) {
+    for (const id of Object.keys(byId)) hashes.add(key(accountId, chatMid, id));
+  }
+  const prefixes = new Set([...hashes].map((hash) => hash.slice(0, 2)));
+  let size = 0;
+  for (const root of new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)])) {
+    for (const prefix of prefixes) {
+      const dir = join(root, prefix);
+      const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
+        if (error.code === "ENOENT") return [];
+        throw error;
+      });
+      for (const entry of entries) {
+        if (!entry.isFile() || !hashes.has(entry.name.split(".")[0]!)) continue;
+        try {
+          size += (await stat(join(dir, entry.name))).size;
+        } catch (error) {
+          if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+        }
+      }
+    }
+  }
+  return size;
 }
 
 function remember(memKey: string, buf: Uint8Array, contentType: string): void {

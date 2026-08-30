@@ -1,5 +1,5 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { appendFile, mkdtemp, open, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { appendFile, mkdtemp, open, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { Database } from "bun:sqlite";
@@ -14,14 +14,14 @@ import {
   type StoredChat,
   type StoredMessage,
 } from "../storage/chatStore.js";
-import { writeMediaStorage } from "../storage/mediaStorage.js";
+import { importMediaStorageFile, statMediaStorage } from "../storage/mediaStorage.js";
 import { getToken } from "../storage/tokenStore.js";
+import { BACKUP_STORAGE_LIMIT_BYTES, BackupStorageLimitError } from "../storage/backupLimits.js";
+import { getBackupStorageUsage, withAccountBackupLock } from "./backupService.js";
 
 const log = childLogger("android-backup");
 
-const MAX_UPLOAD_BYTES = Number(
-  process.env.VYLINE_ANDROID_BACKUP_MAX_BYTES ?? 2 * 1024 * 1024 * 1024,
-);
+export const MAX_UPLOAD_BYTES = BACKUP_STORAGE_LIMIT_BYTES;
 const CHUNK_UPLOAD_BYTES = Math.min(
   768 * 1024,
   Math.max(64 * 1024, Number(process.env.VYLINE_ANDROID_BACKUP_CHUNK_BYTES ?? 512 * 1024)),
@@ -29,9 +29,7 @@ const CHUNK_UPLOAD_BYTES = Math.min(
 const CHUNK_UPLOAD_TTL_MS = Number(
   process.env.VYLINE_ANDROID_BACKUP_CHUNK_TTL_MS ?? 60 * 60 * 1000,
 );
-const MAX_EXTRACT_BYTES = Number(
-  process.env.VYLINE_ANDROID_BACKUP_MAX_EXTRACT_BYTES ?? 4 * 1024 * 1024 * 1024,
-);
+export const MAX_EXTRACT_BYTES = BACKUP_STORAGE_LIMIT_BYTES;
 const SQLITE_MAGIC = "SQLite format 3\u0000";
 const MEDIA_CONTENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE"]);
 const UNSENT_HISTORY_TYPES = new Set([27, 28, 38]);
@@ -174,11 +172,7 @@ async function writeRequestBodyToFile(request: Request, targetPath: string): Pro
 
       let offset = 0;
       while (offset < value.byteLength) {
-        const { bytesWritten } = await file.write(
-          value,
-          offset,
-          value.byteLength - offset,
-        );
+        const { bytesWritten } = await file.write(value, offset, value.byteLength - offset);
         if (bytesWritten <= 0) throw new Error("Androidバックアップの保存に失敗しました");
         offset += bytesWritten;
       }
@@ -246,32 +240,74 @@ export async function createAndroidBackupChunkUpload(
   includeMedia: boolean,
   expectedBytes: number,
 ): Promise<{ uploadId: string; chunkSize: number }> {
-  if (!accountId) throw new Error("accountId が必要です");
-  if (!Number.isFinite(expectedBytes) || expectedBytes <= 0) {
-    throw new Error("Androidバックアップのファイルサイズが不正です");
-  }
-  if (expectedBytes > MAX_UPLOAD_BYTES) {
-    throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
-  }
+  return withAccountBackupLock(accountId, async () => {
+    if (!accountId) throw new Error("accountId が必要です");
+    if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0) {
+      throw new Error("Androidバックアップのファイルサイズが不正です");
+    }
+    if (expectedBytes > MAX_UPLOAD_BYTES) {
+      throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
+    }
 
-  await pruneStaleChunkUploads();
-  const id = `android-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-  const workDir = await mkdtemp(join(tmpdir(), `vyline-${id}-`));
-  const sourcePath = join(workDir, "source.bin");
-  await writeFile(sourcePath, new Uint8Array());
-  chunkUploads.set(id, {
-    id,
-    accountId,
-    sourceName: sanitizeDisplayName(sourceName),
-    includeMedia,
-    expectedBytes,
-    receivedBytes: 0,
-    nextIndex: 0,
-    workDir,
-    sourcePath,
-    updatedAt: Date.now(),
+    await pruneStaleChunkUploads();
+    const reservedBytes = [...chunkUploads.values()]
+      .filter((upload) => upload.accountId === accountId)
+      .reduce((total, upload) => total + upload.expectedBytes, 0);
+    if (reservedBytes + expectedBytes > MAX_UPLOAD_BYTES) {
+      throw new Error(
+        "このアカウントのアップロード中データが10GBを超えます。先のアップロードを完了または中止してください",
+      );
+    }
+    const id = `android-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const workDir = await mkdtemp(join(tmpdir(), `vyline-${id}-`));
+    const sourcePath = join(workDir, "source.bin");
+    await writeFile(sourcePath, new Uint8Array());
+    chunkUploads.set(id, {
+      id,
+      accountId,
+      sourceName: sanitizeDisplayName(sourceName),
+      includeMedia,
+      expectedBytes,
+      receivedBytes: 0,
+      nextIndex: 0,
+      workDir,
+      sourcePath,
+      updatedAt: Date.now(),
+    });
+    return { uploadId: id, chunkSize: CHUNK_UPLOAD_BYTES };
   });
-  return { uploadId: id, chunkSize: CHUNK_UPLOAD_BYTES };
+}
+
+export async function cancelAndroidBackupChunkUpload(
+  accountId: string,
+  uploadId: string,
+): Promise<void> {
+  return withAccountBackupLock(accountId, async () => {
+    const upload = chunkUploads.get(uploadId);
+    if (!upload || upload.accountId !== accountId) return;
+    chunkUploads.delete(uploadId);
+    await rm(upload.workDir, { recursive: true, force: true });
+  });
+}
+
+async function readUploadChunk(request: Request): Promise<Uint8Array> {
+  if (!request.body) throw new Error("空のchunkは受け付けられません");
+  const reader = request.body.getReader();
+  const parts: Uint8Array[] = [];
+  let bytes = 0;
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      bytes += value.byteLength;
+      if (bytes > CHUNK_UPLOAD_BYTES) throw new Error("chunkが大きすぎます");
+      parts.push(value);
+    }
+    return Buffer.concat(parts, bytes);
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
 }
 
 export async function appendAndroidBackupChunk(
@@ -280,78 +316,82 @@ export async function appendAndroidBackupChunk(
   index: number,
   request: Request,
 ): Promise<{ receivedBytes: number; expectedBytes: number; nextIndex: number }> {
-  const upload = chunkUploads.get(uploadId);
-  if (!upload || upload.accountId !== accountId) {
-    throw new Error("Androidバックアップのアップロードセッションが見つかりません");
-  }
-  if (!Number.isInteger(index) || index < 0) throw new Error("chunk index が不正です");
+  return withAccountBackupLock(accountId, async () => {
+    const upload = chunkUploads.get(uploadId);
+    if (!upload || upload.accountId !== accountId) {
+      throw new Error("Androidバックアップのアップロードセッションが見つかりません");
+    }
+    if (!Number.isInteger(index) || index < 0) throw new Error("chunk index が不正です");
 
-  // 応答だけ失われて同じchunkが再送された場合は二重追記せず成功扱いにする。
-  if (index < upload.nextIndex) {
+    // 応答だけ失われて同じchunkが再送された場合は二重追記せず成功扱いにする。
+    if (index < upload.nextIndex) {
+      upload.updatedAt = Date.now();
+      return {
+        receivedBytes: upload.receivedBytes,
+        expectedBytes: upload.expectedBytes,
+        nextIndex: upload.nextIndex,
+      };
+    }
+    if (index !== upload.nextIndex) {
+      throw new Error(`chunk順序が不正です（expected=${upload.nextIndex}, received=${index}）`);
+    }
+
+    const declared = Number(request.headers.get("content-length") ?? 0);
+    if (Number.isFinite(declared) && declared > CHUNK_UPLOAD_BYTES) {
+      throw new Error(`chunkが大きすぎます（上限 ${formatBytes(CHUNK_UPLOAD_BYTES)}）`);
+    }
+    const bytes = await readUploadChunk(request);
+    if (bytes.byteLength <= 0) throw new Error("空のchunkは受け付けられません");
+    if (bytes.byteLength > CHUNK_UPLOAD_BYTES) {
+      throw new Error(`chunkが大きすぎます（上限 ${formatBytes(CHUNK_UPLOAD_BYTES)}）`);
+    }
+    if (upload.receivedBytes + bytes.byteLength > upload.expectedBytes) {
+      throw new Error("アップロードサイズが宣言されたファイルサイズを超えました");
+    }
+
+    await appendFile(upload.sourcePath, bytes);
+    upload.receivedBytes += bytes.byteLength;
+    upload.nextIndex += 1;
     upload.updatedAt = Date.now();
     return {
       receivedBytes: upload.receivedBytes,
       expectedBytes: upload.expectedBytes,
       nextIndex: upload.nextIndex,
     };
-  }
-  if (index !== upload.nextIndex) {
-    throw new Error(`chunk順序が不正です（expected=${upload.nextIndex}, received=${index}）`);
-  }
-
-  const declared = Number(request.headers.get("content-length") ?? 0);
-  if (Number.isFinite(declared) && declared > CHUNK_UPLOAD_BYTES) {
-    throw new Error(`chunkが大きすぎます（上限 ${formatBytes(CHUNK_UPLOAD_BYTES)}）`);
-  }
-  const bytes = new Uint8Array(await request.arrayBuffer());
-  if (bytes.byteLength <= 0) throw new Error("空のchunkは受け付けられません");
-  if (bytes.byteLength > CHUNK_UPLOAD_BYTES) {
-    throw new Error(`chunkが大きすぎます（上限 ${formatBytes(CHUNK_UPLOAD_BYTES)}）`);
-  }
-  if (upload.receivedBytes + bytes.byteLength > upload.expectedBytes) {
-    throw new Error("アップロードサイズが宣言されたファイルサイズを超えました");
-  }
-
-  await appendFile(upload.sourcePath, bytes);
-  upload.receivedBytes += bytes.byteLength;
-  upload.nextIndex += 1;
-  upload.updatedAt = Date.now();
-  return {
-    receivedBytes: upload.receivedBytes,
-    expectedBytes: upload.expectedBytes,
-    nextIndex: upload.nextIndex,
-  };
+  });
 }
 
 export async function completeAndroidBackupChunkUpload(
   accountId: string,
   uploadId: string,
 ): Promise<AndroidBackupSession> {
-  const upload = chunkUploads.get(uploadId);
-  if (!upload || upload.accountId !== accountId) {
-    throw new Error("Androidバックアップのアップロードセッションが見つかりません");
-  }
-  if (upload.receivedBytes !== upload.expectedBytes) {
-    throw new Error(
-      `アップロードが未完了です（${formatBytes(upload.receivedBytes)} / ${formatBytes(upload.expectedBytes)}）`,
-    );
-  }
+  return withAccountBackupLock(accountId, async () => {
+    const upload = chunkUploads.get(uploadId);
+    if (!upload || upload.accountId !== accountId) {
+      throw new Error("Androidバックアップのアップロードセッションが見つかりません");
+    }
+    if (upload.receivedBytes !== upload.expectedBytes) {
+      throw new Error(
+        `アップロードが未完了です（${formatBytes(upload.receivedBytes)} / ${formatBytes(upload.expectedBytes)}）`,
+      );
+    }
 
-  chunkUploads.delete(uploadId);
-  const actualBytes = (await stat(upload.sourcePath)).size;
-  if (actualBytes !== upload.expectedBytes) {
-    await rm(upload.workDir, { recursive: true, force: true }).catch(() => undefined);
-    throw new Error(
-      `アップロード済みファイルサイズが一致しません（${formatBytes(actualBytes)} / ${formatBytes(upload.expectedBytes)}）`,
+    chunkUploads.delete(uploadId);
+    const actualBytes = (await stat(upload.sourcePath)).size;
+    if (actualBytes !== upload.expectedBytes) {
+      await rm(upload.workDir, { recursive: true, force: true }).catch(() => undefined);
+      throw new Error(
+        `アップロード済みファイルサイズが一致しません（${formatBytes(actualBytes)} / ${formatBytes(upload.expectedBytes)}）`,
+      );
+    }
+    const session = createRestoreSession(
+      upload.accountId,
+      upload.sourceName,
+      upload.includeMedia,
+      actualBytes,
     );
-  }
-  const session = createRestoreSession(
-    upload.accountId,
-    upload.sourceName,
-    upload.includeMedia,
-    actualBytes,
-  );
-  return queueRestore(session, upload.sourcePath, upload.workDir);
+    return queueRestore(session, upload.sourcePath, upload.workDir);
+  });
 }
 
 export function getAndroidBackupSession(
@@ -412,7 +452,9 @@ async function runRestore(
     const selfMid =
       token?.mid?.trim() || String(getClient(session.accountId)?.base.profile?.mid ?? "").trim();
     if (!selfMid) {
-      throw new Error("復元先LINEアカウントのMIDを確認できません。再ログインしてから実行してください");
+      throw new Error(
+        "復元先LINEアカウントのMIDを確認できません。再ログインしてから実行してください",
+      );
     }
     const parsed = parseAndroidDatabase(databasePath, selfMid);
 
@@ -422,38 +464,45 @@ async function runRestore(
       total: 1,
       message: "Androidのトーク履歴をVylineへ統合しています",
     };
-    const merged = await mergeImportedChatDb(session.accountId, parsed.records);
-
-    let media = { restored: 0, skipped: 0 };
-    if (session.includeMedia && mediaRoot) {
-      session.progress = {
-        stage: "media",
-        current: 0,
-        total: parsed.mediaRefs.length,
-        message: "Androidの保存済みメディアを紐付けています",
-      };
-      media = await restoreAndroidMedia(
-        session.accountId,
-        mediaRoot,
-        parsed.mediaRefs,
-        (current, total) => {
+    const { merged, media } = await withAccountBackupLock(session.accountId, async () => {
+      const mediaPlan =
+        session.includeMedia && mediaRoot
+          ? await planAndroidMedia(session.accountId, mediaRoot, parsed.mediaRefs)
+          : [];
+      const usage = await getBackupStorageUsage(session.accountId, parsed.records.messages);
+      const newMediaBytes = mediaPlan.reduce((total, item) => total + item.sizeBytes, 0);
+      const maxHistoryBytes =
+        usage.limitBytes - usage.backupBytes - usage.mediaBytes - newMediaBytes;
+      if (maxHistoryBytes < 0) throw new BackupStorageLimitError();
+      const merged = await mergeImportedChatDb(session.accountId, parsed.records, maxHistoryBytes);
+      let media = { restored: 0, skipped: 0 };
+      if (session.includeMedia && mediaRoot) {
+        session.progress = {
+          stage: "media",
+          current: 0,
+          total: parsed.mediaRefs.length,
+          message: "Androidの保存済みメディアを紐付けています",
+        };
+        media = await restoreAndroidMedia(session.accountId, mediaPlan, (current, total) => {
           session.progress = {
             stage: "media",
             current,
             total,
             message: "Androidの保存済みメディアを紐付けています",
           };
-        },
-      );
-    }
+        });
+        media.skipped += parsed.mediaRefs.length - mediaPlan.length;
+      }
 
-    session.progress = {
-      stage: "save",
-      current: 1,
-      total: 1,
-      message: "復元結果を保存しています",
-    };
-    await flushAccountChatDb(session.accountId);
+      session.progress = {
+        stage: "save",
+        current: 1,
+        total: 1,
+        message: "復元結果を保存しています",
+      };
+      await flushAccountChatDb(session.accountId);
+      return { merged, media };
+    });
 
     const totalMessages = Object.values(parsed.records.messages).reduce(
       (sum, messages) => sum + Object.keys(messages).length,
@@ -520,6 +569,7 @@ async function extractAndroidZip(
   let extractionError: Error | null = null;
   const databaseCandidates: Array<{ path: string; rank: number }> = [];
   const endTasks: Promise<unknown>[] = [];
+  const writers = new Set<ReturnType<ReturnType<typeof Bun.file>["writer"]>>();
   let dbIndex = 0;
   let extractedMedia = false;
 
@@ -547,6 +597,7 @@ async function extractAndroidZip(
       : join(outputDir, `database-${dbIndex++}.sqlite`);
     mkdirSync(dirname(target), { recursive: true });
     const writer = Bun.file(target).writer({ highWaterMark: 1024 * 1024 });
+    writers.add(writer);
     let writtenForFile = 0;
     file.ondata = (error, chunk, final) => {
       if (error) {
@@ -570,6 +621,7 @@ async function extractAndroidZip(
         }
         if (chunk.byteLength > 0) writer.write(chunk);
         if (final) {
+          writers.delete(writer);
           endTasks.push(Promise.resolve(writer.end()));
           if (media) {
             extractedMedia = extractedMedia || writtenForFile > 0;
@@ -578,8 +630,7 @@ async function extractAndroidZip(
           }
         }
       } catch (writeError) {
-        extractionError =
-          writeError instanceof Error ? writeError : new Error(String(writeError));
+        extractionError = writeError instanceof Error ? writeError : new Error(String(writeError));
         try {
           file.terminate();
         } catch {
@@ -592,16 +643,22 @@ async function extractAndroidZip(
   });
   unzipper.register(UnzipInflate);
 
-  for await (const chunk of Bun.file(sourcePath).stream()) {
-    const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
-    current += bytes.byteLength;
-    unzipper.push(bytes, false);
+  try {
+    for await (const chunk of Bun.file(sourcePath).stream()) {
+      const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
+      current += bytes.byteLength;
+      unzipper.push(bytes, false);
+      if (extractionError) throw extractionError;
+      // Let disk writes catch up before inflating more compressed input.
+      await Promise.all([...endTasks.splice(0), ...[...writers].map((writer) => writer.flush())]);
+      onProgress?.(Math.min(current, total), total);
+    }
+    unzipper.push(new Uint8Array(), true);
     if (extractionError) throw extractionError;
-    onProgress?.(Math.min(current, total), total);
+    await Promise.all(endTasks.splice(0));
+  } finally {
+    await Promise.allSettled([...endTasks, ...[...writers].map((writer) => writer.end())]);
   }
-  unzipper.push(new Uint8Array(), true);
-  if (extractionError) throw extractionError;
-  await Promise.all(endTasks);
 
   const database = databaseCandidates.sort((a, b) => a.rank - b.rank)[0];
   if (!database || !existsSync(database.path)) {
@@ -621,9 +678,7 @@ function androidDatabaseCandidateRank(name: string): number | null {
   return null;
 }
 
-function parseAndroidMediaEntry(
-  name: string,
-): { chatMid: string; fileName: string } | null {
+function parseAndroidMediaEntry(name: string): { chatMid: string; fileName: string } | null {
   const match = name.match(
     /(?:^|\/)chats\/([a-z0-9_-]{4,128})\/messages\/(\d+)(\.original|\.thumb)?$/i,
   );
@@ -643,7 +698,9 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         .filter(Boolean),
     );
     if (!tables.has("chat_history")) {
-      throw new Error("chat_history テーブルがないため、LINE Androidの naver_line DB として読めません");
+      throw new Error(
+        "chat_history テーブルがないため、LINE Androidの naver_line DB として読めません",
+      );
     }
 
     const databaseVersion = Number(
@@ -692,7 +749,8 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
       const localId = asString(row.id);
       if (!chatMid || !localId) continue;
       const rawServerId = asString(row.server_id);
-      const messageId = rawServerId && rawServerId !== "0" ? rawServerId : `android-local-${localId}`;
+      const messageId =
+        rawServerId && rawServerId !== "0" ? rawServerId : `android-local-${localId}`;
       const rawFrom = asString(row.from_mid);
       const isMyMessage = !rawFrom || rawFrom === selfMid;
       const from = isMyMessage ? selfMid : rawFrom;
@@ -726,10 +784,7 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         // LINE group/room messages target the chat MID even when received.
         // Using selfMid here makes the desktop-side chat filter drop every
         // restored message sent by another group member.
-        to:
-          isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r")
-            ? chatMid
-            : selfMid,
+        to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : selfMid,
         text: unsent ? null : asNullableString(row.content),
         contentType: unsent ? "UNSENT" : contentType,
         createdTime: Number.isFinite(createdTime) ? createdTime : 0,
@@ -739,9 +794,7 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         ...(relationType === "reply" && relationId ? { relatedMessageId: relationId } : {}),
         ...(stickerOption.includes("A") ? { stickerAnimated: true } : {}),
         ...(reactions?.length ? { reactions } : {}),
-        ...(unsent
-          ? { messageState: isMyMessage ? "revoked-by-self" : "revoked-by-other" }
-          : {}),
+        ...(unsent ? { messageState: isMyMessage ? "revoked-by-self" : "revoked-by-other" } : {}),
         savedAt,
       };
       const byChat = (messages[chatMid] ??= {});
@@ -1034,17 +1087,24 @@ function androidReactionType(value: string): number | null {
   }
 }
 
-async function restoreAndroidMedia(
+interface PlannedAndroidMedia extends AndroidMediaRef {
+  path: string;
+  sizeBytes: number;
+}
+
+async function planAndroidMedia(
   accountId: string,
   mediaRoot: string,
   refs: AndroidMediaRef[],
-  onProgress?: (current: number, total: number) => void,
-): Promise<{ restored: number; skipped: number }> {
-  let restored = 0;
-  let skipped = 0;
-  let current = 0;
-  onProgress?.(0, refs.length);
+): Promise<PlannedAndroidMedia[]> {
+  const plan: PlannedAndroidMedia[] = [];
+  const seen = new Set<string>();
   for (const ref of refs) {
+    if (!/^[a-z0-9_-]{4,128}$/i.test(ref.chatMid) || !/^\d+$/.test(ref.localId)) continue;
+    const identity = JSON.stringify([ref.chatMid, ref.messageId]);
+    if (seen.has(identity)) continue;
+    seen.add(identity);
+    if (await statMediaStorage(accountId, ref.chatMid, ref.messageId)) continue;
     const candidates = [
       join(mediaRoot, ref.chatMid, `${ref.localId}.original`),
       join(mediaRoot, ref.chatMid, ref.localId),
@@ -1053,24 +1113,38 @@ async function restoreAndroidMedia(
         : []),
     ];
     const path = candidates.find((candidate) => existsSync(candidate));
-    if (!path) {
-      skipped++;
-      current++;
-      onProgress?.(current, refs.length);
-      continue;
-    }
+    if (!path) continue;
+    const info = await stat(path);
+    if (info.isFile()) plan.push({ ...ref, path, sizeBytes: info.size });
+  }
+  return plan;
+}
+
+async function restoreAndroidMedia(
+  accountId: string,
+  refs: PlannedAndroidMedia[],
+  onProgress?: (current: number, total: number) => void,
+): Promise<{ restored: number; skipped: number }> {
+  let restored = 0;
+  let skipped = 0;
+  let current = 0;
+  onProgress?.(0, refs.length);
+  for (const ref of refs) {
+    const file = await open(ref.path, "r");
     try {
-      const bytes = new Uint8Array(await readFile(path));
-      await writeMediaStorage(
+      const header = Buffer.alloc(16);
+      const { bytesRead } = await file.read(header, 0, header.length, 0);
+      const copied = await importMediaStorageFile(
         accountId,
         ref.chatMid,
         ref.messageId,
-        bytes,
-        sniffMediaMime(bytes, ref.contentType),
+        ref.path,
+        sniffMediaMime(header.subarray(0, bytesRead), ref.contentType),
       );
-      restored++;
-    } catch {
-      skipped++;
+      if (copied) restored++;
+      else skipped++;
+    } finally {
+      await file.close();
     }
     current++;
     onProgress?.(current, refs.length);
@@ -1096,10 +1170,7 @@ function sniffMediaMime(bytes: Uint8Array, kind: string): string {
   ) {
     return "image/webp";
   }
-  if (
-    bytes.length >= 12 &&
-    Buffer.from(bytes.subarray(4, 8)).toString("ascii") === "ftyp"
-  ) {
+  if (bytes.length >= 12 && Buffer.from(bytes.subarray(4, 8)).toString("ascii") === "ftyp") {
     return kind === "AUDIO" ? "audio/mp4" : "video/mp4";
   }
   if (bytes.length >= 3 && Buffer.from(bytes.subarray(0, 3)).toString("ascii") === "ID3") {

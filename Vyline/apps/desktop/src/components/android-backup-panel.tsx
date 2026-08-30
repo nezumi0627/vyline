@@ -5,9 +5,7 @@ import { markRestoredChatMids } from "@/utils/dismissedChats";
 import { emitAppEvent } from "@/lib/appEvents";
 import { startSerialPoll } from "@/lib/serialPoll";
 
-type Session = NonNullable<
-  Awaited<ReturnType<typeof api.line.getAndroidBackupSession>>["session"]
->;
+type Session = NonNullable<Awaited<ReturnType<typeof api.line.getAndroidBackupSession>>["session"]>;
 
 function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
@@ -22,7 +20,32 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   const [session, setSession] = useState<Session | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
+  const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(
+    null,
+  );
+  const [capacity, setCapacity] = useState<Awaited<
+    ReturnType<typeof api.line.backupStorage>
+  > | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!accountId) return;
+    void api.line
+      .backupStorage(accountId)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok || result.storage?.accountId !== accountId)
+          throw new Error(result.error ?? "保存容量を取得できませんでした");
+        setCapacity(result);
+      })
+      .catch((error) => {
+        if (active)
+          setMessage(error instanceof Error ? error.message : "保存容量を取得できませんでした");
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountId, session?.status]);
 
   useEffect(() => {
     setFile(null);
@@ -65,6 +88,12 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
 
   const start = async () => {
     if (!accountId || !file || loading) return;
+    if (capacity?.android && file.size > capacity.android.maxUploadBytes) {
+      setMessage(
+        `Androidバックアップが大きすぎます（上限 ${formatBytes(capacity.android.maxUploadBytes)}）`,
+      );
+      return;
+    }
     setLoading(true);
     setMessage(null);
     setSession(null);
@@ -105,8 +134,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
     }
   };
 
-  const busy =
-    loading || session?.status === "pending" || session?.status === "running";
+  const busy = loading || session?.status === "pending" || session?.status === "running";
 
   return (
     <section className="mt-6 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
@@ -120,6 +148,26 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
             アカウントへ統合します。既存履歴と元ファイルは変更しません。
           </p>
         </div>
+      </div>
+
+      <div className="mt-3 space-y-1 text-xs text-[var(--vy-text-dim)]">
+        <p>
+          読み込み上限:{" "}
+          {capacity?.android ? formatBytes(capacity.android.maxUploadBytes) : "確認中…"}
+          {capacity?.android
+            ? `（ZIP展開後も ${formatBytes(capacity.android.maxExtractBytes)} まで）`
+            : ""}
+        </p>
+        {capacity?.storage && (
+          <p>
+            このアカウントの使用量: {formatBytes(capacity.storage.usedBytes)} /{" "}
+            {formatBytes(capacity.storage.limitBytes)}
+            {` · 残り ${formatBytes(capacity.storage.remainingBytes)}`}
+          </p>
+        )}
+        <p>
+          復元後の履歴・メディアを含めて1アカウント10GBまで。重複データは追加容量に数えません。サーバー上の一時ファイルは処理後に削除します。選択した元ファイルは変更しません。
+        </p>
       </div>
 
       <div className="mt-4 space-y-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
@@ -256,8 +304,10 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
             {session.result.parsed.totalMessages.toLocaleString()} メッセージ
           </p>
           <p className="mt-1 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
-            DB v{session.result.databaseVersion} · 新規メッセージ {session.result.merged.importedMessages.toLocaleString()}
-            件 · 重複 {session.result.merged.skippedMessages.toLocaleString()} 件 · リアクション {session.result.parsed.reactions.toLocaleString()} 件
+            DB v{session.result.databaseVersion} · 新規メッセージ{" "}
+            {session.result.merged.importedMessages.toLocaleString()}件 · 重複{" "}
+            {session.result.merged.skippedMessages.toLocaleString()} 件 · リアクション{" "}
+            {session.result.parsed.reactions.toLocaleString()} 件
             {session.result.media.restored > 0
               ? ` · メディア ${session.result.media.restored.toLocaleString()} 件`
               : ""}

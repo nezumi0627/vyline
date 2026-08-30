@@ -28,7 +28,9 @@ const {
   BACKUP_STORAGE_LIMIT_BYTES,
 } = await import("./backupService.js");
 const { exportChatDb, importChatDb, flushAccountChatDb } = await import("../storage/chatStore.js");
-const { readMediaStorage, writeMediaStorage } = await import("../storage/mediaStorage.js");
+const { readMediaStorage, writeMediaStorage, statMediaStorage } = await import(
+  "../storage/mediaStorage.js"
+);
 const { accountFile, readAccountJson } = await import("../storage/accountDirs.js");
 
 function backupDir(accountId: string) {
@@ -294,6 +296,24 @@ describe("VylineBackup path safety", () => {
     await expect(createBackup(accountId, { includeMedia: true })).rejects.toThrow("10GB");
     expect(await readdir(backupDir(accountId))).toEqual(["reserved-test-bytes.bin"]);
     expect(await listBackups(accountId)).toEqual([]);
+  });
+
+  test("checks snapshot restore capacity before modifying history or restoring missing media", async () => {
+    const accountId = "quota-snapshot-restore";
+    await seed(accountId, "keep this history");
+    await writeMediaStorage(accountId, "shared", "1", new Uint8Array(64), "image/png");
+    const backup = await createBackup(accountId, { includeMedia: true });
+    const media = await statMediaStorage(accountId, "shared", "1");
+    await fs.unlink(media!.path);
+    const usage = await getBackupStorageUsage(accountId);
+    await occupy(accountId, BACKUP_STORAGE_LIMIT_BYTES - usage.usedBytes);
+    const before = await readFile(accountFile(accountId, "chatdb.json"));
+    await expect(restoreBackup(accountId, backup.id, { includeMedia: true })).rejects.toThrow(
+      "10GB",
+    );
+    expect(await readFile(accountFile(accountId, "chatdb.json"))).toEqual(before);
+    expect(await statMediaStorage(accountId, "shared", "1")).toBeNull();
+    expect(await readBackup(accountId, backup.id)).not.toBeNull();
   });
 
   test("keeps legacy backups readable but never lists or counts a different prefix-sharing account", async () => {

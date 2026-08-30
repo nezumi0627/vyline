@@ -5,6 +5,7 @@
  * the React tree, are hard to type, and can survive refactors unnoticed.
  */
 export interface AppEventMap {
+  "backup:changed": { accountId: string };
   "history:load-older": { chatMid: string };
   "history:state": { chatMid: string; hasMore: boolean; loading: boolean };
   "backup:restored": {

@@ -30,6 +30,7 @@ import type {
   CallType,
   Message,
   AccountSettings,
+  BackupStorageUsage,
 } from "@vyline/types";
 
 // re-export for convenience
@@ -197,6 +198,7 @@ async function uploadAndroidBackupChunked(
   }
 
   const chunkSize = Math.min(768 * 1024, Math.max(64 * 1024, Number(init.chunkSize ?? 512 * 1024)));
+  try {
   let index = 0;
   for (let offset = 0; offset < file.size; offset += chunkSize, index += 1) {
     const end = Math.min(file.size, offset + chunkSize);
@@ -228,10 +230,14 @@ async function uploadAndroidBackupChunked(
     }
   }
 
-  return request<{ ok: boolean; sessionId?: string; error?: string }>(
+  return await request<{ ok: boolean; sessionId?: string; error?: string }>(
     "POST",
     `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
   );
+  } finally {
+    // Completion removes the upload session; failures release temporary space.
+    await request("DELETE", `${basePath}/${encodeURIComponent(init.uploadId)}`).catch(() => undefined);
+  }
 }
 
 async function requestBlob<T>(method: string, path: string, blob: Blob): Promise<T> {
@@ -1102,10 +1108,18 @@ export const api = {
         error?: string;
       }>("POST", `/line/${accountId}/backup/create`, opts),
 
+    backupStorage: (accountId: string) =>
+      request<{
+        ok: boolean;
+        storage?: BackupStorageUsage;
+        android?: { maxUploadBytes: number; maxExtractBytes: number };
+        error?: string;
+      }>("GET", `/line/${encodeURIComponent(accountId)}/backup/storage`),
+
     backupList: (accountId: string) =>
       request<{
         ok: boolean;
-        storage?: { usedBytes: number; limitBytes: number; remainingBytes: number };
+        storage?: BackupStorageUsage;
         data?: Array<{
           id: string;
           createdAt: string;

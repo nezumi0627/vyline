@@ -26,6 +26,7 @@ import type { Context } from "hono";
 import { childLogger } from "../logger.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { rebuildAccountChatDb } from "../storage/chatStore.js";
+import { BackupStorageLimitError } from "../storage/backupLimits.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
@@ -687,6 +688,8 @@ function isLiffError(res: unknown): { statusCode: number; statusMessage: string 
 // ─── error helper ─────────────────────────────
 
 function handleError(err: unknown, c: Context<any, any, any>) {
+  if (err instanceof BackupStorageLimitError)
+    return c.json({ ok: false, code: "BACKUP_STORAGE_LIMIT", error: err.message }, 507);
   if (err instanceof NotLoggedInError || err instanceof LiffNotLoggedInError) {
     return c.json({ ok: false, error: "not logged in" }, 401);
   }
@@ -2412,6 +2415,17 @@ lineRouter.get("/:accountId/restore/ios-backup/:sessionId", async (c) => {
 
 // ─── Android: naver_line DB / LEINs バックアップ復元 ───
 
+lineRouter.get("/:accountId/backup/storage", async (c) => {
+  try {
+    const { getBackupStorageUsage } = await import("../service/backupService.js");
+    const { MAX_UPLOAD_BYTES, MAX_EXTRACT_BYTES } = await import("../service/androidBackupService.js");
+    return c.json({ ok: true, storage: await getBackupStorageUsage(c.req.param("accountId")),
+      android: { maxUploadBytes: MAX_UPLOAD_BYTES, maxExtractBytes: MAX_EXTRACT_BYTES } });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.post("/:accountId/restore/android-backup", async (c) => {
   const accountId = c.req.param("accountId");
   if (!c.req.raw.body) {
@@ -2487,6 +2501,16 @@ lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/complete",
     );
     const session = await completeAndroidBackupChunkUpload(accountId, c.req.param("uploadId"));
     return c.json({ ok: true, sessionId: session.id });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/restore/android-backup/chunked/:uploadId", async (c) => {
+  try {
+    const { cancelAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
+    await cancelAndroidBackupChunkUpload(c.req.param("accountId"), c.req.param("uploadId"));
+    return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
   }

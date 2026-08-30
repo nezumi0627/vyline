@@ -9,6 +9,7 @@
  */
 
 import { createHash, randomUUID } from "node:crypto";
+import type { BackupStorageUsage } from "@vyline/types";
 import { existsSync } from "node:fs";
 import { link, mkdir, open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -16,14 +17,22 @@ import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import {
   exportChatDb,
+  chatDbStorageBytes,
   flushAccountChatDb,
   mergeImportedChatDb,
   listChatsWithCounts,
   type StoredChat,
   type StoredMessage,
 } from "../storage/chatStore.js";
-import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import {
+  getAccountMediaStorageSize,
+  statMediaStorage,
+  readMediaStorage,
+  writeMediaStorage,
+} from "../storage/mediaStorage.js";
 import { safePathComponent } from "../storage/safeFile.js";
+import { BACKUP_STORAGE_LIMIT_BYTES, BackupStorageLimitError } from "../storage/backupLimits.js";
+export { BACKUP_STORAGE_LIMIT_BYTES, BackupStorageLimitError } from "../storage/backupLimits.js";
 
 const log = childLogger("vyline-backup");
 
@@ -40,28 +49,12 @@ const BACKUP_ROOTS = [
   ),
 ];
 
-/** Per-account storage allowance, including metadata and unfinished files. */
-export const BACKUP_STORAGE_LIMIT_BYTES = 10 * 1024 ** 3;
-
-export interface BackupStorageUsage {
-  usedBytes: number;
-  limitBytes: number;
-  remainingBytes: number;
-}
-
-export class BackupStorageLimitError extends Error {
-  constructor() {
-    super(
-      "このアカウントのバックアップ保存上限（10GB）を超えます。不要なバックアップを削除してから再試行してください",
-    );
-    this.name = "BackupStorageLimitError";
-  }
-}
+export type { BackupStorageUsage } from "@vyline/types";
 
 // Admission, writing and deletion share the account lock. Different accounts
 // have independent quotas and can create snapshots concurrently.
 const writes = new Map<string, Promise<unknown>>();
-function withAccountBackupLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+export function withAccountBackupLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
   const next = (writes.get(accountId) ?? Promise.resolve()).catch(() => undefined).then(work);
   writes.set(accountId, next);
   return next.finally(() => {
@@ -191,21 +184,45 @@ async function legacySnapshots(
   return result;
 }
 
-export async function getBackupStorageUsage(accountId: string): Promise<BackupStorageUsage> {
-  let usedBytes = 0;
+export async function getBackupStorageUsage(
+  accountId: string,
+  incomingMessages?: Record<string, Record<string, StoredMessage>>,
+): Promise<BackupStorageUsage> {
+  let backupBytes = 0;
   const dir = backupAccountDir(accountId);
   const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
     if (error.code === "ENOENT") return [];
     throw error;
   });
   for (const entry of entries) {
-    if (entry.isFile()) usedBytes += (await stat(join(dir, entry.name))).size;
+    if (entry.isFile()) {
+      try {
+        backupBytes += (await stat(join(dir, entry.name))).size;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+      }
+    }
   }
-  for (const entry of await legacySnapshots(accountId)) usedBytes += (await stat(entry.path)).size;
+  for (const entry of await legacySnapshots(accountId))
+    backupBytes += (await stat(entry.path)).size;
+  const db = await exportChatDb(accountId);
+  const historyBytes =
+    Object.keys(db.chats).length || Object.keys(db.messages).length || Object.keys(db.meta).length
+      ? chatDbStorageBytes(db)
+      : 0;
+  // Include saved files that regain a message reference during an import.
+  for (const [mid, messages] of Object.entries(incomingMessages ?? {}))
+    db.messages[mid] = { ...db.messages[mid], ...messages };
+  const mediaBytes = await getAccountMediaStorageSize(accountId, db.messages);
+  const usedBytes = backupBytes + historyBytes + mediaBytes;
   return {
+    accountId,
     usedBytes,
     limitBytes: BACKUP_STORAGE_LIMIT_BYTES,
     remainingBytes: Math.max(0, BACKUP_STORAGE_LIMIT_BYTES - usedBytes),
+    historyBytes,
+    mediaBytes,
+    backupBytes,
   };
 }
 
@@ -489,6 +506,8 @@ async function restoreFramedBackup(accountId: string, path: string, options: Res
   let restoredMedia = 0;
   let imported = false;
   let completed = false;
+  let newMediaBytes = 0;
+  const mediaKeys = new Set<string>();
   for await (const raw of snapshotLines(path)) {
     if (stage === "header") {
       const header = parseHeader(raw);
@@ -502,9 +521,6 @@ async function restoreFramedBackup(accountId: string, path: string, options: Res
       continue;
     }
     if (raw === '},"media":[') {
-      const result = await mergeImportedChatDb(accountId, { chats, messages });
-      restoredChats = result.importedChats;
-      restoredMessages = result.importedMessages;
       imported = true;
       stage = "media";
       if (!options.includeMedia) {
@@ -541,11 +557,41 @@ async function restoreFramedBackup(accountId: string, path: string, options: Res
         messages[entry.chatMid]?.[entry.messageId] &&
         (!selected || selected.has(entry.chatMid))
       ) {
-        restoredMedia += await restoreMediaEntry(accountId, entry);
+        const key = JSON.stringify([entry.chatMid, entry.messageId]);
+        if (
+          !mediaKeys.has(key) &&
+          !(await statMediaStorage(accountId, entry.chatMid, entry.messageId))
+        ) {
+          newMediaBytes += Buffer.byteLength(entry.data, "base64");
+          mediaKeys.add(key);
+        }
       }
     }
   }
   if (!imported || !completed) throw new Error("バックアップが途中で切れています");
+  const usage = await getBackupStorageUsage(accountId, messages);
+  const result = await mergeImportedChatDb(
+    accountId,
+    { chats, messages },
+    usage.limitBytes - usage.backupBytes - usage.mediaBytes - newMediaBytes,
+  );
+  restoredChats = result.importedChats;
+  restoredMessages = result.importedMessages;
+  if (options.includeMedia && mediaKeys.size) {
+    let readingMedia = false;
+    for await (const raw of snapshotLines(path)) {
+      if (raw === '},"media":[') {
+        readingMedia = true;
+        continue;
+      }
+      if (!readingMedia) continue;
+      const line = raw.startsWith(",") ? raw.slice(1) : raw;
+      if (line === "]}") break;
+      const entry = JSON.parse(line) as Snapshot["media"][number];
+      const key = JSON.stringify([entry.chatMid, entry.messageId]);
+      if (mediaKeys.delete(key)) restoredMedia += await restoreMediaEntry(accountId, entry);
+    }
+  }
   await flushAccountChatDb(accountId);
   return { restoredChats, restoredMessages, restoredMedia };
 }
@@ -554,7 +600,7 @@ async function restoreMediaEntry(
   accountId: string,
   entry: Snapshot["media"][number],
 ): Promise<number> {
-  if (await readMediaStorage(accountId, entry.chatMid, entry.messageId)) return 0;
+  if (await statMediaStorage(accountId, entry.chatMid, entry.messageId)) return 0;
   try {
     await writeMediaStorage(
       accountId,
@@ -575,6 +621,10 @@ export async function restoreBackup(
   id: string,
   options: RestoreOptions,
 ): Promise<{ restoredChats: number; restoredMessages: number; restoredMedia: number }> {
+  return withAccountBackupLock(accountId, () => restoreAccountBackup(accountId, id, options));
+}
+
+async function restoreAccountBackup(accountId: string, id: string, options: RestoreOptions) {
   const found = await locateBackup(accountId, id);
   if (!found) {
     throw new Error("バックアップが見つかりません");
@@ -600,13 +650,32 @@ export async function restoreBackup(
 
   // Restoring the same snapshot again must not duplicate messages or replace
   // newer live messages with the old copy from the snapshot.
-  const imported = await mergeImportedChatDb(accountId, { chats, messages });
+  const mediaToRestore: Snapshot["media"] = [];
+  const mediaKeys = new Set<string>();
+  if (options.includeMedia) {
+    for (const entry of snapshot.media) {
+      if (!messages[entry.chatMid]?.[entry.messageId]) continue;
+      const key = JSON.stringify([entry.chatMid, entry.messageId]);
+      if (mediaKeys.has(key) || (await statMediaStorage(accountId, entry.chatMid, entry.messageId)))
+        continue;
+      mediaKeys.add(key);
+      mediaToRestore.push(entry);
+    }
+  }
+  const newMediaBytes = mediaToRestore.reduce(
+    (total, entry) => total + Buffer.byteLength(entry.data, "base64"),
+    0,
+  );
+  const usage = await getBackupStorageUsage(accountId, messages);
+  const imported = await mergeImportedChatDb(
+    accountId,
+    { chats, messages },
+    usage.limitBytes - usage.backupBytes - usage.mediaBytes - newMediaBytes,
+  );
 
   let restoredMedia = 0;
   if (options.includeMedia) {
-    for (const entry of snapshot.media) {
-      if (pickChats && !pickChats.has(entry.chatMid)) continue;
-      if (!messages[entry.chatMid]?.[entry.messageId]) continue;
+    for (const entry of mediaToRestore) {
       restoredMedia += await restoreMediaEntry(accountId, entry);
     }
   }

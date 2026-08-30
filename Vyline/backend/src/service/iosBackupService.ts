@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, readFile, rm, stat } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -17,7 +17,8 @@ import {
   type StoredMessage,
 } from "../storage/chatStore.js";
 import { childLogger } from "../logger.js";
-import { writeMediaStorage } from "../storage/mediaStorage.js";
+import { importMediaStorageFile, statMediaStorage } from "../storage/mediaStorage.js";
+import { getBackupStorageUsage, withAccountBackupLock } from "./backupService.js";
 
 const log = childLogger("ios-backup");
 
@@ -179,33 +180,42 @@ async function runRestore(
       message: "チャット履歴をVylineのDBへ取り込んでいます",
     };
     const records = historyToChatDb(result.parsed, session.accountId);
-    const merged = await mergeImportedChatDb(session.accountId, records);
-    session.progress = {
-      stage: "media",
-      current: 0,
-      total: 1,
-      message: "復元したメディアをDBへ紐付けています",
-    };
-    const media = await restoreMediaFiles(
-      session.accountId,
-      result.extracted.files,
-      result.parsed,
-      (current, total) => {
+    const { merged, media } = await withAccountBackupLock(session.accountId, async () => {
+      const plan = await planIosMediaFiles(
+        session.accountId,
+        result.extracted.files,
+        result.parsed,
+      );
+      const usage = await getBackupStorageUsage(session.accountId, records.messages);
+      const newMediaBytes = plan.items.reduce((sum, item) => sum + item.sizeBytes, 0);
+      const merged = await mergeImportedChatDb(
+        session.accountId,
+        records,
+        usage.limitBytes - usage.backupBytes - usage.mediaBytes - newMediaBytes,
+      );
+      session.progress = {
+        stage: "media",
+        current: 0,
+        total: 1,
+        message: "復元したメディアをDBへ紐付けています",
+      };
+      const media = await restoreMediaFiles(session.accountId, plan, (current, total) => {
         session.progress = {
           stage: "media",
           current,
           total,
           message: "復元したメディアをDBへ紐付けています",
         };
-      },
-    );
-    session.progress = {
-      stage: "save",
-      current: 1,
-      total: 1,
-      message: "復元結果をDBへ保存しています",
-    };
-    await flushAccountChatDb(session.accountId);
+      });
+      session.progress = {
+        stage: "save",
+        current: 1,
+        total: 1,
+        message: "復元結果をDBへ保存しています",
+      };
+      await flushAccountChatDb(session.accountId);
+      return { merged, media };
+    });
     const totalMessages = Array.from(result.parsed.messages.values()).reduce(
       (sum, messages) => sum + messages.length,
       0,
@@ -238,12 +248,11 @@ async function runRestore(
   }
 }
 
-async function restoreMediaFiles(
+async function planIosMediaFiles(
   accountId: string,
   files: ExtractedFile[],
   history: ParsedChatHistory,
-  onProgress?: (current: number, total: number) => void,
-): Promise<{ restored: number; skipped: number }> {
+) {
   const candidates = files.filter((file) => !file.localPath.endsWith(".sqlite"));
   const byName = new Map<string, ExtractedFile>();
   for (const file of candidates) {
@@ -253,43 +262,55 @@ async function restoreMediaFiles(
     if (withoutExtension && !byName.has(withoutExtension)) byName.set(withoutExtension, file);
   }
 
-  let restored = 0;
-  let skipped = 0;
-  const mediaMessages = [...history.messages.values()]
-    .flat()
-    .filter((message) => MEDIA_CONTENT_TYPES.has(iosContentType(message.contentType)));
-  const total = mediaMessages.length;
-  let current = 0;
-  onProgress?.(0, total);
+  const items: Array<{
+    chatMid: string;
+    messageId: string;
+    path: string;
+    mime: string;
+    sizeBytes: number;
+  }> = [];
+  const seen = new Set<string>();
+  let total = 0;
   for (const [chatMid, messages] of history.messages) {
     for (const message of messages) {
       const kind = iosContentType(message.contentType);
       if (!MEDIA_CONTENT_TYPES.has(kind)) continue;
+      total++;
+      const messageId = String(message.id);
+      const key = JSON.stringify([chatMid, messageId]);
+      if (seen.has(key) || (await statMediaStorage(accountId, chatMid, messageId))) continue;
+      seen.add(key);
       const tokens = [String(message.id), ...metadataTokens(message.contentMetadata)];
       const file = findMediaFile(tokens, byName, candidates);
-      if (!file) {
-        skipped++;
-        current++;
-        onProgress?.(current, total);
-        continue;
-      }
-      try {
-        await writeMediaStorage(
-          accountId,
+      if (!file) continue;
+      const info = await stat(file.localPath);
+      if (info.isFile())
+        items.push({
           chatMid,
-          String(message.id),
-          new Uint8Array(await readFile(file.localPath)),
-          mediaMimeType(file.relativePath, kind),
-        );
-        restored++;
-      } catch {
-        skipped++;
-      }
-      current++;
-      onProgress?.(current, total);
+          messageId,
+          path: file.localPath,
+          mime: mediaMimeType(file.relativePath, kind),
+          sizeBytes: info.size,
+        });
     }
   }
-  return { restored, skipped };
+  return { items, total };
+}
+
+async function restoreMediaFiles(
+  accountId: string,
+  plan: Awaited<ReturnType<typeof planIosMediaFiles>>,
+  onProgress?: (current: number, total: number) => void,
+): Promise<{ restored: number; skipped: number }> {
+  let restored = 0;
+  let current = plan.total - plan.items.length;
+  onProgress?.(current, plan.total);
+  for (const item of plan.items) {
+    if (await importMediaStorageFile(accountId, item.chatMid, item.messageId, item.path, item.mime))
+      restored++;
+    onProgress?.(++current, plan.total);
+  }
+  return { restored, skipped: plan.total - restored };
 }
 
 function findMediaFile(
@@ -378,8 +399,7 @@ function mapMessage(
     from,
     // Group/room recipients are the chat MID for both sent and received messages.
     // Keeping received restores pointed at myMid causes them to be filtered out in the UI.
-    to:
-      isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : myMid,
+    to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : myMid,
     text: message.text,
     contentType: iosContentType(message.contentType),
     createdTime: Number.isFinite(message.ts) ? message.ts : 0,

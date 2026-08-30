@@ -19,6 +19,7 @@ import type {
 import { childLogger } from "../logger.js";
 import { accountFile, readAccountJson } from "./accountDirs.js";
 import { writeTextAtomic } from "./safeFile.js";
+import { BackupStorageLimitError } from "./backupLimits.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -924,6 +925,25 @@ export async function exportChatDb(accountId: string): Promise<ChatDb> {
   };
 }
 
+/** Exact UTF-8 JSON size without allocating one multi-GB JSON string. */
+export function chatDbStorageBytes(db: ChatDb): number {
+  const mapBytes = <T>(entries: Record<string, T>, size: (value: T) => number): number => {
+    let bytes = 2;
+    let count = 0;
+    for (const [key, value] of Object.entries(entries)) {
+      bytes += Buffer.byteLength(JSON.stringify(key)) + 1 + size(value);
+      if (count++ > 0) bytes++;
+    }
+    return bytes;
+  };
+  const jsonBytes = (value: unknown) => Buffer.byteLength(JSON.stringify(value));
+  return (
+    jsonBytes({ meta: db.meta, chats: {}, messages: {} }) - 4 +
+    mapBytes(db.chats, jsonBytes) +
+    mapBytes(db.messages, (messages) => mapBytes(messages, jsonBytes))
+  );
+}
+
 /** VylineBackup: 復元（マージ書き込み）。新規端末なら空 DB への上書きと同義 */
 export async function importChatDb(
   accountId: string,
@@ -1078,12 +1098,29 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
 export async function mergeImportedChatDb(
   accountId: string,
   incoming: ChatDbRecords,
+  maxStorageBytes = Number.POSITIVE_INFINITY,
 ): Promise<ChatDbMergeResult> {
   const db = await getDb(accountId);
-  const result = mergeChatDbRecords(db, incoming);
-  for (const [chatMid, messages] of Object.entries(db.messages)) {
-    applyLocalReadWatermark(messages, db.meta.localReadUpTo?.[chatMid]?.messageId);
+  // Validate the complete merge before touching live records. Re-imports count
+  // only their missing data, and a rejected import leaves existing data intact.
+  const target = Number.isFinite(maxStorageBytes)
+    ? {
+        meta: db.meta,
+        chats: { ...db.chats },
+        messages: Object.fromEntries(Object.entries(db.messages).map(([mid, messages]) => [
+          mid,
+          Object.fromEntries(Object.entries(messages).map(([id, message]) => [id, { ...message }])),
+        ])),
+      }
+    : db;
+  const result = mergeChatDbRecords(target, incoming);
+  for (const [chatMid, messages] of Object.entries(target.messages)) {
+    applyLocalReadWatermark(messages, target.meta.localReadUpTo?.[chatMid]?.messageId);
   }
+  if (Number.isFinite(maxStorageBytes) && chatDbStorageBytes(target) > maxStorageBytes)
+    throw new BackupStorageLimitError();
+  db.chats = target.chats;
+  db.messages = target.messages;
   // mergeChatDbRecords can normalize/repair records even when every incoming
   // message ID already exists, so every restore attempt must become durable.
   scheduleSave(accountId);

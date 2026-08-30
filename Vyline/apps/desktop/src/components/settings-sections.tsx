@@ -10,6 +10,8 @@ import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
+import { AccountBackupStorage } from "@/components/account-backup-storage";
+import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
 import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
@@ -1503,6 +1505,7 @@ function AdvancedSection() {
       </Card>
 
       <div className="mt-4">
+        <AccountBackupStorage accountId={accountId} />
         <VylineBackupPanel key={accountId ?? "no-account"} accountId={accountId} />
       </div>
 
@@ -1547,7 +1550,7 @@ function AdvancedSection() {
         </p>
       )}
       <div className="mt-4">
-        <AndroidBackupPanel accountId={accountId} />
+        <AndroidBackupPanel key={accountId ?? "no-account"} accountId={accountId} />
         <IosBackupBetaPanel accountId={accountId} />
       </div>
     </Section>
@@ -1574,6 +1577,10 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
     void load().catch((error) =>
       setMessage(error instanceof Error ? error.message : "バックアップ一覧を取得できませんでした"),
     );
+    return onAppEvent("backup:restored", (event) => {
+      if (event.accountId === accountId) void load().catch((error) =>
+        setMessage(error instanceof Error ? error.message : "保存容量を取得できませんでした"));
+    });
   }, [accountId]);
   const create = async () => {
     if (!accountId) return;
@@ -1583,6 +1590,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       const result = await api.line.backupCreate(accountId, { includeMedia });
       if (!result.ok) throw new Error(result.error ?? "バックアップを作成できませんでした");
       setMessage(`${result.summary?.messageCount ?? 0}件のメッセージを保存しました`);
+      emitAppEvent("backup:changed", { accountId });
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "バックアップを作成できませんでした");
@@ -1599,6 +1607,8 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       const result = await api.line.backupRestore(accountId, { backupId: id, includeMedia: media });
       if (!result.ok) throw new Error(result.error ?? "復元できませんでした");
       setMessage(`復元完了: ${result.restoredMessages ?? 0}件のメッセージ`);
+      emitAppEvent("backup:changed", { accountId });
+      await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "復元できませんでした");
     } finally {
@@ -1616,6 +1626,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       if (!result.ok) throw new Error(result.error ?? "バックアップを削除できませんでした");
       await load();
       setMessage("バックアップを削除しました");
+      emitAppEvent("backup:changed", { accountId });
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "バックアップを削除できませんでした");
     } finally {
@@ -1625,7 +1636,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   return (
     <Section
       title="VylineBackup"
-      desc="このアカウントのトーク履歴を保存・復元します。保存上限は1アカウント10GBです。認証情報は含みません。"
+      desc="このアカウントのトーク履歴を保存・復元します。履歴・保存メディア・バックアップを合わせて1アカウント10GBです。認証情報は含みません。"
     >
       <Card>
         <Row title="新しいバックアップを作成" desc="履歴をいつでも戻せるよう、このPC内へ保存します">
@@ -1861,6 +1872,7 @@ function StorageSection() {
 
   return (
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
+      <AccountBackupStorage accountId={accountId} />
       {storage && (
         <div className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
           <div className="p-5">

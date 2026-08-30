@@ -31,12 +31,12 @@ import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
 import { requestDiagnostics } from "./service/requestDiagnostics.js";
+import { BACKUP_STORAGE_LIMIT_BYTES } from "./storage/backupLimits.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MAX_REQUEST_BODY_BYTES = Number(
   process.env.VYLINE_MAX_REQUEST_BODY_BYTES ??
-    process.env.VYLINE_ANDROID_BACKUP_MAX_BYTES ??
-    2 * 1024 * 1024 * 1024,
+    BACKUP_STORAGE_LIMIT_BYTES,
 );
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
 const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");

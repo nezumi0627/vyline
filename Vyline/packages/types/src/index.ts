@@ -7,6 +7,16 @@
 
 // ─── Account ──────────────────────────────────
 
+export interface BackupStorageUsage {
+  accountId: string;
+  usedBytes: number;
+  limitBytes: number;
+  remainingBytes: number;
+  historyBytes: number;
+  mediaBytes: number;
+  backupBytes: number;
+}
+
 export interface LineBirthday {
   /** "YYYY" or empty when year hidden */
   year?: string;
