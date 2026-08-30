@@ -11,7 +11,7 @@
 
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -19,49 +19,34 @@ import { VYLINE_SAVED_MEDIA_DIR } from "./vylineStorageInfo.js";
 
 const log = childLogger("media-storage");
 
-async function dirSize(target: string): Promise<number> {
-  if (!existsSync(target)) return 0;
-  let total = 0;
-  try {
-    const entries = await readdir(target, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join(target, e.name);
-      if (e.isDirectory()) {
-        total += await dirSize(p);
-      } else {
-        try {
-          const s = await stat(p);
-          total += s.size;
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  } catch (err) {
-    log.debug({ err, target }, "dirSize failed");
-  }
-  return total;
-}
-
 const _dir = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ROOT = join(_dir, "../../data/media-cache");
-const STORAGE_ROOT = VYLINE_SAVED_MEDIA_DIR;
 
-const TYPE_ROOTS = {
-  image: join(STORAGE_ROOT, "images"),
-  video: join(STORAGE_ROOT, "videos"),
-  audio: join(STORAGE_ROOT, "audio"),
-  file: join(STORAGE_ROOT, "files"),
-} as const;
+function storageRoot(): string {
+  if (process.env.VYLINE_MEDIA_STORAGE_DIR) return process.env.VYLINE_MEDIA_STORAGE_DIR;
+  if (process.env.VYLINE_MEDIA_CACHE_DIR) return process.env.VYLINE_MEDIA_CACHE_DIR;
+  if (process.env.VYLINE_STORAGE_DIR) return join(process.env.VYLINE_STORAGE_DIR, "saved-media");
+  return VYLINE_SAVED_MEDIA_DIR;
+}
+
+function typeRoots(root = storageRoot()) {
+  return {
+    image: join(root, "images"),
+    video: join(root, "videos"),
+    audio: join(root, "audio"),
+    file: join(root, "files"),
+  } as const;
+}
 
 try {
-  if (!existsSync(STORAGE_ROOT) && existsSync(LEGACY_ROOT)) {
-    const { rename } = await import("node:fs/promises");
-    await mkdir(dirname(STORAGE_ROOT), { recursive: true });
-    await rename(LEGACY_ROOT, STORAGE_ROOT);
+  const root = storageRoot();
+  const roots = typeRoots(root);
+  if (!existsSync(root) && existsSync(LEGACY_ROOT)) {
+    await mkdir(dirname(root), { recursive: true });
+    await rename(LEGACY_ROOT, root);
   }
-  await mkdir(STORAGE_ROOT, { recursive: true });
-  for (const dir of Object.values(TYPE_ROOTS)) {
+  await mkdir(root, { recursive: true });
+  for (const dir of Object.values(roots)) {
     await mkdir(dir, { recursive: true });
   }
 } catch {
@@ -99,11 +84,12 @@ function contentTypeFromFilename(name: string): string {
 }
 
 function typeRootForContentType(ct: string): string {
+  const roots = typeRoots();
   const lower = ct.toLowerCase();
-  if (lower.startsWith("image/")) return TYPE_ROOTS.image;
-  if (lower.startsWith("video/")) return TYPE_ROOTS.video;
-  if (lower.startsWith("audio/")) return TYPE_ROOTS.audio;
-  return TYPE_ROOTS.file;
+  if (lower.startsWith("image/")) return roots.image;
+  if (lower.startsWith("video/")) return roots.video;
+  if (lower.startsWith("audio/")) return roots.audio;
+  return roots.file;
 }
 
 function diskPath(accountId: string, chatMid: string, messageId: string, ct: string): string {
@@ -125,22 +111,28 @@ export async function readMediaStorage(
   }
   const h = key(accountId, chatMid, messageId);
 
-  const searchRoots = [STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)];
-  for (const root of searchRoots) {
-    if (root === LEGACY_ROOT && existsSync(root) === false) continue;
-    const dir = join(root, h.slice(0, 2));
-    try {
-      const { readdir } = await import("node:fs/promises");
-      const files = await readdir(dir);
-      const hit = files.find((f) => f.startsWith(h));
-      if (!hit) continue;
-      const buf = new Uint8Array(await readFile(join(dir, hit)));
-      const contentType = contentTypeFromFilename(hit);
-      remember(memKey, buf, contentType);
-      return { buf, contentType };
-    } catch {}
-  }
-  return null;
+  const root = storageRoot();
+  const searchRoots = [root, LEGACY_ROOT, ...Object.values(typeRoots(root))].filter(
+    (root) => root !== LEGACY_ROOT || existsSync(root),
+  );
+  const candidates = await Promise.all(
+    searchRoots.map(async (root) => {
+      const dir = join(root, h.slice(0, 2));
+      try {
+        const hit = (await readdir(dir)).find((file) => file.startsWith(h));
+        return hit ? join(dir, hit) : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const hit = candidates.find((candidate): candidate is string => candidate !== null);
+  if (!hit) return null;
+
+  const buf = new Uint8Array(await readFile(hit));
+  const contentType = contentTypeFromFilename(hit);
+  remember(memKey, buf, contentType);
+  return { buf, contentType };
 }
 
 function remember(memKey: string, buf: Uint8Array, contentType: string): void {
@@ -169,45 +161,25 @@ export async function writeMediaStorage(
 }
 
 export async function ensureMediaStorageDir(): Promise<void> {
-  await mkdir(STORAGE_ROOT, { recursive: true });
+  await mkdir(storageRoot(), { recursive: true });
 }
 
 export async function clearMediaStorage(): Promise<number> {
   memory.clear();
-  return clearDir(STORAGE_ROOT);
+  return clearDir(storageRoot());
 }
 
 export async function clearMediaStorageType(
   type: "image" | "video" | "audio" | "file",
 ): Promise<number> {
-  const root = TYPE_ROOTS[type];
+  const root = typeRoots()[type];
   if (!root) return 0;
   return clearDir(root);
-}
-
-export async function getMediaStorageSize(): Promise<number> {
-  return dirSize(STORAGE_ROOT);
-}
-
-export async function getMediaStorageSizeByType(): Promise<{
-  image: number;
-  video: number;
-  audio: number;
-  file: number;
-}> {
-  const [image, video, audio, file] = await Promise.all([
-    dirSize(TYPE_ROOTS.image),
-    dirSize(TYPE_ROOTS.video),
-    dirSize(TYPE_ROOTS.audio),
-    dirSize(TYPE_ROOTS.file),
-  ]);
-  return { image, video, audio, file };
 }
 
 async function clearDir(root: string): Promise<number> {
   let removed = 0;
   try {
-    const { readdir, rm } = await import("node:fs/promises");
     await mkdir(root, { recursive: true });
     const entries = await readdir(root, { withFileTypes: true });
     for (const e of entries) {

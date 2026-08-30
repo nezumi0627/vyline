@@ -1,6 +1,83 @@
-import { useState } from "react";
+import {
+  useState,
+  type ButtonHTMLAttributes,
+  type InputHTMLAttributes,
+  type ReactNode,
+} from "react";
 import { cn } from "@/lib/utils";
 import { lineAvatarUrl } from "@/utils/lineMedia";
+
+type ButtonVariant = "primary" | "secondary" | "ghost";
+type ControlSize = "sm" | "md" | "lg";
+
+export function Button({
+  variant = "secondary",
+  size = "md",
+  loading = false,
+  className,
+  disabled,
+  type = "button",
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  variant?: ButtonVariant;
+  size?: ControlSize;
+  loading?: boolean;
+}) {
+  return (
+    <button
+      {...props}
+      type={type}
+      disabled={disabled || loading}
+      aria-busy={loading || undefined}
+      data-variant={variant}
+      data-size={size}
+      className={cn("vy-button", className)}
+    >
+      {children}
+    </button>
+  );
+}
+
+export function TextField({
+  className,
+  invalid,
+  ...props
+}: InputHTMLAttributes<HTMLInputElement> & { invalid?: boolean }) {
+  return (
+    <input
+      {...props}
+      aria-invalid={invalid || undefined}
+      className={cn("vy-text-field", className)}
+    />
+  );
+}
+
+export function SettingsRow({
+  title,
+  description,
+  children,
+  className,
+}: {
+  title: ReactNode;
+  description?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
+  return (
+    <div className={cn("vy-settings-row", className)}>
+      <div className="min-w-0">
+        <div className="text-sm font-medium text-[var(--vy-text)]">{title}</div>
+        {description && (
+          <div className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+            {description}
+          </div>
+        )}
+      </div>
+      <div className="shrink-0">{children}</div>
+    </div>
+  );
+}
 
 export function Toggle({
   checked,
@@ -24,20 +101,12 @@ export function Toggle({
       aria-label={label}
       disabled={disabled}
       onClick={() => !disabled && onChange(!checked)}
-      className={cn(
-        "relative h-6 w-11 shrink-0 rounded-full transition-colors duration-200 outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--vy-surface)]",
-        checked
-          ? "bg-[var(--vy-accent)]"
-          : "bg-[color-mix(in_oklab,var(--vy-text-dim)_35%,transparent)]",
-        disabled && "opacity-50 cursor-not-allowed",
-      )}
+      data-state={checked ? "checked" : "unchecked"}
+      className="vy-switch-hit"
     >
-      <span
-        className={cn(
-          "absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow-sm transition-transform duration-200",
-          checked && "translate-x-5",
-        )}
-      />
+      <span className="vy-switch-track" aria-hidden>
+        <span className="vy-switch-thumb" />
+      </span>
     </button>
   );
 }

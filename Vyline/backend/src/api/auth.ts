@@ -249,7 +249,7 @@ authRouter.post("/restore", async (c) => {
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
     log.error({ accountId: body.accountId, err }, "restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -285,7 +285,7 @@ authRouter.post("/login/token", async (c) => {
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
     log.error({ accountId: body.accountId, err }, "token login failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -314,7 +314,7 @@ authRouter.post("/switch/:id", async (c) => {
     return c.json({ ok: true, accountId, restored: true });
   } catch (err) {
     log.error({ accountId, err }, "switch restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 

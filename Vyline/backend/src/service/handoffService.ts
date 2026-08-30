@@ -15,6 +15,8 @@ import { loadAccountSettings } from "./accountSettingsService.js";
 import { anonymousId } from "./redaction.js";
 
 const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
+const MAX_EXTRACTED_BYTES = 10 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 16;
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
 
 function sha256(data: Uint8Array): string {
@@ -36,7 +38,18 @@ function parseHandoff(archiveBase64: string): ParsedHandoff {
   const archive = Buffer.from(archiveBase64, "base64");
   if (archive.byteLength === 0 || archive.byteLength > MAX_ARCHIVE_BYTES)
     throw new Error("handoff archive is too large");
-  const entries = unzipSync(archive);
+  let extractedBytes = 0;
+  let entryCount = 0;
+  const entries = unzipSync(archive, {
+    filter(file) {
+      entryCount++;
+      extractedBytes += file.originalSize;
+      if (entryCount > MAX_ARCHIVE_ENTRIES || extractedBytes > MAX_EXTRACTED_BYTES) {
+        throw new Error("handoff archive expands beyond safe limits");
+      }
+      return true;
+    },
+  });
   const manifestBytes = entries["manifest.json"];
   if (!manifestBytes) throw new Error("manifest.json is required");
   const manifest = JSON.parse(strFromU8(manifestBytes)) as HandoffManifest;

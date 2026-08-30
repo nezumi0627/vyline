@@ -108,6 +108,83 @@ certificate は access token の代用品ではない。
 certificate が残っていても access / refresh credential や端末認証が無効なら、そのセッションをそのまま復元できるとは限らない。
 逆に access token の期限が来ただけなら、端末認証が有効で refresh token が使える限り再ログインは不要。
 
+## linejs から確認できる primary token lifecycle
+
+linejs の modern login は「1本の authToken を永久保存する」設計ではない。
+
+1. QR V2 / email V2 で V3 token issue result を受け取る。
+2. `accessToken` を現在の `client.authToken` として使う。
+3. `refreshToken` を storage に保存する。
+4. `expire` を storage に保存する。
+5. access token の更新が必要になったら `/EXT/auth/tokenrefresh/v1` に refresh token を渡す。
+6. 返された新しい access token へ `client.authToken` を差し替え、`update:authtoken` を発火する。
+7. レスポンスに新しい refresh token が含まれていれば、古い値を置き換えて保存する。
+8. 新しい `expire` を保存する。
+9. push connection は auth token の変更を検知し、新しい token を使う接続へ追従する。
+
+linejs の token 入力は access token 文字列だけでなく、`{ accessToken, refreshToken, expire }`、access/refresh の2行形式、`tokenV3IssueResult` を含む JSON も解釈する。つまり token login 自体も refresh credential を一緒に引き継げる設計になっている。
+
+### 「ずっとログイン」を維持する条件
+
+実用上の正解は次の組をアカウント単位で保持し、更新を循環させること。
+
+```text
+accessToken
+  + refreshToken
+  + expire
+  + cert:<email> / qrCert
+  + device / protocol storage
+```
+
+access token がまだ有効ならそのまま復元し、期限到来または `MUST_REFRESH_V3_TOKEN` を受けたら refresh を行う。refresh 成功後は access token と `expire` だけでなく、ローテーションされた refresh token も同じアカウントの storage に即座に永続化する。
+
+「access token だけを保存した token-only session」は refresh token が無いため、失効後に自動回復できない。長期維持用途では限定的な復元方式として扱う。
+
+## Vyline 現状
+
+Vyline はすでに以下を実装している。
+
+- QR / email V3 login で `refreshToken` と `expire` を `protocol.json` に保存する。
+- request 層で `MUST_REFRESH_V3_TOKEN` を検出すると `tryRefreshToken()` を呼び、元リクエストを再試行する。
+- refresh 成功時に新しい `accessToken` / `expire` と、返された場合はローテーション後の `refreshToken` を保存する。
+- access token が変化すると backend の token watcher が `credentials.json` を更新する。
+- 起動時は保存済み `authToken` と同じアカウントの protocol storage を組み合わせ、`expire` が refresh lead 内なら通常 RPC より先に refresh して session restore する。
+- 実行中も token watcher が refresh lead を監視し、期限が近づいた token を自動更新する。
+
+このため、linejs で確認した「access token + refresh token + expire を循環更新する」長期セッション方式と、現在の Vyline の主要な refresh lifecycle は揃っている。
+
+### 復元時の推奨順序
+
+```text
+saved accessToken があり、まだ利用可能
+  -> 通常 restore
+
+expire 到来 / MUST_REFRESH_V3_TOKEN / token expiry
+  -> saved refreshToken で refresh
+  -> new accessToken を credentials.json に保存
+  -> rotated refreshToken があれば protocol.json に保存
+  -> expire 更新
+  -> session 続行
+
+refreshToken 不在 / refresh rejected
+  -> cert / qrCert は保持
+  -> email または QR の対話ログインへフォールバック
+
+NOT_AUTHORIZED_DEVICE / AUTHENTICATION_DIVESTED_BY_OTHER_DEVICE
+  -> access token は復活不可
+  -> refresh も認可喪失なら再ログインが必要
+  -> cert を authToken と同一視して無条件削除しない
+```
+
+`AUTHENTICATION_DIVESTED_BY_OTHER_DEVICE` は「保存 token の期限切れ」ではなく、その端末/session の認可が他端末操作などで失われた状態。cert が存在していても、失効した access token 自体を復活させることはできない。
+
+## Security notes
+
+- access token と refresh token はどちらも秘密情報。refresh token は長期 session を再発行できるため、少なくとも access token と同等に保護する。
+- raw token / certificate をログ、Issue、PR、docs、診断出力へ出さない。
+- Windows では `credentials.json` の primary token と同様、handoff 外の長期資格情報も OS ユーザーに紐づく保護を優先する。
+- refresh-token rotation の保存は「後でまとめて」ではなく refresh 成功トランザクションの一部として扱う。クラッシュで新旧がずれると次回更新不能になり得る。
+
 ## Channel token lifecycle
 
 `ChannelTokenManager` がアカウントの protocol storage を正本として管理する。

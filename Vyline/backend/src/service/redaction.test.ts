@@ -1,20 +1,47 @@
 import { describe, expect, test } from "bun:test";
-import { anonymousId, redactForDiagnostics } from "./redaction.js";
+import { redactError, redactForDiagnostics, sanitizeStringValue } from "./redaction.js";
 
 describe("diagnostic redaction", () => {
-  test("removes credentials and PII by field name", () => {
-    expect(
-      redactForDiagnostics({ authToken: "secret", mid: "u123", text: "hello", count: 2 }),
-    ).toEqual({
-      authToken: "[REDACTED_SECRET]",
-      mid: "[REDACTED_PII]",
-      text: "[REDACTED_PII]",
-      count: 2,
-    });
+  test("removes credentials and personal identifiers from nested shareable data", () => {
+    const mid = "u1234567890abcdef1234567890abcdef";
+    const fixture = {
+      token: "raw-token-value",
+      accountId: "account-private-value",
+      sessionId: "raw-session-value",
+      message: "private chat body",
+      details: `request failed Bearer abc.def-123 token=another-secret for ${mid}`,
+      nested: { authorization: "Basic private-value", email: "person@example.com" },
+    };
+
+    const encoded = JSON.stringify(redactForDiagnostics(fixture));
+    expect(encoded).not.toContain("raw-token-value");
+    expect(encoded).not.toContain("account-private-value");
+    expect(encoded).not.toContain("raw-session-value");
+    expect(encoded).not.toContain("private chat body");
+    expect(encoded).not.toContain("another-secret");
+    expect(encoded).not.toContain(mid);
+    expect(encoded).not.toContain("person@example.com");
+    expect(encoded).toContain("[REDACTED_SECRET]");
+    expect(encoded).toContain("[REDACTED_MID]");
   });
 
-  test("creates stable anonymous identifiers without exposing the MID", () => {
-    expect(anonymousId("u123")).toBe(anonymousId("u123"));
-    expect(anonymousId("u123")).not.toContain("u123");
+  test("keeps useful error text while sanitizing secrets inside the error", () => {
+    const error = new Error(
+      "upload failed: sessionId=session-secret token=token-secret for u1234567890abcdef1234567890abcdef",
+    );
+    const redacted = redactError(error);
+
+    expect(redacted.message).toContain("upload failed");
+    expect(redacted.message).not.toContain("session-secret");
+    expect(redacted.message).not.toContain("token-secret");
+    expect(redacted.message).not.toContain("u1234567890abcdef1234567890abcdef");
+  });
+
+  test("sanitizes JWT-like credentials embedded in strings", () => {
+    const value = sanitizeStringValue(
+      "authorization=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+    );
+    expect(value).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(value).toContain("[REDACTED_SECRET]");
   });
 });

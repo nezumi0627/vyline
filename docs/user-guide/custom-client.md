@@ -25,9 +25,11 @@ Vyline のバックエンド API を使えば、公式フロントエンド以�
 export VYLINE_API_ADMIN_SECRET=<secret>   # backend 側
 curl -X POST http://localhost:3001/v1/tokens \
   -H "Authorization: Bearer <secret>" -H "Content-Type: application/json" \
-  -d '{"name":"my-client"}'
+  -d '{"name":"my-client","accountIds":["main"]}'
 # => { "token": "vyl_..." }
 ```
+
+`accountIds` は必須です。発行されたトークンは allowlist に含めたアカウントだけを操作できます。
 
 ## 2. 最小クライアント（JavaScript）
 

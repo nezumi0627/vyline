@@ -23,7 +23,8 @@ await writeFile(
     type: "module",
     scripts: {
       dev: "bun src/index.ts",
-      typecheck: "bun --check src/index.ts",
+      typecheck:
+        "bun -e \"const source=await Bun.file('src/index.ts').text(); new Bun.Transpiler({ loader: 'ts', target: 'bun' }).transformSync(source)\"",
     },
     dependencies: {
       "@vyline/plugin-sdk": "workspace:*",

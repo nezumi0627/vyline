@@ -148,7 +148,7 @@ export const useAuthStore = create<AuthState>()(
           pendingLoginAccountId: null,
         });
         // 少し待ってトークン保存・プロフィール追記を待つ
-        await new Promise((r) => setTimeout(r, 400));
+        await sleep(400);
         await get().refreshAccounts();
         set({ activeAccountId: accountId });
       },

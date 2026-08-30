@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { strToU8, zipSync } from "fflate";
 
 describe("handoff archive", () => {
   test("exports a verifiable zip and rejects tampering", async () => {
@@ -38,6 +39,19 @@ describe("handoff archive", () => {
     ).toMatchObject({
       matchesCurrentAccount: false,
     });
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  test("rejects a small compressed archive that expands beyond the handoff limit", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-zip-bomb-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { inspectHandoff } = await import("./handoffService.js");
+    const archive = zipSync({ "settings.json": strToU8("A".repeat(11 * 1024 * 1024)) });
+
+    expect(archive.byteLength).toBeLessThan(5 * 1024 * 1024);
+    expect(() =>
+      inspectHandoff("u1234567890abcdef1234567890abcdef", Buffer.from(archive).toString("base64")),
+    ).toThrow("handoff archive expands beyond safe limits");
     await rm(dataDir, { recursive: true, force: true });
   });
 });

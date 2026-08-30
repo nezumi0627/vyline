@@ -11,6 +11,9 @@ const SubdevicePage = lazy(() =>
 const PrDemoPage = lazy(() =>
   import("./pages/PrDemoPage.js").then((module) => ({ default: module.PrDemoPage })),
 );
+const UiCatalogPage = lazy(() =>
+  import("./pages/UiCatalogPage.js").then((module) => ({ default: module.UiCatalogPage })),
+);
 
 export function App() {
   return (
@@ -18,6 +21,7 @@ export function App() {
       <Suspense fallback={null}>
         <Routes>
           <Route path="/pr-demo" element={<PrDemoPage />} />
+          <Route path="/ui-catalog" element={<UiCatalogPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/subdevice" element={<SubdevicePage />} />
           <Route path="/*" element={<VylineApp />} />
