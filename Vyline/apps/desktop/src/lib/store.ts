@@ -1465,9 +1465,13 @@ export const useStore = create<State>()(
             binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
           }
           const dataBase64 = btoa(binary);
+          const filename =
+            !isVideo && mime === "image/jpeg" && blob !== file
+              ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
+              : file.name || (isVideo ? "video.mp4" : "image.jpg");
           const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
             mimeType: mime,
-            filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
+            filename,
             mediaType: isVideo ? "video" : "image",
           });
           if (res.ok) {

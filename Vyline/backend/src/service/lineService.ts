@@ -4468,6 +4468,8 @@ export async function sendMediaBatch(
                   : "file")
         );
       });
+      const groupedImageBatch =
+        items.length > 1 && batchMediaTypes.every((type) => type === "image" || type === "gif");
       let plainMode =
         noE2eePeers.has(chatMid) ||
         (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
@@ -4488,9 +4490,10 @@ export async function sendMediaBatch(
         plainMode = plainMode || noE2eePeers.has(chatMid);
       }
 
-      if (plainMode) {
-        // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
-        // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
+      if (plainMode || groupedImageBatch) {
+        // Desktop/iOS 準拠: 複数画像は OBS /r/talk/m/reqseq へ順次アップロードし、
+        // 1 枚目の応答で発行された GID を X-Talk-Meta で 2 枚目以降へ引き継ぐ。
+        // 画像以外の plain media batch は従来どおり連番 reqseq のみで送る。
         // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らないため
         // 失敗時のフォールバック送信も行わない（二重送信になる）。
         const uploaded = await client.base.obs.uploadObjTalkBatch(
@@ -4507,9 +4510,46 @@ export async function sendMediaBatch(
               ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
           })),
         );
-        // reqseq 生成メッセージは OBS から OID が取れないため、
-        // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-        // 送信バイトを永続メディアストレージに置く。
+
+        // OBS 201 だけでは LINE 履歴への生成を保証できない。
+        // x-obs-oid (objId) が実際の LINE メッセージ ID として履歴に現れたものだけ
+        // 成功扱いにする。reqseq に必要な header が欠けた場合の false positive を防ぐ。
+        const uploadedIds = uploaded.flatMap((result) =>
+          result && !("error" in result) && result.objId ? [result.objId] : [],
+        );
+        const confirmedIds = new Set<string>();
+        for (let attempt = 0; attempt < 5 && confirmedIds.size < uploadedIds.length; attempt++) {
+          try {
+            // messageBox の lastDeliveredMessageId は送信直後に数秒遅れることがあるため、
+            // delta 用の合成カーソルで「現在時刻まで」を直接読む。
+            const history = await runTalkFetchUrgent(accountId, () =>
+              fetchMessagesInner(accountId, chatMid, Math.max(30, uploadedIds.length * 4), {
+                lite: true,
+                delta: true,
+                deltaAfterId: uploadedIds[0] ?? "0",
+              }),
+            );
+            const historyIds = new Set(history.map((message) => message.id));
+            for (const id of uploadedIds) {
+              if (historyIds.has(id)) confirmedIds.add(id);
+            }
+          } catch (err) {
+            log.warn(
+              {
+                accountId,
+                chatMid,
+                attempt: attempt + 1,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "media batch history verification failed",
+            );
+          }
+
+          if (confirmedIds.size < uploadedIds.length && attempt < 4) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          }
+        }
+
         let count = 0;
         for (let i = 0; i < uploaded.length; i++) {
           const result = uploaded[i];
@@ -4525,6 +4565,20 @@ export async function sendMediaBatch(
             );
             continue;
           }
+
+          if (!confirmedIds.has(result.objId)) {
+            log.warn(
+              {
+                accountId,
+                chatMid,
+                index: i,
+                objId: result.objId,
+              },
+              "media batch item was accepted by OBS but not confirmed in LINE history",
+            );
+            continue;
+          }
+
           count++;
           const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
           await writeMediaStorage(
@@ -4542,8 +4596,9 @@ export async function sendMediaBatch(
             count,
             total: items.length,
             batch: true,
-            plain: true,
+            plain: plainMode,
             reqseq: true,
+            grouped: groupedImageBatch,
           },
           "media batch sent via OBS reqseq",
         );

@@ -378,10 +378,14 @@ export function MessageInput({ chatId }: { chatId: string }) {
             );
           }
           const dataBase64 = await blobToBase64(prepared.blob);
+          const filename =
+            item.kind === "image" && prepared.mime === "image/jpeg" && prepared.blob !== item.file
+              ? `${(item.file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
+              : item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg");
           return {
             dataBase64,
             mimeType: prepared.mime,
-            filename: item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg"),
+            filename,
             mediaType: item.kind,
           };
         }),

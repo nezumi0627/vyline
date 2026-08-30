@@ -62,6 +62,12 @@ export type Message = {
   text?: string;
   sticker?: string;
   imageSrc?: string;
+  /** LINE 複数画像グループ（contentMetadata.GID/GSEQ/GTOTAL） */
+  mediaGroup?: {
+    id: string;
+    sequence: number;
+    total: number;
+  };
   audioSrc?: string;
   audioSeconds?: number;
   /** Flex / RICH の ALT_TEXT（プレビュー・コピー用） */
