@@ -466,7 +466,7 @@ export async function loginWithEmail(
       password,
       ...(pincode !== undefined ? { pincode } : {}),
       onPincodeRequest(pin: string) {
-        log.info({ accountId, pincode: pin }, "pincode requested");
+        log.info({ accountId }, "pincode requested");
         onPincode(pin);
       },
     },
@@ -529,13 +529,13 @@ export async function loginWithQRCode(
     const client = await vylineLoginQR(
       {
         onReceiveQRUrl(url: string) {
-          log.info({ accountId, url }, "QR URL received");
+          log.info({ accountId }, "QR URL received");
           managed.qrUrl = url;
           managed.qrExpired = false;
           onQrUrl(url);
         },
         onPincodeRequest(pin: string) {
-          log.info({ accountId, pin }, "QR pincode requested");
+          log.info({ accountId }, "QR pincode requested");
           managed.pincode = pin;
         },
       },

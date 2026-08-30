@@ -54,6 +54,8 @@
 
 ## 主な機能
 
+以下は製品として実装されている機能領域の概要です。実 LINE 環境まで今回確認済みかどうかは機能ごとに異なるため、検証状態は [Feature Capability Matrix](docs/feature-capabilities.md) を参照してください。
+
 | カテゴリ | 内容 |
 | --- | --- |
 | **ログイン** | QR / Email ログイン、マルチアカウント、セッション復元、V3 access token の自動リフレッシュ |
@@ -334,8 +336,10 @@ flowchart TB
 curl -X POST http://localhost:3001/v1/tokens \
   -H "Authorization: Bearer $VYLINE_API_ADMIN_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"name":"my-bot"}'
+  -d '{"name":"my-bot","accountIds":["main"]}'
 ```
+
+`accountIds` は必須の allowlist です。トークンは指定したアカウントだけを読み書きできます。
 
 ### API の利用例
 
@@ -457,7 +461,10 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 
 | ドキュメント | 内容 |
 | --- | --- |
+| [docs/start-here.md](docs/start-here.md) | **一般ユーザー向け入口** |
 | [docs/README.md](docs/README.md) | ドキュメント索引 |
+| [docs/feature-capabilities.md](docs/feature-capabilities.md) | 機能ごとの検証状態と Evidence |
+| [docs/DOCS_OWNERSHIP.md](docs/DOCS_OWNERSHIP.md) | 文書の正本・ownership map |
 | [Vyline/docs/vyl-cli.md](Vyline/docs/vyl-cli.md) | `vyl` CLI、対話式セットアップ、診断、修復、Snapshot |
 | [docs/onboarding.md](docs/onboarding.md) | 初回セットアップ |
 | [docs/development.md](docs/development.md) | 開発環境とコマンド |
@@ -467,7 +474,7 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 | [docs/api/openapi.md](docs/api/openapi.md) | OpenAPI と公開 API |
 | [docs/developers/index.md](docs/developers/index.md) | **開発者向けガイド（読む順序つき）** |
 | [docs/developers/plugin-system.md](docs/developers/plugin-system.md) | プラグイン開発（サンプル付き） |
-| [docs/developers/for-ai.md](docs/developers/for-ai.md) | AI エージェント向け指示書 |
+| [docs/developers/for-ai.md](docs/developers/for-ai.md) | AI エージェント向け Docs Router |
 | [examples/](examples/) | プラグイン・API サンプルコード |
 | [docs/user-guide/update.md](docs/user-guide/update.md) | アップデート方法 |
 | [docs/user-guide/custom-client.md](docs/user-guide/custom-client.md) | カスタムクライアントの作り方 |

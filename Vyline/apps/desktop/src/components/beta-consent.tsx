@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { useStore } from "@/lib/store";
-import { Toggle } from "@/components/vy-ui";
+import { Button, SettingsRow, TextField, Toggle } from "@/components/vy-ui";
 import { api } from "@/api/client";
 
 const CONSENT_KEY = "vyline:beta-feature-consent-v1";
@@ -95,9 +95,9 @@ export function BetaSection() {
       </div>
 
       <Card>
-        <Row
+        <SettingsRow
           title="プロフィールにブロック確認ボタンを表示"
-          desc="プロフィール画面から、対象ユーザーのブロック状態を確認できるようにします。"
+          description="プロフィール画面から、対象ユーザーのブロック状態を確認できるようにします。"
         >
           <Toggle
             checked={settings.betaBlockCheckManual}
@@ -108,10 +108,10 @@ export function BetaSection() {
             }
             label="プロフィールのブロック確認"
           />
-        </Row>
-        <Row
+        </SettingsRow>
+        <SettingsRow
           title="ブロックの自動確認（友だちのみ全員）"
-          desc="友だち一覧を対象に、API 制限を避けるため時間をかけて順番に確認します。"
+          description="友だち一覧を対象に、API 制限を避けるため時間をかけて順番に確認します。"
         >
           <Toggle
             checked={settings.betaBlockCheckAuto}
@@ -122,10 +122,10 @@ export function BetaSection() {
             }
             label="自動ブロック確認"
           />
-        </Row>
-        <Row
+        </SettingsRow>
+        <SettingsRow
           title="MID でユーザー検索（Beta）"
-          desc="u + 32桁の16進数のMIDからプロフィールだけを検索します。"
+          description="u + 32桁の16進数のMIDからプロフィールだけを検索します。"
         >
           <Toggle
             checked={settings.betaMidSearch}
@@ -134,10 +134,10 @@ export function BetaSection() {
             }
             label="MID検索"
           />
-        </Row>
-        <Row
+        </SettingsRow>
+        <SettingsRow
           title="Agent I AIアシスタント"
-          desc="質問・文章支援・明示選択したトークの要約を行います。入力内容はYahooへ送信されます。"
+          description="質問・文章支援・明示選択したトークの要約を行います。入力内容はYahooへ送信されます。"
         >
           <Toggle
             checked={settings.betaAgentI}
@@ -146,7 +146,7 @@ export function BetaSection() {
             }
             label="Agent I AIアシスタント"
           />
-        </Row>
+        </SettingsRow>
       </Card>
 
       {settings.betaMidSearch && (
@@ -154,16 +154,20 @@ export function BetaSection() {
           <div className="py-4">
             <p className="text-sm font-medium">ユーザー MID を検索</p>
             <div className="mt-2 flex gap-2">
-              <input
+              <TextField
                 value={mid}
                 onChange={(event) => setMid(event.target.value.trim())}
                 placeholder="u + 32桁の16進数"
-                className="min-w-0 flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm"
+                invalid={Boolean(searchError)}
+                aria-describedby={searchError ? "beta-mid-search-error" : undefined}
+                className="min-w-0 flex-1"
                 spellCheck={false}
               />
-              <button
-                type="button"
+              <Button
+                variant="primary"
+                size="sm"
                 disabled={searching || !accountId}
+                loading={searching}
                 onClick={async () => {
                   if (!accountId || !/^u[0-9a-f]{32}$/i.test(mid)) {
                     setSearchError("u + 32桁の16進数で入力してください");
@@ -188,13 +192,15 @@ export function BetaSection() {
                     setSearching(false);
                   }
                 }}
-                className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
-                style={{ background: "var(--vy-accent)" }}
               >
                 {searching ? "検索中…" : "検索"}
-              </button>
+              </Button>
             </div>
-            {searchError && <p className="mt-2 text-xs text-red-400">{searchError}</p>}
+            {searchError && (
+              <p id="beta-mid-search-error" role="alert" className="mt-2 text-xs text-red-400">
+                {searchError}
+              </p>
+            )}
             {profile && (
               <div className="mt-3 rounded-lg border border-[var(--vy-border)] p-3 text-xs">
                 <p className="font-semibold">{profile.displayName || profile.mid}</p>
@@ -214,45 +220,16 @@ export function BetaSection() {
             機能ごとの同意記録は端末内だけに保存します。利用を続ける場合は同意してください。
           </p>
           <div className="mt-3 flex gap-2">
-            <button
-              type="button"
-              onClick={agree}
-              className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)]"
-              style={{ background: "var(--vy-accent)" }}
-            >
+            <Button variant="primary" size="sm" onClick={agree}>
               同意して有効化
-            </button>
-            <button
-              type="button"
-              onClick={() => setConsentPending(null)}
-              className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs"
-            >
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setConsentPending(null)}>
               キャンセル
-            </button>
+            </Button>
           </div>
         </div>
       )}
     </Section>
-  );
-}
-
-function Row({
-  title,
-  desc,
-  children,
-}: {
-  title: string;
-  desc: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div className="flex items-center justify-between gap-4 py-3.5">
-      <div className="min-w-0">
-        <p className="text-sm font-medium">{title}</p>
-        <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">{desc}</p>
-      </div>
-      <div className="shrink-0">{children}</div>
-    </div>
   );
 }
 

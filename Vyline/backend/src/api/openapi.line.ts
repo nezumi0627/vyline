@@ -205,6 +205,49 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/chat-locks",
+    "get",
+    {
+      op: "getChatLocks",
+      summary: "送信保護対象チャット一覧を取得",
+      description: "Vyline 拡張。誤送信防止用のローカル設定",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("{ ok, chatMids }") },
+    },
+  ],
+  [
+    "/line/{accountId}/chat-locks/{chatMid}",
+    "put",
+    {
+      op: "setChatLock",
+      summary: "チャットの送信保護状態を更新",
+      description: "Vyline 拡張。locked は必須 boolean",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["locked"], { locked: { type: "boolean" } }),
+      responses: {
+        "200": jsonRes("{ ok, locked, chatMids }"),
+        "400": {
+          description: "locked が boolean ではない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/chatdb/rebuild",
+    "post",
+    {
+      op: "rebuildChatDatabase",
+      summary: "ローカルチャット DB を再構築",
+      description: "Vyline 拡張。復元・同期混在後の時系列と最新チャット要約を正規化する",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("再構築結果") },
+    },
+  ],
+  [
     "/line/{accountId}/createChat",
     "post",
     {
@@ -249,6 +292,22 @@ const routes: Array<[string, Method, OpSpec]> = [
         memberMids: { type: "array", items: { type: "string" } },
       }),
       responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}",
+    "patch",
+    {
+      op: "updateChat",
+      summary: "チャット名を更新",
+      description: "LINE: TalkService.updateChat (NAME)",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["name"], { name: { type: "string", minLength: 1 } }),
+      responses: {
+        "200": okRes(),
+        "400": { description: "name が空", content: { "application/json": { schema: error } } },
+      },
     },
   ],
   [
@@ -424,6 +483,60 @@ const routes: Array<[string, Method, OpSpec]> = [
         messageId: { type: "string" },
       }),
       responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/read-batch",
+    "post",
+    {
+      op: "markChatsReadBatch",
+      summary: "複数チャットを一括既読",
+      description: "Vyline 拡張。chatMid と lastMessageId が揃った target のみ処理する",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["targets"], {
+        targets: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["chatMid", "lastMessageId"],
+            properties: {
+              chatMid: { type: "string" },
+              lastMessageId: { type: "string" },
+            },
+          },
+        },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, count }"),
+        "400": {
+          description: "有効な targets がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/read-all",
+    "post",
+    {
+      op: "markAllChatsRead",
+      summary: "全チャットまたは指定チャットを一括既読",
+      description: "Vyline 拡張。body は省略可能",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: { chatMids: { type: "array", items: { type: "string" } } },
+            },
+          },
+        },
+      },
+      responses: { "200": jsonRes("{ ok, count }") },
     },
   ],
   [
@@ -673,6 +786,22 @@ const routes: Array<[string, Method, OpSpec]> = [
       tags: ["contacts"],
       params: [acc, pathParam("targetMid", "対象ユーザー / チャット MID")],
       responses: { "200": jsonRes("連絡先情報") },
+    },
+  ],
+  [
+    "/line/{accountId}/updateContactSetting/{mid}",
+    "patch",
+    {
+      op: "updateContactSetting",
+      summary: "連絡先の表示名 override を更新",
+      description:
+        "LINE: TalkService.updateContactSetting。未指定は null として override を解除する",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象 MID")],
+      requestBody: body([], {
+        displayNameOverride: { type: ["string", "null"] },
+      }),
+      responses: { "200": okRes() },
     },
   ],
   [
@@ -1277,6 +1406,21 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/schedule/group/{chatMid}",
+    "get",
+    {
+      op: "getScheduleGroup",
+      summary: "特定グループの予定共有情報を取得",
+      description: "Vyline LIFF 拡張。共有先決定用の encId を直接取得する",
+      tags: ["schedule"],
+      params: [acc, chatMid],
+      responses: {
+        "200": jsonRes("グループ予定共有情報"),
+        "502": { description: "LIFF 側エラー", content: { "application/json": { schema: error } } },
+      },
+    },
+  ],
+  [
     "/line/{accountId}/schedule/friends/{chatMid}",
     "get",
     {
@@ -1343,6 +1487,30 @@ const routes: Array<[string, Method, OpSpec]> = [
       params: [acc],
       requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
       responses: { "200": jsonRes("通話情報") },
+    },
+  ],
+  [
+    "/line/{accountId}/call",
+    "post",
+    {
+      op: "acquireCallRouteLegacy",
+      summary: "通話ルート確保（互換 API）",
+      description: "direct は to、group は kind=group と chatMid を指定する",
+      tags: ["calls"],
+      params: [acc],
+      requestBody: body([], {
+        to: { type: "string" },
+        chatMid: { type: "string" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+        kind: { type: "string", enum: ["direct", "group"] },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, route }"),
+        "400": {
+          description: "to または chatMid が不足",
+          content: { "application/json": { schema: error } },
+        },
+      },
     },
   ],
   [
@@ -1468,6 +1636,157 @@ const routes: Array<[string, Method, OpSpec]> = [
       tags: ["backup"],
       params: [acc, pathParam("backupId", "バックアップ ID")],
       responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/ios-backups",
+    "get",
+    {
+      op: "listIosBackups",
+      summary: "ローカル iOS バックアップ一覧",
+      description: "Vyline 拡張。内部 backupRoot は応答から除外する",
+      tags: ["backup"],
+      params: [acc],
+      responses: { "200": jsonRes("{ ok, devices }") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/ios-backup",
+    "post",
+    {
+      op: "startIosBackupRestore",
+      summary: "iOS バックアップ復元を開始",
+      tags: ["backup"],
+      params: [acc],
+      requestBody: body(["udid", "password"], {
+        udid: { type: "string" },
+        password: { type: "string" },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, sessionId }"),
+        "400": {
+          description: "udid または password が不足",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/ios-backup/{sessionId}",
+    "get",
+    {
+      op: "getIosBackupRestoreStatus",
+      summary: "iOS バックアップ復元状態を取得",
+      tags: ["backup"],
+      params: [acc, pathParam("sessionId", "復元セッション ID")],
+      responses: {
+        "200": jsonRes("{ ok, session }"),
+        "404": {
+          description: "復元セッションがない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup",
+    "post",
+    {
+      op: "startAndroidBackupRestore",
+      summary: "Android バックアップ復元を開始",
+      description:
+        "raw body。X-Vyline-Backup-Name 省略時は naver_line、includeMedia=1 でメディアを含める",
+      tags: ["backup"],
+      params: [
+        acc,
+        queryParam("includeMedia", "1 の場合メディアも復元"),
+        {
+          name: "X-Vyline-Backup-Name",
+          in: "header",
+          required: false,
+          schema: { type: "string", default: "naver_line" },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: {
+        "200": jsonRes("{ ok, sessionId }"),
+        "400": {
+          description: "バックアップ body がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/chunked",
+    "post",
+    {
+      op: "createAndroidBackupChunkUpload",
+      summary: "Android バックアップの分割アップロードを開始",
+      tags: ["backup"],
+      params: [acc],
+      requestBody: body([], {
+        sourceName: { type: "string", default: "naver_line" },
+        includeMedia: { type: "boolean", default: false },
+        expectedBytes: { type: "number", default: 0 },
+      }),
+      responses: { "200": jsonRes("{ ok, uploadId, ... }") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/chunked/{uploadId}/chunks/{index}",
+    "post",
+    {
+      op: "appendAndroidBackupChunk",
+      summary: "Android バックアップの分割データを追加",
+      tags: ["backup"],
+      params: [
+        acc,
+        pathParam("uploadId", "分割アップロード ID"),
+        pathParam("index", "チャンク番号"),
+      ],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: {
+        "200": jsonRes("チャンク受領結果"),
+        "400": {
+          description: "chunk body がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/chunked/{uploadId}/complete",
+    "post",
+    {
+      op: "completeAndroidBackupChunkUpload",
+      summary: "Android バックアップの分割アップロードを完了",
+      tags: ["backup"],
+      params: [acc, pathParam("uploadId", "分割アップロード ID")],
+      responses: { "200": jsonRes("{ ok, sessionId }") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/{sessionId}",
+    "get",
+    {
+      op: "getAndroidBackupRestoreStatus",
+      summary: "Android バックアップ復元状態を取得",
+      tags: ["backup"],
+      params: [acc, pathParam("sessionId", "復元セッション ID")],
+      responses: {
+        "200": jsonRes("{ ok, session }"),
+        "404": {
+          description: "復元セッションがない",
+          content: { "application/json": { schema: error } },
+        },
+      },
     },
   ],
   [

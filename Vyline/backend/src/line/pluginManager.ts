@@ -82,17 +82,12 @@ export function getPluginStates(accountId: string): Record<string, boolean> {
   return loadStates()[accountId] ?? {};
 }
 
-/**
- * 有効/無効を永続化し、ランタイムへも反映する。
- * activate 失敗時は状態を disabled に戻してエラーを返す（本体は落とさない）。
- */
-export async function setPluginState(
+async function applyPluginState(
   accountId: string,
-  pluginId: string,
+  entry: PluginEntry,
   enabled: boolean,
 ): Promise<void> {
-  const entry = listPlugins().find((p) => p.id === pluginId);
-  if (!entry) throw new Error(`unknown plugin: ${pluginId}`);
+  const pluginId = entry.id;
 
   if (enabled) {
     if (!entry.loadable) throw new Error("plugin has no index.ts / index.js entry");
@@ -115,13 +110,27 @@ export async function setPluginState(
   saveStates(states);
 }
 
+/**
+ * 有効/無効を永続化し、ランタイムへも反映する。
+ * activate 失敗時は状態を disabled に戻してエラーを返す（本体は落とさない）。
+ */
+export async function setPluginState(
+  accountId: string,
+  pluginId: string,
+  enabled: boolean,
+): Promise<void> {
+  const entry = listPlugins().find((p) => p.id === pluginId);
+  if (!entry) throw new Error(`unknown plugin: ${pluginId}`);
+  await applyPluginState(accountId, entry, enabled);
+}
+
 /** バックエンド再起動後に、そのアカウントで有効化済みのローカルプラグインを戻す。 */
 export async function restoreEnabledPlugins(accountId: string): Promise<void> {
   const enabled = getPluginStates(accountId);
   for (const plugin of listPlugins()) {
     if (!enabled[plugin.id]) continue;
     try {
-      await setPluginState(accountId, plugin.id, true);
+      await applyPluginState(accountId, plugin, true);
     } catch (error) {
       log.warn({ accountId, pluginId: plugin.id, error }, "saved plugin was not restored");
     }

@@ -18,14 +18,24 @@ import { protectSecret, unprotectSecret } from "./secureStore.js";
 const log = childLogger("tokenStore");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
-const TOKENS_FILE = join(DATA_DIR, "tokens.json");
-const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
+const DEFAULT_DATA_DIR = join(_dir, "..", "..", "data");
 const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
 
+function dataDir(): string {
+  return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
+}
+
+function tokensFile(): string {
+  return join(dataDir(), "tokens.json");
+}
+
+function accountsDir(): string {
+  return join(dataDir(), "accounts");
+}
+
 function accountDir(accountId: string): string {
-  return join(ACCOUNTS_DIR, encodeURIComponent(accountId));
+  return join(accountsDir(), encodeURIComponent(accountId));
 }
 
 function accountTokenFile(accountId: string): string {
@@ -99,11 +109,13 @@ export type SessionMeta = {
 };
 
 async function ensureDataDir(): Promise<void> {
-  if (!existsSync(DATA_DIR)) {
-    await mkdir(DATA_DIR, { recursive: true });
-    log.debug({ dir: DATA_DIR }, "created data dir");
+  const root = dataDir();
+  const accounts = accountsDir();
+  if (!existsSync(root)) {
+    await mkdir(root, { recursive: true });
+    log.debug({ dir: root }, "created data dir");
   }
-  await mkdir(ACCOUNTS_DIR, { recursive: true });
+  await mkdir(accounts, { recursive: true });
 }
 
 async function decodePersistedEntry(
@@ -141,8 +153,10 @@ async function persistAccount(accountId: string, entry: TokenEntry): Promise<voi
 export async function loadTokens(): Promise<TokenMap> {
   await ensureDataDir();
   const cleaned: TokenMap = {};
+  const accounts = accountsDir();
+  const legacyTokens = tokensFile();
   try {
-    for (const dir of await readdir(ACCOUNTS_DIR, { withFileTypes: true })) {
+    for (const dir of await readdir(accounts, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
       const id = decodeURIComponent(dir.name);
       const path = accountTokenFile(id);
@@ -157,9 +171,9 @@ export async function loadTokens(): Promise<TokenMap> {
 
   // Legacy shared tokens.json remains readable. Account files win, and a legacy
   // entry is migrated lazily without deleting the recoverable source file.
-  if (existsSync(TOKENS_FILE)) {
+  if (existsSync(legacyTokens)) {
     try {
-      const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+      const parsed = JSON.parse(await readFile(legacyTokens, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
         if (cleaned[id]) continue;
         const decoded = await decodePersistedEntry(id, entry);
@@ -230,7 +244,10 @@ export async function saveToken(
   if (premium) entry.premium = premium;
   tokens[accountId] = entry;
   await persistAccount(accountId, entry);
-  log.info({ accountId, displayName: entry.displayName, mid: entry.mid }, "token saved");
+  log.info(
+    { accountId, hasDisplayName: Boolean(entry.displayName), hasMid: Boolean(entry.mid) },
+    "token saved",
+  );
 }
 
 export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {

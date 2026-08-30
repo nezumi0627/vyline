@@ -59,7 +59,7 @@
 ## データフロー（例: プロフィール更新）
 
 ```
-PATCH /line/:id/profile { displayName }
+PATCH /line/:id/updateProfileAttributes { displayName }
   → lineService.updateMyProfile
   → wrapSession(client).profile.update
   → stack talk.updateProfileAttributes  (/S4)
@@ -96,7 +96,7 @@ Vyline/
 1. **RPC 名は Desktop で確認** — `bun run vyline:find-native`
 2. **Path は patchTransport / modules.map 準拠** — `/S4`, `/api/v3p/rs` 等
 3. **E2EE 送信は letterSealing 優先** — stack e2ee は fallback
-4. **通話 UI は未接続** — `acquireRoute` のみ backend 残置
+4. **通話は実験的に接続済み** — `useCall` → `call/start` → managed session → WebSocket PCM。実 LINE 環境での E2E 成功は継続検証対象
 
 ---
 
@@ -116,7 +116,7 @@ Vyline/
 | `fetchUsers()`                            | 友だち一覧              |
 | `getUser(mid)`                            | DM プロフィール         |
 | `getChat(mid)`                            | グループ情報            |
-| `call.acquireRoute` / `acquireGroupRoute` | 通話ルート（UI 未接続） |
+| `call.acquireRoute` / `acquireGroupRoute` | 通話ルート（managed call / UI 接続あり、実環境検証継続） |
 
 ### `client.base.talk.*`
 

@@ -1604,6 +1604,38 @@ export const api = {
       ),
   },
   diagnostics: {
+    status: (mid: string) =>
+      request<{
+        ok: boolean;
+        status: {
+          enabled: boolean;
+          retentionDays: number;
+          level: "error" | "warn" | "info" | "debug";
+          allowAutoShare: boolean;
+          sizeBytes: number;
+          entryCount: number;
+        };
+      }>("GET", `/diagnostics/${encodeURIComponent(mid)}/status`),
+    configure: (
+      mid: string,
+      patch: Partial<{
+        enabled: boolean;
+        retentionDays: number;
+        level: "error" | "warn" | "info" | "debug";
+        allowAutoShare: boolean;
+      }>,
+    ) =>
+      request<{
+        ok: boolean;
+        status: {
+          enabled: boolean;
+          retentionDays: number;
+          level: "error" | "warn" | "info" | "debug";
+          allowAutoShare: boolean;
+          sizeBytes: number;
+          entryCount: number;
+        };
+      }>("PATCH", `/diagnostics/${encodeURIComponent(mid)}/status`, patch),
     list: (mid: string) =>
       request<{ ok: boolean; entries: unknown[] }>(
         "GET",
@@ -1616,5 +1648,19 @@ export const api = {
         "GET",
         `/diagnostics/${encodeURIComponent(mid)}/export`,
       ),
+    issuePreview: (
+      mid: string,
+      input: { summary?: string; reproduction?: string; expected?: string; actual?: string } = {},
+    ) =>
+      request<{
+        ok: boolean;
+        preview: {
+          title: string;
+          report: string;
+          occurredAt: string;
+          delivery: "github" | "copy";
+          issueUrl?: string;
+        };
+      }>("POST", `/diagnostics/${encodeURIComponent(mid)}/issue-preview`, input),
   },
 };
