@@ -101,8 +101,23 @@ function ChatShellBase() {
             <ChatArea />
           </Suspense>
         ) : (
-          <div className="hidden flex-1 items-center justify-center bg-[var(--vy-chat-bg)] md:flex">
-            <p className="text-sm text-[var(--vy-text-dim)]">チャットを選択してください</p>
+          <div
+            className="hidden flex-1 items-center justify-center bg-[var(--vy-chat-bg)] md:flex"
+            data-pattern="0"
+          >
+            <div className="flex flex-col items-center gap-3 text-center">
+              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-3xl opacity-60">
+                💬
+              </span>
+              <div>
+                <p className="text-sm font-medium text-[var(--vy-text-dim)]">
+                  チャットを選択してください
+                </p>
+                <p className="mt-1 text-xs text-[var(--vy-text-dim)] opacity-60">
+                  左のリストからトークを開くか、新しい会話を始めましょう
+                </p>
+              </div>
+            </div>
           </div>
         )}
       </div>

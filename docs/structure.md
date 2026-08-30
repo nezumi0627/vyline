@@ -14,7 +14,7 @@ LINE プロトコルにおける「ミュート送信」は、プッシュ通知
 - メッセージ送信時に、`contentMetadata` (キー・値のメタデータテーブル) に対して以下のペアを付与します。
   - キー: `NOTIFICATION_DISABLED`
   - 値: `"true"`
-- 送信API (`lineRouter.post("/:accountId/send")`) のリクエストボディに `mute: true` を指定することで、この値が内部の `sendMessage` に渡されます。
+- 送信API (`lineRouter.post("/:accountId/sendMessage")`) のリクエストボディに `mute: true` を指定することで、この値が内部の `sendMessage` に渡されます。
 
 ### データフロー
 ```

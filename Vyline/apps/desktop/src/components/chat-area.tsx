@@ -580,7 +580,11 @@ function ChatAreaBase() {
                         onClick={() => {
                           if (a.announcementSeq && activeChatId && accountId) {
                             void api.line.announce
-                              .remove(accountId, activeChatId, a.announcementSeq)
+                              .removeChatRoomAnnouncement(
+                                accountId,
+                                activeChatId,
+                                a.announcementSeq,
+                              )
                               .then((res) => {
                                 if (res.ok && activeChatId) {
                                   removeAnnouncement(activeChatId, a.announcementSeq);

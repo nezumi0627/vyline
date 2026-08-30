@@ -104,9 +104,9 @@ For destinations and procedures, contact the project in advance using the contac
 
 ### Development Partner
 
-- [REINs](https://github.com/areteruhiro/LEINs) — Development Partner
+- [LEINs](https://github.com/areteruhiro/LEINs) — Development Partner
 
-Vyline and REINs remain independently developed and operated projects while cooperating on development and technical research when appropriate.
+Vyline and LEINs remain independently developed and operated projects while cooperating on development and technical research when appropriate.
 
 ### Maintainers and contributors wanted
 

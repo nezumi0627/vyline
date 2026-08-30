@@ -102,8 +102,8 @@ publicRouter.get("/accounts", async (c) => {
 
 // ─── チャット ─────────────────────────────────────
 
-/** GET /v1/accounts/:accountId/chats — チャット一覧 */
-publicRouter.get("/accounts/:accountId/chats", async (c) => {
+/** GET /v1/accounts/:accountId/getMessageBoxes — チャット一覧 */
+publicRouter.get("/accounts/:accountId/getMessageBoxes", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -123,8 +123,8 @@ publicRouter.get("/accounts/:accountId/chats", async (c) => {
 
 // ─── メッセージ ───────────────────────────────────
 
-/** GET /v1/accounts/:accountId/chats/:chatMid/messages — メッセージ履歴 */
-publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
+/** GET /v1/accounts/:accountId/getPreviousMessagesV2WithRequest/:chatMid — メッセージ履歴 */
+publicRouter.get("/accounts/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -153,8 +153,8 @@ publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
   }
 });
 
-/** POST /v1/accounts/:accountId/chats/:chatMid/messages — メッセージ送信 */
-publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
+/** POST /v1/accounts/:accountId/sendMessage/:chatMid — メッセージ送信 */
+publicRouter.post("/accounts/:accountId/sendMessage/:chatMid", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -185,8 +185,8 @@ publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
 
 // ─── イベントポーリング ───────────────────────────
 
-/** GET /v1/accounts/:accountId/events/poll — Talk Push バッファから新着取得 */
-publicRouter.get("/accounts/:accountId/events/poll", async (c) => {
+/** GET /v1/accounts/:accountId/fetchOperations — Talk Push バッファから新着取得 */
+publicRouter.get("/accounts/:accountId/fetchOperations", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
