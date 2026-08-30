@@ -25,6 +25,7 @@ import {
 import { parseSticonReplace } from "../utils/lineSticon.js";
 import { parseMentions } from "../utils/mention.js";
 import type { Chat, Member, Message, MessageKind, MessageStatus } from "./store-types.js";
+import { parseImageMediaGroup } from "./mediaGroup.js";
 
 const COLORS = ["#2aabee", "#06c755", "#f0728f", "#7c5cff", "#f5a623", "#2dd4bf", "#a78bfa"];
 
@@ -409,6 +410,7 @@ export function mapMessage(
     text,
     sticker: stickerSrc,
     imageSrc,
+    mediaGroup: kind === "image" ? parseImageMediaGroup(meta) : undefined,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
     altText,

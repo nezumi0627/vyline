@@ -34,6 +34,7 @@ import {
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { findFirstUnreadMessage } from "@/lib/chatScroll";
+import { shareImageMediaGroup } from "@/lib/mediaGroup";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -62,21 +63,6 @@ type MsgRow =
       searching: boolean;
       highlight?: string;
     };
-
-function canGroupImageMessage(message: Message): boolean {
-  return message.kind === "image" && Boolean(message.imageSrc) && !message.replyToId;
-}
-
-function shouldGroupAdjacentImages(left: Message, right: Message): boolean {
-  return (
-    canGroupImageMessage(left) &&
-    canGroupImageMessage(right) &&
-    left.authorId === right.authorId &&
-    left.chatId === right.chatId &&
-    dayLabel(left.createdAt) === dayLabel(right.createdAt) &&
-    Math.abs(right.createdAt - left.createdAt) <= 30_000
-  );
-}
 
 function compareMessagesOldestFirst(left: Message, right: Message): number {
   const byTime = left.createdAt - right.createdAt;
@@ -167,29 +153,35 @@ function ChatAreaBase() {
         out.push({ key: `day-${m.id}`, item: { key: `day-${m.id}`, kind: "day", label: dl } });
       }
       const prev = chatMessages[i - 1];
-      const mediaGroup = canGroupImageMessage(m) ? [m] : undefined;
+      const mediaGroup = m.mediaGroup && !m.replyToId ? [m] : undefined;
       if (mediaGroup) {
         while (
           i + 1 < chatMessages.length &&
-          shouldGroupAdjacentImages(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
+          shareImageMediaGroup(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
         ) {
           mediaGroup.push(chatMessages[i + 1]!);
           i++;
         }
+        mediaGroup.sort(
+          (left, right) =>
+            (left.mediaGroup?.sequence ?? Number.MAX_SAFE_INTEGER) -
+            (right.mediaGroup?.sequence ?? Number.MAX_SAFE_INTEGER),
+        );
       }
-      const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? m;
+      const primaryMessage = mediaGroup?.[0] ?? m;
+      const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? primaryMessage;
       const next = chatMessages[i + 1];
       const sameAuthorAsNext =
         next && next.authorId === lastInRow.authorId && dayLabel(next.createdAt) === dl;
       const sameAuthorAsPrev =
-        prev && prev.authorId === m.authorId && dayLabel(prev.createdAt) === lastDay;
-      const groupIds = mediaGroup?.map((item) => item.id) ?? [m.id];
+        prev && prev.authorId === primaryMessage.authorId && dayLabel(prev.createdAt) === lastDay;
+      const groupIds = mediaGroup?.map((item) => item.id) ?? [primaryMessage.id];
       out.push({
-        key: `msg-${m.id}`,
+        key: `msg-${primaryMessage.id}`,
         item: {
-          key: `msg-${m.id}`,
+          key: `msg-${primaryMessage.id}`,
           kind: "msg",
-          message: m,
+          message: primaryMessage,
           mediaGroup: mediaGroup && mediaGroup.length > 1 ? mediaGroup : undefined,
           index: i,
           sameAuthorAsPrev: Boolean(sameAuthorAsPrev),
