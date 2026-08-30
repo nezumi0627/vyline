@@ -134,7 +134,7 @@ bun run typecheck
 - TypeScript strict / overengineering 禁止 / 小さなモジュール
 - BFF は整形だけ、ロジックは service、LINE 呼び出しは protocol domain
 - verbose な pino ログ（subsystem タグ付き）
-- 通話 UI（CallOverlay）はダミー維持
+- 通話 UI は `useCall` → BFF → managed call session → WebSocket PCM まで接続済み。ただし実 LINE 環境での E2E 成功は継続検証対象
 
 ---
 

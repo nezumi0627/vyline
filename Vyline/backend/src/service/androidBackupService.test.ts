@@ -3,10 +3,13 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Database } from "bun:sqlite";
 import { afterEach, describe, expect, test } from "bun:test";
+import { zipSync } from "fflate";
 import {
   androidContentType,
+  getAndroidBackupSession,
   parseAndroidDatabase,
   parseAndroidParameter,
+  startAndroidBackupRestore,
 } from "./androidBackupService.js";
 
 const tempDirs: string[] = [];
@@ -35,6 +38,38 @@ describe("Android LINE backup import", () => {
     expect(androidContentType(5, 7)).toBe("STICKER");
     expect(androidContentType(13, 18)).toBe("CHATEVENT");
     expect(androidContentType(27, 0)).toBe("UNSENT");
+  });
+
+  test("rejects ZIPs with excessive entry counts", async () => {
+    const previous = process.env.VYLINE_ANDROID_BACKUP_MAX_ENTRIES;
+    process.env.VYLINE_ANDROID_BACKUP_MAX_ENTRIES = "3";
+    try {
+      const archive = zipSync({
+        "a.txt": new Uint8Array(),
+        "b.txt": new Uint8Array(),
+        "c.txt": new Uint8Array(),
+        "d.txt": new Uint8Array(),
+      });
+      const session = await startAndroidBackupRestore(
+        "account-security-test",
+        "backup.zip",
+        new Request("http://localhost", { method: "POST", body: archive }),
+        false,
+      );
+
+      let latest = session;
+      for (let i = 0; i < 100 && latest.status !== "failed"; i++) {
+        await Bun.sleep(5);
+        latest = getAndroidBackupSession("account-security-test", session.id) ?? latest;
+      }
+      expect(latest.status).toBe("failed");
+      expect(latest.error).toContain("ZIPエントリ数");
+    } finally {
+      if (previous === undefined) {
+        // biome-ignore lint/performance/noDelete: assigning undefined leaves a literal "undefined" env value.
+        delete process.env.VYLINE_ANDROID_BACKUP_MAX_ENTRIES;
+      } else process.env.VYLINE_ANDROID_BACKUP_MAX_ENTRIES = previous;
+    }
   });
 
   test("parses a naver_line SQLite DB and preserves 64-bit reaction message IDs", async () => {

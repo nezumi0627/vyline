@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { hideBrokenMedia } from "@/utils/lineMedia";
@@ -176,7 +176,7 @@ function ScheduleAnswer({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useMemo(() => {
+  useEffect(() => {
     void api.line.schedule.event(accountId, chatId, eventKey).then((res) => {
       if (!res.ok || !res.data) return;
       const d = res.data as {
@@ -284,7 +284,7 @@ function PollVote({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  useMemo(() => {
+  useEffect(() => {
     void api.line.poll.question(accountId, chatId, questionId).then((res) => {
       if (!res.ok || !res.data) return;
       const d = res.data as {
@@ -387,7 +387,7 @@ function LadderResult({
   const [error, setError] = useState<string | null>(null);
   const members = useStore((s) => s.chats.find((c) => c.id === chatId)?.members ?? []);
 
-  useMemo(() => {
+  useEffect(() => {
     void api.line.ladder.result(accountId, chatId, hash).then((res) => {
       if (!res.ok || !res.data) return;
       setResult((res.data as LadderResultData) ?? null);

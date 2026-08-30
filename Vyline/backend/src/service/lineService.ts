@@ -18,6 +18,7 @@ import type {
 import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
+import { isTrustedLineMediaDownloadUrl } from "./lineMediaDownloadUrl.js";
 import {
   getClient,
   enqueueTalkRpcBackground,
@@ -5168,7 +5169,7 @@ export async function editMessage(
     } catch (err) {
       log.debug({ err }, "logMessageAsync failed during editMessage");
     }
-    log.info({ accountId, chatMid, messageId, text }, "message edited");
+    log.info({ accountId, chatMid, messageId }, "message edited");
     return { message: mapped };
   });
 }
@@ -6126,7 +6127,19 @@ async function downloadUrlBytes(
   fallbackMime = guessMediaMime("IMAGE"),
   ms = 20_000,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const res = await withTimeout(fetch(url), ms, "downloadUrlBytes");
+  let currentUrl = url;
+  let res: Response | null = null;
+  for (let redirectCount = 0; redirectCount <= 3; redirectCount++) {
+    if (!isTrustedLineMediaDownloadUrl(currentUrl)) {
+      throw new Error("blocked untrusted media download URL");
+    }
+    res = await withTimeout(fetch(currentUrl, { redirect: "manual" }), ms, "downloadUrlBytes");
+    if (res.status < 300 || res.status >= 400) break;
+    const location = res.headers.get("location");
+    if (!location || redirectCount === 3) throw new Error("media download redirect rejected");
+    currentUrl = new URL(location, currentUrl).toString();
+  }
+  if (!res) throw new Error("media download failed");
   if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`);
   const bytes = new Uint8Array(await res.arrayBuffer());
   const contentType = res.headers.get("content-type") || fallbackMime;

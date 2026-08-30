@@ -697,10 +697,24 @@ function HandoffSection() {
   const accountId = useStore((s) => s.accountId);
   const updateSelf = useStore((s) => s.updateSelf);
   const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
-  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
-  const [savingDebug, setSavingDebug] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
+  const [diagnosticStatus, setDiagnosticStatus] = useState<{
+    enabled: boolean;
+    retentionDays: number;
+    level: "error" | "warn" | "info" | "debug";
+    allowAutoShare: boolean;
+    sizeBytes: number;
+    entryCount: number;
+  } | null>(null);
+  const [diagnosticSaving, setDiagnosticSaving] = useState(false);
+  const [issuePreview, setIssuePreview] = useState<{
+    title: string;
+    report: string;
+    occurredAt: string;
+    delivery: "github" | "copy";
+    issueUrl?: string;
+  } | null>(null);
   useEffect(() => {
     if (mid) {
       setResolvedMid(mid);
@@ -724,10 +738,10 @@ function HandoffSection() {
   useEffect(() => {
     if (!diagnosticMid) return;
     let cancelled = false;
-    void api.settings
-      .account(diagnosticMid)
+    void api.diagnostics
+      .status(diagnosticMid)
       .then((result) => {
-        if (!cancelled && result.ok) setAccountSettings(result.settings);
+        if (!cancelled) setDiagnosticStatus(result.status);
       })
       .catch(() => undefined);
     return () => {
@@ -735,20 +749,26 @@ function HandoffSection() {
     };
   }, [diagnosticMid]);
 
-  const setDebugEnabled = async (enabled: boolean) => {
-    if (!diagnosticMid || !accountSettings || savingDebug) return;
-    setSavingDebug(true);
-    setMessage(null);
+  const updateDiagnostics = async (
+    patch: Partial<{
+      enabled: boolean;
+      retentionDays: number;
+      level: "error" | "warn" | "info" | "debug";
+    }>,
+  ) => {
+    if (!diagnosticMid)
+      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
+    setDiagnosticSaving(true);
     try {
-      const result = await api.settings.saveAccount(diagnosticMid, {
-        debug: { ...accountSettings.debug, enabled },
-      });
-      setAccountSettings(result.settings);
-      setMessage(enabled ? "デバッグログの記録を開始しました" : "デバッグログの記録を停止しました");
+      const result = await api.diagnostics.configure(diagnosticMid, patch);
+      setDiagnosticStatus(result.status);
+      setMessage(
+        result.status.enabled ? "診断ログ設定を更新しました" : "診断ログの記録を停止しました",
+      );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "デバッグログ設定の保存に失敗しました");
+      setMessage(error instanceof Error ? error.message : "診断ログ設定の更新に失敗しました");
     } finally {
-      setSavingDebug(false);
+      setDiagnosticSaving(false);
     }
   };
   const download = (name: string, content: BlobPart, type: string) => {
@@ -819,21 +839,9 @@ function HandoffSection() {
     if (!diagnosticMid)
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
-      const result = await api.diagnostics.export(diagnosticMid);
-      const body = [
-        "## 問題の概要",
-        "",
-        "（ここに問題を記入してください）",
-        "",
-        "## Vyline診断情報",
-        "",
-        "```json",
-        result.content.slice(0, 12000),
-        "```",
-        "",
-      ].join("\n");
-      const url = `https://github.com/nezumi0627/vyline/issues/new?title=${encodeURIComponent("Vyline issue")}&body=${encodeURIComponent(body)}`;
-      window.open(url, "_blank", "noopener,noreferrer");
+      const result = await api.diagnostics.issuePreview(diagnosticMid);
+      setIssuePreview(result.preview);
+      setMessage("GitHubへ送る前に、下の内容を確認してください");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Issue作成情報の生成に失敗しました");
     }
@@ -868,16 +876,58 @@ function HandoffSection() {
       <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
         <Card>
           <Row
-            title="デバッグログを記録"
-            desc="既定でONです。起動・セッション復元などの診断情報をサニタイズして保存します"
+            title="診断ログを記録"
+            desc="OFFにすると新しい診断ログを書きません。保存済みログは削除操作まで残ります"
           >
             <Toggle
-              checked={accountSettings?.debug.enabled ?? true}
-              disabled={savingDebug || !accountSettings}
-              onChange={(enabled) => void setDebugEnabled(enabled)}
+              checked={diagnosticStatus?.enabled ?? false}
+              onChange={(enabled) => void updateDiagnostics({ enabled })}
+              label="診断ログを記録"
+              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
             />
           </Row>
-          <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
+          <Row title="ログレベル" desc="通常は info。調査時だけ debug を使ってください">
+            <select
+              value={diagnosticStatus?.level ?? "info"}
+              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
+              onChange={(event) =>
+                void updateDiagnostics({
+                  level: event.target.value as "error" | "warn" | "info" | "debug",
+                })
+              }
+              className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-2 py-1.5 text-xs"
+              aria-label="診断ログレベル"
+            >
+              <option value="error">error</option>
+              <option value="warn">warn</option>
+              <option value="info">info</option>
+              <option value="debug">debug</option>
+            </select>
+          </Row>
+          <Row title="保持期間" desc="期限を過ぎた診断ログは自動削除します">
+            <select
+              value={diagnosticStatus?.retentionDays ?? 14}
+              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
+              onChange={(event) =>
+                void updateDiagnostics({ retentionDays: Number(event.target.value) })
+              }
+              className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-2 py-1.5 text-xs"
+              aria-label="診断ログ保持期間"
+            >
+              <option value={1}>1日</option>
+              <option value={7}>7日</option>
+              <option value={14}>14日</option>
+              <option value={30}>30日</option>
+            </select>
+          </Row>
+          <Row
+            title="ログをエクスポート"
+            desc={
+              diagnosticStatus
+                ? `${diagnosticStatus.entryCount}件 · ${formatBytes(diagnosticStatus.sizeBytes)}。共有用にサニタイズ済みです`
+                : "共有用にサニタイズされたJSONを出力します"
+            }
+          >
             <button
               type="button"
               onClick={() => void exportLogs()}
@@ -895,7 +945,10 @@ function HandoffSection() {
               確認
             </button>
           </Row>
-          <Row title="GitHubで問題を報告" desc="ログを自動添付したIssue作成画面を開きます">
+          <Row
+            title="GitHubで問題を報告"
+            desc="送信内容を先にプレビューしてからIssue作成画面を開きます"
+          >
             <button
               type="button"
               onClick={() => void reportIssue()}
@@ -912,7 +965,12 @@ function HandoffSection() {
                 window.confirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
                   .clear(diagnosticMid)
-                  .then(() => setMessage("ログを削除しました"))
+                  .then(async () => {
+                    setEntries([]);
+                    const result = await api.diagnostics.status(diagnosticMid);
+                    setDiagnosticStatus(result.status);
+                    setMessage("ログを削除しました");
+                  })
                   .catch((error) =>
                     setMessage(error instanceof Error ? error.message : "ログ削除に失敗しました"),
                   )
@@ -927,6 +985,53 @@ function HandoffSection() {
           <pre className="mt-3 max-h-56 overflow-auto rounded-xl bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
             {JSON.stringify(entries, null, 2)}
           </pre>
+        )}
+        {issuePreview && (
+          <div className="mt-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-medium">GitHubへ送る内容のプレビュー</p>
+              <button
+                type="button"
+                onClick={() => setIssuePreview(null)}
+                className="text-xs text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
+              >
+                閉じる
+              </button>
+            </div>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
+              {issuePreview.report}
+            </pre>
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(issuePreview.report)
+                    .then(() => setMessage("Issue本文をコピーしました"))
+                    .catch(() => setMessage("コピーに失敗しました"))
+                }
+                className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+              >
+                本文をコピー
+              </button>
+              {issuePreview.issueUrl && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(issuePreview.issueUrl, "_blank", "noopener,noreferrer")
+                  }
+                  className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-medium text-white"
+                >
+                  GitHubを開く
+                </button>
+              )}
+            </div>
+            {issuePreview.delivery === "copy" && (
+              <p className="mt-2 text-[0.65rem] text-[var(--vy-text-dim)]">
+                内容が長いためURLには埋め込まず、本文をコピーしてGitHubへ貼り付けます。
+              </p>
+            )}
+          </div>
         )}
       </Section>
       {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}

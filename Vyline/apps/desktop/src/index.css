@@ -66,6 +66,13 @@
   --vy-message-radius: 14px;
   --vy-sidebar-width: 360px;
   --vy-topbar-height: 0px;
+  --vy-control-height-sm: 2rem;
+  --vy-control-height-md: 2.5rem;
+  --vy-control-height-lg: 2.75rem;
+  --vy-control-radius: min(0.75rem, var(--vy-radius));
+  --vy-motion-fast: 120ms;
+  --vy-motion-ui: 180ms;
+  --vy-ease-ui: cubic-bezier(0.2, 0.8, 0.2, 1);
   --vy-font-family: "IBM Plex Sans JP", "IBM Plex Sans", "Segoe UI", "Hiragino Sans", "Noto Sans JP",
     sans-serif;
 }
@@ -84,6 +91,150 @@
   ::selection {
     background: color-mix(in oklab, var(--vy-accent) 40%, transparent);
   }
+}
+
+/* --- Shared controls ----------------------------------------------------
+   Keep this layer intentionally small: only patterns used in multiple
+   screens live here. Theme colors remain the source of truth. */
+.vy-button {
+  display: inline-flex;
+  min-height: var(--vy-control-height-md);
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  border: 1px solid transparent;
+  border-radius: var(--vy-control-radius);
+  padding: 0 0.875rem;
+  font-size: 0.875rem;
+  font-weight: 600;
+  line-height: 1.2;
+  transition: background-color var(--vy-motion-fast) var(--vy-ease-ui), border-color
+    var(--vy-motion-fast) var(--vy-ease-ui), color var(--vy-motion-fast) var(--vy-ease-ui),
+    box-shadow var(--vy-motion-fast) var(--vy-ease-ui);
+}
+.vy-button[data-size="sm"] {
+  min-height: var(--vy-control-height-sm);
+  padding-inline: 0.75rem;
+  font-size: 0.75rem;
+}
+.vy-button[data-size="lg"] {
+  min-height: var(--vy-control-height-lg);
+  padding-inline: 1.125rem;
+}
+.vy-button[data-variant="primary"] {
+  background: var(--vy-accent);
+  color: var(--vy-accent-contrast);
+}
+.vy-button[data-variant="primary"]:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--vy-accent) 88%, var(--vy-text));
+}
+.vy-button[data-variant="secondary"] {
+  border-color: var(--vy-border);
+  background: var(--vy-surface-2);
+  color: var(--vy-text);
+}
+.vy-button[data-variant="secondary"]:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--vy-surface-2) 92%, var(--vy-text));
+}
+.vy-button[data-variant="ghost"] {
+  background: transparent;
+  color: var(--vy-text-dim);
+}
+.vy-button[data-variant="ghost"]:hover:not(:disabled) {
+  background: color-mix(in oklab, var(--vy-surface-2) 76%, transparent);
+  color: var(--vy-text);
+}
+.vy-button:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.vy-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+.vy-button:focus-visible,
+.vy-text-field:focus-visible,
+.vy-switch-hit:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--vy-accent) 34%, transparent);
+}
+
+.vy-text-field {
+  min-height: var(--vy-control-height-md);
+  width: 100%;
+  border: 1px solid var(--vy-border);
+  border-radius: var(--vy-control-radius);
+  background: var(--vy-surface-2);
+  color: var(--vy-text);
+  padding: 0 0.75rem;
+  font-size: 0.875rem;
+  line-height: 1.25;
+  transition: border-color var(--vy-motion-fast) var(--vy-ease-ui), box-shadow var(--vy-motion-fast)
+    var(--vy-ease-ui), background-color var(--vy-motion-fast) var(--vy-ease-ui);
+}
+.vy-text-field::placeholder {
+  color: var(--vy-text-dim);
+}
+.vy-text-field:hover:not(:disabled) {
+  border-color: color-mix(in oklab, var(--vy-text-dim) 48%, var(--vy-border));
+}
+.vy-text-field:focus-visible {
+  border-color: var(--vy-accent);
+}
+.vy-text-field[aria-invalid="true"] {
+  border-color: var(--vy-danger);
+}
+.vy-text-field:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.vy-settings-row {
+  display: flex;
+  min-height: 3.25rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding-block: 0.75rem;
+}
+
+.vy-switch-hit {
+  display: inline-flex;
+  width: 3rem;
+  min-width: 3rem;
+  height: var(--vy-control-height-lg);
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+}
+.vy-switch-hit:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+.vy-switch-track {
+  position: relative;
+  display: block;
+  width: 2.75rem;
+  height: 1.5rem;
+  border-radius: 999px;
+  background: color-mix(in oklab, var(--vy-text-dim) 35%, transparent);
+  transition: background-color var(--vy-motion-fast) var(--vy-ease-ui);
+}
+.vy-switch-thumb {
+  position: absolute;
+  top: 0.125rem;
+  left: 0.125rem;
+  width: 1.25rem;
+  height: 1.25rem;
+  border-radius: 999px;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+  transition: transform var(--vy-motion-fast) var(--vy-ease-ui);
+}
+.vy-switch-hit[data-state="checked"] .vy-switch-track {
+  background: var(--vy-accent);
+}
+.vy-switch-hit[data-state="checked"] .vy-switch-thumb {
+  transform: translateX(1.25rem);
 }
 
 /* --- Scrollbars --- */
@@ -406,6 +557,14 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
   .vy-pop-in,
   .vy-msg-enter,
   .vy-drawer-in,

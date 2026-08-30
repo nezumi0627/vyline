@@ -13,6 +13,10 @@ import { childLogger } from "../logger.js";
 import type { DesktopProfile } from "@vyline/protocol";
 
 const log = childLogger("call:manager");
+const MAX_PCM_FRAME_BYTES = 64 * 1024;
+const MAX_MIC_QUEUE_FRAMES = 100;
+const MAX_WS_CLIENTS_PER_CALL = 8;
+const CALL_CLIENT_ERROR = "call operation failed";
 
 export interface CallSessionSnapshot {
   sessionId: string;
@@ -74,7 +78,10 @@ function micSource(call: ManagedCall): AudioSource {
 function pushMic(call: ManagedCall, frame: PcmFrame) {
   const waiter = call.micWaiters.shift();
   if (waiter) waiter(frame);
-  else call.micQueue.push(frame);
+  else {
+    if (call.micQueue.length >= MAX_MIC_QUEUE_FRAMES) call.micQueue.shift();
+    call.micQueue.push(frame);
+  }
 }
 
 function broadcastState(call: ManagedCall) {
@@ -114,7 +121,7 @@ function attachSessionEvents(call: ManagedCall) {
     cleanupCall(call.sessionId);
   });
   call.session.on("error", (err) => {
-    call.error = err.message;
+    call.error = CALL_CLIENT_ERROR;
     call.state = call.session.state;
     log.warn({ sessionId: call.sessionId, err }, "call session error");
     broadcastState(call);
@@ -145,7 +152,7 @@ async function runCallStart(call: ManagedCall): Promise<void> {
   } catch (err) {
     if (!sessions.has(sessionId)) return;
     call.state = call.session.state;
-    call.error = err instanceof Error ? err.message : String(err);
+    call.error = CALL_CLIENT_ERROR;
     broadcastState(call);
     log.warn({ sessionId, err }, "call start failed");
   }
@@ -298,6 +305,10 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
     ws.close(4403, "invalid session");
     return;
   }
+  if (call.wsClients.size >= MAX_WS_CLIENTS_PER_CALL) {
+    ws.close(4429, "too many call clients");
+    return;
+  }
   call.wsClients.add(ws);
   ws.send(
     JSON.stringify({
@@ -314,8 +325,9 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
 export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
   const call = sessions.get(sessionId);
   if (!call || call.session.state !== "in-call") return;
+  if (data.byteLength === 0 || data.byteLength > MAX_PCM_FRAME_BYTES || data.byteLength % 2 !== 0)
+    return;
   const samples = new Int16Array(data);
-  if (samples.length === 0) return;
   pushMic(call, { samples, sampleRate: 48000, channels: 1 });
 }
 

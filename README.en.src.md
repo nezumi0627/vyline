@@ -52,6 +52,8 @@ It communicates with LINE servers through the independently implemented **`@vyli
 
 ## Main features
 
+The table below summarizes implemented product areas. Verification depth varies by feature, especially when a live LINE environment is required; see the [Feature Capability Matrix](docs/feature-capabilities.md) for the current evidence status.
+
 | Category | Description |
 | --- | --- |
 | **Login** | QR / Email login, multiple accounts, session restore, automatic V3 access-token refresh |
@@ -332,8 +334,10 @@ Set `VYLINE_API_ADMIN_SECRET`, then create a token with the admin secret.
 curl -X POST http://localhost:3001/v1/tokens \
   -H "Authorization: Bearer $VYLINE_API_ADMIN_SECRET" \
   -H "Content-Type: application/json" \
-  -d '{"name":"my-bot"}'
+  -d '{"name":"my-bot","accountIds":["main"]}'
 ```
+
+`accountIds` is a required allowlist. The issued token can only access the listed accounts.
 
 ### API example
 
@@ -455,7 +459,10 @@ Use the analysis tools only for education and research. See [docs/tools/DISCLAIM
 
 | Document | Description |
 | --- | --- |
+| [docs/start-here.md](docs/start-here.md) | **General-user entry point** |
 | [docs/README.md](docs/README.md) | Documentation index |
+| [docs/feature-capabilities.md](docs/feature-capabilities.md) | Per-feature verification status and evidence |
+| [docs/DOCS_OWNERSHIP.md](docs/DOCS_OWNERSHIP.md) | Documentation source-of-truth / ownership map |
 | [Vyline/docs/vyl-cli.md](Vyline/docs/vyl-cli.md) | `vyl` CLI, interactive setup, diagnostics, repair, Snapshot |
 | [docs/onboarding.md](docs/onboarding.md) | Initial setup |
 | [docs/development.md](docs/development.md) | Development environment and commands |
@@ -465,7 +472,7 @@ Use the analysis tools only for education and research. See [docs/tools/DISCLAIM
 | [docs/api/openapi.md](docs/api/openapi.md) | OpenAPI and public API |
 | [docs/developers/index.md](docs/developers/index.md) | **Developer guide with recommended reading order** |
 | [docs/developers/plugin-system.md](docs/developers/plugin-system.md) | Plugin development with examples |
-| [docs/developers/for-ai.md](docs/developers/for-ai.md) | Instructions for AI agents |
+| [docs/developers/for-ai.md](docs/developers/for-ai.md) | Docs router for AI agents |
 | [examples/](examples/) | Plugin and API sample code |
 | [docs/user-guide/update.md](docs/user-guide/update.md) | Update instructions |
 | [docs/user-guide/custom-client.md](docs/user-guide/custom-client.md) | Building a custom client |

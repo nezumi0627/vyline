@@ -49,6 +49,14 @@ export interface ExtractProgress {
   file?: string;
 }
 
+export function isValidBackupFileId(fileID: string): boolean {
+  return /^[0-9a-f]{40}$/i.test(fileID);
+}
+
+export function safeExtractComponent(value: string): string {
+  return value.replace(/[\\/:]/g, "__");
+}
+
 export async function extractBackup(options: ExtractOptions): Promise<ExtractedBackup> {
   const { backupRoot, udid, password, outputDir, domains = ["%line%"], onProgress } = options;
 
@@ -106,8 +114,9 @@ export async function extractBackup(options: ExtractOptions): Promise<ExtractedB
 
       try {
         const manifestEntry = getFileManifestDBEntry(backup.manifestDbPath, row.fileID);
-        const safeName = row.relativePath.replace(/[\\/:]/g, "__");
-        const targetName = `${row.domain}__${safeName}`;
+        const safeName = safeExtractComponent(row.relativePath);
+        const safeDomain = safeExtractComponent(row.domain);
+        const targetName = `${safeDomain}__${safeName}`;
         const targetPath = join(outputDir, targetName);
 
         const result = getFileDecryptedCopy(backup, manifestEntry, targetPath);
@@ -179,6 +188,9 @@ export function getFileDecryptedCopy(
   manifestEntry: FileManifestEntry,
   targetPath: string,
 ): { size: number } {
+  if (!isValidBackupFileId(manifestEntry.fileID)) {
+    throw new Error(`Invalid backup file ID: ${manifestEntry.fileID}`);
+  }
   const parsed = parseBplist(manifestEntry.file);
   const fileData = asRecord(parsed);
   const top = asRecord(fileData.$top);

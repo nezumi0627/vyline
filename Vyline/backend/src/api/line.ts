@@ -669,7 +669,12 @@ lineRouter.post("/:accountId/plugins/:pluginId/:action", async (c) => {
     return c.json({ ok: true, pluginId, enabled: action === "enable" });
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    return c.json({ ok: false, error: msg }, msg.startsWith("unknown") ? 404 : 422);
+    const unknownPlugin = msg.startsWith("unknown plugin:");
+    log.warn({ err, accountId, pluginId }, "plugin state update failed");
+    return c.json(
+      { ok: false, error: unknownPlugin ? "unknown plugin" : "plugin state update failed" },
+      unknownPlugin ? 404 : 422,
+    );
   }
 });
 
@@ -716,7 +721,7 @@ function handleError(err: unknown, c: Context<any, any, any>) {
     return c.json(
       {
         ok: false,
-        error: message,
+        error: "グループ作成はLINE側で制限されています。",
         code: "CREATE_GROUP_BANNED",
         createGroupBanned: true,
       },
@@ -759,11 +764,11 @@ function handleError(err: unknown, c: Context<any, any, any>) {
   }
   const isNetwork = /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
   if (isNetwork) {
-    log.warn({ err: message }, "line api network error");
-    return c.json({ ok: false, error: message }, 502);
+    log.warn({ err }, "line api network error");
+    return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
   log.error({ err }, "line api error");
-  return c.json({ ok: false, error: message }, 500);
+  return c.json({ ok: false, error: "internal server error" }, 500);
 }
 
 // ─── GET /line/:accountId/profile ─────────────
@@ -950,10 +955,9 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
     if (err instanceof NotLoggedInError) {
       return c.json({ ok: false, error: "not logged in" }, 401);
     }
-    const message = err instanceof Error ? err.message : String(err);
     // 復号不能は 422（UI はプレースホルダ表示）。500 連打を避ける
-    log.warn({ accountId, chatMid, messageId, err: message }, "media fetch failed");
-    return c.json({ ok: false, error: message }, 422);
+    log.warn({ accountId, chatMid, messageId, err }, "media fetch failed");
+    return c.json({ ok: false, error: "media unavailable" }, 422);
   }
 });
 
@@ -2622,17 +2626,6 @@ lineRouter.get("/:accountId/vyline/storage", async (c) => {
     const { getVylineStorageInfo } = await import("../storage/vylineStorageInfo.js");
     const info = await getVylineStorageInfo();
     return c.json(info);
-  } catch (err) {
-    return handleError(err, c);
-  }
-});
-
-lineRouter.delete("/:accountId/vyline/cache", async (c) => {
-  const accountId = c.req.param("accountId");
-  try {
-    const { clearCdnCache } = await import("../storage/cdnAssetCache.js");
-    const removed = await clearCdnCache();
-    return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
   }
