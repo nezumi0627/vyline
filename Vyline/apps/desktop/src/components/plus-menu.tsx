@@ -114,7 +114,7 @@ function LadderModal({
     (async () => {
       setMembersLoading(true);
       try {
-        const res = await withTimeout(api.line.chatMembers(accountId, chatId), 10_000);
+        const res = await withTimeout(api.line.getChatMembers(accountId, chatId), 10_000);
         if (cancelled || res === "timeout" || !res.ok || !res.members?.length) return;
         const fetched = res.members.map((m) => mapMember(m.mid, m.displayName, m.thumbnailUrl));
         setMembers(fetched);
@@ -131,7 +131,7 @@ function LadderModal({
 
   // 作成/共有時に issueLiffView が遅いため、モーダル展開時に先読みする
   useEffect(() => {
-    void api.line.liff.warm(accountId, "ladder", chatId);
+    void api.line.liff.warmLiff(accountId, "ladder", chatId);
   }, [accountId, chatId]);
 
   const [selected, setSelected] = useState<Record<string, boolean>>({});
@@ -170,7 +170,7 @@ function LadderModal({
     // 生成はバックグラウンドで実行（モーダルをブロックしない）
     void (async () => {
       try {
-        const res = await api.line.ladder.generate(
+        const res = await api.line.ladder.generateLadder(
           accountId,
           chatId,
           selectedIds,
@@ -180,7 +180,7 @@ function LadderModal({
         const r = res.data as { ladderHash?: string };
         // 生成後は自動で flex を送信
         if (r?.ladderHash) {
-          await api.line.ladder.message(accountId, chatId, r.ladderHash);
+          await api.line.ladder.sendLadderMessage(accountId, chatId, r.ladderHash);
         }
       } catch (e) {
         window.alert(e instanceof Error ? e.message : "あみだくじの作成に失敗しました");
@@ -276,7 +276,7 @@ function ScheduleModal({
 
   // 共有時に issueLiffView が遅いため、モーダル展開時に先読みする
   useEffect(() => {
-    void api.line.liff.warm(accountId, "schedule", chatId);
+    void api.line.liff.warmLiff(accountId, "schedule", chatId);
   }, [accountId, chatId]);
 
   const create = async () => {
@@ -289,14 +289,14 @@ function ScheduleModal({
     // 作成〜共有はバックグラウンドで実行（モーダルをブロックしない）
     void (async () => {
       try {
-        const res = await api.line.schedule.create(accountId, chatId, {
+        const res = await api.line.schedule.createScheduleEvent(accountId, chatId, {
           name: name.trim(),
           description: desc.trim(),
           candidates: times,
         });
         if (!res.ok) throw new Error("作成に失敗しました");
         // 現在のチャットに共有（best effort）: encId を直接取得（名前マッチング不要）
-        const group = (await api.line.schedule.group(accountId, chatId)) as {
+        const group = (await api.line.schedule.getScheduleGroup(accountId, chatId)) as {
           ok: boolean;
           data?: { encId?: string; groupName?: string };
         };
@@ -305,7 +305,7 @@ function ScheduleModal({
         const data = res.data as { urlKey?: string };
         const eventKey = data?.urlKey ?? null;
         if (!eventKey) throw new Error("イベントの共有用 URL を取得できませんでした");
-        await api.line.schedule.share(
+        await api.line.schedule.shareScheduleEvent(
           accountId,
           chatId,
           eventKey,
@@ -394,7 +394,7 @@ function PollModal({
 
   // 共有時に issueLiffView が遅いため、モーダル展開時に先読みする
   useEffect(() => {
-    void api.line.liff.warm(accountId, "poll", chatId);
+    void api.line.liff.warmLiff(accountId, "poll", chatId);
   }, [accountId, chatId]);
   const [anonymous, setAnonymous] = useState(false);
   const [closeDate, setCloseDate] = useState("");
@@ -413,7 +413,7 @@ function PollModal({
     // 作成〜共有はバックグラウンドで実行（モーダルをブロックしない）
     void (async () => {
       try {
-        const res = await api.line.poll.create(accountId, chatId, {
+        const res = await api.line.poll.createPoll(accountId, chatId, {
           title: title.trim(),
           multiple,
           anonymous,
@@ -431,7 +431,7 @@ function PollModal({
           ) || "";
         if (!questionId)
           throw new Error("アンケートを作成しましたが、共有用 ID を取得できませんでした");
-        const a = await api.line.poll.announce(accountId, chatId, questionId);
+        const a = await api.line.poll.announcePoll(accountId, chatId, questionId);
         if (!a.ok) {
           window.alert("アンケートを作成しましたが、共有に失敗しました（再度共有してください）");
         }

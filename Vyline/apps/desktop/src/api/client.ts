@@ -133,21 +133,28 @@ export const api = {
   },
 
   line: {
-    profile: (accountId: string) => request<ProfileResponse>("GET", `/line/${accountId}/profile`),
+    getProfile: (accountId: string) =>
+      request<ProfileResponse>("GET", `/line/${accountId}/getProfile`),
 
     bootstrap: (accountId: string) =>
       request<BootstrapResponse>("GET", `/line/${accountId}/bootstrap`),
 
-    chats: (accountId: string, opts?: { light?: boolean; refresh?: boolean; force?: boolean }) => {
+    getMessageBoxes: (
+      accountId: string,
+      opts?: { light?: boolean; refresh?: boolean; force?: boolean },
+    ) => {
       const q = new URLSearchParams();
       if (opts?.light) q.set("light", "1");
       if (opts?.refresh) q.set("refresh", "1");
       if (opts?.force) q.set("force", "1");
       const qs = q.toString();
-      return request<ChatsResponse>("GET", `/line/${accountId}/chats${qs ? `?${qs}` : ""}`);
+      return request<ChatsResponse>(
+        "GET",
+        `/line/${accountId}/getMessageBoxes${qs ? `?${qs}` : ""}`,
+      );
     },
 
-    messages: (
+    getPreviousMessagesV2WithRequest: (
       accountId: string,
       chatMid: string,
       limit = 30,
@@ -167,12 +174,12 @@ export const api = {
       if (opts?.local) q.set("local", "1");
       return request<MessagesResponse>(
         "GET",
-        `/line/${accountId}/messages/${encodeURIComponent(chatMid)}?${q}`,
+        `/line/${accountId}/getPreviousMessagesV2WithRequest/${encodeURIComponent(chatMid)}?${q}`,
       );
     },
 
     /** チャット履歴を JSON / TXT でダウンロード（復号済み） */
-    exportMessages: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
+    exportChat: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
       const res = await fetch(
         `${BASE}/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
       );
@@ -192,7 +199,7 @@ export const api = {
       URL.revokeObjectURL(url);
     },
 
-    send: (
+    sendMessage: (
       accountId: string,
       chatMid: string,
       text: string,
@@ -202,7 +209,7 @@ export const api = {
         mute?: boolean;
       },
     ) =>
-      request<SendResponse>("POST", `/line/${accountId}/send`, {
+      request<SendResponse>("POST", `/line/${accountId}/sendMessage`, {
         chatMid,
         text,
         ...opts,
@@ -252,14 +259,14 @@ export const api = {
     canCreateCombinationSticker: (accountId: string, packageIds: string[]) =>
       request<{ ok: boolean; canCreate: boolean; usablePackageIds: string[]; error?: string }>(
         "POST",
-        `/line/${accountId}/combination-stickers/can-create`,
+        `/line/${accountId}/canCreateCombinationSticker`,
         { packageIds },
       ),
 
     isStickerAvailableForCombinationSticker: (accountId: string, packageId: string) =>
       request<{ ok: boolean; availableForCombinationSticker: boolean; error?: string }>(
         "POST",
-        `/line/${accountId}/combination-stickers/available`,
+        `/line/${accountId}/isStickerAvailableForCombinationSticker`,
         { packageId },
       ),
 
@@ -273,7 +280,7 @@ export const api = {
     ) =>
       request<{ ok: boolean; id: string; error?: string }>(
         "POST",
-        `/line/${accountId}/combination-stickers`,
+        `/line/${accountId}/createCombinationSticker`,
         opts?.idOfPreviousVersionOfCombinationSticker
           ? {
               items,
@@ -314,7 +321,7 @@ export const api = {
         ...opts,
       }),
 
-    stickers: (accountId: string) =>
+    getOwnedStickers: (accountId: string) =>
       request<{
         ok: boolean;
         error?: string;
@@ -341,8 +348,8 @@ export const api = {
         }>;
       }>("GET", `/line/${accountId}/stickers`),
 
-    unsend: (accountId: string, messageId: string) =>
-      request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
+    unsendMessage: (accountId: string, messageId: string) =>
+      request<UnsendResponse>("POST", `/line/${accountId}/unsendMessage`, { messageId }),
 
     restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
       request<{ ok: true; text?: string | null; contentType?: string }>(
@@ -354,21 +361,21 @@ export const api = {
     editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
       request<EditResponse>("POST", `/line/${accountId}/edit`, { chatMid, messageId, text }),
 
-    editNotice: (accountId: string, chatMid: string) =>
+    getEditNotice: (accountId: string, chatMid: string) =>
       request<EditNoticeResponse>("GET", `/line/${accountId}/edit-notice/${chatMid}`),
 
-    messageHistory: (accountId: string, chatMid: string, messageId: string) =>
+    getMessageHistory: (accountId: string, chatMid: string, messageId: string) =>
       request<{ ok: true; history: Message["history"] }>(
         "GET",
         `/line/${accountId}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}/history`,
       ),
 
     /** 相手ユーザーのプロフィール取得 (アイコン URL 用) */
-    contactProfile: (accountId: string, targetMid: string) =>
+    getContact: (accountId: string, targetMid: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/contact/${targetMid}`),
 
     /** Vyline プロフィール/グループキャッシュ */
-    vylineCache: (accountId: string) =>
+    getVylineCache: (accountId: string) =>
       request<{
         ok: boolean;
         profiles?: Record<
@@ -388,7 +395,7 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/vyline/cache`),
 
-    vylineStorage: (accountId: string) =>
+    getVylineStorageInfo: (accountId: string) =>
       request<{
         ok: boolean;
         driveLetter?: string;
@@ -409,44 +416,44 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/vyline/storage`),
 
-    clearVylineCache: (accountId: string) =>
+    clearCache: (accountId: string) =>
       request<{ ok: boolean; removed?: number; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/cache`,
       ),
 
-    clearVylineCdnCache: (accountId: string) =>
+    clearCdnCache: (accountId: string) =>
       request<{ ok: boolean; removed?: number; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/cache/cdn`,
       ),
 
-    clearVylineIconCache: (accountId: string) =>
+    clearIconCache: (accountId: string) =>
       request<{ ok: boolean; removed?: number; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/cache/icons`,
       ),
 
-    clearVylineSavedMedia: (accountId: string) =>
+    clearSavedMedia: (accountId: string) =>
       request<{ ok: boolean; removed?: number; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/saved-media`,
       ),
 
-    clearVylineSavedMediaType: (accountId: string, type: string) =>
+    clearSavedMediaByType: (accountId: string, type: string) =>
       request<{ ok: boolean; removed?: number; type?: string; error?: string }>(
         "DELETE",
         `/line/${accountId}/vyline/saved-media/${type}`,
       ),
 
-    vylineWarm: (accountId: string, mids: string[]) =>
+    warmCache: (accountId: string, mids: string[]) =>
       request<{ ok: boolean; profiles?: Record<string, unknown>; count?: number; error?: string }>(
         "POST",
         `/line/${accountId}/vyline/warm`,
         { mids },
       ),
 
-    chatMembers: (accountId: string, chatMid: string) =>
+    getChatMembers: (accountId: string, chatMid: string) =>
       request<{
         ok: boolean;
         chatMid?: string;
@@ -462,7 +469,95 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/members`),
 
-    commonGroups: (accountId: string, targetMid: string, excludeChatId?: string) =>
+    updateChat: (accountId: string, chatMid: string, name: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${accountId}/updateChat/${encodeURIComponent(chatMid)}`,
+        { name },
+      ),
+
+    updateChatPicture: async (
+      accountId: string,
+      chatMid: string,
+      bytes: ArrayBuffer,
+      mime = "image/jpeg",
+    ) => {
+      const res = await fetch(
+        `${BASE}/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/picture`,
+        {
+          method: "POST",
+          headers: { "Content-Type": mime },
+          body: bytes,
+        },
+      );
+      const text = await res.text();
+      const data = JSON.parse(text || "{}") as {
+        ok: boolean;
+        objId?: string;
+        error?: string;
+      };
+      if (!res.ok) throw new Error(data.error ?? `updateChatPicture failed (${res.status})`);
+      return data;
+    },
+
+    downloadMediaByE2EE: async (
+      accountId: string,
+      chatMid: string,
+      messageId: string,
+      preview = true,
+    ): Promise<Blob> => {
+      const res = await fetch(
+        `${BASE}/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}?preview=${preview ? "1" : "0"}`,
+      );
+      if (!res.ok) {
+        const err = (await res.json().catch(() => null)) as { error?: string } | null;
+        throw new Error(err?.error ?? `downloadMediaByE2EE failed (${res.status})`);
+      }
+      return await res.blob();
+    },
+
+    notes: {
+      getNotes: (accountId: string, homeId: string) =>
+        request<unknown>("GET", `/line/${accountId}/notes?homeId=${encodeURIComponent(homeId)}`),
+      createNote: (accountId: string, homeId: string, text: string) =>
+        request<unknown>("POST", `/line/${accountId}/notes`, { homeId, text }),
+      getNoteDetail: (accountId: string, homeId: string, postId: string) =>
+        request<unknown>(
+          "GET",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}?homeId=${encodeURIComponent(homeId)}`,
+        ),
+      deleteNote: (accountId: string, homeId: string, postId: string) =>
+        request<unknown>(
+          "DELETE",
+          `/line/${accountId}/notes/${encodeURIComponent(postId)}?homeId=${encodeURIComponent(homeId)}`,
+        ),
+      shareNote: (accountId: string, homeId: string, postId: string, chatMid: string) =>
+        request<unknown>("POST", `/line/${accountId}/notes/${encodeURIComponent(postId)}/share`, {
+          homeId,
+          chatMid,
+        }),
+    },
+
+    plugins: {
+      listPlugins: (accountId: string) =>
+        request<{
+          plugins: Array<{
+            id: string;
+            name?: string;
+            version?: string;
+            enabled: boolean;
+            [key: string]: unknown;
+          }>;
+          runtimePending: boolean;
+        }>("GET", `/line/${accountId}/plugins`),
+      controlPlugin: (accountId: string, pluginId: string, action: "enable" | "disable") =>
+        request<{ ok: boolean; pluginId: string; enabled: boolean; error?: string }>(
+          "POST",
+          `/line/${accountId}/plugins/${encodeURIComponent(pluginId)}/${action}`,
+        ),
+    },
+
+    getCommonGroupIds: (accountId: string, targetMid: string, excludeChatId?: string) =>
       request<{
         ok: boolean;
         groups?: Array<{
@@ -479,7 +574,7 @@ export const api = {
         }`,
       ),
 
-    updateProfile: (
+    updateProfileAttributes: (
       accountId: string,
       body: {
         displayName?: string;
@@ -487,7 +582,7 @@ export const api = {
         phoneticName?: string;
         musicProfile?: string;
       },
-    ) => request<ProfileResponse>("PATCH", `/line/${accountId}/profile`, body),
+    ) => request<ProfileResponse>("PATCH", `/line/${accountId}/updateProfileAttributes`, body),
 
     updateProfileImage: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
       fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/image`, {
@@ -514,10 +609,10 @@ export const api = {
         };
       }),
 
-    renameContact: (accountId: string, mid: string, displayNameOverride: string | null) =>
+    updateContactSetting: (accountId: string, mid: string, displayNameOverride: string | null) =>
       request<{ ok: boolean; error?: string }>(
         "PATCH",
-        `/line/${accountId}/contacts/${encodeURIComponent(mid)}`,
+        `/line/${accountId}/updateContactSetting/${encodeURIComponent(mid)}`,
         { displayNameOverride },
       ),
 
@@ -530,31 +625,31 @@ export const api = {
     blockContact: (accountId: string, mid: string) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
-        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/block`,
+        `/line/${accountId}/blockContact/${encodeURIComponent(mid)}`,
       ),
 
     unblockContact: (accountId: string, mid: string) =>
       request<{ ok: boolean; error?: string }>(
         "DELETE",
-        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/block`,
+        `/line/${accountId}/unblockContact/${encodeURIComponent(mid)}`,
       ),
 
-    blockedContacts: (accountId: string) =>
+    getBlockedContactIds: (accountId: string) =>
       request<{ ok: boolean; mids?: string[]; error?: string }>(
         "GET",
-        `/line/${accountId}/blocked`,
+        `/line/${accountId}/getBlockedContactIds`,
       ),
 
-    createGroup: (accountId: string, name: string, memberMids: string[]) =>
+    createChat: (accountId: string, name: string, memberMids: string[]) =>
       request<{
         ok: boolean;
         chat?: { chatMid: string; name: string };
         error?: string;
         code?: string;
         createGroupBanned?: boolean;
-      }>("POST", `/line/${accountId}/chats/create-group`, { name, memberMids }),
+      }>("POST", `/line/${accountId}/createChat`, { name, memberMids }),
 
-    featureLocks: (accountId: string) =>
+    getFeatureLocks: (accountId: string) =>
       request<{
         ok: boolean;
         locks?: {
@@ -564,7 +659,7 @@ export const api = {
         };
       }>("GET", `/line/${accountId}/feature-locks`),
 
-    clearCreateGroupBan: (accountId: string) =>
+    releaseCreateGroupBan: (accountId: string) =>
       request<{
         ok: boolean;
         locks?: {
@@ -574,27 +669,27 @@ export const api = {
         };
       }>("DELETE", `/line/${accountId}/feature-locks/create-group-ban`),
 
-    inviteToGroup: (accountId: string, chatMid: string, memberMids: string[]) =>
+    inviteIntoChat: (accountId: string, chatMid: string, memberMids: string[]) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
-        `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/invite`,
+        `/line/${accountId}/inviteIntoChat/${encodeURIComponent(chatMid)}`,
         { memberMids },
       ),
 
-    getProxy: (accountId: string) =>
+    getProxySettings: (accountId: string) =>
       request<{ ok: boolean; proxy?: { enabled: boolean; url: string } }>(
         "GET",
         `/line/${accountId}/proxy`,
       ),
 
-    setProxy: (accountId: string, enabled: boolean, url: string) =>
+    setProxySettings: (accountId: string, enabled: boolean, url: string) =>
       request<{ ok: boolean; proxy?: { enabled: boolean; url: string }; error?: string }>(
         "PUT",
         `/line/${accountId}/proxy`,
         { enabled, url },
       ),
 
-    react: (
+    reactToMessage: (
       accountId: string,
       messageId: string,
       reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
@@ -605,49 +700,49 @@ export const api = {
         { reaction },
       ),
 
-    runIndex: (accountId: string) =>
+    reindexMessages: (accountId: string) =>
       request<{ ok: boolean; chats?: number; messages?: number; error?: string }>(
         "POST",
         `/line/${accountId}/index`,
       ),
 
-    setNotification: (accountId: string, enable: boolean) =>
+    setNotificationsEnabled: (accountId: string, enable: boolean) =>
       request<{ ok: boolean; masterEnable?: boolean; error?: string }>(
         "POST",
-        `/line/${accountId}/notifications`,
+        `/line/${accountId}/setNotificationsEnabled`,
         { enable },
       ),
 
     /** 既読にする */
-    markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean }>("POST", `/line/${accountId}/read`, {
+    sendChatChecked: (accountId: string, chatMid: string, lastMessageId?: string) =>
+      request<{ ok: boolean }>("POST", `/line/${accountId}/sendChatChecked`, {
         chatMid,
         lastMessageId,
       }),
 
     /** 自分の送信メッセージの既読状態（軽量） */
-    readReceipts: (accountId: string, chatMid: string, messageIds: string[]) =>
+    getMessageReadRange: (accountId: string, chatMid: string, messageIds: string[]) =>
       request<ReadReceiptsResponse>(
         "GET",
-        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}`,
+        `/line/${accountId}/getMessageReadRange/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}`,
       ),
 
     /** Talk Push バッファから新着取得 */
-    pollEvents: (accountId: string, cursor = 0) =>
+    fetchOperations: (accountId: string, cursor = 0) =>
       request<EventsPollResponse>(
         "GET",
-        `/line/${accountId}/events/poll?cursor=${encodeURIComponent(String(cursor))}`,
+        `/line/${accountId}/fetchOperations?cursor=${encodeURIComponent(String(cursor))}`,
       ),
 
     /** after より新しいメッセージ（fallback） */
-    messagesDelta: (accountId: string, chatMid: string, afterMessageId: string, limit = 25) =>
+    getMessageDelta: (accountId: string, chatMid: string, afterMessageId: string, limit = 25) =>
       request<MessagesDeltaResponse>(
         "GET",
         `/line/${accountId}/messages/${encodeURIComponent(chatMid)}/delta?after=${encodeURIComponent(afterMessageId)}&limit=${limit}`,
       ),
 
     /** Desktop E2EE 鍵などから復元 */
-    restoreDesktop: (accountId: string) =>
+    restoreFromDesktop: (accountId: string) =>
       request<{
         ok: boolean;
         error?: string;
@@ -659,7 +754,7 @@ export const api = {
         identity?: { ok?: boolean; reason?: string; matchedKeyIds?: number[] };
       }>("POST", `/line/${accountId}/restore/desktop`),
 
-    restoreStatus: (accountId: string) =>
+    getRestoreStatus: (accountId: string) =>
       request<{
         ok: boolean;
         mid?: string | null;
@@ -723,14 +818,14 @@ export const api = {
       }>("GET", `/line/${accountId}/restore/ios-backup/${encodeURIComponent(sessionId)}`),
 
     /** VylineBackup: チャット一覧 + メッセージ件数（選択 UI 用） */
-    backupChats: (accountId: string) =>
+    listBackupChats: (accountId: string) =>
       request<{
         ok: boolean;
         data?: Array<{ mid: string; name: string; messageCount: number }>;
         error?: string;
       }>("GET", `/line/${accountId}/backup/chats`),
 
-    backupCreate: (accountId: string, opts: { chatMids?: string[]; includeMedia?: boolean }) =>
+    createBackup: (accountId: string, opts: { chatMids?: string[]; includeMedia?: boolean }) =>
       request<{
         ok: boolean;
         summary?: {
@@ -746,7 +841,7 @@ export const api = {
         error?: string;
       }>("POST", `/line/${accountId}/backup/create`, opts),
 
-    backupList: (accountId: string) =>
+    listBackups: (accountId: string) =>
       request<{
         ok: boolean;
         data?: Array<{
@@ -762,7 +857,7 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/backup/list`),
 
-    backupRestore: (
+    restoreBackup: (
       accountId: string,
       opts: { backupId: string; chatMids?: string[]; includeMedia?: boolean },
     ) =>
@@ -774,14 +869,14 @@ export const api = {
         error?: string;
       }>("POST", `/line/${accountId}/backup/restore`, opts),
 
-    backupDelete: (accountId: string, backupId: string) =>
+    deleteBackup: (accountId: string, backupId: string) =>
       request<{ ok: boolean; error?: string }>(
         "DELETE",
         `/line/${accountId}/backup/${encodeURIComponent(backupId)}`,
       ),
 
     /** チャット内容・アナウンスのタイミング付き詳細ログ（メディア対応） */
-    messageLog: (accountId: string, limit?: number) =>
+    getDebugLog: (accountId: string, limit?: number) =>
       request<{
         ok: boolean;
         data?: Array<{
@@ -817,21 +912,21 @@ export const api = {
         kind: "direct",
       }),
 
-    callStart: (accountId: string, to: string, callType: CallType = "AUDIO") =>
+    acquireCallRoute: (accountId: string, to: string, callType: CallType = "AUDIO") =>
       request<CallStartResponse>("POST", `/line/${accountId}/call/start`, { to, callType }),
 
-    callEnd: (accountId: string, sessionId: string) =>
+    endCall: (accountId: string, sessionId: string) =>
       request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/call/end`, {
         sessionId,
       }),
 
-    callStatus: (accountId: string, sessionId: string) =>
+    getCallStatus: (accountId: string, sessionId: string) =>
       request<CallStatusResponse>(
         "GET",
         `/line/${accountId}/call/status?sessionId=${encodeURIComponent(sessionId)}`,
       ),
 
-    callActive: (accountId: string) =>
+    getActiveCall: (accountId: string) =>
       request<CallActiveResponse>("GET", `/line/${accountId}/call/active`),
 
     groupCall: (accountId: string, chatMid: string, callType: "AUDIO" | "VIDEO" = "AUDIO") =>
@@ -841,7 +936,7 @@ export const api = {
         kind: "group",
       }),
 
-    groupCallStatus: (accountId: string, chatMid: string) =>
+    getGroupCallStatus: (accountId: string, chatMid: string) =>
       request<{
         ok: boolean;
         online?: boolean;
@@ -854,27 +949,32 @@ export const api = {
 
     // ── LIFF 機能 ──
     liff: {
-      warm: (accountId: string, app: "ladder" | "schedule" | "poll", chatMid: string) =>
+      warmLiff: (accountId: string, app: "ladder" | "schedule" | "poll", chatMid: string) =>
         request<{ ok: boolean }>("POST", `/line/${accountId}/liff/warm`, { app, chatMid }),
     },
     ladder: {
-      members: (accountId: string, chatMid: string) =>
+      getLadderMembers: (accountId: string, chatMid: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/ladder/members/${encodeURIComponent(chatMid)}`,
         ),
-      generate: (accountId: string, chatMid: string, memberIds: string[], options: string[]) =>
+      generateLadder: (
+        accountId: string,
+        chatMid: string,
+        memberIds: string[],
+        options: string[],
+      ) =>
         request<{ ok: boolean; data: unknown }>("POST", `/line/${accountId}/ladder/generate`, {
           chatMid,
           memberIds,
           options,
         }),
-      result: (accountId: string, chatMid: string, hash: string) =>
+      getLadderResult: (accountId: string, chatMid: string, hash: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/ladder/result/${encodeURIComponent(chatMid)}/${hash}`,
         ),
-      message: (accountId: string, chatMid: string, hash: string) =>
+      sendLadderMessage: (accountId: string, chatMid: string, hash: string) =>
         request<{ ok: boolean; data: unknown }>("POST", `/line/${accountId}/ladder/message`, {
           chatMid,
           hash,
@@ -882,7 +982,7 @@ export const api = {
     },
 
     schedule: {
-      create: (
+      createScheduleEvent: (
         accountId: string,
         chatMid: string,
         data: { name: string; description?: string; candidates: number[]; pictureId?: number },
@@ -891,7 +991,7 @@ export const api = {
           chatMid,
           ...data,
         }),
-      answer: (
+      answerScheduleEvent: (
         accountId: string,
         chatMid: string,
         eventId: string,
@@ -903,7 +1003,7 @@ export const api = {
           `/line/${accountId}/schedule/events/${eventId}/answer`,
           { chatMid, answers, comment },
         ),
-      share: (
+      shareScheduleEvent: (
         accountId: string,
         chatMid: string,
         eventId: string,
@@ -915,25 +1015,30 @@ export const api = {
           `/line/${accountId}/schedule/events/${eventId}/share`,
           { chatMid, groupEncIds, comment },
         ),
-      event: (accountId: string, chatMid: string, eventId: string) =>
+      getScheduleEvent: (accountId: string, chatMid: string, eventId: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/schedule/events/${eventId}/${encodeURIComponent(chatMid)}`,
         ),
-      groups: (accountId: string, chatMid: string) =>
+      getGroupScheduleEvents: (accountId: string, chatMid: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/schedule/groups/${encodeURIComponent(chatMid)}`,
         ),
-      group: (accountId: string, chatMid: string) =>
+      getScheduleGroup: (accountId: string, chatMid: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/schedule/group/${encodeURIComponent(chatMid)}`,
         ),
+      getFriendScheduleEvents: (accountId: string, chatMid: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/schedule/friends/${encodeURIComponent(chatMid)}`,
+        ),
     },
 
     poll: {
-      create: (
+      createPoll: (
         accountId: string,
         chatMid: string,
         data: {
@@ -948,7 +1053,7 @@ export const api = {
           chatMid,
           ...data,
         }),
-      vote: (accountId: string, chatMid: string, questionId: string, choiceIds: string[]) =>
+      votePoll: (accountId: string, chatMid: string, questionId: string, choiceIds: string[]) =>
         request<{ ok: boolean; data: unknown }>(
           "POST",
           `/line/${accountId}/poll/${questionId}/vote`,
@@ -957,17 +1062,17 @@ export const api = {
             choiceIds,
           },
         ),
-      question: (accountId: string, chatMid: string, questionId: string) =>
+      getPoll: (accountId: string, chatMid: string, questionId: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/poll/${questionId}/${encodeURIComponent(chatMid)}`,
         ),
-      close: (accountId: string, chatMid: string, questionId: string) =>
+      closePoll: (accountId: string, chatMid: string, questionId: string) =>
         request<{ ok: boolean; data: unknown }>(
           "GET",
           `/line/${accountId}/poll/${questionId}/close/${encodeURIComponent(chatMid)}`,
         ),
-      announce: (accountId: string, chatMid: string, questionId: string) =>
+      announcePoll: (accountId: string, chatMid: string, questionId: string) =>
         request<{ ok: boolean; data: unknown }>(
           "POST",
           `/line/${accountId}/poll/${questionId}/announce`,
@@ -975,24 +1080,45 @@ export const api = {
             chatMid,
           },
         ),
+      getPollList: (accountId: string, chatMid: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/poll/list/${encodeURIComponent(chatMid)}`,
+        ),
+      removePoll: (accountId: string, chatMid: string, questionId: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "GET",
+          `/line/${accountId}/poll/${questionId}/remove/${encodeURIComponent(chatMid)}`,
+        ),
+      remindPoll: (accountId: string, chatMid: string, questionId: string) =>
+        request<{ ok: boolean; data: unknown }>(
+          "POST",
+          `/line/${accountId}/poll/${questionId}/remind`,
+          { chatMid },
+        ),
     },
 
     announce: {
-      list: (accountId: string, chatMid: string) =>
+      getChatRoomAnnouncements: (accountId: string, chatMid: string) =>
         request<{ ok: boolean; data: Announcement[] }>(
           "GET",
-          `/line/${accountId}/announcements/${encodeURIComponent(chatMid)}`,
+          `/line/${accountId}/getChatRoomAnnouncements/${encodeURIComponent(chatMid)}`,
         ),
-      create: (accountId: string, chatMid: string, text: string, messageId?: string) =>
+      createChatRoomAnnouncement: (
+        accountId: string,
+        chatMid: string,
+        text: string,
+        messageId?: string,
+      ) =>
         request<{ ok: boolean; data: { announcementSeq: string } }>(
           "POST",
-          `/line/${accountId}/announcements`,
+          `/line/${accountId}/createChatRoomAnnouncement`,
           { chatMid, text, messageId },
         ),
-      remove: (accountId: string, chatMid: string, seq: string) =>
+      removeChatRoomAnnouncement: (accountId: string, chatMid: string, seq: string) =>
         request<{ ok: boolean; data: unknown }>(
           "DELETE",
-          `/line/${accountId}/announcements/${encodeURIComponent(chatMid)}/${seq}`,
+          `/line/${accountId}/removeChatRoomAnnouncement/${encodeURIComponent(chatMid)}/${seq}`,
         ),
     },
   },

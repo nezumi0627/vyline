@@ -107,7 +107,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
       contactFetching.current.add(mid);
       api.line
-        .contactProfile(accountId, mid)
+        .getContact(accountId, mid)
         .then((res) => {
           if (!res.ok || !res.profile) return;
           mergeContact(mid, {
@@ -146,7 +146,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     inFlight.current.profile = true;
     setLoadingProfile(true);
     try {
-      const res = await api.line.profile(accountId);
+      const res = await api.line.getProfile(accountId);
       if (accountIdRef.current !== accountId) return;
       if (res.ok && res.profile) setProfile(res.profile);
     } finally {
@@ -162,7 +162,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
-        const res = await api.line.chats(accountId, opts);
+        const res = await api.line.getMessageBoxes(accountId, opts);
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
           setChats(res.chats);
@@ -212,7 +212,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       } else if (!opts?.force) {
         // chatdb ローカルを先に描画（ネットワーク待ちを避ける）
         try {
-          const local = await api.line.messages(accountId, chatMid, limit, { local: true });
+          const local = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, limit, {
+            local: true,
+          });
           if (gen === messagesGen.current && selectedChatMidRef.current === chatMid) {
             if (local.ok && local.messages && local.messages.length > 0) {
               fetchContact(chatMid);
@@ -234,7 +236,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
       try {
         fetchContact(chatMid);
-        const res = await api.line.messages(accountId, chatMid, limit, opts);
+        const res = await api.line.getPreviousMessagesV2WithRequest(
+          accountId,
+          chatMid,
+          limit,
+          opts,
+        );
         if (gen !== messagesGen.current) return;
         if (selectedChatMidRef.current !== chatMid) return;
         if (res.ok && res.messages) {
@@ -266,7 +273,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       olderInFlight.current = true;
       setLoadingOlder(true);
       try {
-        const res = await api.line.messages(accountId, chatMid, PAGE_SIZE, {
+        const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, PAGE_SIZE, {
           beforeMessageId: oldest.id,
           beforeDeliveredTime: oldest.createdTime,
         });
@@ -342,7 +349,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     void (async () => {
       // サーバ VylineCache を取り込んでから UI を温める
       try {
-        const cache = await api.line.vylineCache(accountId);
+        const cache = await api.line.getVylineCache(accountId);
         if (accountIdRef.current !== accountId) return;
         if (cache.ok && cache.profiles) {
           const entries = Object.values(cache.profiles).map((p) => ({
@@ -364,7 +371,10 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
       void loadProfile();
-      await loadChats({ refresh: true, light: true });
+      // bootstrap 直後は backend 側の freshness 判定に任せる。
+      // refresh=true は新鮮なローカル cache があっても remote sync を強制するため、
+      // 通常起動では指定しない。
+      await loadChats({ light: true });
       if (accountIdRef.current !== accountId) return;
 
       // 初回インデックス: 過去メッセージ等を chatdb に先読み（1アカウント1回）
@@ -376,10 +386,10 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           label: "初回インデックス中… 過去のメッセージをキャッシュしています",
         });
         try {
-          const idx = await api.line.runIndex(accountId);
+          const idx = await api.line.reindexMessages(accountId);
           if (idx.ok) localStorage.setItem(indexKey, "1");
         } catch {
-          /* バックエンド warm でも走っているので失敗は無視 */
+          /* 初回 index は補助処理なので失敗しても通常起動は継続する */
         } finally {
           useStore.getState().setIndexing(null);
         }

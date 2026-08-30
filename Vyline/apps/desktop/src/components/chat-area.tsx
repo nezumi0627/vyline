@@ -114,7 +114,7 @@ function ChatAreaBase() {
     const check = async () => {
       if (cancelled) return;
       try {
-        const res = await api.line.groupCallStatus(accountId, chat.id);
+        const res = await api.line.getGroupCallStatus(accountId, chat.id);
         if (!cancelled && res.ok) setGroupCallOnline(Boolean(res.online));
       } catch {
         if (!cancelled) setGroupCallOnline(false);
@@ -504,7 +504,11 @@ function ChatAreaBase() {
                         onClick={() => {
                           if (a.announcementSeq && activeChatId && accountId) {
                             void api.line.announce
-                              .remove(accountId, activeChatId, a.announcementSeq)
+                              .removeChatRoomAnnouncement(
+                                accountId,
+                                activeChatId,
+                                a.announcementSeq,
+                              )
                               .then((res) => {
                                 if (res.ok && activeChatId) {
                                   removeAnnouncement(activeChatId, a.announcementSeq);

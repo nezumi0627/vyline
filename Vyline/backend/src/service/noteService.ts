@@ -56,5 +56,8 @@ export async function shareNoteToChat(
   postId: string,
   chatMid: string,
 ): Promise<unknown> {
-  return await client.base.timeline.sharePost({ postId, chatMid, homeId });
+  // Timeline sharePost itself only accepts the note home and post ID.
+  // Keep chatMid in the BFF contract for compatibility with the UI route.
+  void chatMid;
+  return await client.base.timeline.sharePost({ postId, homeId });
 }

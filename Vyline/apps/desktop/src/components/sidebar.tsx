@@ -253,7 +253,7 @@ function SidebarBase() {
     if (!accountId) return;
     let cancelled = false;
     void api.line
-      .blockedContacts(accountId)
+      .getBlockedContactIds(accountId)
       .then((res) => {
         if (cancelled || !res.ok || !res.mids) return;
         setBlockedSet(new Set(res.mids));

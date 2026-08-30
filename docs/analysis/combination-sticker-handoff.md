@@ -63,7 +63,7 @@ sendStickerMessage(...)
 
 - `POST /line/:accountId/combination-stickers`
 - `POST /line/:accountId/send-combination-sticker`
-- `POST /line/:accountId/combination-stickers/can-create`
+- `POST /line/:accountId/canCreateCombinationSticker`
 - `POST /line/:accountId/combination-stickers/available`
 
 ## 直近で入った表示修正

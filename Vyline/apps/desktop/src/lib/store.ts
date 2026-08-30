@@ -552,7 +552,7 @@ export const useStore = create<State>()(
         const { accountId } = get();
         if (!accountId) return;
         try {
-          const res = await api.line.blockedContacts(accountId);
+          const res = await api.line.getBlockedContactIds(accountId);
           if (res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
         } catch {
           /* silent */
@@ -581,12 +581,12 @@ export const useStore = create<State>()(
           void get().markChatRead(id);
         }
         if (accountId) {
-          void api.line.contactProfile(accountId, id).catch(() => undefined);
+          void api.line.getContact(accountId, id).catch(() => undefined);
           const chat = chats.find((c) => c.id === id);
           const mids =
             chat?.type === "group" ? (chat.members?.slice(0, 6).map((m) => m.id) ?? []) : [];
           for (const mid of mids) {
-            void api.line.contactProfile(accountId, mid).catch(() => undefined);
+            void api.line.getContact(accountId, mid).catch(() => undefined);
           }
           void get().loadAnnouncements(id);
         }
@@ -604,7 +604,7 @@ export const useStore = create<State>()(
         const { accountId } = get();
         if (!accountId) return;
         try {
-          const res = await api.line.announce.list(accountId, chatId);
+          const res = await api.line.announce.getChatRoomAnnouncements(accountId, chatId);
           const list = (res as { ok: boolean; data: Announcement[] }).data ?? [];
           set((st) => ({ announcements: { ...st.announcements, [chatId]: list } }));
         } catch {
@@ -886,9 +886,9 @@ export const useStore = create<State>()(
         }));
 
         void (async () => {
-          let res: Awaited<ReturnType<typeof api.line.send>>;
+          let res: Awaited<ReturnType<typeof api.line.sendMessage>>;
           try {
-            res = await api.line.send(accountId!, chatId, trimmed, {
+            res = await api.line.sendMessage(accountId!, chatId, trimmed, {
               relatedMessageId,
               contentMetadata: opts?.contentMetadata,
               mute: opts?.mute,
@@ -1313,7 +1313,7 @@ export const useStore = create<State>()(
               : m,
           ),
         }));
-        const res = await api.line.unsend(accountId, id);
+        const res = await api.line.unsendMessage(accountId, id);
         if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
         else if (!res.ok) {
           const errText = res.error ?? "";
@@ -1413,7 +1413,7 @@ export const useStore = create<State>()(
           let ok = false;
           let confirmed: LineMessage | null = null;
           if (intent.kind === "text") {
-            const res = await api.line.send(accountId, chatId, intent.text, {
+            const res = await api.line.sendMessage(accountId, chatId, intent.text, {
               relatedMessageId: intent.relatedMessageId,
               contentMetadata: intent.contentMetadata,
             });
@@ -1481,7 +1481,7 @@ export const useStore = create<State>()(
       markRead: async (id) => {
         const { accountId, activeChatId } = get();
         if (!accountId || !activeChatId) return;
-        await api.line.markAsRead(accountId, activeChatId, id).catch(() => {});
+        await api.line.sendChatChecked(accountId, activeChatId, id).catch(() => {});
         set((st) => ({
           messages: st.messages.map((m) =>
             m.id === id ? { ...m, read: true, status: "read" } : m,
@@ -1509,7 +1509,7 @@ export const useStore = create<State>()(
         if (prev === last.id) return;
         readReceiptSent.set(id, last.id);
         try {
-          await api.line.markAsRead(accountId, id, last.id);
+          await api.line.sendChatChecked(accountId, id, last.id);
         } catch {
           readReceiptSent.delete(id);
         }
@@ -1629,7 +1629,7 @@ export const useStore = create<State>()(
         const { accountId } = get();
         if (!accountId) return;
         try {
-          const res = await api.line.chats(accountId, { light: true, refresh: true });
+          const res = await api.line.getMessageBoxes(accountId, { light: true, refresh: true });
           if (res.ok && res.chats) {
             const hidden = new Set(
               get()
@@ -1699,7 +1699,7 @@ export const useStore = create<State>()(
         const showLoading = !get().messages.some((m) => m.chatId === chatId);
         if (showLoading) set({ loadingMessages: true });
         try {
-          const res = await api.line.messages(accountId, chatId, 50, {
+          const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatId, 50, {
             force: opts?.force === true,
           });
           if (res.ok && res.messages) {
@@ -1933,7 +1933,7 @@ export const useStore = create<State>()(
 
           if (!needsPoll) return;
 
-          const res = await api.line.readReceipts(accountId, chatId, myIds);
+          const res = await api.line.getMessageReadRange(accountId, chatId, myIds);
           if (!res.ok || !res.receipts) return;
 
           // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
@@ -1964,7 +1964,7 @@ export const useStore = create<State>()(
             readersNeedFetch.push(mid);
           }
           if (readersNeedFetch.length > 0) {
-            void api.line.vylineWarm(accountId, readersNeedFetch).then((warmRes) => {
+            void api.line.warmCache(accountId, readersNeedFetch).then((warmRes) => {
               if (!warmRes.ok || !warmRes.profiles) return;
               const profiles = warmRes.profiles;
               set((st) => ({
@@ -2143,7 +2143,7 @@ export const useStore = create<State>()(
                 for (let i = 0; i < 500; i++) contactFetched.delete(iter.next().value!);
               }
               contactFetched.add(m.authorId);
-              void api.line.contactProfile(accountId, m.authorId).then((res) => {
+              void api.line.getContact(accountId, m.authorId).then((res) => {
                 if (!res.ok || !res.profile) return;
                 set((st) => ({
                   chats: st.chats.map((c) => {
@@ -2203,7 +2203,7 @@ export const useStore = create<State>()(
       fetchMessageHistory: async (chatId, messageId) => {
         const accountId = get().accountId;
         if (!accountId) return [];
-        const res = await api.line.messageHistory(accountId, chatId, messageId);
+        const res = await api.line.getMessageHistory(accountId, chatId, messageId);
         if (res.ok) return res.history ?? [];
         return [];
       },
@@ -2295,7 +2295,9 @@ export const useStore = create<State>()(
         let task!: Promise<void>;
         task = (async () => {
           try {
-            const res = await api.line.messages(accountId, chatId, 50, { force: true });
+            const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatId, 50, {
+              force: true,
+            });
             if (res.ok && res.messages?.length) {
               get().mergeIncomingMessages(chatId, res.messages, { silent: true });
             }
@@ -2331,7 +2333,7 @@ export const useStore = create<State>()(
         }
         const started = Date.now();
         try {
-          const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
+          const res = await api.line.getMessageDelta(accountId, chatId, lastId, 15);
           // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
           lastDeltaPollAt.set(chatId, Date.now());
           if (res.ok && res.messages?.length) {
@@ -2357,7 +2359,7 @@ export const useStore = create<State>()(
         task = (async () => {
           const cursor = eventPollCursor.get(accountId) ?? 0;
           try {
-            const res = await api.line.pollEvents(accountId, cursor);
+            const res = await api.line.fetchOperations(accountId, cursor);
             if (res.ok) {
               if (res.reset) {
                 // バッファが失われた（再起動 / 追い出し）→ カーソルを現在に合わせ再同期

@@ -177,7 +177,7 @@ function ScheduleAnswer({
   const [error, setError] = useState<string | null>(null);
 
   useMemo(() => {
-    void api.line.schedule.event(accountId, chatId, eventKey).then((res) => {
+    void api.line.schedule.getScheduleEvent(accountId, chatId, eventKey).then((res) => {
       if (!res.ok || !res.data) return;
       const d = res.data as {
         name?: string;
@@ -205,7 +205,13 @@ function ScheduleAnswer({
           status: v ?? "MAYBE",
         }))
         .filter((a) => Number.isFinite(a.candidate) && a.candidate > 0);
-      const res = await api.line.schedule.answer(accountId, chatId, eventKey, answers, comment);
+      const res = await api.line.schedule.answerScheduleEvent(
+        accountId,
+        chatId,
+        eventKey,
+        answers,
+        comment,
+      );
       if (!res.ok) throw new Error((res as { error?: string }).error || "回答に失敗しました");
       onClose();
     } catch (e) {
@@ -285,7 +291,7 @@ function PollVote({
   const [error, setError] = useState<string | null>(null);
 
   useMemo(() => {
-    void api.line.poll.question(accountId, chatId, questionId).then((res) => {
+    void api.line.poll.getPoll(accountId, chatId, questionId).then((res) => {
       if (!res.ok || !res.data) return;
       const d = res.data as {
         question?: { title?: string; choiceList?: { oid?: string; text?: string }[] };
@@ -303,7 +309,7 @@ function PollVote({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.line.poll.vote(accountId, chatId, questionId, selected);
+      const res = await api.line.poll.votePoll(accountId, chatId, questionId, selected);
       if (!res.ok) throw new Error("投票に失敗しました");
       onClose();
     } catch (e) {
@@ -388,7 +394,7 @@ function LadderResult({
   const members = useStore((s) => s.chats.find((c) => c.id === chatId)?.members ?? []);
 
   useMemo(() => {
-    void api.line.ladder.result(accountId, chatId, hash).then((res) => {
+    void api.line.ladder.getLadderResult(accountId, chatId, hash).then((res) => {
       if (!res.ok || !res.data) return;
       setResult((res.data as LadderResultData) ?? null);
     });
@@ -400,7 +406,7 @@ function LadderResult({
     setBusy(true);
     setError(null);
     try {
-      const res = await api.line.ladder.message(accountId, chatId, hash);
+      const res = await api.line.ladder.sendLadderMessage(accountId, chatId, hash);
       if (!res.ok) throw new Error("送信に失敗しました");
       onClose();
     } catch (e) {

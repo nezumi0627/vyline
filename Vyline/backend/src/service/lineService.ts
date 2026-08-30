@@ -2556,12 +2556,6 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
 
 export async function warmLineCache(accountId: string): Promise<void> {
   await warmAccountCache(accountId);
-  // 初回インデックス（裏）— 履歴・プロフィールを chatdb / VylineCache へ
-  // runAccountIndex 内の fetchChats が必要な RPC を同じキューに入れるため、
-  // ここで外側まで enqueue すると初回起動時に自己待機になる。
-  void runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 }).catch((err) => {
-    log.debug({ accountId, err }, "background account index failed");
-  });
 }
 
 export async function fetchChats(
@@ -2587,7 +2581,10 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      const needsBg = opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
+      // disk cache の freshness を正本にする。
+      // プロセス再起動直後は memory cache が空でも、disk cache が新鮮なら
+      // remote RPC を再実行する理由はない。
+      const needsBg = Boolean(opts?.refresh) || chatsAge > CHATS_CACHE_MS;
 
       if (needsBg) {
         const syncPromise = enqueueTalkRpcBackground(accountId, async () => {
@@ -2620,6 +2617,9 @@ async function fetchChatsCore(
       }
       if (memCached && now - memCached.at < CHATS_CACHE_MS) {
         return memCached.chats;
+      }
+      if (chatsAge <= CHATS_CACHE_MS) {
+        chatsCache.set(accountId, { at: now, chats: local });
       }
       return local;
     }
@@ -3876,7 +3876,7 @@ export async function sendMessage(
 ): Promise<Message | null> {
   // ブロック中の友だちには送信しない（サーバ側でも防ぐ）
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "send blocked: user is blocked");
       return null;
@@ -4148,7 +4148,7 @@ export async function sendMedia(
   },
 ): Promise<void> {
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMedia blocked: user is blocked");
       return;
@@ -4322,7 +4322,7 @@ export async function sendMediaBatch(
   items: MediaBatchItem[],
 ): Promise<number> {
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMediaBatch blocked: user is blocked");
       return 0;
@@ -4565,7 +4565,7 @@ export async function sendSticker(
   opts?: { packageId?: string; stickerId?: string; isPremium?: boolean },
 ): Promise<Message | null> {
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendSticker blocked: user is blocked");
       return null;
@@ -4861,7 +4861,7 @@ export async function sendCombinationSticker(
   opts?: { idOfPreviousVersionOfCombinationSticker?: string },
 ): Promise<Message | null> {
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendCombinationSticker blocked: user is blocked");
       return null;
@@ -4898,7 +4898,7 @@ export async function sendLineEmoji(
   opts: { packageId: string; sticonId: string },
 ): Promise<void> {
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendLineEmoji blocked: user is blocked");
       return;
@@ -5245,7 +5245,7 @@ const BLOCKED_CACHE_TTL_MS = Number(process.env.VYLINE_BLOCKED_CACHE_TTL_MS ?? 5
 const BLOCKED_RPC_TIMEOUT_MS = Number(process.env.VYLINE_BLOCKED_RPC_TIMEOUT_MS ?? 8_000);
 const blockedInflight = new Map<string, Promise<string[]>>();
 
-export async function fetchBlockedContactIds(accountId: string): Promise<string[]> {
+export async function getBlockedContactIds(accountId: string): Promise<string[]> {
   const cached = blockedCache.get(accountId);
   if (cached && Date.now() - cached.at < BLOCKED_CACHE_TTL_MS) return cached.ids;
   const inflight = blockedInflight.get(accountId);
@@ -5258,7 +5258,7 @@ export async function fetchBlockedContactIds(accountId: string): Promise<string[
           client.base.talk.getBlockedContactIds({ syncReason: "INTERNAL" }),
         ),
         BLOCKED_RPC_TIMEOUT_MS,
-        "fetchBlockedContactIds",
+        "getBlockedContactIds",
       );
       const out = (ids ?? []).map(String);
       blockedCache.set(accountId, { at: Date.now(), ids: out });
@@ -5445,7 +5445,7 @@ export async function reactToMessage(
 }
 
 /** チャットルームのアナウンス一覧 — Desktop: TalkService_getChatRoomAnnouncements */
-export async function getChatAnnouncements(
+export async function getChatRoomAnnouncements(
   accountId: string,
   chatMid: string,
 ): Promise<
@@ -5482,7 +5482,7 @@ export async function getChatAnnouncements(
 }
 
 /** メッセージをアナウンスとしてピン留め — Desktop: TalkService_createChatRoomAnnouncement */
-export async function announceMessage(
+export async function createChatRoomAnnouncement(
   accountId: string,
   chatMid: string,
   text: string,
@@ -5511,7 +5511,7 @@ export async function announceMessage(
 }
 
 /** アナウンスの解除（ピン解除）— Desktop: TalkService_removeChatRoomAnnouncement */
-export async function removeChatAnnouncement(
+export async function removeChatRoomAnnouncement(
   accountId: string,
   chatMid: string,
   announcementSeq: string | number,

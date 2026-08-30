@@ -62,7 +62,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
     let cancelled = false;
     void api.line
-      .commonGroups(accountId, chat.id)
+      .getCommonGroupIds(accountId, chat.id)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
         const byId = new Map(chats.map((c) => [c.id, c]));
@@ -102,7 +102,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
     let cancelled = false;
     void api.line
-      .blockedContacts(accountId)
+      .getBlockedContactIds(accountId)
       .then((res) => {
         if (cancelled || !res.ok || !res.mids) return;
         setIsBlocked(res.mids.includes(chat.id));
@@ -143,7 +143,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     void (async () => {
       // プロフィール詳細（statusMessage など）— 短めのタイムアウト
       try {
-        const res = await withTimeout(api.line.contactProfile(accountId, chat.id), 6_000);
+        const res = await withTimeout(api.line.getContact(accountId, chat.id), 6_000);
         if (cancelled || res === "timeout" || !(res as { ok?: boolean }).ok) return;
         const r = res as {
           ok: boolean;
@@ -199,7 +199,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
       if (chat.type === "group") {
         setMembersLoading(true);
         try {
-          const mem = await withTimeout(api.line.chatMembers(accountId, chat.id), 10_000);
+          const mem = await withTimeout(api.line.getChatMembers(accountId, chat.id), 10_000);
           if (cancelled || mem === "timeout") {
             setMembersLoading(false);
             return;
@@ -249,7 +249,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     setBusy(true);
     setActionMsg(null);
     try {
-      const res = await api.line.renameContact(accountId, chat.id, next);
+      const res = await api.line.updateContactSetting(accountId, chat.id, next);
       if (!res.ok) {
         setActionMsg(res.error ?? "表示名の同期に失敗しました（ローカルのみ保存）");
       } else {
@@ -514,7 +514,7 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
                 if (!accountId) return;
                 setActionMsg("保存中…");
                 void api.line
-                  .exportMessages(accountId, chat.id, "txt")
+                  .exportChat(accountId, chat.id, "txt")
                   .then(() => setActionMsg("トークを保存しました"))
                   .catch((err) =>
                     setActionMsg(err instanceof Error ? err.message : "保存に失敗しました"),
@@ -672,7 +672,7 @@ function InviteToGroupRow({
     }
     setBusy(true);
     try {
-      const res = await api.line.inviteToGroup(accountId, chatMid, list);
+      const res = await api.line.inviteIntoChat(accountId, chatMid, list);
       if (!res.ok) {
         onDone(res.error || "招待に失敗しました");
         return;

@@ -20,7 +20,6 @@ import { publicRouter } from "./api/public.js";
 import { lineOpenApiSpec } from "./api/openapi.line.js";
 import { restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
-import { warmAccountCache } from "./storage/chatStore.js";
 import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaCacheDir } from "./storage/mediaCache.js";
@@ -233,16 +232,9 @@ await initVylineProfile();
 void ensureCdnCacheDir().catch(() => undefined);
 void ensureMediaCacheDir().catch(() => undefined);
 
-restoreAllSessions()
-  .then(async () => {
-    const { listAccounts } = await import("./line/clientManager.js");
-    for (const id of listAccounts()) {
-      await warmAccountCache(id).catch(() => undefined);
-    }
-  })
-  .catch((err) => {
-    logger.warn({ err }, "session restore had errors");
-  });
+restoreAllSessions().catch((err) => {
+  logger.warn({ err }, "session restore had errors");
+});
 
 type CallWsHandlers = typeof import("./call/callManager.js").callWebSocketHandler;
 let callWsHandlers: CallWsHandlers | null = null;

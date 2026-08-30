@@ -123,7 +123,7 @@ export function SettingsSections() {
         displayName: nameDraft.trim(),
         statusMessage: statusDraft,
       };
-      const res = await api.line.updateProfile(accountId, body);
+      const res = await api.line.updateProfileAttributes(accountId, body);
       if (!res.ok || !res.profile) {
         setProfileMsg(
           res.ok === false ? ((res as { error?: string }).error ?? "更新失敗") : "更新失敗",
@@ -629,7 +629,7 @@ function ThemeSectionWithPreview() {
   );
 }
 
-type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
+type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
@@ -651,7 +651,7 @@ function AdvancedSection() {
     setRestoring(true);
     setRestoreResult(null);
     try {
-      const res = await api.line.restoreDesktop(accountId);
+      const res = await api.line.restoreFromDesktop(accountId);
       setRestoreResult(res);
     } catch (e) {
       setRestoreResult({
@@ -916,7 +916,7 @@ function StorageSection() {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await api.line.vylineStorage(accountId);
+      const res = await api.line.getVylineStorageInfo(accountId);
       if (res.ok) setStorage(res);
       else setMsg(res.error ?? "取得に失敗しました");
     } catch (e) {
@@ -1050,9 +1050,7 @@ function StorageSection() {
           ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
-          onDelete={() =>
-            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId!))
-          }
+          onDelete={() => clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))}
           disabled={loading || !accountId}
           accent="var(--vy-accent)"
         />
@@ -1064,7 +1062,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId!))
+            clearType("アイコンキャッシュ", () => api.line.clearIconCache(accountId!))
           }
           disabled={loading || !accountId}
           accent="var(--vy-accent)"
@@ -1079,7 +1077,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId!, "image"))
+            clearType("保存画像", () => api.line.clearSavedMediaByType(accountId!, "image"))
           }
           disabled={loading || !accountId}
           accent="#3b82f6"
@@ -1094,7 +1092,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId!, "video"))
+            clearType("保存動画", () => api.line.clearSavedMediaByType(accountId!, "video"))
           }
           disabled={loading || !accountId}
           accent="#a855f7"
@@ -1109,7 +1107,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId!, "audio"))
+            clearType("保存音声", () => api.line.clearSavedMediaByType(accountId!, "audio"))
           }
           disabled={loading || !accountId}
           accent="#22c55e"
@@ -1124,7 +1122,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId!, "file"))
+            clearType("保存ファイル", () => api.line.clearSavedMediaByType(accountId!, "file"))
           }
           disabled={loading || !accountId}
           accent="#6b7280"
@@ -1365,7 +1363,7 @@ function NotificationsSection() {
     setSaving(true);
     setMsg(null);
     try {
-      const res = await api.line.setNotification(accountId, next);
+      const res = await api.line.setNotificationsEnabled(accountId, next);
       if (!res.ok) throw new Error(res.error ?? "失敗");
       updateSetting("notificationsEnabled", next);
       // マスタースイッチが無効のままなら通知は鳴らないので明示する
@@ -1415,7 +1413,7 @@ function PrivacySection() {
     const enabled = useStore.getState().settings.proxyEnabled;
     updateSetting("proxyUrl", proxyUrl);
     try {
-      const res = await api.line.setProxy(accountId, enabled, proxyUrl);
+      const res = await api.line.setProxySettings(accountId, enabled, proxyUrl);
       setProxyMsg(
         res.ok
           ? enabled
@@ -1432,13 +1430,13 @@ function PrivacySection() {
     if (!accountId) return;
     setBlockedLoading(true);
     try {
-      const res = await api.line.blockedContacts(accountId);
+      const res = await api.line.getBlockedContactIds(accountId);
       const mids = res.ok ? (res.mids ?? []) : [];
       // プロフィール取得
       const withProfiles = await Promise.all(
         mids.map(async (mid) => {
           try {
-            const prof = await api.line.contactProfile(accountId, mid);
+            const prof = await api.line.getContact(accountId, mid);
             if (!prof.ok) return { mid };
             return {
               mid,
