@@ -597,6 +597,7 @@ export async function loginWithQRCode(
   };
 
   const login = (async () => {
+    let authenticated = false;
     try {
       const client = await vylineLoginQR(
         {
@@ -615,6 +616,7 @@ export async function loginWithQRCode(
         loginInit(accountId),
       );
 
+      authenticated = true;
       await activateClient(accountId, client);
       state.url = null;
       state.expired = false;
@@ -627,11 +629,11 @@ export async function loginWithQRCode(
     } catch (err) {
       state.inProgress = false;
       state.error = err instanceof Error ? err.message : String(err);
-      if (isExpiredError(err)) {
+      state.url = null;
+      state.pincode = null;
+      if (!authenticated && isExpiredError(err)) {
         log.info({ accountId }, "QR expired — waiting for user to regenerate");
         state.expired = true;
-        state.url = null;
-        state.pincode = null;
       } else {
         log.warn({ accountId, err }, "QR login failed before client registration");
       }

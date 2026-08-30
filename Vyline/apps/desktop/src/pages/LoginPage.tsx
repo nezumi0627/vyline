@@ -276,6 +276,14 @@ export function LoginPage() {
       async () => {
         const res = await api.auth.loginQrPoll(targetAccountId);
         if (!res.ok) return true;
+        if (res.status === "failed") {
+          setQrStatus("idle");
+          setQrUrl(null);
+          setPincode(null);
+          setQrError(res.error ?? "QRログインに失敗しました。もう一度お試しください。");
+          qrPollStopRef.current = null;
+          return false;
+        }
         if (res.status === "expired" || res.status === "idle") {
           setQrExpired(true);
           setPincode(null);
