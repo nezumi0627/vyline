@@ -3,140 +3,82 @@
 
 [日本語](README.md)
 
-# Vyline
+# Vyline — tqmane fork
 
-<p align="center">
-  <strong>Vision Beyond Limits.</strong><br/>
-  An extensible LINE third-party client that starts from `vyl`
-</p>
+This is the tqmane fork of Vyline, an unofficial third-party LINE client.
 
 > [!CAUTION]
-> Vyline is an unofficial and unauthorised LINE third-party client. It is not affiliated with LINE Corporation or LY Corporation. Use it at your own risk.
+> This is an unofficial, unapproved client. Use it only if you understand the account and data-loss risks.
 
-> [!NOTE]
-> Vyline is currently Beta 0.8.0. Protect important data with `vyl snapshot`.
+## Quickstart
 
-## Quick start
+### Portainer
 
-The new entrypoint is the **`vyl` CLI**. New users should start with the interactive flow instead of manually cloning the full repository first.
+1. Open **Stacks → Add stack → Web editor** and paste [`docker-compose.portainer.yml`](docker-compose.portainer.yml).
+2. Deploy it. The default image is `ghcr.io/tqmane/vyline:latest`.
+3. To update, use **Pull latest image → Update the stack**. No host-side build is required.
 
-```bash
-bunx vyl init
-```
+`latest` is a multi-architecture manifest for `linux/amd64` and `linux/arm64`, so the same tag works on ordinary Linux PCs/servers, 64-bit Raspberry Pi systems, and arm64 Android Docker hosts.
 
-Before npm / bunx publishing, or inside this repository, use:
-
-```bash
-bun install
-bun run vyl init
-```
-
-`vyl init` lets you choose startup, doctor, repair, plugin creation, Snapshot creation, and archive-first install interactively.
-
-## Installation paths
-
-| Goal | Recommended path | Command |
-| --- | --- | --- |
-| Try Vyline quickly | archive-first install | `bunx vyl install` |
-| Repair an existing checkout | doctor / fix | `bun run vyl:doctor` → `bun run vyl:fix` |
-| Development | shallow clone or normal clone | Developer mode in `vyl install`, or `git clone --recurse-submodules` |
-| Self-hosting | Docker | `docker compose up -d --build` |
-| Data protection | Snapshot | `bun run vyl snapshot create manual` |
-
-## vyl CLI
-
-`vyl` is the front door for Vyline. It groups install, diagnostics, repair, start, Snapshot, and plugin scaffolding.
-
-| Command | Description |
-| --- | --- |
-| `vyl init` | Interactive setup |
-| `vyl install` | Choose archive-first or shallow clone install |
-| `vyl doctor` | Check Bun, Git, submodules, `.env`, and data/storage |
-| `vyl fix` | Create `.env`, create data/storage, update submodules, run `bun install` |
-| `vyl dev` | Start backend and frontend |
-| `vyl start` | Start the backend server |
-| `vyl plugin create <name>` | Create a TypeScript plugin template |
-| `vyl snapshot create/list/restore/schedule` | Create, list, restore, and schedule Snapshots |
-
-Inside the repository, run:
+### Docker Compose
 
 ```bash
-bun run vyl init
-bun run vyl:doctor
-bun run vyl:fix
-bun run vyl:snapshot -- create manual
+mkdir -p vyline && cd vyline
+curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+docker compose pull
+docker compose up -d
 ```
 
-See [Vyline/docs/vyl-cli.md](Vyline/docs/vyl-cli.md) for details.
+Open `http://<server-ip>:3000` in a browser.
 
-## Snapshot
+By default, persistent state lives in `./data` and `./storage`. Do not delete these directories during updates.
 
-Vyline rebrands backup/restore as **Snapshot**. The `data/` directory contains sessions, keys, settings, and history, so create a Snapshot before updates or major setting changes.
+Use `VYLINE_BIND_ADDRESS=127.0.0.1` for localhost-only access. `VYLINE_PORT`, `VYLINE_DATA_PATH`, and `VYLINE_STORAGE_PATH` change the port and persistent paths.
 
-```bash
-bun run vyl snapshot create before-update
-bun run vyl snapshot list
-bun run vyl snapshot restore snapshots/xxx.tar.gz --force
-bun run vyl snapshot schedule daily
+## Main tqmane-fork changes
+
+- On-demand history paging without endless background history fetching.
+- Stable scroll position while reading history, plus a bottom-right jump-to-latest control.
+- Compact announcements by default with `∨` / `∧` expand/collapse controls.
+- Stronger Docker persistence, atomic writes, and durable post-restore flushing.
+- Selected upstream fixes for Note/Album, LIFF sender metadata, channel-token lifecycle, expired-unsend guarding, and related hardening.
+
+## GHCR / GitHub Actions
+
+`.github/workflows/container.yml` runs Buildx on `main` pushes, `v*` tags, and manual dispatch, then pushes to GHCR.
+
+```text
+ghcr.io/tqmane/vyline:latest
+linux/amd64
+linux/arm64
 ```
 
-On Windows, `snapshot schedule` tries to register a `VylineSnapshot` scheduled task. On other platforms it writes a schedule config and prints a command for cron or a systemd timer.
+It also publishes branch/tag/`sha-*` tags and uses GitHub Actions cache, provenance, and SBOM output.
 
 ## Development
 
 ```bash
-git clone --recurse-submodules https://github.com/nezumi0627/Vyline.git
-cd Vyline
-bun install
-bun run vyl:doctor
-bun run vyl dev
+git clone --recurse-submodules https://github.com/tqmane/vyline.git
+cd vyline
+bun install --frozen-lockfile
+bun run typecheck
+bun run lint
+bun test
+bun run build
 ```
 
-| Command | Description |
-| --- | --- |
-| `bun run vyl:doctor` | Check the development environment |
-| `bun run vyl:fix` | Repair common setup issues |
-| `bun run typecheck` | Type-check all workspaces |
-| `bun run lint` | Run Biome |
-| `bun run build` | Build the frontend |
-| `bun run docs:readme` | Regenerate README files from `README.src.md` |
+Use Bun 1.4 or newer. Submodules point to the tqmane repositories.
 
-Create a plugin scaffold with:
+## Security
 
-```bash
-bun run vyl plugin create my-plugin
-```
-
-## Docker / self-hosting
-
-```bash
-git clone --recurse-submodules https://github.com/nezumi0627/Vyline.git
-cd Vyline
-docker compose up -d --build
-```
-
-Open `http://localhost:3000`. Do not delete `./data/`; it contains sessions and keys.
+Do not expose Vyline directly to the public Internet without authentication. Use TLS with an authenticated reverse proxy or VPN. Never commit `.env`, tokens, backups, account databases, `data/`, or `storage/`.
 
 ## Documentation
 
-| Document | Description |
-| --- | --- |
-| [Vyline/docs/vyl-cli.md](Vyline/docs/vyl-cli.md) | `vyl` CLI, install, doctor, fix, Snapshot, plugin scaffold |
-| [Vyline/docs/guides/ios-backup-restore.md](Vyline/docs/guides/ios-backup-restore.md) | Import flow from iOS backups |
-| [AGENTS.md](AGENTS.md) | Coding-agent guide |
-| [CHANGELOG.md](CHANGELOG.md) | Changelog |
+The previous long README is archived at [`docs/README.full.md`](docs/README.full.md). Detailed analysis and developer documentation remains under [`docs/`](docs/).
 
-## Roadmap
+## Upstream / License
 
-- Stabilise npm / bunx distribution for `vyl`
-- Snapshot retention, encryption, and verification
-- Plugin permission scopes and Marketplace registry
-- Theme SDK and `vyl theme create`
-- Lighter Docker / self-hosting operations
-- Control Center is intentionally out of scope for this PR
+Upstream: [nezumi0627/vyline](https://github.com/nezumi0627/vyline). Useful upstream changes are integrated selectively without overwriting intentional tqmane-fork behavior.
 
-## License
-
-Vyline is released under the [MIT License](LICENSE).
-
-Copyright © [nezumi0627](https://github.com/nezumi0627)
+See [`LICENSE`](LICENSE) for license terms and attribution.

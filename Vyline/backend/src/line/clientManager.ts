@@ -9,6 +9,7 @@ import {
   loginWithEmail as vylineLoginEmail,
   loginWithQR as vylineLoginQR,
   loginWithToken as vylineLoginToken,
+  loginWithStoredRefreshToken as vylineLoginStoredRefreshToken,
   resolveDeviceMode,
   kicksOfficialDesktop,
   patchGroupKeyLookup,
@@ -18,6 +19,7 @@ import { childLogger } from "../logger.js";
 import {
   saveToken,
   getToken,
+  storagePathForAccount,
   loadTokens,
   deleteToken,
   updateSessionMeta,
@@ -46,6 +48,12 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
+const contentClients = new Map<string, Promise<VylineClient>>();
+const contentQrState = new Map<
+  string,
+  { url: string | null; expired: boolean; pincode: string | null; inProgress: boolean }
+>();
+const contentTokenId = (accountId: string) => `${accountId}:content`;
 
 function restorePluginsForSession(accountId: string): void {
   void restoreEnabledPlugins(accountId).catch((error) =>
@@ -177,21 +185,11 @@ export async function withTalkChannelIdle<T>(
   return enqueueTalkRpcBackground(accountId, work);
 }
 
-import { dirname, join as pathJoin } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const _dir = dirname(fileURLToPath(import.meta.url));
-
-function storagePathFor(accountId: string): string {
-  const dataDir = process.env.VYLINE_DATA_DIR ?? pathJoin(_dir, "../../data");
-  return `${dataDir}/storage-${accountId}.json`;
-}
-
 function loginInit(accountId: string) {
   const deviceMode = process.env.VYLINE_DEVICE;
   return {
     profile: getVylineProfile(),
-    storagePath: storagePathFor(accountId),
+    storagePath: storagePathForAccount(accountId),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
@@ -345,7 +343,9 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
       displayName?: string;
       picturePath?: string;
       statusMessage?: string;
+      deviceMode?: string;
     } = {};
+    meta.deviceMode = String(client.base.device);
     if (profile?.mid) meta.mid = String(profile.mid);
     if (profile?.displayName) meta.displayName = String(profile.displayName);
     const pic =
@@ -536,6 +536,7 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
   const client = await vylineLoginToken(entry.authToken, {
     profile: getVylineProfile(),
     storagePath: entry.storageFile,
+    ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
   });
 
   watchAuthToken(client, accountId);
@@ -556,18 +557,16 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
 export async function loginWithAuthToken(
   accountId: string,
   authToken: string,
+  deviceMode?: string,
 ): Promise<VylineClient> {
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const _dir = dirname(fileURLToPath(import.meta.url));
-  const dataDir = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-  const storagePath = join(dataDir, `storage-${accountId}.json`);
+  const storagePath = storagePathForAccount(accountId);
 
   log.info({ accountId }, "login with authToken via Vyline");
 
   const client = await vylineLoginToken(authToken, {
     profile: getVylineProfile(),
     storagePath,
+    ...(deviceMode ? { deviceMode } : {}),
   });
 
   watchAuthToken(client, accountId);
@@ -587,7 +586,7 @@ export async function loginWithAuthToken(
 
 export async function restoreAllSessions(): Promise<void> {
   const tokens = await loadTokens();
-  const ids = Object.keys(tokens);
+  const ids = Object.keys(tokens).filter((id) => !id.endsWith(":content"));
   if (ids.length === 0) {
     log.info("no saved sessions to restore");
     return;
@@ -620,6 +619,86 @@ export async function restoreAllSessions(): Promise<void> {
 
 export function getClient(accountId: string): VylineClient | undefined {
   return clients.get(accountId)?.client;
+}
+
+export async function getContentClient(accountId: string): Promise<VylineClient> {
+  const active = clients.get(accountId)?.client;
+  if (!active) throw new Error("not logged in");
+  return active;
+}
+
+export async function loginContentWithQRCode(
+  accountId: string,
+  onQrUrl: (url: string) => void,
+): Promise<VylineClient> {
+  if (!clients.get(accountId)?.client) throw new Error("not logged in");
+
+  const state: {
+    url: string | null;
+    expired: boolean;
+    pincode: string | null;
+    inProgress: boolean;
+  } = {
+    url: null,
+    expired: false,
+    pincode: null,
+    inProgress: true,
+  };
+  contentQrState.set(accountId, state);
+  try {
+    const client = await vylineLoginQR(
+      {
+        onReceiveQRUrl(url: string) {
+          state.url = url;
+          state.expired = false;
+          onQrUrl(url);
+        },
+        onPincodeRequest(pin: string) {
+          state.pincode = pin;
+        },
+      },
+      {
+        profile: getVylineProfile(),
+        storagePath: `${storagePathForAccount(accountId)}.content-secondary`,
+        deviceMode: "ANDROIDSECONDARY",
+      },
+    );
+
+    const token = client.authToken ?? client.base.authToken;
+    if (!token) throw new Error("content login completed without auth token");
+    await saveToken(contentTokenId(accountId), token, {
+      storageFile: `${storagePathForAccount(accountId)}.content-secondary`,
+    });
+    contentClients.set(accountId, Promise.resolve(client));
+    state.url = null;
+    state.pincode = null;
+    state.inProgress = false;
+    log.info({ accountId }, "content secondary QR login success");
+    return client;
+  } catch (error) {
+    state.url = null;
+    state.pincode = null;
+    state.inProgress = false;
+    state.expired = true;
+    throw error;
+  }
+}
+
+export function getContentQrState(accountId: string): {
+  url: string | null;
+  expired: boolean;
+  pincode: string | null;
+  inProgress: boolean;
+  ready: boolean;
+} {
+  const state = contentQrState.get(accountId);
+  return {
+    url: state?.url ?? null,
+    expired: state?.expired ?? false,
+    pincode: state?.pincode ?? null,
+    inProgress: state?.inProgress ?? false,
+    ready: contentClients.has(accountId),
+  };
 }
 
 export function listAccounts(): string[] {
@@ -667,5 +746,7 @@ export function removeClient(accountId: string): void {
     tokenWatchIntervals.delete(accountId);
   }
   clients.delete(accountId);
+  contentClients.delete(accountId);
+  contentQrState.delete(accountId);
   log.info({ accountId }, "client removed");
 }

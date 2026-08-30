@@ -1,27 +1,17 @@
 /**
  * tokenStore.ts
  *
- * authToken とセッションメタのローカル保存。
- * 保存先: <backend>/data/tokens.json
- *
- * 構造:
- * {
- *   "accountId": {
- *     "authToken": "...",
- *     "storageFile": "<backend>/data/storage-accountId.json",
- *     "savedAt": "ISO8601",
- *     "mid": "u...",
- *     "displayName": "...",
- *     "picturePath": "...",
- *     "statusMessage": "..."
- *   }
- * }
+ * authToken とセッションメタのアカウント別ローカル保存。
+ * 保存先: <backend>/data/accounts/<accountId>/credentials.json
+ * protocol storage: <backend>/data/accounts/<accountId>/protocol.json
+ * 旧 data/tokens.json は読み込み・移行互換のみ。
  */
 
 import { join, dirname } from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 import { childLogger } from "../logger.js";
 import { protectSecret, unprotectSecret } from "./secureStore.js";
 
@@ -30,6 +20,21 @@ const log = childLogger("tokenStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const TOKENS_FILE = join(DATA_DIR, "tokens.json");
+const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
+const HANDOFF_SCHEMA = "vyline-credential-handoff";
+const HANDOFF_VERSION = 1;
+
+function accountDir(accountId: string): string {
+  return join(ACCOUNTS_DIR, encodeURIComponent(accountId));
+}
+
+function accountTokenFile(accountId: string): string {
+  return join(accountDir(accountId), "credentials.json");
+}
+
+export function storagePathForAccount(accountId: string): string {
+  return join(accountDir(accountId), "protocol.json");
+}
 
 export interface TokenEntry {
   authToken: string;
@@ -41,6 +46,8 @@ export interface TokenEntry {
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  /** セッション発行時のデバイス種別。復元時に別端末種別へ化けるのを防ぐ。 */
+  deviceMode?: string;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -52,21 +59,13 @@ export interface TokenEntry {
 
 export type TokenMap = Record<string, TokenEntry>;
 
-async function persistTokens(tokens: TokenMap): Promise<void> {
-  const persisted = Object.fromEntries(
-    Object.entries(tokens).map(([id, entry]) => {
-      const { authToken: _plain, ...safeEntry } = entry;
-      return [id, entry.authTokenProtected ? safeEntry : entry];
-    }),
-  );
-  await writeFile(TOKENS_FILE, JSON.stringify(persisted, null, 2), "utf-8");
-}
-
 export type SessionMeta = {
+  storageFile?: string;
   mid?: string;
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  deviceMode?: string;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -81,29 +80,76 @@ async function ensureDataDir(): Promise<void> {
     await mkdir(DATA_DIR, { recursive: true });
     log.debug({ dir: DATA_DIR }, "created data dir");
   }
+  await mkdir(ACCOUNTS_DIR, { recursive: true });
+}
+
+async function decodePersistedEntry(
+  accountId: string,
+  entry: TokenEntry,
+): Promise<TokenEntry | undefined> {
+  const targetStorage = storagePathForAccount(accountId);
+  if (
+    entry?.storageFile &&
+    entry.storageFile !== targetStorage &&
+    existsSync(entry.storageFile) &&
+    !existsSync(targetStorage)
+  ) {
+    await mkdir(accountDir(accountId), { recursive: true });
+    await copyFile(entry.storageFile, targetStorage);
+    log.info({ accountId }, "migrated protocol storage into account directory");
+  }
+  if (entry?.authTokenProtected && typeof entry.authTokenProtected === "string") {
+    const token = await unprotectSecret(entry.authTokenProtected);
+    return { ...entry, authToken: token, storageFile: targetStorage };
+  }
+  if (entry?.authToken && typeof entry.authToken === "string") {
+    return { ...entry, storageFile: targetStorage };
+  }
+  return undefined;
+}
+
+async function persistAccount(accountId: string, entry: TokenEntry): Promise<void> {
+  await mkdir(accountDir(accountId), { recursive: true });
+  const { authToken: _plain, ...safeEntry } = entry;
+  const persisted = entry.authTokenProtected ? safeEntry : entry;
+  await writeFile(accountTokenFile(accountId), JSON.stringify(persisted, null, 2), "utf8");
 }
 
 export async function loadTokens(): Promise<TokenMap> {
   await ensureDataDir();
-  if (!existsSync(TOKENS_FILE)) return {};
+  const cleaned: TokenMap = {};
   try {
-    const raw = await readFile(TOKENS_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as TokenMap;
-    // 空トークンのゴミを除外
-    const cleaned: TokenMap = {};
-    for (const [id, entry] of Object.entries(parsed)) {
-      if (entry?.authTokenProtected && typeof entry.authTokenProtected === "string") {
-        const token = await unprotectSecret(entry.authTokenProtected);
-        cleaned[id] = { ...entry, authToken: token };
-      } else if (entry?.authToken && typeof entry.authToken === "string") {
-        cleaned[id] = entry;
-      }
+    for (const dir of await readdir(ACCOUNTS_DIR, { withFileTypes: true })) {
+      if (!dir.isDirectory()) continue;
+      const id = decodeURIComponent(dir.name);
+      const path = accountTokenFile(id);
+      if (!existsSync(path)) continue;
+      const entry = JSON.parse(await readFile(path, "utf8")) as TokenEntry;
+      const decoded = await decodePersistedEntry(id, entry);
+      if (decoded) cleaned[id] = decoded;
     }
-    return cleaned;
   } catch (err) {
-    log.warn({ err }, "failed to parse tokens.json, returning empty");
-    return {};
+    log.warn({ err }, "failed to read account credential files");
   }
+
+  // Legacy shared tokens.json remains readable. Account files win, and a legacy
+  // entry is migrated lazily without deleting the recoverable source file.
+  if (existsSync(TOKENS_FILE)) {
+    try {
+      const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+      for (const [id, entry] of Object.entries(parsed)) {
+        if (cleaned[id]) continue;
+        const decoded = await decodePersistedEntry(id, entry);
+        if (decoded) {
+          cleaned[id] = decoded;
+          await persistAccount(id, decoded);
+        }
+      }
+    } catch (err) {
+      log.warn({ err }, "failed to parse legacy tokens.json");
+    }
+  }
+  return cleaned;
 }
 
 function normalizeAuthToken(authToken: unknown): string | null {
@@ -135,7 +181,7 @@ export async function saveToken(
   const existing = tokens[accountId];
   const entry: TokenEntry = {
     authToken: token,
-    storageFile: existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
+    storageFile: storagePathForAccount(accountId),
     savedAt: new Date().toISOString(),
   };
   try {
@@ -149,15 +195,16 @@ export async function saveToken(
   const displayName = meta?.displayName ?? existing?.displayName;
   const picturePath = meta?.picturePath ?? existing?.picturePath;
   const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
+  const deviceMode = meta?.deviceMode ?? existing?.deviceMode;
   const premium = meta?.premium ?? existing?.premium;
   if (mid) entry.mid = mid;
   if (displayName) entry.displayName = displayName;
   if (picturePath) entry.picturePath = picturePath;
   if (statusMessage) entry.statusMessage = statusMessage;
+  if (deviceMode) entry.deviceMode = deviceMode;
   if (premium) entry.premium = premium;
   tokens[accountId] = entry;
-
-  await persistTokens(tokens);
+  await persistAccount(accountId, entry);
   log.info({ accountId, displayName: entry.displayName, mid: entry.mid }, "token saved");
 }
 
@@ -169,17 +216,104 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.displayName != null) existing.displayName = meta.displayName;
   if (meta.picturePath != null) existing.picturePath = meta.picturePath;
   if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
+  if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
-  tokens[accountId] = existing;
-  await persistTokens(tokens);
+  await persistAccount(accountId, existing);
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
-  const tokens = await loadTokens();
-  delete tokens[accountId];
-  await persistTokens(tokens);
+  try {
+    await unlink(accountTokenFile(accountId));
+  } catch {
+    // already absent
+  }
   log.info({ accountId }, "token deleted");
+}
+
+export interface CredentialHandoffBundle {
+  schema: typeof HANDOFF_SCHEMA;
+  version: typeof HANDOFF_VERSION;
+  accountId: string;
+  createdAt: string;
+  salt: string;
+  iv: string;
+  tag: string;
+  ciphertext: string;
+}
+
+function handoffKey(passphrase: string, salt: Buffer): Buffer {
+  if (passphrase.length < 8) throw new Error("引き継ぎパスフレーズは8文字以上にしてください");
+  return pbkdf2Sync(passphrase, salt, 210_000, 32, "sha256");
+}
+
+/** Auth/refresh/channel tokens and protocol credentials as an encrypted portable bundle. */
+export async function exportCredentialHandoff(
+  accountId: string,
+  passphrase: string,
+): Promise<CredentialHandoffBundle> {
+  const entry = await getToken(accountId);
+  if (!entry) throw new Error("保存済みセッションがありません");
+  let protocol: Record<string, unknown> = {};
+  if (existsSync(entry.storageFile)) {
+    protocol = JSON.parse(await readFile(entry.storageFile, "utf8")) as Record<string, unknown>;
+  }
+  const payload = JSON.stringify({
+    authToken: entry.authToken,
+    meta: {
+      mid: entry.mid,
+      displayName: entry.displayName,
+      picturePath: entry.picturePath,
+      statusMessage: entry.statusMessage,
+      deviceMode: entry.deviceMode,
+      premium: entry.premium,
+    },
+    protocol,
+  });
+  const salt = randomBytes(16);
+  const iv = randomBytes(12);
+  const cipher = createCipheriv("aes-256-gcm", handoffKey(passphrase, salt), iv);
+  const ciphertext = Buffer.concat([cipher.update(payload, "utf8"), cipher.final()]);
+  return {
+    schema: HANDOFF_SCHEMA,
+    version: HANDOFF_VERSION,
+    accountId,
+    createdAt: new Date().toISOString(),
+    salt: salt.toString("base64"),
+    iv: iv.toString("base64"),
+    tag: cipher.getAuthTag().toString("base64"),
+    ciphertext: ciphertext.toString("base64"),
+  };
+}
+
+export async function importCredentialHandoff(
+  bundle: CredentialHandoffBundle,
+  passphrase: string,
+  targetAccountId = bundle.accountId,
+): Promise<void> {
+  if (bundle.schema !== HANDOFF_SCHEMA || bundle.version !== HANDOFF_VERSION) {
+    throw new Error("未対応の引き継ぎファイルです");
+  }
+  const salt = Buffer.from(bundle.salt, "base64");
+  const decipher = createDecipheriv(
+    "aes-256-gcm",
+    handoffKey(passphrase, salt),
+    Buffer.from(bundle.iv, "base64"),
+  );
+  decipher.setAuthTag(Buffer.from(bundle.tag, "base64"));
+  const raw = Buffer.concat([
+    decipher.update(Buffer.from(bundle.ciphertext, "base64")),
+    decipher.final(),
+  ]).toString("utf8");
+  const payload = JSON.parse(raw) as {
+    authToken: string;
+    meta?: SessionMeta;
+    protocol?: Record<string, unknown>;
+  };
+  await saveToken(targetAccountId, payload.authToken, payload.meta);
+  const target = storagePathForAccount(targetAccountId);
+  await mkdir(accountDir(targetAccountId), { recursive: true });
+  await writeFile(target, JSON.stringify(payload.protocol ?? {}), "utf8");
 }
 
 export async function getToken(accountId: string): Promise<TokenEntry | undefined> {
@@ -201,6 +335,7 @@ export async function listSavedSessions(): Promise<
 > {
   const tokens = await loadTokens();
   return Object.entries(tokens)
+    .filter(([accountId]) => !accountId.endsWith(":content"))
     .map(([accountId, entry]) => {
       const row: {
         accountId: string;

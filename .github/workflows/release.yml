@@ -8,9 +8,6 @@ permissions:
   contents: write
   packages: write
 
-env:
-  IMAGE_NAME: ghcr.io/nezumi0627/vyline
-
 jobs:
   quality:
     runs-on: ubuntu-latest
@@ -58,34 +55,8 @@ jobs:
           name: linux-archive
           path: dist/linux/Vyline-linux-x64-*.tar.gz
 
-  docker:
-    needs: quality
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with: { submodules: recursive }
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-      - uses: docker/metadata-action@v5
-        id: meta
-        with:
-          images: ${{ env.IMAGE_NAME }}
-          tags: |
-            type=raw,value=${{ github.ref_name }}
-            type=raw,value=latest
-      - uses: docker/build-push-action@v6
-        with:
-          context: .
-          push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
-          build-args: VYLINE_VERSION=${{ github.ref_name }}
-
   publish:
-    needs: [windows, linux, docker]
+    needs: [windows, linux]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/download-artifact@v4

@@ -175,40 +175,44 @@ export async function listSubdevices() {
   return devices.map(toSafeDevice);
 }
 
-export async function authenticateSubdevice(raw: string, installationId?: string) {
+async function resolveSubdeviceSession(
+  raw: string,
+  installationId?: string,
+): Promise<Subdevice | null> {
   const state = await load();
   const device = state.devices.find((d) => d.tokenHash === hash(raw));
   if (!device || device.blocked) return null;
-  if (device.installationIdHash) {
-    if (
-      !isValidInstallationId(installationId) ||
-      device.installationIdHash !== hash(installationId)
-    ) {
-      return null;
-    }
-  } else if (isValidInstallationId(installationId)) {
+  if (!device.installationIdHash) {
+    if (!isValidInstallationId(installationId)) return null;
     // One-time migration for a session created before installation binding existed.
     device.installationIdHash = hash(installationId);
+    await save(state);
+  } else if (
+    !isValidInstallationId(installationId) ||
+    device.installationIdHash !== hash(installationId)
+  ) {
+    return null;
   }
+  return device;
+}
+
+/** Validates a subdevice session without updating lastSeenAt, and returns its account scope. */
+export async function getSubdeviceSession(raw: string, installationId?: string) {
+  const device = await resolveSubdeviceSession(raw, installationId);
+  return device ? toSafeDevice(device) : null;
+}
+
+export async function authenticateSubdevice(raw: string, installationId?: string) {
+  const device = await resolveSubdeviceSession(raw, installationId);
+  if (!device) return null;
+  const state = await load();
   device.lastSeenAt = new Date().toISOString();
   await save(state);
   return toSafeDevice(device);
 }
 
 export async function isSubdeviceSessionValid(raw: string, installationId?: string) {
-  const state = await load();
-  const device = state.devices.find((d) => d.tokenHash === hash(raw));
-  if (!device || device.blocked) return false;
-  if (!device.installationIdHash) {
-    if (!isValidInstallationId(installationId)) return false;
-    // Bind legacy sessions at their first valid request so copied tokens cannot race a heartbeat.
-    device.installationIdHash = hash(installationId);
-    await save(state);
-    return true;
-  }
-  return (
-    isValidInstallationId(installationId) && device.installationIdHash === hash(installationId)
-  );
+  return Boolean(await resolveSubdeviceSession(raw, installationId));
 }
 
 export async function removeSubdevice(id: string) {
