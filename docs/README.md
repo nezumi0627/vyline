@@ -1,6 +1,6 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-29
+最終更新: 2026-08-30
 
 新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
@@ -42,6 +42,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [onboarding.md](./onboarding.md)     | 初日チェックリスト（環境・コード地図・Desktop ツール）             |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 機能追加フロー（辞書 → Desktop → domain → BFF）                    |
 | [development.md](./development.md)   | 開発コマンド・環境変数                                             |
+| [development-worktrees.md](./development-worktrees.md) | **推奨: 1 task = 1 branch = 1 git worktree** の並行開発フロー |
 | [performance.md](./performance.md)   | 起動時間・CPU・メモリ計測と Bun/Vite 最適化                       |
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
 | [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |

@@ -514,6 +514,8 @@ Contributions to bug fixes, feature improvements, documentation, and design are 
 
 Read the [contribution guide](docs/CONTRIBUTING.md) before participating. Never include analysed software, sessions, keys, tokens, or other sensitive information in a Pull Request.
 
+For parallel development, Vyline recommends **`1 task = 1 branch = 1 git worktree`**. Do not clone or copy the whole repository for each feature; create a task-specific worktree under `Vyline-worktrees` instead. See [Git Worktree development](docs/development-worktrees.md) for the workflow.
+
 ### Agent / Skill policy
 
 Development may use coding-agent Skills such as Ponytail, Caveman, agent-skills-standard, addyosmani agent-skills, and Minimize-Cursor-Cost as needed. Their purpose is to avoid unnecessary code and overengineering while maintaining review quality.
