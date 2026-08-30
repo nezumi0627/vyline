@@ -12,7 +12,7 @@ import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
-import { MessageBubble } from "@/components/message-bubble";
+import { MessageBubble, type PostNotificationTarget } from "@/components/message-bubble";
 import { MessageInput } from "@/components/message-input";
 import { ProfileDrawer } from "@/components/profile-drawer";
 import { MemberProfilePopover } from "@/components/member-profile";
@@ -120,8 +120,22 @@ function ChatAreaBase() {
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [olderState, setOlderState] = useState({ hasMore: true, loading: false });
+  const [postNotificationTarget, setPostNotificationTarget] =
+    useState<PostNotificationTarget | null>(null);
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null;
+
+  useEffect(() => {
+    if (!profileOpen) setPostNotificationTarget(null);
+  }, [profileOpen]);
+
+  const openPostNotification = useCallback(
+    (target: PostNotificationTarget) => {
+      setPostNotificationTarget(target);
+      setProfileDrawer(true);
+    },
+    [setProfileDrawer],
+  );
 
   const chatMessages = useMemo(
     () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
@@ -671,6 +685,7 @@ function ChatAreaBase() {
                     showAvatar={!item.sameAuthorAsNext}
                     showName={!item.sameAuthorAsPrev}
                     highlight={item.searching ? (item.highlight as string) : undefined}
+                    onOpenPostNotification={openPostNotification}
                   />
                 </div>
               ),
@@ -683,7 +698,7 @@ function ChatAreaBase() {
         <MessageInput chatId={chat.id} />
       </div>
 
-      {profileOpen && <ProfileDrawer chat={chat} />}
+      {profileOpen && <ProfileDrawer chat={chat} postNotificationTarget={postNotificationTarget} />}
       {memberProfile && memberProfile.chatId === chat.id && <MemberProfilePopover chat={chat} />}
       {panel && (
         <MessageContextMenu

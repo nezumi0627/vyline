@@ -21,6 +21,7 @@ import { AlbumModal, NoteModal } from "@/components/plus-menu";
 import { looksLikeMid, mapMember } from "@/lib/mappers";
 import { dismissChatMid } from "@/utils/dismissedChats";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
+import type { PostNotificationTarget } from "@/components/message-bubble";
 
 type RichInfo = {
   statusMessage?: string;
@@ -33,7 +34,13 @@ type RichInfo = {
   userType?: number;
 };
 
-export function ProfileDrawer({ chat }: { chat: Chat }) {
+export function ProfileDrawer({
+  chat,
+  postNotificationTarget,
+}: {
+  chat: Chat;
+  postNotificationTarget?: PostNotificationTarget | null;
+}) {
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const openChat = useStore((s) => s.openChat);
   const openDirectChatWith = useStore((s) => s.openDirectChatWith);
@@ -107,8 +114,16 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
     setActionMsg(null);
     setMembersLoading(false);
     setIsBlocked(blockedMids.includes(chat.id));
-    setSection("profile");
-  }, [blockedMids, chat.id, chat.localName, chat.name]);
+    setSection(postNotificationTarget?.kind ?? "profile");
+  }, [
+    blockedMids,
+    chat.id,
+    chat.localName,
+    chat.name,
+    postNotificationTarget?.kind,
+    postNotificationTarget?.kind === "note" ? postNotificationTarget.postId : undefined,
+    postNotificationTarget?.kind === "album" ? postNotificationTarget.albumId : undefined,
+  ]);
 
   useEffect(() => {
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
@@ -449,6 +464,9 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               accountId={accountId}
               chatId={chat.id}
               embedded
+              initialPostId={
+                postNotificationTarget?.kind === "note" ? postNotificationTarget.postId : undefined
+              }
               onClose={() => setSection("profile")}
             />
           ) : section === "album" && accountId ? (
@@ -456,6 +474,11 @@ export function ProfileDrawer({ chat }: { chat: Chat }) {
               accountId={accountId}
               chatId={chat.id}
               embedded
+              initialAlbumId={
+                postNotificationTarget?.kind === "album"
+                  ? postNotificationTarget.albumId
+                  : undefined
+              }
               onClose={() => setSection("profile")}
             />
           ) : (

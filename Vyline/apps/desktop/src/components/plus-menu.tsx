@@ -120,7 +120,14 @@ export function AlbumModal({
   chatId,
   onClose,
   embedded = false,
-}: { accountId: string; chatId: string; onClose: () => void; embedded?: boolean }) {
+  initialAlbumId,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+  embedded?: boolean;
+  initialAlbumId?: string;
+}) {
   const [albums, setAlbums] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
   const [photos, setPhotos] = useState<Array<Record<string, unknown>>>([]);
@@ -156,6 +163,10 @@ export function AlbumModal({
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (initialAlbumId) void openAlbum(initialAlbumId);
+  }, [accountId, chatId, initialAlbumId]);
 
   const runAlbum = async (task: () => Promise<unknown>, reopen = false) => {
     setBusy(true);
@@ -410,6 +421,12 @@ function collectPosts(value: unknown): Array<Record<string, unknown>> {
   return [];
 }
 
+function collectPost(value: unknown): Record<string, unknown> | null {
+  const root = record(value);
+  const result = record(root?.result) ?? root;
+  return record(result?.post) ?? record(result?.item) ?? result;
+}
+
 type NoteView = {
   id: string;
   homeId: string;
@@ -545,7 +562,14 @@ export function NoteModal({
   chatId,
   onClose,
   embedded = false,
-}: { accountId: string; chatId: string; onClose: () => void; embedded?: boolean }) {
+  initialPostId,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+  embedded?: boolean;
+  initialPostId?: string;
+}) {
   const [mode, setMode] = useState<"list" | "create" | "detail" | "edit">("list");
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -570,8 +594,30 @@ export function NoteModal({
   };
 
   useEffect(() => {
-    void refresh();
-  }, [accountId, chatId]);
+    let cancelled = false;
+    void (async () => {
+      await refresh();
+      if (!initialPostId) return;
+      try {
+        const post = collectPost(await api.line.notes.get(accountId, chatId, initialPostId));
+        if (cancelled) return;
+        if (!post) throw new Error("対象のノートを取得できませんでした");
+        const normalizedPost = noteView(post).id ? post : { ...post, postId: initialPostId };
+        setPosts((current) => [
+          normalizedPost,
+          ...current.filter((item) => noteView(item).id !== initialPostId),
+        ]);
+        setSelectedId(initialPostId);
+        setText(noteView(normalizedPost).text);
+        setMode("detail");
+      } catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, chatId, initialPostId]);
 
   const resetDraft = () => {
     setText("");
