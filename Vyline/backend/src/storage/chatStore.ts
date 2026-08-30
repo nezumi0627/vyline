@@ -298,18 +298,24 @@ export function repairStoredChatSummaries(target: ChatDbRecords): number {
     // durable user message in chatdb is older. In that case keep the newer
     // server cursor/time for ordering, but use the newest meaningful local
     // message as the visible sidebar preview. This fixes inactive chats without
-    // pretending that the older message is the server's newest event.
-    const unresolvedSummaryNeedsFallback =
-      isUnresolvedLastMessagePreview(existing.lastMessagePreview) && computedPreviewIsUseful;
+    // pretending that the older message is the server's newest event. Encrypted
+    // or revoked messages must keep their own preview until that message loads.
+    const normalizedPreview = existing.lastMessagePreview?.trim().toUpperCase();
+    const emptySummaryNeedsFallback =
+      (!normalizedPreview ||
+        normalizedPreview === "CHATEVENT" ||
+        normalizedPreview === "NONE" ||
+        normalizedPreview === "0") &&
+      computedPreviewIsUseful;
 
-    if (!latestIsNewer && !sameCursorNeedsRepair && !unresolvedSummaryNeedsFallback) continue;
+    if (!latestIsNewer && !sameCursorNeedsRepair && !emptySummaryNeedsFallback) continue;
     existing.hasMessages = true;
     if (latestIsNewer) {
       existing.lastMessageTime = latest.createdTime;
       existing.lastMessageId = latest.id;
     }
     existing.lastMessagePreview = computedPreview;
-    existing.updatedAt = latest.savedAt || existing.updatedAt;
+    if (latestIsNewer || sameCursor) existing.updatedAt = latest.savedAt || existing.updatedAt;
     repaired++;
   }
   return repaired;
