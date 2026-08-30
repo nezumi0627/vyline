@@ -283,7 +283,8 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       expect((await restoreZip("usage-a", source.bytes)).status).toBe("completed");
       const usage = await getBackupStorageUsage("usage-a");
       expect(usage.accountId).toBe("usage-a");
-      expect(usage.historyBytes).toBe((await fs.stat(accountFile("usage-a", "chatdb.json"))).size);
+      expect(usage.historyBytes).toBe(chatDbStorageBytes(await exportChatDb("usage-a")));
+      expect((await fs.stat(accountFile("usage-a", "chatdb.sqlite"))).size).toBeGreaterThan(0);
       expect(usage.mediaBytes).toBe(source.media.length);
       expect(usage.usedBytes).toBe(usage.historyBytes + usage.mediaBytes);
       expect((await getBackupStorageUsage("usage-b")).usedBytes).toBe(0);
@@ -303,14 +304,14 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       await loginFixture("empty-account");
       const first = await archive("original", "100");
       expect((await restoreZip("full-account", first.bytes)).status).toBe("completed");
-      const before = await fs.readFile(accountFile("full-account", "chatdb.json"));
+      const before = await exportChatDb("full-account");
       const usage = await getBackupStorageUsage("full-account");
       await fillAccount("full-account", MAX_UPLOAD_BYTES - usage.usedBytes);
       const incoming = await archive("new data", "200");
       const rejected = await restoreZip("full-account", incoming.bytes);
       expect(rejected.status).toBe("failed");
       expect(rejected.error).toContain("10GB");
-      expect(await fs.readFile(accountFile("full-account", "chatdb.json"))).toEqual(before);
+      expect(await exportChatDb("full-account")).toEqual(before);
       expect((await exportChatDb("full-account")).messages["c-test"]?.["200"]).toBeUndefined();
       expect((await restoreZip("empty-account", incoming.bytes)).status).toBe("completed");
     });
