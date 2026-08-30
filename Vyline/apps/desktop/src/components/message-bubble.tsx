@@ -39,6 +39,7 @@ import {
 } from "@/utils/lineSticon";
 import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
+import { splitTextLinks } from "@/lib/linkifyText";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -439,6 +440,60 @@ function TextRuns({ value }: { value: string }) {
   );
 }
 
+function HighlightedTextRuns({ value, query }: { value: string; query?: string }) {
+  const needle = query?.trim();
+  if (!needle) return <TextRuns value={value} />;
+  const lower = value.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  const pieces: React.ReactNode[] = [];
+  let offset = 0;
+  let matchIndex = lower.indexOf(lowerNeedle);
+  while (matchIndex >= 0) {
+    if (matchIndex > offset) {
+      pieces.push(<TextRuns key={`plain-${offset}`} value={value.slice(offset, matchIndex)} />);
+    }
+    pieces.push(
+      <mark
+        key={`match-${matchIndex}`}
+        className="rounded bg-[var(--vy-accent)] px-0.5 text-[var(--vy-accent-contrast)]"
+      >
+        {value.slice(matchIndex, matchIndex + needle.length)}
+      </mark>,
+    );
+    offset = matchIndex + needle.length;
+    matchIndex = lower.indexOf(lowerNeedle, offset);
+  }
+  if (offset < value.length) {
+    pieces.push(<TextRuns key={`plain-${offset}`} value={value.slice(offset)} />);
+  }
+  return <>{pieces}</>;
+}
+
+function LinkedTextRuns({ value, query }: { value: string; query?: string }) {
+  return (
+    <>
+      {splitTextLinks(value).map((segment, index) =>
+        segment.type === "link" ? (
+          <a
+            key={`${segment.href}-${index}`}
+            href={segment.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            referrerPolicy="no-referrer"
+            draggable={false}
+            className="break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <HighlightedTextRuns value={segment.value} query={query} />
+          </a>
+        ) : (
+          <HighlightedTextRuns key={index} value={segment.value} query={query} />
+        ),
+      )}
+    </>
+  );
+}
+
 /** LINE 準拠のメンション色（青 #457ed7 / @ALL は橙 #f5a623） */
 const MENTION_COLOR = "#457ed7";
 const MENTION_ALL_COLOR = "#e07b00";
@@ -487,32 +542,12 @@ function Highlighted({
       ? segmentTextWithMentions(text, sticons ?? [], mentions ?? [])
       : [{ type: "text", value: text }];
 
-  const renderSegment = (seg: DraftSegment, i: number) => {
-    if (seg.type === "sticon") return <MentionImage key={i} seg={seg} />;
-    if (seg.type === "mention") return <MentionSpan key={i} seg={seg} />;
-    return <TextRuns key={i} value={seg.value} />;
-  };
-
-  if (!query) {
-    return <>{segments.map(renderSegment)}</>;
-  }
-
   return (
     <>
-      {segments.map((seg, i) => {
-        if (seg.type === "sticon") return <MentionImage key={i} seg={seg} />;
-        if (seg.type === "mention") return <MentionSpan key={i} seg={seg} />;
-        const idx = seg.value.toLowerCase().indexOf(query.toLowerCase());
-        if (idx < 0) return <TextRuns key={i} value={seg.value} />;
-        return (
-          <span key={i}>
-            <TextRuns value={seg.value.slice(0, idx)} />
-            <mark className="rounded bg-[var(--vy-accent)] px-0.5 text-[var(--vy-accent-contrast)]">
-              {seg.value.slice(idx, idx + query.length)}
-            </mark>
-            <TextRuns value={seg.value.slice(idx + query.length)} />
-          </span>
-        );
+      {segments.map((segment, index) => {
+        if (segment.type === "sticon") return <MentionImage key={index} seg={segment} />;
+        if (segment.type === "mention") return <MentionSpan key={index} seg={segment} />;
+        return <LinkedTextRuns key={index} value={segment.value} query={query} />;
       })}
     </>
   );
@@ -1375,7 +1410,7 @@ export const MessageBubble = memo(
       return (
         <div
           className={cn(
-            "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            "vy-msg-enter vy-bubble-pad relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
           )}
           style={{
             background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -1720,7 +1755,7 @@ export const MessageBubble = memo(
             <div
               {...pressHandlers}
               className={cn(
-                "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                "vy-msg-enter vy-bubble-pad relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
               )}
               style={{
                 background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -1733,7 +1768,7 @@ export const MessageBubble = memo(
               {mediaItems.length > 1 && !streamerMode && (
                 <div
                   className={cn(
-                    "grid overflow-hidden rounded-xl",
+                    "grid gap-px overflow-hidden rounded-xl bg-[var(--vy-border)] p-px",
                     mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
                   )}
                 >
@@ -1741,7 +1776,7 @@ export const MessageBubble = memo(
                     <button
                       key={item.id}
                       type="button"
-                      className="group relative aspect-square overflow-hidden bg-black/5"
+                      className="group relative aspect-square overflow-hidden bg-[var(--vy-surface)]"
                       onClick={(e) => {
                         e.stopPropagation();
                         setLightboxMedia(item);

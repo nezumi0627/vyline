@@ -796,7 +796,7 @@ function HandoffSection() {
         "```",
         "",
       ].join("\n");
-      const url = `https://github.com/nezumi0627/vyline/issues/new?title=${encodeURIComponent("Vyline issue")}&body=${encodeURIComponent(body)}`;
+      const url = `https://github.com/tqmane/vyline/issues/new?title=${encodeURIComponent("Vyline-fork issue")}&body=${encodeURIComponent(body)}`;
       window.open(url, "_blank", "noopener,noreferrer");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Issue作成情報の生成に失敗しました");
@@ -2017,6 +2017,35 @@ function TypeCard({
   );
 }
 
+function RemoteLinkIcon({
+  src,
+  fallback,
+  alt,
+}: {
+  src: string;
+  fallback: string;
+  alt: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--vy-surface-2)] text-xs font-bold">
+      {failed ? (
+        fallback
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
+  );
+}
+
 function InfoSection() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
@@ -2036,9 +2065,8 @@ function InfoSection() {
   }, []);
 
   return (
-    <Section title="情報" desc="Vyline について">
+    <Section title="情報" desc="Vyline-fork について">
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-        {/* Logo & version */}
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <div
             className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
@@ -2046,7 +2074,7 @@ function InfoSection() {
           >
             V
           </div>
-          <h2 className="mt-4 text-xl font-bold">Vyline</h2>
+          <h2 className="mt-4 text-xl font-bold">Vyline-fork</h2>
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
             v{UPDATE_NOTES.version}
           </p>
@@ -2061,80 +2089,51 @@ function InfoSection() {
             </a>
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
-          <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
+          <p className="mt-3 max-w-sm text-xs leading-relaxed text-[var(--vy-text-dim)]">
+            LINE 非公式サードパーティクライアント Vyline を基に、tqmane が機能・UI・Docker
+            運用を拡張したフォークです。
           </p>
         </div>
 
-        {/* author */}
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
-          <p className="mt-1 text-sm font-semibold">nezumi0627</p>
+          <p className="text-xs font-medium text-[var(--vy-text-dim)]">フォーク作者</p>
+          <p className="mt-1 text-sm font-semibold">tqmane</p>
         </div>
 
-        {/* links */}
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
           <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">リンク</p>
           <div className="space-y-2">
             <a
-              href="https://github.com/nezumi0627"
+              href="https://github.com/tqmane"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">
-                GH
-              </span>
+              <RemoteLinkIcon
+                src="https://github.com/tqmane.png?size=96"
+                fallback="GH"
+                alt="tqmane の GitHub アイコン"
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">GitHub</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">tqmane</p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
             <a
-              href="https://x.com/nezum1n1um"
+              href="https://x.com/t2aman1e"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">
-                𝕏
-              </span>
+              <RemoteLinkIcon
+                src="https://unavatar.io/twitter/t2aman1e"
+                fallback="𝕏"
+                alt="t2aman1e の X プロフィールアイコン"
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">X (Twitter)</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://discord.com/users/879525928261255199"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">
-                DC
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Discord</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://opencode.ai/go?ref=ZE16GS43YJ"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">
-                OC
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">OpenCode Go</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">
-                  AI coding agent · opencode.ai/go
-                </p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">@t2aman1e</p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
@@ -2142,7 +2141,7 @@ function InfoSection() {
         </div>
       </div>
       <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
-        Made with 💙 · MIT License
+        Vyline-fork · MIT License
       </p>
     </Section>
   );

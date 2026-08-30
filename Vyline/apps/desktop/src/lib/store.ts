@@ -42,6 +42,14 @@ import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
 import { findFirstUnreadMessage } from "./chatScroll.js";
+import {
+  addChatPane,
+  closeChatPaneAt,
+  equalChatPaneSizes,
+  MAX_CHAT_PANES,
+  normalizeChatPaneSizes,
+  replaceFocusedChatPane,
+} from "./chatPanes.js";
 
 export type {
   Chat,
@@ -331,6 +339,11 @@ type State = {
   demoMode: boolean;
   accountId: string | null;
   activeChatId: string | null;
+  /** Desktop multi-pane chat IDs, ordered from left to right. */
+  chatPaneIds: string[];
+  /** Relative widths for chatPaneIds; normalized to 100. */
+  chatPaneSizes: number[];
+  focusedChatPane: number;
   theme: VyTheme;
   settings: Settings;
   chats: Chat[];
@@ -384,6 +397,10 @@ type State = {
   syncChatLocks: () => Promise<void>;
   setChatLocked: (chatMid: string, locked: boolean) => Promise<boolean>;
   openChat: (id: string) => void;
+  openChatInSplit: (id: string) => void;
+  focusChatPane: (index: number) => void;
+  closeChatPane: (index: number) => void;
+  setChatPaneSizes: (sizes: number[]) => void;
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
   dismissUpdateNote: () => void;
@@ -508,6 +525,9 @@ export const useStore = create<State>()(
       demoMode: false,
       accountId: null,
       activeChatId: null,
+      chatPaneIds: [],
+      chatPaneSizes: [],
+      focusedChatPane: 0,
       theme: THEME_PRESETS[0]!,
       settings: {
         animationMode: "vyline",
@@ -565,6 +585,7 @@ export const useStore = create<State>()(
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
         const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
+        const initialPaneIds = lastOpenedChatId ? [lastOpenedChatId] : [];
         if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
@@ -572,7 +593,7 @@ export const useStore = create<State>()(
           myMessageIdsByChat.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
-          eventPollCursor.delete(String(id));
+          eventPollCursor.delete(String(currentAccountId));
         }
         if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
@@ -582,6 +603,9 @@ export const useStore = create<State>()(
             chats: [],
             messages: [],
             activeChatId: lastOpenedChatId,
+            chatPaneIds: initialPaneIds,
+            chatPaneSizes: equalChatPaneSizes(initialPaneIds.length),
+            focusedChatPane: 0,
             initialChatScrollMessageId: null,
             initialChatScrollMode: null,
             memberProfile: null,
@@ -594,7 +618,14 @@ export const useStore = create<State>()(
         } else {
           set({
             accountId: id,
-            ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
+            ...(accountChanged
+              ? {
+                  activeChatId: lastOpenedChatId,
+                  chatPaneIds: initialPaneIds,
+                  chatPaneSizes: equalChatPaneSizes(initialPaneIds.length),
+                  focusedChatPane: 0,
+                }
+              : {}),
           });
         }
         if (id) void get().syncChatLocks();
@@ -677,10 +708,85 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
+        const state = get();
+        const panes = replaceFocusedChatPane(
+          state.chatPaneIds,
+          state.chatPaneSizes,
+          state.focusedChatPane,
+          id,
+        );
+        set({
+          chatPaneIds: panes.ids,
+          chatPaneSizes: panes.sizes,
+          focusedChatPane: panes.focusedIndex,
+        });
         get()._activateChat(id, { history: true });
       },
 
+      openChatInSplit: (id) => {
+        sessionOpenedChats.add(id);
+        const state = get();
+        if (state.chatPaneIds.length >= MAX_CHAT_PANES && !state.chatPaneIds.includes(id)) {
+          get().showNotice(`同時に開けるトークは最大${MAX_CHAT_PANES}画面です`);
+          return;
+        }
+        const panes = addChatPane(state.chatPaneIds, state.chatPaneSizes, id);
+        set({
+          chatPaneIds: panes.ids,
+          chatPaneSizes: panes.sizes,
+          focusedChatPane: panes.focusedIndex,
+        });
+        get()._activateChat(id, { history: false });
+      },
+
+      focusChatPane: (index) => {
+        const state = get();
+        const id = state.chatPaneIds[index];
+        if (!id || (state.focusedChatPane === index && state.activeChatId === id)) return;
+        sessionOpenedChats.add(id);
+        set({ focusedChatPane: index });
+        get()._activateChat(id, { history: false });
+      },
+
+      closeChatPane: (index) => {
+        const state = get();
+        const panes = closeChatPaneAt(
+          state.chatPaneIds,
+          state.chatPaneSizes,
+          state.focusedChatPane,
+          index,
+        );
+        const nextActive = panes.ids[panes.focusedIndex] ?? null;
+        set({
+          chatPaneIds: panes.ids,
+          chatPaneSizes: panes.sizes,
+          focusedChatPane: panes.focusedIndex,
+          activeChatId: nextActive,
+          initialChatScrollMessageId: null,
+          initialChatScrollMode: nextActive ? "bottom" : null,
+          profileDrawerOpen: false,
+        });
+        if (nextActive && state.accountId) rememberLastOpenedChat(state.accountId, nextActive);
+      },
+
+      setChatPaneSizes: (sizes) =>
+        set((state) => ({
+          chatPaneSizes: normalizeChatPaneSizes(state.chatPaneIds.length, sizes),
+        })),
+
       _activateChat: (id, opts) => {
+        if (!id) {
+          set({
+            activeChatId: null,
+            chatPaneIds: [],
+            chatPaneSizes: [],
+            focusedChatPane: 0,
+            initialChatScrollMessageId: null,
+            initialChatScrollMode: null,
+            profileDrawerOpen: false,
+          });
+          return;
+        }
         const opts2 = opts ?? {};
         const state = get();
         if (state.accountId) rememberLastOpenedChat(state.accountId, id);
@@ -689,9 +795,18 @@ export const useStore = create<State>()(
           state.messages.filter((message) => message.chatId === id),
         );
         const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread);
+        const paneState = replaceFocusedChatPane(
+          state.chatPaneIds,
+          state.chatPaneSizes,
+          state.focusedChatPane,
+          id,
+        );
         set((st) => ({
           screen: "chat",
           activeChatId: id,
+          chatPaneIds: paneState.ids,
+          chatPaneSizes: paneState.sizes,
+          focusedChatPane: paneState.focusedIndex,
           initialChatScrollMessageId: firstUnread?.id ?? null,
           initialChatScrollMode: hasUnread ? "unread" : "bottom",
           profileDrawerOpen: false,
@@ -704,29 +819,46 @@ export const useStore = create<State>()(
         }
         if (accountId) {
           void api.line.contactProfile(accountId, id).catch(() => undefined);
-          const chat = chats.find((c) => c.id === id);
+          const activeChat = chats.find((c) => c.id === id);
           const mids =
-            chat?.type === "group" ? (chat.members?.slice(0, 6).map((m) => m.id) ?? []) : [];
+            activeChat?.type === "group"
+              ? (activeChat.members?.slice(0, 6).map((member) => member.id) ?? [])
+              : [];
           for (const mid of mids) {
             void api.line.contactProfile(accountId, mid).catch(() => undefined);
           }
           void get().loadAnnouncements(id);
         }
         if (opts2.history && typeof window !== "undefined" && window.history) {
-          const current = window.history.state as { chatId?: string } | null;
-          if ((current?.chatId ?? null) !== id) {
-            window.history.pushState({ chatId: id }, "");
+          const current = (window.history.state ?? {}) as Record<string, unknown> & {
+            chatId?: string | null;
+          };
+          if ((current.chatId ?? null) !== id) {
+            const next = { ...current, chatId: id };
+            const desktop = window.matchMedia?.("(min-width: 768px)").matches ?? true;
+            if (desktop) window.history.pushState(next, "");
+            else window.history.replaceState(next, "");
           }
         }
       },
 
-      closeChat: () =>
+      closeChat: () => {
         set({
           activeChatId: null,
+          chatPaneIds: [],
+          chatPaneSizes: [],
+          focusedChatPane: 0,
           initialChatScrollMessageId: null,
           initialChatScrollMode: null,
           profileDrawerOpen: false,
-        }),
+        });
+        if (typeof window !== "undefined" && window.history) {
+          const current = (window.history.state ?? {}) as Record<string, unknown> & {
+            chatId?: string | null;
+          };
+          if (current.chatId) window.history.replaceState({ ...current, chatId: null }, "");
+        }
+      },
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
@@ -858,10 +990,14 @@ export const useStore = create<State>()(
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
+        // Never auto-open the first chat during a background hydrate. On mobile,
+        // closeChat() intentionally leaves activeChatId null so the list stays visible.
+        // Re-selecting mappedChats[0] here caused every periodic sync to pull the user
+        // back into a conversation while they were navigating the sidebar/settings.
         const chatId =
           activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
             ? activeChatId
-            : (mappedChats[0]?.id ?? null);
+            : null;
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
         const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
         const mappedMessages =
@@ -900,13 +1036,17 @@ export const useStore = create<State>()(
                 : c;
             }),
           messages: (() => {
-            if (!chatId) return [];
+            if (!chatId) return st.messages;
 
-            // hydrate は「現在のチャットの最新スナップショットを重ねる」だけにする。
-            // 既に表示済みの古い履歴を捨てると、送受信や contact 解決のたびに
-            // 数千件の履歴ウィンドウが初期ページへ巻き戻るため、同一チャット分は保持する。
+            // hydrate は「現在フォーカス中のチャットの最新スナップショットを重ねる」だけにする。
+            // 他ペインのメッセージを捨てない。これにより2〜4画面を同時表示しても、
+            // フォーカス移動や contact 解決のたびに別ペインが空にならない。
+            const retainedPaneIds = new Set(st.chatPaneIds);
+            const otherChats = st.messages.filter(
+              (message) => message.chatId !== chatId && retainedPaneIds.has(message.chatId),
+            );
             const existingChat = st.messages.filter((m) => m.chatId === chatId);
-            if (mappedMessages.length === 0) return existingChat;
+            if (mappedMessages.length === 0) return st.messages;
 
             mappedMessages.forEach((m) => {
               if (m.id) {
@@ -923,12 +1063,13 @@ export const useStore = create<State>()(
             // API / local DB 側の値を新しい正本として上書きする。
             for (const m of mappedMessages) merged.set(m.id, m);
 
-            return [...merged.values()].sort((a, b) => {
+            const currentChat = [...merged.values()].sort((a, b) => {
               if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
               return a.id.localeCompare(b.id);
             });
+            return [...otherChats, ...currentChat];
           })(),
-          activeChatId: st.activeChatId ?? chatId,
+          activeChatId: st.activeChatId,
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
           self: profile
             ? {
@@ -1892,17 +2033,8 @@ export const useStore = create<State>()(
 
       openDirectChatWith: (memberMid) => {
         if (!memberMid.startsWith("u")) return;
-        sessionOpenedChats.add(memberMid);
-        set({
-          memberProfile: null,
-          profileDrawerOpen: false,
-          screen: "chat",
-          activeChatId: memberMid,
-        });
-        const { accountId, settings } = get();
-        if (accountId && settings.readReceipts) {
-          void get().markChatRead(memberMid);
-        }
+        set({ memberProfile: null, profileDrawerOpen: false });
+        get().openChat(memberMid);
       },
 
       togglePin: (id) =>
@@ -2806,6 +2938,9 @@ export const useStore = create<State>()(
         blockedMids: s.blockedMids,
         lockedChatMids: s.lockedChatMids,
         activeChatId: s.activeChatId,
+        chatPaneIds: s.chatPaneIds,
+        chatPaneSizes: s.chatPaneSizes,
+        focusedChatPane: s.focusedChatPane,
         readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({
           id: c.id,
@@ -2820,6 +2955,22 @@ export const useStore = create<State>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         state.settings.animationMode ??= "vyline";
+        const restoredPaneIds = Array.isArray(state.chatPaneIds)
+          ? state.chatPaneIds.filter(Boolean).slice(0, 4)
+          : [];
+        if (state.activeChatId && !restoredPaneIds.includes(state.activeChatId)) {
+          restoredPaneIds.unshift(state.activeChatId);
+          restoredPaneIds.splice(4);
+        }
+        state.chatPaneIds = restoredPaneIds;
+        state.chatPaneSizes = normalizeChatPaneSizes(
+          restoredPaneIds.length,
+          Array.isArray(state.chatPaneSizes) ? state.chatPaneSizes : [],
+        );
+        state.focusedChatPane = Math.max(
+          0,
+          Math.min(restoredPaneIds.length - 1, state.focusedChatPane ?? 0),
+        );
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
         if (state.theme) {
@@ -2849,9 +3000,22 @@ if (
   !(window as unknown as { __vyPopstateBound?: boolean }).__vyPopstateBound
 ) {
   (window as unknown as { __vyPopstateBound?: boolean }).__vyPopstateBound = true;
-  window.addEventListener("popstate", (e) => {
-    const id = (e.state as { chatId?: string } | null)?.chatId ?? null;
-    useStore.getState()._activateChat(id ?? "", { history: false });
+  window.addEventListener("popstate", (event) => {
+    const id = (event.state as { chatId?: string | null } | null)?.chatId ?? null;
+    const state = useStore.getState();
+    if (!id || !state.chats.some((chat) => chat.id === id)) {
+      useStore.setState({
+        activeChatId: null,
+        chatPaneIds: [],
+        chatPaneSizes: [],
+        focusedChatPane: 0,
+        initialChatScrollMessageId: null,
+        initialChatScrollMode: null,
+        profileDrawerOpen: false,
+      });
+      return;
+    }
+    state._activateChat(id, { history: false });
   });
 }
 

@@ -9,8 +9,8 @@
 
 import { UPDATE_NOTES } from "./store";
 
-const REPO_OWNER = "nezumi0627";
-const REPO_NAME = "Vyline";
+const REPO_OWNER = "tqmane";
+const REPO_NAME = "vyline";
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 
 export interface UpdateInfo {

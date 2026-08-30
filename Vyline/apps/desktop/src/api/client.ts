@@ -310,13 +310,13 @@ export const api = {
       request<LoginResult>("POST", "/auth/login/email", params),
 
     loginEmailPoll: (accountId: string) =>
-      request<EmailPollResponse>("GET", `/auth/login/email/${accountId}`),
+      request<EmailPollResponse>("GET", `/auth/login/email/${encodeURIComponent(accountId)}`),
 
     loginQrStart: (accountId: string) =>
       request<LoginResult>("POST", "/auth/login/qr", { accountId }),
 
     loginQrPoll: (accountId: string) =>
-      request<QrPollResponse>("GET", `/auth/login/qr/${accountId}`),
+      request<QrPollResponse>("GET", `/auth/login/qr/${encodeURIComponent(accountId)}`),
 
     contentQrStart: (accountId: string) =>
       request<LoginResult>("POST", "/auth/content/qr", { accountId }),
@@ -355,7 +355,7 @@ export const api = {
       ),
 
     deleteAccount: (accountId: string) =>
-      request<{ ok: boolean }>("DELETE", `/auth/accounts/${accountId}`),
+      request<{ ok: boolean }>("DELETE", `/auth/accounts/${encodeURIComponent(accountId)}`),
   },
 
   line: {

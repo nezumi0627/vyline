@@ -91,13 +91,30 @@ function compareMessagesOldestFirst(left: Message, right: Message): number {
   }
 }
 
-function ChatAreaBase() {
-  const activeChatId = useStore((s) => s.activeChatId);
+type ChatAreaProps = {
+  chatId?: string;
+  paneCount?: number;
+  onFocus?: () => void;
+  onClosePane?: () => void;
+  reserveSidebarToggle?: boolean;
+};
+
+function ChatAreaBase({
+  chatId,
+  paneCount = 1,
+  onFocus,
+  onClosePane,
+  reserveSidebarToggle = true,
+}: ChatAreaProps) {
+  const storeActiveChatId = useStore((s) => s.activeChatId);
+  const activeChatId = chatId ?? storeActiveChatId;
+  const isFocusedPane = !chatId || storeActiveChatId === activeChatId;
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
   const setScreen = useStore((s) => s.setScreen);
   const closeChat = useStore((s) => s.closeChat);
-  const profileOpen = useStore((s) => s.profileDrawerOpen);
+  const storedProfileOpen = useStore((s) => s.profileDrawerOpen);
+  const profileOpen = storedProfileOpen && isFocusedPane;
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
@@ -105,9 +122,12 @@ function ChatAreaBase() {
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
-  const initialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
-  const loadingMessages = useStore((s) => s.loadingMessages);
-  const initialChatScrollMode = useStore((s) => s.initialChatScrollMode);
+  const storedInitialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
+  const storedLoadingMessages = useStore((s) => s.loadingMessages);
+  const storedInitialChatScrollMode = useStore((s) => s.initialChatScrollMode);
+  const initialChatScrollMessageId = isFocusedPane ? storedInitialChatScrollMessageId : null;
+  const loadingMessages = isFocusedPane ? storedLoadingMessages : false;
+  const initialChatScrollMode = isFocusedPane ? storedInitialChatScrollMode : "bottom";
   const accountId = useStore((s) => s.accountId);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
@@ -130,6 +150,13 @@ function ChatAreaBase() {
   const announcementExpanded = activeChatId
     ? (announcementExpandedByChat[activeChatId] ?? false)
     : false;
+  const updateProfileDrawer = useCallback(
+    (open: boolean) => {
+      onFocus?.();
+      setProfileDrawer(open);
+    },
+    [onFocus, setProfileDrawer],
+  );
 
   const chatMessages = useMemo(
     () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
@@ -464,7 +491,7 @@ function ChatAreaBase() {
     {
       label: "プロフィールを表示",
       icon: <IconMore size={16} />,
-      onClick: () => setProfileDrawer(true),
+      onClick: () => updateProfileDrawer(true),
     },
   ];
 
@@ -472,7 +499,12 @@ function ChatAreaBase() {
     <div className="flex h-full min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* header */}
-        <header className="flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pl-12 md:pr-4">
+        <header
+          className={cn(
+            "flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pr-4",
+            reserveSidebarToggle ? "md:pl-12" : "md:pl-4",
+          )}
+        >
           <button
             type="button"
             onClick={() => closeChat()}
@@ -483,7 +515,7 @@ function ChatAreaBase() {
           </button>
           <button
             type="button"
-            onClick={() => setProfileDrawer(true)}
+            onClick={() => updateProfileDrawer(true)}
             className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           >
             <Avatar
@@ -517,9 +549,16 @@ function ChatAreaBase() {
           >
             <IconSearch size={19} />
           </HeaderButton>
-          <HeaderButton label="メニュー" onClick={() => setProfileDrawer(!profileOpen)}>
+          <HeaderButton label="メニュー" onClick={() => updateProfileDrawer(!profileOpen)}>
             <IconMore size={19} />
           </HeaderButton>
+          {paneCount > 1 && onClosePane && (
+            <span className="hidden md:inline-flex">
+              <HeaderButton label="このトーク画面を閉じる" onClick={onClosePane}>
+                <IconClose size={18} />
+              </HeaderButton>
+            </span>
+          )}
         </header>
 
         {/* in-chat search bar */}
@@ -764,7 +803,9 @@ function ChatAreaBase() {
       </div>
 
       {profileOpen && <ProfileDrawer chat={chat} />}
-      {memberProfile && memberProfile.chatId === chat.id && <MemberProfilePopover chat={chat} />}
+      {isFocusedPane && memberProfile && memberProfile.chatId === chat.id && (
+        <MemberProfilePopover chat={chat} />
+      )}
       {panel && (
         <MessageContextMenu
           x={panel.x}

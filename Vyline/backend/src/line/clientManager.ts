@@ -48,6 +48,8 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
+/** Deduplicate startup restore and frontend /auth/restore for the same account. */
+const sessionRestoreInflight = new Map<string, Promise<VylineClient>>();
 const contentClients = new Map<string, Promise<VylineClient>>();
 const contentQrState = new Map<
   string,
@@ -308,6 +310,9 @@ export function stopFetchOpsLoop(accountId: string): void {
 }
 
 function watchAuthToken(client: VylineClient, accountId: string): void {
+  const previousWatch = tokenWatchIntervals.get(accountId);
+  if (previousWatch) clearInterval(previousWatch);
+  tokenWatchIntervals.delete(accountId);
   try {
     patchGroupKeyLookup(client);
   } catch (err) {
@@ -528,30 +533,46 @@ export async function loginWithQRCode(
 }
 
 export async function loginWithToken(accountId: string): Promise<VylineClient> {
-  const entry = await getToken(accountId);
-  if (!entry) throw new Error(`no token for accountId: ${accountId}`);
+  const active = clients.get(accountId);
+  if (active?.loggedInAt != null && active.client) return active.client;
+  const existingRestore = sessionRestoreInflight.get(accountId);
+  if (existingRestore) return existingRestore;
 
-  log.info({ accountId }, "restoring session with authToken via Vyline");
+  const restore = (async () => {
+    const entry = await getToken(accountId);
+    if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
-  const client = await vylineLoginToken(entry.authToken, {
-    profile: getVylineProfile(),
-    storagePath: entry.storageFile,
-    ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
-  });
+    log.info({ accountId }, "restoring session with authToken via Vyline");
 
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
-  clients.set(accountId, {
-    client,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
-    pincode: null,
-    loggedInAt: Date.now(),
-  });
-  restorePluginsForSession(accountId);
-  log.info({ accountId }, "token login success");
-  return client;
+    const client = await vylineLoginToken(entry.authToken, {
+      profile: getVylineProfile(),
+      storagePath: entry.storageFile,
+      ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
+    });
+
+    watchAuthToken(client, accountId);
+    void warmLineCache(accountId).catch(() => undefined);
+    clients.set(accountId, {
+      client,
+      accountId,
+      qrUrl: null,
+      qrExpired: false,
+      pincode: null,
+      loggedInAt: Date.now(),
+    });
+    restorePluginsForSession(accountId);
+    log.info({ accountId }, "token login success");
+    return client;
+  })();
+
+  sessionRestoreInflight.set(accountId, restore);
+  try {
+    return await restore;
+  } finally {
+    if (sessionRestoreInflight.get(accountId) === restore) {
+      sessionRestoreInflight.delete(accountId);
+    }
+  }
 }
 
 export async function loginWithAuthToken(
@@ -592,29 +613,30 @@ export async function restoreAllSessions(): Promise<void> {
     return;
   }
   log.info({ count: ids.length }, "restoring sessions");
-  await Promise.allSettled(
-    ids.map(async (id) => {
-      try {
-        await loginWithToken(id);
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        const authFailed =
-          msg.includes("AUTHENTICATION_FAILED") ||
-          msg.includes("Authentication Failed") ||
-          msg.includes("status=403") ||
-          msg.includes("NOT_AUTHORIZED_DEVICE") ||
-          msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
-          msg.includes("logged out");
-        if (authFailed) {
-          await deleteToken(id);
-          removeClient(id);
-          log.warn({ accountId: id }, "cleared invalid saved token");
-        } else {
-          log.warn({ accountId: id, err }, "failed to restore session");
-        }
+  // The protocol stack and its file-storage initialization are not safe to
+  // stampede at process start. Sequential restore is fast enough and prevents
+  // the third/fourth account from losing its client while earlier logins settle.
+  for (const id of ids) {
+    try {
+      await loginWithToken(id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const authFailed =
+        msg.includes("AUTHENTICATION_FAILED") ||
+        msg.includes("Authentication Failed") ||
+        msg.includes("status=403") ||
+        msg.includes("NOT_AUTHORIZED_DEVICE") ||
+        msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
+        msg.includes("logged out");
+      if (authFailed) {
+        await deleteToken(id);
+        removeClient(id);
+        log.warn({ accountId: id }, "cleared invalid saved token");
+      } else {
+        log.warn({ accountId: id, err }, "failed to restore session");
       }
-    }),
-  );
+    }
+  }
 }
 
 export function getClient(accountId: string): VylineClient | undefined {
@@ -702,7 +724,9 @@ export function getContentQrState(accountId: string): {
 }
 
 export function listAccounts(): string[] {
-  return [...clients.keys()];
+  return [...clients.entries()]
+    .filter(([, managed]) => managed.loggedInAt !== null && Boolean(managed.client))
+    .map(([accountId]) => accountId);
 }
 
 export function getQrState(accountId: string): {
@@ -746,6 +770,7 @@ export function removeClient(accountId: string): void {
     tokenWatchIntervals.delete(accountId);
   }
   clients.delete(accountId);
+  sessionRestoreInflight.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
   log.info({ accountId }, "client removed");

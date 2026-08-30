@@ -19,7 +19,7 @@ import {
   vylineClientPutMany,
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
-import { messagePreview, resolveChatToOpen, useStore } from "../lib/store.js";
+import { messagePreview, useStore } from "../lib/store.js";
 import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
 import {
   hydrateBootstrapChatPreviews,
@@ -184,12 +184,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (res.ok && res.chats?.length) {
           const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
           setChats(nextChats);
-          const initialChatMid = resolveChatToOpen(
-            accountId,
-            useStore.getState().activeChatId,
-            nextChats.map((chat) => chat.mid),
-          );
-          setSelectedChatMid((prev) => prev || initialChatMid || "");
+          const requestedChatMid = useStore.getState().activeChatId;
+          const initialChatMid =
+            requestedChatMid && nextChats.some((chat) => chat.mid === requestedChatMid)
+              ? requestedChatMid
+              : "";
+          setSelectedChatMid((previous) => previous || initialChatMid);
           applyChatsToContactCache(nextChats);
           setFromLocalCache(Boolean(res.fromCache));
           const warmTargets = nextChats
@@ -409,12 +409,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         setChats(nextChats);
         setFromLocalCache(true);
         applyChatsToContactCache(nextChats);
-        const initialChatMid = resolveChatToOpen(
-          accountId,
-          useStore.getState().activeChatId,
-          nextChats.map((chat) => chat.mid),
-        );
-        setSelectedChatMid((prev) => prev || initialChatMid || "");
+        const requestedChatMid = useStore.getState().activeChatId;
+        const initialChatMid =
+          requestedChatMid && nextChats.some((chat) => chat.mid === requestedChatMid)
+            ? requestedChatMid
+            : "";
+        setSelectedChatMid((previous) => previous || initialChatMid);
       }
     } catch {
       /* bootstrap optional */

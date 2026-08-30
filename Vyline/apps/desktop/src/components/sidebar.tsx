@@ -36,6 +36,7 @@ import {
   IconShield,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
+import { CHAT_PANE_DRAG_TYPE } from "@/lib/chatPanes";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -81,8 +82,15 @@ function buildPreviewMap(
   };
 
   const lastByChat = new Map<string, (typeof messages)[number]>();
-  for (const m of messages) {
-    lastByChat.set(m.chatId, m);
+  for (const message of messages) {
+    const previous = lastByChat.get(message.chatId);
+    if (
+      !previous ||
+      message.createdAt > previous.createdAt ||
+      (message.createdAt === previous.createdAt && message.id.localeCompare(previous.id) > 0)
+    ) {
+      lastByChat.set(message.chatId, message);
+    }
   }
   const out = new Map<string, { text: string; time: number } | null>();
   for (const chat of chats) {
@@ -119,6 +127,7 @@ function SidebarBase() {
   const messages = useStore((s) => s.messages);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const activeChatId = useStore((s) => s.activeChatId);
+  const chatPaneIds = useStore((s) => s.chatPaneIds);
   const openChat = useStore((s) => s.openChat);
   const setScreen = useStore((s) => s.setScreen);
   const streamerMode = useStore((s) => s.settings.streamerMode);
@@ -577,8 +586,8 @@ function SidebarBase() {
               <ChatRow
                 key={chat.id}
                 chat={chat}
-                active={chat.id === activeChatId}
-                draggable={sort === "custom"}
+                active={chat.id === activeChatId || chatPaneIds.includes(chat.id)}
+                reorderable={sort === "custom"}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
                 locked={lockedChatMids.includes(chat.id)}
@@ -625,7 +634,7 @@ export const Sidebar = memo(SidebarBase);
 const ChatRow = memo(function ChatRow({
   chat,
   active,
-  draggable,
+  reorderable,
   dragging,
   blocked,
   locked,
@@ -640,7 +649,7 @@ const ChatRow = memo(function ChatRow({
 }: {
   chat: Chat;
   active: boolean;
-  draggable: boolean;
+  reorderable: boolean;
   dragging: boolean;
   blocked?: boolean;
   locked?: boolean;
@@ -696,17 +705,19 @@ const ChatRow = memo(function ChatRow({
   return (
     <div
       data-vy-chat-row
-      draggable={draggable}
-      onDragStart={(e) => {
-        if (!draggable) return;
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", chat.id);
-        if (e.currentTarget instanceof HTMLElement) {
-          e.dataTransfer.setDragImage(e.currentTarget, 24, 24);
+      draggable
+      onDragStart={(event) => {
+        event.dataTransfer.effectAllowed = reorderable ? "copyMove" : "copy";
+        event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chat.id);
+        event.dataTransfer.setData("text/plain", chat.id);
+        if (event.currentTarget instanceof HTMLElement) {
+          event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
         }
-        onDragStart();
+        if (reorderable) onDragStart();
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={() => {
+        if (reorderable) onDragEnd();
+      }}
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={cn("mb-0.5 will-change-transform", dragging && "opacity-40")}
@@ -721,7 +732,7 @@ const ChatRow = memo(function ChatRow({
         className={cn(
           "vy-sidebar-row relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
           active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
-          draggable && "cursor-grab active:cursor-grabbing",
+          "md:cursor-grab md:active:cursor-grabbing",
         )}
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
@@ -837,22 +848,40 @@ function AccountSwitcher() {
   const accounts = useAuthStore((s) => s.accounts);
   const sessions = useAuthStore((s) => s.sessions);
   const openLogin = useAuthStore((s) => s.openLogin);
+  const switchAccount = useAuthStore((s) => s.switchAccount);
   const logout = useAuthStore((s) => s.logout);
   const setScreen = useStore((s) => s.setScreen);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const switchableAccountIds = useMemo(
+    () => [
+      ...new Set([
+        ...accounts,
+        ...sessions.filter((session) => session.hasToken).map((session) => session.accountId),
+      ]),
+    ],
+    [accounts, sessions],
+  );
   const currentSession = sessions.find((s) => s.accountId === accountId);
   const currentName = currentSession?.displayName || accountId || "未ログイン";
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
   const currentPremium = currentSession?.premium?.active ?? selfPremium;
 
-  const handleSwitch = (id: string) => {
+  const handleSwitch = async (id: string) => {
+    if (busy) return;
     setOpen(false);
-    // 別アカウントへの切替はログイン画面を経由する（戻るで元のチャットへ）
-    openLogin("manual", id);
-    setScreen("login");
-    navigate("/login");
+    setBusy(true);
+    const result = await switchAccount(id);
+    setBusy(false);
+    if (!result.ok) {
+      openLogin("manual", id);
+      setScreen("login");
+      navigate("/login");
+      return;
+    }
+    setScreen("chat");
+    navigate("/");
   };
 
   const handleLogout = async () => {
@@ -861,6 +890,11 @@ function AccountSwitcher() {
     await logout(accountId);
     setBusy(false);
     setOpen(false);
+    if (useAuthStore.getState().activeAccountId) {
+      setScreen("chat");
+      navigate("/");
+      return;
+    }
     openLogin("manual", null);
     setScreen("login");
     navigate("/login");
@@ -894,7 +928,7 @@ function AccountSwitcher() {
 
       {open && (
         <div className="mt-1 space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-1 shadow-lg">
-          {accounts
+          {switchableAccountIds
             .filter((id) => id !== accountId)
             .map((id) => {
               const s = sessions.find((s) => s.accountId === id);

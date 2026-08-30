@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, useMemo } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
 import { QRCodeSVG } from "qrcode.react";
@@ -8,6 +8,7 @@ import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { lineAvatarUrl } from "../utils/lineMedia.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
+import { accountIdValidationError, normalizeAccountId, suggestAccountId } from "../lib/accountIds.js";
 
 type Tab = "email" | "qr" | "token" | "subdevice";
 type QrStatus = "idle" | "waiting" | "completed";
@@ -66,6 +67,7 @@ export function LoginPage() {
   const [qrUrl, setQrUrl] = useState<string | null>(null);
   const [qrStatus, setQrStatus] = useState<QrStatus>("idle");
   const [qrExpired, setQrExpired] = useState(false);
+  const [qrError, setQrError] = useState<string | null>(null);
   const [pincode, setPincode] = useState<string | null>(null);
   const qrPollStopRef = useRef<(() => void) | null>(null);
 
@@ -86,6 +88,37 @@ export function LoginPage() {
       setTokenAccountId(pendingLoginAccountId);
     }
   }, [pendingLoginAccountId]);
+
+  const knownAccountIds = useMemo(
+    () => [...new Set([...accounts, ...sessions.map((session) => session.accountId)])],
+    [accounts, sessions],
+  );
+
+  // 「アカウントを追加」から開いた場合は既存の main を上書きせず、
+  // 3件目・4件目も自動で一意な管理名を提案する。
+  useEffect(() => {
+    if (loginMode !== "manual" || pendingLoginAccountId) return;
+    const suggested = suggestAccountId(knownAccountIds);
+    const chooseSuggested = (current: string) =>
+      !current.trim() || knownAccountIds.includes(normalizeAccountId(current)) ? suggested : current;
+    setAccountId(chooseSuggested);
+    setQrAccountId(chooseSuggested);
+    setTokenAccountId(chooseSuggested);
+  }, [knownAccountIds, loginMode, pendingLoginAccountId]);
+
+  const validateNewAccountId = useCallback(
+    (value: string): { ok: true; id: string } | { ok: false; error: string } => {
+      const id = normalizeAccountId(value);
+      const validationError = accountIdValidationError(
+        id,
+        knownAccountIds,
+        pendingLoginAccountId,
+      );
+      if (validationError) return { ok: false, error: validationError };
+      return { ok: true, id };
+    },
+    [knownAccountIds, pendingLoginAccountId],
+  );
 
   const goHome = useCallback(
     async (loggedInAccountId: string) => {
@@ -144,8 +177,15 @@ export function LoginPage() {
     e.preventDefault();
     setEmailMsg("");
     setEmailPincode(null);
+    const account = validateNewAccountId(accountId);
+    if (!account.ok) {
+      setEmailStatus("failed");
+      setEmailMsg(account.error);
+      return;
+    }
     setEmailStatus("pending");
-    const res = await loginEmail(accountId, email, password);
+    const targetAccountId = account.id;
+    const res = await loginEmail(targetAccountId, email, password);
     if (!res.ok) {
       setEmailStatus("failed");
       return;
@@ -157,7 +197,7 @@ export function LoginPage() {
     emailPollStopRef.current?.();
     emailPollStopRef.current = startSerialPoll(
       async () => {
-        const polled = await api.auth.loginEmailPoll(accountId);
+        const polled = await api.auth.loginEmailPoll(targetAccountId);
         if (!polled.ok) return true;
         if (polled.pincode) setEmailPincode(polled.pincode);
         if (polled.status === "failed") {
@@ -169,7 +209,7 @@ export function LoginPage() {
         if (polled.status === "completed") {
           setEmailStatus("completed");
           emailPollStopRef.current = null;
-          await goHome(accountId);
+          await goHome(targetAccountId);
           return false;
         }
         return true;
@@ -190,8 +230,15 @@ export function LoginPage() {
     e.preventDefault();
     setTokenMsg("");
     setTokenError(null);
+    const account = validateNewAccountId(tokenAccountId);
+    if (!account.ok) {
+      setTokenStatus("failed");
+      setTokenError(account.error);
+      return;
+    }
     setTokenStatus("pending");
-    const res = await loginToken(tokenAccountId, authToken);
+    const targetAccountId = account.id;
+    const res = await loginToken(targetAccountId, authToken);
     if (!res.ok) {
       setTokenStatus("failed");
       setTokenError(res.error ?? "トークンログインに失敗しました。");
@@ -199,27 +246,35 @@ export function LoginPage() {
     }
     setTokenStatus("completed");
     setTokenMsg("ログイン完了 — セッションを保存しました");
-    await goHome(tokenAccountId);
+    await goHome(targetAccountId);
   };
 
   const startQrLogin = useCallback(async () => {
     setQrUrl(null);
     setQrExpired(false);
+    setQrError(null);
     setPincode(null);
+    const account = validateNewAccountId(qrAccountId);
+    if (!account.ok) {
+      setQrStatus("idle");
+      setQrError(account.error);
+      return;
+    }
+    const targetAccountId = account.id;
     setQrStatus("waiting");
     // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ。
     emailPollStopRef.current?.();
     emailPollStopRef.current = null;
     qrPollStopRef.current?.();
     qrPollStopRef.current = null;
-    const start = await loginQrStart(qrAccountId);
+    const start = await loginQrStart(targetAccountId);
     if (!start.ok) {
       setQrExpired(true);
       return;
     }
     qrPollStopRef.current = startSerialPoll(
       async () => {
-        const res = await api.auth.loginQrPoll(qrAccountId);
+        const res = await api.auth.loginQrPoll(targetAccountId);
         if (!res.ok) return true;
         if (res.status === "expired" || res.status === "idle") {
           setQrExpired(true);
@@ -235,7 +290,7 @@ export function LoginPage() {
         if (res.status === "completed") {
           setQrStatus("completed");
           qrPollStopRef.current = null;
-          await goHome(qrAccountId);
+          await goHome(targetAccountId);
           return false;
         }
         return true;
@@ -247,7 +302,7 @@ export function LoginPage() {
         onError: () => undefined,
       },
     );
-  }, [qrAccountId, loginQrStart, goHome]);
+  }, [goHome, loginQrStart, qrAccountId, validateNewAccountId]);
 
   useEffect(() => {
     return () => {
@@ -391,7 +446,7 @@ export function LoginPage() {
                 label="アカウント名"
                 value={accountId}
                 onChange={setAccountId}
-                placeholder="main"
+                placeholder="main / account-2 / account-3"
               />
               <Field
                 label="メールアドレス"
@@ -425,8 +480,9 @@ export function LoginPage() {
                 label="アカウント名"
                 value={qrAccountId}
                 onChange={setQrAccountId}
-                placeholder="main"
+                placeholder="main / account-2 / account-3"
               />
+              {qrError && <p className="text-xs text-red-300">{qrError}</p>}
               {qrStatus === "idle" && (
                 <button
                   type="button"
@@ -486,7 +542,7 @@ export function LoginPage() {
                 label="アカウント名"
                 value={tokenAccountId}
                 onChange={setTokenAccountId}
-                placeholder="main"
+                placeholder="main / account-2 / account-3"
               />
               <div>
                 <label className="block text-sm text-[var(--vy-text-dim)] mb-1">

@@ -5,12 +5,16 @@ export const ENCRYPTED_CHAT_PREVIEW = "暗号化メッセージ";
 export function isUnresolvedChatPreview(value: string | null | undefined): boolean {
   const normalized = value?.trim().toUpperCase();
   return (
+    !normalized ||
     normalized === ENCRYPTED_CHAT_PREVIEW ||
     normalized === "E2EE_UNAVAILABLE" ||
     normalized === "UNSENT" ||
     normalized === "UNSEND" ||
     normalized === "(UNSENT)" ||
-    normalized === "(UNSEND)"
+    normalized === "(UNSEND)" ||
+    normalized === "CHATEVENT" ||
+    normalized === "NONE" ||
+    normalized === "0"
   );
 }
 

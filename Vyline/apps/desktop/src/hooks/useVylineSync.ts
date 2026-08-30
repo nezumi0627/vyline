@@ -226,13 +226,11 @@ export function useVylineSync(enabled = true) {
   ]);
 
   useEffect(() => {
-    if (!enabled || !storeChatId || syncingChat.current) return;
-
-    if (storeChatId !== line.selectedChatMid) {
+    if (!enabled || syncingChat.current) return;
+    const targetChatId = storeChatId ?? "";
+    if (targetChatId !== line.selectedChatMid) {
       syncingChat.current = true;
-
-      line.setSelectedChatMid(storeChatId);
-
+      line.setSelectedChatMid(targetChatId);
       syncingChat.current = false;
     }
   }, [enabled, storeChatId, line.selectedChatMid, line.setSelectedChatMid]);

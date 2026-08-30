@@ -124,12 +124,16 @@ export const ENCRYPTED_LAST_MESSAGE_PREVIEW = "暗号化メッセージ";
 export function isUnresolvedLastMessagePreview(value: string | null | undefined): boolean {
   const normalized = value?.trim().toUpperCase();
   return (
+    !normalized ||
     normalized === ENCRYPTED_LAST_MESSAGE_PREVIEW ||
     normalized === "E2EE_UNAVAILABLE" ||
     normalized === "UNSENT" ||
     normalized === "UNSEND" ||
     normalized === "(UNSENT)" ||
-    normalized === "(UNSEND)"
+    normalized === "(UNSEND)" ||
+    normalized === "CHATEVENT" ||
+    normalized === "NONE" ||
+    normalized === "0"
   );
 }
 
@@ -239,6 +243,78 @@ function messageIsAtLeastAsNewAsChat(message: StoredMessage, chat: StoredChat): 
   return compareMessageIdsAscending(message.id, chat.lastMessageId) >= 0;
 }
 
+function inferredChatKind(chatMid: string): Chat["kind"] {
+  if (chatMid.startsWith("c")) return "group";
+  if (chatMid.startsWith("r")) return "room";
+  if (chatMid.startsWith("u")) return "direct";
+  return "unknown";
+}
+
+/**
+ * Repair legacy databases whose chat summary was never updated from the stored
+ * message records. This is intentionally a single linear pass when chatdb is
+ * loaded; old/inactive chats are therefore fixed without opening every talk.
+ */
+export function repairStoredChatSummaries(target: ChatDbRecords): number {
+  let repaired = 0;
+  for (const [chatMid, byId] of Object.entries(target.messages)) {
+    let latest: StoredMessage | undefined;
+    for (const message of Object.values(byId)) {
+      if (!latest || compareMessagesNewestFirst(message, latest) < 0) latest = message;
+    }
+    if (!latest) continue;
+
+    const existing = target.chats[chatMid];
+    if (!existing) {
+      target.chats[chatMid] = {
+        mid: chatMid,
+        name: chatMid,
+        kind: inferredChatKind(chatMid),
+        hasMessages: true,
+        lastMessageTime: latest.createdTime,
+        lastMessageId: latest.id,
+        lastMessagePreview: previewForMessage(latest),
+        updatedAt: latest.savedAt,
+      };
+      repaired++;
+      continue;
+    }
+
+    const existingTime = existing.lastMessageTime ?? 0;
+    const sameCursor =
+      existing.lastMessageId === latest.id ||
+      (!existing.lastMessageId && existingTime > 0 && existingTime === latest.createdTime);
+    const latestIsNewer =
+      latest.createdTime > existingTime ||
+      (latest.createdTime === existingTime &&
+        (!existing.lastMessageId || compareMessageIdsAscending(latest.id, existing.lastMessageId) > 0));
+    const computedPreview = previewForMessage(latest);
+    const computedPreviewIsUseful = !isUnresolvedLastMessagePreview(computedPreview);
+    const sameCursorNeedsRepair =
+      sameCursor &&
+      (isUnresolvedLastMessagePreview(existing.lastMessagePreview) ||
+        (computedPreviewIsUseful && existing.lastMessagePreview !== computedPreview));
+    // Message-box summaries can end on CHATEVENT/NONE even though the last
+    // durable user message in chatdb is older. In that case keep the newer
+    // server cursor/time for ordering, but use the newest meaningful local
+    // message as the visible sidebar preview. This fixes inactive chats without
+    // pretending that the older message is the server's newest event.
+    const unresolvedSummaryNeedsFallback =
+      isUnresolvedLastMessagePreview(existing.lastMessagePreview) && computedPreviewIsUseful;
+
+    if (!latestIsNewer && !sameCursorNeedsRepair && !unresolvedSummaryNeedsFallback) continue;
+    existing.hasMessages = true;
+    if (latestIsNewer) {
+      existing.lastMessageTime = latest.createdTime;
+      existing.lastMessageId = latest.id;
+    }
+    existing.lastMessagePreview = computedPreview;
+    existing.updatedAt = latest.savedAt || existing.updatedAt;
+    repaired++;
+  }
+  return repaired;
+}
+
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
 const dirtyVersion = new Map<string, number>();
@@ -295,6 +371,11 @@ async function getDb(accountId: string): Promise<ChatDb> {
   if (mem) return mem;
   const db = await loadDbFromDisk(accountId);
   memory.set(accountId, db);
+  const repaired = repairStoredChatSummaries(db);
+  if (repaired > 0) {
+    log.info({ accountId, repaired }, "repaired legacy chat-list summaries from stored messages");
+    scheduleSave(accountId);
+  }
   return db;
 }
 

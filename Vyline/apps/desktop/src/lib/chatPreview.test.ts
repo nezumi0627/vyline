@@ -38,6 +38,7 @@ function message(id: string, createdTime: number, text: string): Message {
 
 describe("chat preview hydration", () => {
   it("recognizes placeholders that must not overwrite a resolved preview", () => {
+    expect(isUnresolvedChatPreview("")).toBe(true);
     expect(isUnresolvedChatPreview("暗号化メッセージ")).toBe(true);
     expect(isUnresolvedChatPreview("UNSENT")).toBe(true);
     expect(isUnresolvedChatPreview("hello")).toBe(false);
