@@ -174,7 +174,7 @@ export function BetaSection() {
                   setSearchError(null);
                   setProfile(null);
                   try {
-                    const response = await api.line.contactProfile(accountId, mid);
+                    const response = await api.line.getContact(accountId, mid);
                     if (!response.ok || !response.profile)
                       throw new Error("ユーザーが見つかりません");
                     setProfile({

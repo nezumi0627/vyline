@@ -58,7 +58,7 @@ export function useMessageActions({
       setSending(true);
 
       try {
-        const res = await api.line.send(accountId, selectedChatMid, text, {
+        const res = await api.line.sendMessage(accountId, selectedChatMid, text, {
           relatedMessageId,
         });
         if (res.ok) {
@@ -82,7 +82,7 @@ export function useMessageActions({
       const ok = window.confirm("このメッセージを送信取り消ししますか？");
       if (!ok) return;
 
-      const res = await api.line.unsend(accountId, message.id);
+      const res = await api.line.unsendMessage(accountId, message.id);
       if (!res.ok) {
         window.alert(`送信取り消しエラー\n${res.error ?? "unknown"}`);
         return;
