@@ -9,6 +9,7 @@ import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { QRCodeSVG } from "qrcode.react";
+import type { AccountSettings, SavedSession } from "@vyline/types";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -59,6 +60,7 @@ type Section =
   | "display"
   | "theme"
   | "privacy"
+  | "session"
   | "notifications"
   | "advanced"
   | "subdevices"
@@ -75,6 +77,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
+  { key: "session", label: "ログイン・セッション", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
@@ -561,6 +564,8 @@ export function SettingsSections() {
               {section === "notifications" && <NotificationsSection />}
 
               {section === "privacy" && <PrivacySection />}
+
+              {section === "session" && <SessionSection />}
 
               {section === "advanced" && <AdvancedSection />}
 
@@ -1191,6 +1196,141 @@ function ThemeSectionWithPreview() {
 }
 
 type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
+
+const TOKEN_REFRESH_PRESETS = [
+  { seconds: 30 * 24 * 60 * 60, label: "30日前" },
+  { seconds: 7 * 24 * 60 * 60, label: "7日前" },
+  { seconds: 3 * 24 * 60 * 60, label: "3日前" },
+  { seconds: 24 * 60 * 60, label: "1日前" },
+  { seconds: 6 * 60 * 60, label: "6時間前" },
+  { seconds: 60 * 60, label: "1時間前" },
+] as const;
+
+function formatTokenSchedule(timestamp: number): string {
+  const date = new Date(timestamp);
+  const absolute = date.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const diff = timestamp - Date.now();
+  if (diff <= 0) return `${absolute}（次回の監視・起動時に更新）`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days >= 1) return `${absolute}（約${days}日後）`;
+  const hours = Math.max(1, Math.floor(diff / 3_600_000));
+  return `${absolute}（約${hours}時間後）`;
+}
+
+function SessionSection() {
+  const accountId = useStore((s) => s.accountId);
+  const selfMid = useStore((s) => s.self.mid);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
+  const [session, setSession] = useState<SavedSession | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    void api.auth.sessions().then(async (res) => {
+      if (cancelled || !res.ok) return;
+      const current = res.sessions.find((item) => item.accountId === accountId) ?? null;
+      setSession(current);
+      const mid = current?.mid ?? selfMid;
+      if (!mid) return;
+      const settingsRes = await api.settings.account(mid);
+      if (!cancelled && settingsRes.ok) setAccountSettings(settingsRes.settings);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, selfMid]);
+
+  const saveRefreshLead = async (seconds: number) => {
+    const mid = session?.mid ?? selfMid;
+    if (!mid || !accountSettings || saving) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await api.settings.saveAccount(mid, {
+        auth: { ...accountSettings.auth, tokenRefreshLeadSeconds: seconds },
+      });
+      if (!res.ok) throw new Error("設定の保存に失敗しました");
+      setAccountSettings(res.settings);
+      setMessage("自動更新タイミングを保存しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "設定の保存に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const leadSeconds = accountSettings?.auth.tokenRefreshLeadSeconds ?? 7 * 24 * 60 * 60;
+  const plannedRefreshAt = session?.tokenRefreshAt
+    ? session.tokenRefreshAt - leadSeconds * 1000
+    : null;
+
+  return (
+    <Section
+      title="ログイン・セッション"
+      desc="LINE の access token を再ログインなしで安全に更新するタイミングを管理します"
+    >
+      <Card>
+        <div className="py-4">
+          <p className="text-sm font-medium">Access token の自動更新</p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+            Vyline
+            を常時起動していなくても、起動時に期限を確認します。選んだ余裕幅に入っていれば、保存済み
+            refresh token で先に更新してからセッションを復元します。
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {TOKEN_REFRESH_PRESETS.map((preset) => (
+              <button
+                key={preset.seconds}
+                type="button"
+                disabled={saving || !accountSettings}
+                onClick={() => void saveRefreshLead(preset.seconds)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  leadSeconds === preset.seconds
+                    ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_14%,transparent)] text-[var(--vy-accent)]"
+                    : "border-[var(--vy-border)] hover:bg-[var(--vy-surface-2)]",
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Row
+          title="現在の設定"
+          desc={`LINE の更新目安より ${TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? `${Math.round(leadSeconds / 3600)}時間前`} から更新を試します`}
+        >
+          <span className="text-xs font-medium text-[var(--vy-text)]">
+            {TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? "カスタム"}
+          </span>
+        </Row>
+        <Row title="次回の更新目安" desc="LINE が返した更新時刻と現在の設定から算出した目安です">
+          <span className="max-w-[260px] text-right text-xs text-[var(--vy-text-dim)]">
+            {plannedRefreshAt
+              ? formatTokenSchedule(plannedRefreshAt)
+              : "更新時刻をまだ取得できていません"}
+          </span>
+        </Row>
+        <Row
+          title="自動更新の状態"
+          desc="端末認証が LINE 側で解除された場合のみ、再ログインが必要です"
+        >
+          <span className="text-xs font-medium">
+            {session?.hasRefreshToken ? "自動更新できます" : "refresh token 未保存"}
+          </span>
+        </Row>
+      </Card>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
+    </Section>
+  );
+}
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
