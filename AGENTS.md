@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-29
+最終更新: 2026-08-30
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -331,16 +331,28 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
 
+### 推奨: 1 task = 1 branch = 1 git worktree
+
+複数のAIエージェント・人間・IDEが並行してVylineを触る場合、repository全体のコピーではなく **タスクごとに独立した Git worktree** を使う。
+
+- 標準作業領域: `E:\projects\Vyline-worktrees\<task-name>`
+- `.codex-worktrees` のような特定エージェント専用名は新規利用しない
+- 本体 `E:\projects\Vyline` を複数タスクの共有編集場所にしない
+- 他worktreeのdirty差分・未追跡ファイルは触らない
+- 作業完了後はPRをmergeしてから `git worktree remove` で片付ける
+- 詳細手順: `docs/development-worktrees.md`
+
 - `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
 
 ```
-1. main から作業ブランチを切る
-   git checkout main && git pull && git checkout -b feature/<名前>
-2. 変更をコミットしてブランチに push
+1. origin/main から作業branch + worktreeを作る
+   git fetch origin
+   git worktree add -b feature/<名前> E:\projects\Vyline-worktrees\<名前> origin/main
+2. worktree内で変更をコミットしてbranchにpush
    git push -u origin feature/<名前>
 3. GitHub で PR を作成（base: main ← head: feature/<名前>）
-4. レビュー・承認後にマージする（repo 所有者以外のマージはブロックされる）
+4. レビュー・承認後にマージし、worktreeを削除する
 ```
 
 - 小さな修正（1 コミットのドキュメント更新など）でも、main への直接 push はせずブランチ経由にする

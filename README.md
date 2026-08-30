@@ -514,6 +514,8 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 
 参加前に [コントリビューションガイド](docs/CONTRIBUTING.md) を確認してください。Pull Request に解析対象ソフトウェア、セッション、鍵、トークンなどの機密情報を含めないでください。
 
+並行開発では **`1 task = 1 branch = 1 git worktree`** を推奨します。repository全体を機能ごとにコピーせず、`Vyline-worktrees` 配下へタスク単位のworktreeを作成してください。詳しい手順は [Git Worktree 開発フロー](docs/development-worktrees.md) にまとめています。
+
 ### エージェント / Skill 方針
 
 開発では必要に応じて Ponytail、Caveman、agent-skills-standard、addyosmani agent-skills、Minimize-Cursor-Cost などの coding-agent 用 Skill を利用します。不要なコードと過剰設計を避け、レビュー品質を保つことが目的です。
