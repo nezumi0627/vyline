@@ -1,9 +1,12 @@
-import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
-import { ChatArea } from "@/components/chat-area";
 import { cn } from "@/lib/utils";
 import { IconPanelLeft } from "@/components/icons";
+
+const ChatArea = lazy(() =>
+  import("@/components/chat-area").then((module) => ({ default: module.ChatArea })),
+);
 
 function ChatShellBase() {
   const activeChatId = useStore((s) => s.activeChatId);
@@ -93,7 +96,15 @@ function ChatShellBase() {
         >
           <IconPanelLeft size={17} />
         </button>
-        <ChatArea />
+        {activeChatId ? (
+          <Suspense fallback={null}>
+            <ChatArea />
+          </Suspense>
+        ) : (
+          <div className="hidden flex-1 items-center justify-center bg-[var(--vy-chat-bg)] md:flex">
+            <p className="text-sm text-[var(--vy-text-dim)]">チャットを選択してください</p>
+          </div>
+        )}
       </div>
     </div>
   );

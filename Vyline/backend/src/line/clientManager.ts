@@ -48,6 +48,8 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
+const tokenRestoreInflight = new Map<string, Promise<VylineClient>>();
+let initialSessionRestore: Promise<void> | null = null;
 const contentClients = new Map<string, Promise<VylineClient>>();
 const contentQrState = new Map<
   string,
@@ -527,7 +529,7 @@ export async function loginWithQRCode(
   }
 }
 
-export async function loginWithToken(accountId: string): Promise<VylineClient> {
+async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
   const entry = await getToken(accountId);
   if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
@@ -540,7 +542,6 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
   });
 
   watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
@@ -549,9 +550,26 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
     pincode: null,
     loggedInAt: Date.now(),
   });
+  void warmLineCache(accountId).catch(() => undefined);
   restorePluginsForSession(accountId);
   log.info({ accountId }, "token login success");
   return client;
+}
+
+export function loginWithToken(accountId: string): Promise<VylineClient> {
+  const existing = clients.get(accountId);
+  if (existing?.loggedInAt !== null && existing?.client) {
+    return Promise.resolve(existing.client);
+  }
+
+  const inflight = tokenRestoreInflight.get(accountId);
+  if (inflight) return inflight;
+
+  const restore = loginWithTokenImpl(accountId).finally(() => {
+    tokenRestoreInflight.delete(accountId);
+  });
+  tokenRestoreInflight.set(accountId, restore);
+  return restore;
 }
 
 export async function loginWithAuthToken(
@@ -570,7 +588,6 @@ export async function loginWithAuthToken(
   });
 
   watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
@@ -579,12 +596,13 @@ export async function loginWithAuthToken(
     pincode: null,
     loggedInAt: Date.now(),
   });
+  void warmLineCache(accountId).catch(() => undefined);
   restorePluginsForSession(accountId);
   log.info({ accountId }, "authToken login success");
   return client;
 }
 
-export async function restoreAllSessions(): Promise<void> {
+async function restoreAllSessionsImpl(): Promise<void> {
   const tokens = await loadTokens();
   const ids = Object.keys(tokens).filter((id) => !id.endsWith(":content"));
   if (ids.length === 0) {
@@ -615,6 +633,17 @@ export async function restoreAllSessions(): Promise<void> {
       }
     }),
   );
+}
+
+export function restoreAllSessions(): Promise<void> {
+  if (!initialSessionRestore) {
+    initialSessionRestore = restoreAllSessionsImpl();
+  }
+  return initialSessionRestore;
+}
+
+export function waitForSessionRestore(): Promise<void> {
+  return restoreAllSessions();
 }
 
 export function getClient(accountId: string): VylineClient | undefined {

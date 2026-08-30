@@ -101,21 +101,9 @@ export const useAuthStore = create<AuthState>()(
         const res = await api.auth.accounts();
         if (!res.ok) return;
 
-        let active = res.active;
-        let saved = res.saved;
-        let sessions = res.sessions ?? [];
-
-        // メモリに無いが tokens.json にある → restore
-        const missing = saved.filter((id) => !active.includes(id));
-        if (missing.length > 0) {
-          await Promise.allSettled(missing.map((id) => api.auth.restore(id)));
-          const again = await api.auth.accounts();
-          if (again.ok) {
-            active = again.active;
-            saved = again.saved;
-            sessions = again.sessions ?? sessions;
-          }
-        }
+        const active = res.active;
+        const saved = res.saved;
+        const sessions = res.sessions ?? [];
 
         set({ accounts: active, saved, sessions });
 

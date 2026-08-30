@@ -478,7 +478,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
       void loadProfile();
-      await loadChats({ refresh: true, light: true });
+      // 通常起動は backend の TTL/freshness 判定に任せ、remote refresh を強制しない。
+      await loadChats({ light: true });
       if (accountIdRef.current !== accountId) return;
 
       window.setTimeout(() => {
