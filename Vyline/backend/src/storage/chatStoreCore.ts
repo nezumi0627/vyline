@@ -1,6 +1,5 @@
 /**
  * Pure chat-store records and merge helpers shared by the SQLite persistence layer.
- *
  * Keep this file free of filesystem/database access so restore/import logic remains
  * easy to test independently from Bun's SQLite driver.
  */
@@ -24,7 +23,6 @@ export interface StoredChat {
   thumbnailUrl?: string;
   unreadCount?: number;
   isOfficial?: boolean;
-  /** 外部バックアップから復元された履歴を持つ。退出済みグループも履歴として表示するために使う。 */
   restoredHistory?: boolean;
   updatedAt: string;
 }
@@ -49,18 +47,16 @@ export interface StoredMessage {
   savedAt: string;
   messageState?: Message["messageState"];
   history?: Message["history"];
-  revokedSnapshot?: MessageSnapshot;
+  // SQLite JSON columns can deserialize to undefined when an old/corrupt value is
+  // encountered. Explicitly allow that value while keeping the property optional.
+  revokedSnapshot?: MessageSnapshot | undefined;
 }
 
 export interface ChatDbMeta {
-  /** getMessageBoxes の lastOpRevision（差分同期用・将来） */
   lastOpRevision?: string;
-  /** Desktop 準拠: messageBoxes 返却順 */
   boxOrder?: string[];
   chatsSyncedAt?: string;
-  /** chatMid → ISO */
   messagesSyncedAt?: Record<string, string>;
-  /** 自分が受信メッセージを既読にした最終位置。 */
   localReadUpTo?: Record<string, { messageId: string; at: string }>;
 }
 
@@ -93,7 +89,6 @@ export function compareMessageIdsAscending(left: string, right: string): number 
   }
 }
 
-/** 全経路で共通に使う複合順序: 新しい時刻、同時刻なら大きいメッセージIDが先。 */
 export function compareMessagesNewestFirst(left: MessageCursor, right: MessageCursor): number {
   const byTime = right.createdTime - left.createdTime;
   return byTime || -compareMessageIdsAscending(left.id, right.id);
@@ -233,7 +228,6 @@ export function inferredChatKind(chatMid: string): Chat["kind"] {
   return "unknown";
 }
 
-/** Repair legacy/in-memory summaries from actual stored message records. */
 export function repairStoredChatSummaries(target: ChatDbRecords): number {
   let repaired = 0;
   for (const [chatMid, byId] of Object.entries(target.messages)) {
@@ -294,7 +288,6 @@ export function repairStoredChatSummaries(target: ChatDbRecords): number {
   return repaired;
 }
 
-/** 既読情報はサーバ応答の欠落で巻き戻さない。 */
 export function mergeStoredReadState(
   previous: Pick<StoredMessage, "seen" | "readCount" | "readBy"> | undefined,
   incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy">,
@@ -308,7 +301,6 @@ export function mergeStoredReadState(
   };
 }
 
-/** 自分が送った既読位置を受信メッセージへ単調に反映する。 */
 export function applyLocalReadWatermark(
   messages: Record<string, StoredMessage>,
   upToMessageId: string | undefined,
@@ -376,11 +368,10 @@ export function storedMessageToMessage(stored: StoredMessage): Message {
 export function messageSyncAgeMs(meta: ChatDbMeta, chatMid: string): number | null {
   const iso = meta.messagesSyncedAt?.[chatMid];
   if (!iso) return null;
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? Date.now() - t : null;
+  const time = Date.parse(iso);
+  return Number.isFinite(time) ? Date.now() - time : null;
 }
 
-/** Exact UTF-8 JSON size without allocating one multi-GB JSON string. */
 export function chatDbStorageBytes(db: ChatDb): number {
   const mapBytes = <T>(entries: Record<string, T>, size: (value: T) => number): number => {
     let bytes = 2;
@@ -399,7 +390,6 @@ export function chatDbStorageBytes(db: ChatDb): number {
   );
 }
 
-/** 外部履歴を追加専用でマージする。既存メッセージは上書きしないため再実行できる。 */
 export function mergeChatDbRecords(
   target: ChatDbRecords,
   incoming: ChatDbRecords,
@@ -475,7 +465,6 @@ export function mergeChatDbRecords(
   return { importedChats, skippedChats, importedMessages, skippedMessages };
 }
 
-/** iOS復元・通常同期で混在したレコードを最新メッセージから正規化する。 */
 export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; messages: number } {
   let messages = 0;
   const allMids = new Set([...Object.keys(target.chats), ...Object.keys(target.messages)]);
