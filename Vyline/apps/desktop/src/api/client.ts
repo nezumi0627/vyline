@@ -1105,6 +1105,7 @@ export const api = {
     backupList: (accountId: string) =>
       request<{
         ok: boolean;
+        storage?: { usedBytes: number; limitBytes: number; remainingBytes: number };
         data?: Array<{
           id: string;
           createdAt: string;

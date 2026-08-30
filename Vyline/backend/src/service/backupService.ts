@@ -8,14 +8,16 @@
  * 新規端末への移行はバックアップファイルを新端末でアップロード→復元で行う。
  */
 
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { link, mkdir, open, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import {
   exportChatDb,
-  importChatDb,
+  flushAccountChatDb,
+  mergeImportedChatDb,
   listChatsWithCounts,
   type StoredChat,
   type StoredMessage,
@@ -26,7 +28,46 @@ import { safePathComponent } from "../storage/safeFile.js";
 const log = childLogger("vyline-backup");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const BACKUP_DIR = process.env.VYLINE_BACKUP_DIR ?? join(_dir, "../../data/backups");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
+const BACKUP_DIR = process.env.VYLINE_BACKUP_DIR ?? join(DATA_DIR, "backups");
+// Keep snapshots made before VYLINE_DATA_DIR was respected readable in place.
+const LEGACY_BACKUP_DIR = join(_dir, "../../data/backups");
+const BACKUP_ROOTS = [
+  ...new Set(
+    [BACKUP_DIR, ...(process.env.VYLINE_BACKUP_DIR ? [] : [LEGACY_BACKUP_DIR])].map((path) =>
+      resolve(path),
+    ),
+  ),
+];
+
+/** Per-account storage allowance, including metadata and unfinished files. */
+export const BACKUP_STORAGE_LIMIT_BYTES = 10 * 1024 ** 3;
+
+export interface BackupStorageUsage {
+  usedBytes: number;
+  limitBytes: number;
+  remainingBytes: number;
+}
+
+export class BackupStorageLimitError extends Error {
+  constructor() {
+    super(
+      "このアカウントのバックアップ保存上限（10GB）を超えます。不要なバックアップを削除してから再試行してください",
+    );
+    this.name = "BackupStorageLimitError";
+  }
+}
+
+// Admission, writing and deletion share the account lock. Different accounts
+// have independent quotas and can create snapshots concurrently.
+const writes = new Map<string, Promise<unknown>>();
+function withAccountBackupLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const next = (writes.get(accountId) ?? Promise.resolve()).catch(() => undefined).then(work);
+  writes.set(accountId, next);
+  return next.finally(() => {
+    if (writes.get(accountId) === next) writes.delete(accountId);
+  });
+}
 
 const SCHEMA = "vyline-backup";
 const VERSION = 1;
@@ -72,17 +113,100 @@ interface Snapshot {
   media: Array<{ chatMid: string; messageId: string; contentType: string; data: string }>;
 }
 
-function snapshotPath(id: string): string {
-  return join(BACKUP_DIR, `${id}.json`);
+function backupAccountDir(accountId: string): string {
+  // Do not normalize account IDs: case, punctuation and long common prefixes
+  // must never map two accounts to the same backup directory.
+  return join(BACKUP_DIR, createHash("sha256").update(accountId).digest("hex"));
+}
+
+function snapshotPath(accountId: string, id: string): string {
+  return join(backupAccountDir(accountId), `${id}.json`);
 }
 
 function backupAccountComponent(accountId: string): string {
   return safePathComponent(accountId, "account").replace(/\.+/g, "_");
 }
 
-function idFor(accountId: string, date: Date): string {
+function idFor(date: Date): string {
   const stamp = date.toISOString().replace(/[:.]/g, "-");
-  return `vyline-backup-${backupAccountComponent(accountId)}-${stamp}`;
+  return `vyline-backup-${stamp}-${randomUUID()}`;
+}
+
+function validBackupId(id: string): boolean {
+  return /^vyline-backup-[a-zA-Z0-9_-]+$/.test(id);
+}
+
+// New snapshots remain ordinary JSON, with one record per line so restoring a
+// multi-GB snapshot does not require one giant JSON string/base64 media array.
+async function* snapshotLines(path: string): AsyncGenerator<string> {
+  const reader = Bun.file(path).stream().pipeThrough(new TextDecoderStream()).getReader();
+  let parts: string[] = [];
+  try {
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      const lines = value.split("\n");
+      parts.push(lines[0]!);
+      for (let index = 1; index < lines.length; index++) {
+        yield parts.join("");
+        parts = [lines[index]!];
+      }
+    }
+    if (parts.some(Boolean)) yield parts.join("");
+  } finally {
+    await reader.cancel().catch(() => undefined);
+    reader.releaseLock();
+  }
+}
+
+function parseHeader(line: string): Pick<Snapshot, "schema" | "version" | "accountId"> {
+  if (!line.endsWith(',"chats":{')) throw new Error("invalid snapshot header");
+  return JSON.parse(`${line.slice(0, -10)}}`);
+}
+
+async function legacySnapshots(
+  accountId: string,
+): Promise<Array<{ path: string; snapshot: Snapshot }>> {
+  const result: Array<{ path: string; snapshot: Snapshot }> = [];
+  const prefix = `vyline-backup-${backupAccountComponent(accountId)}-`;
+  for (const root of BACKUP_ROOTS) {
+    const entries = await readdir(root, { withFileTypes: true }).catch((error) => {
+      if (error.code === "ENOENT") return [];
+      throw error;
+    });
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.startsWith(prefix) || !entry.name.endsWith(".json"))
+        continue;
+      const path = join(root, entry.name);
+      try {
+        const snapshot = JSON.parse(await readFile(path, "utf8")) as Snapshot;
+        // Filename prefixes alone overlap (e.g. account / account-2).
+        if (snapshot.schema === SCHEMA && snapshot.accountId === accountId)
+          result.push({ path, snapshot });
+      } catch (err) {
+        log.warn({ err }, "VylineBackup: unreadable legacy snapshot");
+      }
+    }
+  }
+  return result;
+}
+
+export async function getBackupStorageUsage(accountId: string): Promise<BackupStorageUsage> {
+  let usedBytes = 0;
+  const dir = backupAccountDir(accountId);
+  const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
+  for (const entry of entries) {
+    if (entry.isFile()) usedBytes += (await stat(join(dir, entry.name))).size;
+  }
+  for (const entry of await legacySnapshots(accountId)) usedBytes += (await stat(entry.path)).size;
+  return {
+    usedBytes,
+    limitBytes: BACKUP_STORAGE_LIMIT_BYTES,
+    remainingBytes: Math.max(0, BACKUP_STORAGE_LIMIT_BYTES - usedBytes),
+  };
 }
 
 function asString(v: unknown): string {
@@ -113,131 +237,336 @@ export async function createBackup(
   accountId: string,
   options: BackupOptions,
 ): Promise<BackupSummary> {
-  await ensureBackupDir();
-  const db = await exportChatDb(accountId);
+  return withAccountBackupLock(accountId, () => createAccountBackup(accountId, options));
+}
 
+async function createAccountBackup(
+  accountId: string,
+  options: BackupOptions,
+): Promise<BackupSummary> {
+  const { remainingBytes } = await getBackupStorageUsage(accountId);
+  if (remainingBytes === 0) throw new BackupStorageLimitError();
+  const db = await exportChatDb(accountId);
   const pickChats =
     options.chatMids && options.chatMids.length > 0 ? new Set(options.chatMids) : null;
-
-  const chats: Record<string, StoredChat> = {};
-  const messages: Record<string, Record<string, StoredMessage>> = {};
+  const chatMids = Object.keys(db.chats).filter((mid) => !pickChats || pickChats.has(mid));
+  const createdAt = new Date();
+  const id = idFor(createdAt);
+  const path = snapshotPath(accountId, id);
+  const temporary = `${path}.partial`;
+  const metadataPath = `${path}.meta`;
+  const temporaryMetadata = `${temporary}.meta`;
+  await mkdir(dirname(path), { recursive: true });
+  const file = await open(temporary, "wx", 0o600);
+  let published = false;
+  let metadataPublished = false;
+  let sizeBytes = 0;
   let messageCount = 0;
-
-  for (const [mid, chat] of Object.entries(db.chats)) {
-    if (pickChats && !pickChats.has(mid)) continue;
-    chats[mid] = chat;
-    const byChat = db.messages[mid] ?? {};
-    const filtered: Record<string, StoredMessage> = {};
-    for (const [id, msg] of Object.entries(byChat)) {
-      filtered[id] = msg;
-      messageCount++;
+  let mediaCount = 0;
+  let pending = "";
+  let pendingBytes = 0;
+  const flush = async () => {
+    const bytes = Buffer.from(pending, "utf8");
+    let offset = 0;
+    while (offset < bytes.length) {
+      const { bytesWritten } = await file.write(bytes, offset, bytes.length - offset);
+      if (bytesWritten <= 0) throw new Error("バックアップの書き込みに失敗しました");
+      offset += bytesWritten;
     }
-    if (Object.keys(filtered).length > 0) messages[mid] = filtered;
-  }
-
-  // メディア同梱: 各メッセージの media-cache を messageId 単位で収集
-  const media: Snapshot["media"] = [];
-  if (options.includeMedia) {
-    for (const [chatMid, byChat] of Object.entries(messages)) {
-      for (const [messageId, rawMsg] of Object.entries(byChat)) {
-        const msg = rawMsg as { contentType?: string };
-        const ct = asString(msg.contentType);
-        if (!MEDIA_CONTENT_TYPES.has(ct) && !/^[0-9]+$/.test(ct)) continue;
-        const cached = await readMediaStorage(accountId, chatMid, messageId);
-        if (!cached) continue;
-        media.push({
-          chatMid,
-          messageId,
-          contentType: cached.contentType,
-          data: base64FromBytes(cached.buf),
-        });
+    pending = "";
+    pendingBytes = 0;
+  };
+  const append = async (chunk: string) => {
+    const bytes = Buffer.byteLength(chunk, "utf8");
+    if (sizeBytes + bytes > remainingBytes) throw new BackupStorageLimitError();
+    sizeBytes += bytes;
+    pending += chunk;
+    pendingBytes += bytes;
+    if (pendingBytes >= 256 * 1024) await flush();
+  };
+  try {
+    const header = JSON.stringify({
+      schema: SCHEMA,
+      version: VERSION,
+      createdAt: createdAt.toISOString(),
+      accountId,
+      includeMedia: options.includeMedia,
+      chatMids: pickChats ? [...pickChats] : null,
+    });
+    await append(`${header.slice(0, -1)},"chats":{\n`);
+    for (const [index, mid] of chatMids.entries()) {
+      await append(`${index ? "," : ""}${JSON.stringify(mid)}:${JSON.stringify(db.chats[mid])}\n`);
+    }
+    await append('},"messages":{\n');
+    for (const [index, mid] of chatMids.entries()) {
+      await append(`${index ? "," : ""}${JSON.stringify(mid)}:{\n`);
+      let count = 0;
+      for (const [messageId, message] of Object.entries(db.messages[mid] ?? {})) {
+        await append(
+          `${count++ ? "," : ""}${JSON.stringify(messageId)}:${JSON.stringify(message)}\n`,
+        );
+        messageCount++;
+      }
+      await append("}\n");
+    }
+    await append('},"media":[\n');
+    if (options.includeMedia) {
+      for (const chatMid of chatMids) {
+        for (const [messageId, message] of Object.entries(db.messages[chatMid] ?? {})) {
+          const ct = asString(message.contentType);
+          if (!MEDIA_CONTENT_TYPES.has(ct) && !/^[0-9]+$/.test(ct)) continue;
+          const cached = await readMediaStorage(accountId, chatMid, messageId);
+          if (!cached) continue;
+          // Reject before allocating the expanded base64 string when it cannot fit.
+          if (sizeBytes + 4 * Math.ceil(cached.buf.byteLength / 3) > remainingBytes)
+            throw new BackupStorageLimitError();
+          await append(
+            `${mediaCount ? "," : ""}${JSON.stringify({
+              chatMid,
+              messageId,
+              contentType: cached.contentType,
+              data: base64FromBytes(cached.buf),
+            })}\n`,
+          );
+          mediaCount++;
+        }
       }
     }
+    await append("]}");
+    await flush();
+    const summary: BackupSummary = {
+      id,
+      createdAt: createdAt.toISOString(),
+      accountId,
+      chatCount: chatMids.length,
+      messageCount,
+      mediaCount,
+      includeMedia: options.includeMedia,
+      sizeBytes,
+    };
+    const metadata = JSON.stringify({ ...summary, framed: true });
+    if (sizeBytes + Buffer.byteLength(metadata, "utf8") > remainingBytes)
+      throw new BackupStorageLimitError();
+    await file.sync();
+    await file.close();
+    await writeFile(temporaryMetadata, metadata, { encoding: "utf8", flag: "wx", mode: 0o600 });
+    // Publish complete files exclusively: even an ID collision cannot replace a backup.
+    await link(temporary, path);
+    published = true;
+    await link(temporaryMetadata, metadataPath);
+    metadataPublished = true;
+    log.info({ accountId, id, messageCount, mediaCount }, "VylineBackup created");
+    return summary;
+  } catch (error) {
+    if (published) await unlink(path).catch(() => undefined);
+    if (metadataPublished) await unlink(metadataPath).catch(() => undefined);
+    throw error;
+  } finally {
+    await file.close().catch(() => undefined);
+    await unlink(temporary).catch(() => undefined);
+    await unlink(temporaryMetadata).catch(() => undefined);
   }
-
-  const id = idFor(accountId, new Date());
-  const snapshot: Snapshot = {
-    schema: SCHEMA,
-    version: VERSION,
-    createdAt: new Date().toISOString(),
-    accountId,
-    includeMedia: options.includeMedia,
-    chatMids: pickChats ? [...pickChats] : null,
-    chats,
-    messages,
-    media,
-  };
-
-  const body = JSON.stringify(snapshot);
-  await writeFile(snapshotPath(id), body, "utf8");
-
-  log.info(
-    { accountId, id, chatCount: Object.keys(chats).length, messageCount, mediaCount: media.length },
-    "VylineBackup created",
-  );
-
-  return {
-    id,
-    createdAt: snapshot.createdAt,
-    accountId,
-    chatCount: Object.keys(chats).length,
-    messageCount,
-    mediaCount: media.length,
-    includeMedia: options.includeMedia,
-    sizeBytes: body.length,
-  };
 }
 
 export async function listBackups(accountId: string): Promise<BackupSummary[]> {
-  await ensureBackupDir();
-  const prefix = `vyline-backup-${backupAccountComponent(accountId)}-`;
-  let files: string[] = [];
-  try {
-    files = await readdir(BACKUP_DIR);
-  } catch {
-    return [];
-  }
   const summaries: BackupSummary[] = [];
+  const files = await readdir(backupAccountDir(accountId)).catch((error) => {
+    if (error.code === "ENOENT") return [];
+    throw error;
+  });
   for (const file of files) {
-    if (!file.startsWith(prefix) || !file.endsWith(".json")) continue;
+    if (!file.endsWith(".json")) continue;
     const id = file.replace(/\.json$/, "");
+    if (!validBackupId(id)) continue;
     try {
-      const raw = await readFile(snapshotPath(id), "utf8");
-      const parsed = JSON.parse(raw) as Partial<Snapshot>;
-      const sizeBytes = (await stat(snapshotPath(id))).size;
-      summaries.push({
-        id,
-        createdAt: parsed.createdAt ?? "",
-        accountId: parsed.accountId ?? accountId,
-        chatCount: parsed.chats ? Object.keys(parsed.chats).length : 0,
-        messageCount: parsed.messages
-          ? Object.values(parsed.messages).reduce(
-              (acc, byChat) => acc + Object.keys(byChat).length,
-              0,
-            )
-          : 0,
-        mediaCount: parsed.media?.length ?? 0,
-        includeMedia: parsed.includeMedia ?? false,
-        sizeBytes,
-      });
+      const path = snapshotPath(accountId, id);
+      // A large media snapshot need not be loaded into RAM just to show its list row.
+      const summary = existsSync(`${path}.meta`)
+        ? (JSON.parse(await readFile(`${path}.meta`, "utf8")) as BackupSummary)
+        : summarizeSnapshot(
+            id,
+            JSON.parse(await readFile(path, "utf8")) as Snapshot,
+            (await stat(path)).size,
+          );
+      if (summary.accountId !== accountId || summary.id !== id) continue;
+      summaries.push({ ...summary, sizeBytes: (await stat(path)).size });
     } catch (err) {
       log.warn({ err, id }, "VylineBackup list: unreadable snapshot");
     }
   }
+  for (const { path, snapshot } of await legacySnapshots(accountId)) {
+    const id = path
+      .split(/[\\/]/)
+      .pop()!
+      .replace(/\.json$/, "");
+    summaries.push(summarizeSnapshot(id, snapshot, (await stat(path)).size));
+  }
   return summaries.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
 }
 
+function summarizeSnapshot(id: string, snapshot: Snapshot, sizeBytes: number): BackupSummary {
+  if (snapshot.schema !== SCHEMA || snapshot.version !== VERSION) throw new Error("invalid backup");
+  return {
+    id,
+    accountId: snapshot.accountId,
+    createdAt: snapshot.createdAt,
+    chatCount: Object.keys(snapshot.chats ?? {}).length,
+    messageCount: Object.values(snapshot.messages ?? {}).reduce(
+      (count, messages) => count + Object.keys(messages).length,
+      0,
+    ),
+    mediaCount: snapshot.media?.length ?? 0,
+    includeMedia: snapshot.includeMedia,
+    sizeBytes,
+  };
+}
+
+async function locateBackup(
+  accountId: string,
+  id: string,
+): Promise<
+  { path: string; framed: true } | { path: string; framed: false; snapshot: Snapshot } | null
+> {
+  if (!validBackupId(id)) return null;
+  for (const path of [
+    snapshotPath(accountId, id),
+    ...BACKUP_ROOTS.map((root) => join(root, `${id}.json`)),
+  ]) {
+    if (!existsSync(path)) continue;
+    try {
+      if (path === snapshotPath(accountId, id) && existsSync(`${path}.meta`)) {
+        const metadata = JSON.parse(await readFile(`${path}.meta`, "utf8"));
+        if (metadata.framed === true) {
+          if (
+            metadata.accountId !== accountId ||
+            metadata.id !== id ||
+            metadata.sizeBytes !== (await stat(path)).size
+          )
+            continue;
+          for await (const line of snapshotLines(path)) {
+            const header = parseHeader(line);
+            if (
+              header.schema === SCHEMA &&
+              header.version === VERSION &&
+              header.accountId === accountId
+            )
+              return { path, framed: true };
+            break;
+          }
+          continue;
+        }
+      }
+      const snapshot = JSON.parse(await readFile(path, "utf8")) as Snapshot;
+      if (
+        snapshot.schema === SCHEMA &&
+        snapshot.version === VERSION &&
+        snapshot.accountId === accountId
+      )
+        return { path, framed: false, snapshot };
+    } catch {
+      /* Try the next legacy location without modifying its data. */
+    }
+  }
+  return null;
+}
+
 export async function readBackup(accountId: string, id: string): Promise<Snapshot | null> {
-  if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return null;
-  const path = snapshotPath(id);
-  if (!existsSync(path)) return null;
+  const found = await locateBackup(accountId, id);
+  if (!found) return null;
+  return found.framed
+    ? (JSON.parse(await readFile(found.path, "utf8")) as Snapshot)
+    : found.snapshot;
+}
+
+async function restoreFramedBackup(accountId: string, path: string, options: RestoreOptions) {
+  const selected = options.chatMids?.length ? new Set(options.chatMids) : null;
+  const chats: Snapshot["chats"] = Object.create(null);
+  const messages: Snapshot["messages"] = Object.create(null);
+  let stage: "header" | "chats" | "messages" | "media" = "header";
+  let chatMid: string | null = null;
+  let restoredChats = 0;
+  let restoredMessages = 0;
+  let restoredMedia = 0;
+  let imported = false;
+  let completed = false;
+  for await (const raw of snapshotLines(path)) {
+    if (stage === "header") {
+      const header = parseHeader(raw);
+      if (header.accountId !== accountId || header.schema !== SCHEMA || header.version !== VERSION)
+        throw new Error("バックアップのアカウントが一致しません");
+      stage = "chats";
+      continue;
+    }
+    if (raw === '},"messages":{') {
+      stage = "messages";
+      continue;
+    }
+    if (raw === '},"media":[') {
+      const result = await mergeImportedChatDb(accountId, { chats, messages });
+      restoredChats = result.importedChats;
+      restoredMessages = result.importedMessages;
+      imported = true;
+      stage = "media";
+      if (!options.includeMedia) {
+        completed = true;
+        break;
+      }
+      continue;
+    }
+    const line = raw.startsWith(",") ? raw.slice(1) : raw;
+    if (stage === "chats") {
+      const pair = JSON.parse(`{${line}}`) as Snapshot["chats"];
+      for (const [mid, chat] of Object.entries(pair))
+        if (!selected || selected.has(mid)) chats[mid] = chat;
+    } else if (stage === "messages") {
+      if (line === "}") {
+        chatMid = null;
+        continue;
+      }
+      if (chatMid === null) {
+        chatMid = JSON.parse(line.slice(0, -2)) as string;
+        continue;
+      }
+      if (!selected || selected.has(chatMid)) {
+        messages[chatMid] ??= Object.create(null);
+        Object.assign(messages[chatMid]!, JSON.parse(`{${line}}`));
+      }
+    } else if (stage === "media") {
+      if (line === "]}") {
+        completed = true;
+        break;
+      }
+      const entry = JSON.parse(line) as Snapshot["media"][number];
+      if (
+        messages[entry.chatMid]?.[entry.messageId] &&
+        (!selected || selected.has(entry.chatMid))
+      ) {
+        restoredMedia += await restoreMediaEntry(accountId, entry);
+      }
+    }
+  }
+  if (!imported || !completed) throw new Error("バックアップが途中で切れています");
+  await flushAccountChatDb(accountId);
+  return { restoredChats, restoredMessages, restoredMedia };
+}
+
+async function restoreMediaEntry(
+  accountId: string,
+  entry: Snapshot["media"][number],
+): Promise<number> {
+  if (await readMediaStorage(accountId, entry.chatMid, entry.messageId)) return 0;
   try {
-    const raw = await readFile(path, "utf8");
-    const parsed = JSON.parse(raw) as Snapshot;
-    if (parsed.schema !== SCHEMA || parsed.accountId !== accountId) return null;
-    return parsed;
-  } catch {
-    return null;
+    await writeMediaStorage(
+      accountId,
+      entry.chatMid,
+      entry.messageId,
+      bytesFromBase64(entry.data),
+      entry.contentType,
+    );
+    return (await readMediaStorage(accountId, entry.chatMid, entry.messageId)) ? 1 : 0;
+  } catch (err) {
+    log.debug({ err }, "media restore skipped");
+    return 0;
   }
 }
 
@@ -246,10 +575,12 @@ export async function restoreBackup(
   id: string,
   options: RestoreOptions,
 ): Promise<{ restoredChats: number; restoredMessages: number; restoredMedia: number }> {
-  const snapshot = await readBackup(accountId, id);
-  if (!snapshot) {
+  const found = await locateBackup(accountId, id);
+  if (!found) {
     throw new Error("バックアップが見つかりません");
   }
+  if (found.framed) return restoreFramedBackup(accountId, found.path, options);
+  const snapshot = found.snapshot;
 
   const pickChats =
     options.chatMids && options.chatMids.length > 0 ? new Set(options.chatMids) : null;
@@ -267,51 +598,47 @@ export async function restoreBackup(
     if (Object.keys(filtered).length > 0) messages[mid] = filtered;
   }
 
-  const imported = await importChatDb(accountId, {
-    meta: {},
-    chats,
-    messages,
-  });
+  // Restoring the same snapshot again must not duplicate messages or replace
+  // newer live messages with the old copy from the snapshot.
+  const imported = await mergeImportedChatDb(accountId, { chats, messages });
 
   let restoredMedia = 0;
   if (options.includeMedia) {
     for (const entry of snapshot.media) {
       if (pickChats && !pickChats.has(entry.chatMid)) continue;
-      try {
-        await writeMediaStorage(
-          accountId,
-          entry.chatMid,
-          entry.messageId,
-          bytesFromBase64(entry.data),
-          entry.contentType,
-        );
-        restoredMedia++;
-      } catch (err) {
-        log.debug({ err, messageId: entry.messageId }, "media restore skipped");
-      }
+      if (!messages[entry.chatMid]?.[entry.messageId]) continue;
+      restoredMedia += await restoreMediaEntry(accountId, entry);
     }
   }
 
+  await flushAccountChatDb(accountId);
+
   log.info(
-    { accountId, id, chats: imported.chats, messages: imported.messages, restoredMedia },
+    {
+      accountId,
+      id,
+      chats: imported.importedChats,
+      messages: imported.importedMessages,
+      restoredMedia,
+    },
     "VylineBackup restored",
   );
 
   return {
-    restoredChats: imported.chats,
-    restoredMessages: imported.messages,
+    restoredChats: imported.importedChats,
+    restoredMessages: imported.importedMessages,
     restoredMedia,
   };
 }
 
 export async function deleteBackup(accountId: string, id: string): Promise<boolean> {
-  const snapshot = await readBackup(accountId, id);
-  if (!snapshot) return false;
-  try {
-    const { unlink } = await import("node:fs/promises");
-    await unlink(snapshotPath(id));
+  return withAccountBackupLock(accountId, async () => {
+    const found = await locateBackup(accountId, id);
+    if (!found) return false;
+    await unlink(found.path);
+    await unlink(`${found.path}.meta`).catch((error) => {
+      if (error.code !== "ENOENT") throw error;
+    });
     return true;
-  } catch {
-    return false;
-  }
+  });
 }

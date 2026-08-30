@@ -1503,7 +1503,7 @@ function AdvancedSection() {
       </Card>
 
       <div className="mt-4">
-        <VylineBackupPanel accountId={accountId} />
+        <VylineBackupPanel key={accountId ?? "no-account"} accountId={accountId} />
       </div>
 
       {restoreResult && (
@@ -1558,16 +1558,22 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   const [backups, setBackups] = useState<
     NonNullable<Awaited<ReturnType<typeof api.line.backupList>>["data"]>
   >([]);
+  const [storage, setStorage] =
+    useState<Awaited<ReturnType<typeof api.line.backupList>>["storage"]>();
   const [includeMedia, setIncludeMedia] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const load = async () => {
     if (!accountId) return;
     const result = await api.line.backupList(accountId);
-    if (result.ok) setBackups(result.data ?? []);
+    if (!result.ok) throw new Error(result.error ?? "バックアップ一覧を取得できませんでした");
+    setBackups(result.data ?? []);
+    setStorage(result.storage);
   };
   useEffect(() => {
-    void load();
+    void load().catch((error) =>
+      setMessage(error instanceof Error ? error.message : "バックアップ一覧を取得できませんでした"),
+    );
   }, [accountId]);
   const create = async () => {
     if (!accountId) return;
@@ -1599,22 +1605,45 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       setBusy(false);
     }
   };
+  const remove = async (id: string) => {
+    if (
+      !accountId ||
+      !window.confirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
+    ) return;
+    setBusy(true);
+    try {
+      const result = await api.line.backupDelete(accountId, id);
+      if (!result.ok) throw new Error(result.error ?? "バックアップを削除できませんでした");
+      await load();
+      setMessage("バックアップを削除しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "バックアップを削除できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
   return (
     <Section
       title="VylineBackup"
-      desc="この端末のトーク履歴をスナップショットとして保存・復元します。認証情報は含みません。"
+      desc="このアカウントのトーク履歴を保存・復元します。保存上限は1アカウント10GBです。認証情報は含みません。"
     >
       <Card>
         <Row title="新しいバックアップを作成" desc="履歴をいつでも戻せるよう、このPC内へ保存します">
           <button
             type="button"
-            disabled={busy || !accountId}
+            disabled={busy || !accountId || storage?.remainingBytes === 0}
             onClick={() => void create()}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
           >
             {busy ? "処理中…" : "作成"}
           </button>
         </Row>
+        <p className="py-2 text-xs text-[var(--vy-text-dim)]">
+          {storage
+            ? `このアカウントの使用量: ${formatBytes(storage.usedBytes)} / ${formatBytes(storage.limitBytes)}`
+            : "保存上限: このアカウントで10GB"}
+          {" · 上限を超える新規作成は停止します。既存バックアップは自動削除しません。"}
+        </p>
         <label className="flex items-center justify-between py-3 text-xs text-[var(--vy-text-dim)]">
           <span>画像・動画などの保存済みメディアも含める</span>
           <input
@@ -1626,7 +1655,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
         {backups.length === 0 ? (
           <p className="py-3 text-sm text-[var(--vy-text-dim)]">まだバックアップはありません。</p>
         ) : (
-          backups.slice(0, 5).map((backup) => (
+          backups.map((backup) => (
             <div
               key={backup.id}
               className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
@@ -1646,6 +1675,14 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
                 className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
               >
                 復元
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void remove(backup.id)}
+                className="shrink-0 rounded-lg border border-red-400/50 px-3 py-1.5 text-xs text-red-300 disabled:opacity-50"
+              >
+                削除
               </button>
             </div>
           ))

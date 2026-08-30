@@ -2515,7 +2515,7 @@ lineRouter.get("/:accountId/backup/chats", async (c) => {
 lineRouter.post("/:accountId/backup/create", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ chatMids?: string[]; includeMedia?: boolean }>();
-  const { createBackup } = await import("../service/backupService.js");
+  const { createBackup, BackupStorageLimitError } = await import("../service/backupService.js");
   try {
     const summary = await createBackup(accountId, {
       ...(body.chatMids?.length ? { chatMids: body.chatMids } : {}),
@@ -2523,15 +2523,19 @@ lineRouter.post("/:accountId/backup/create", async (c) => {
     });
     return c.json({ ok: true, summary });
   } catch (err) {
+    if (err instanceof BackupStorageLimitError) {
+      return c.json({ ok: false, code: "BACKUP_STORAGE_LIMIT", error: err.message }, 507);
+    }
     return handleError(err, c);
   }
 });
 
 lineRouter.get("/:accountId/backup/list", async (c) => {
   const accountId = c.req.param("accountId");
-  const { listBackups } = await import("../service/backupService.js");
+  const { listBackups, getBackupStorageUsage } = await import("../service/backupService.js");
   try {
-    return c.json({ ok: true, data: await listBackups(accountId) });
+    const [data, storage] = await Promise.all([listBackups(accountId), getBackupStorageUsage(accountId)]);
+    return c.json({ ok: true, data, storage });
   } catch (err) {
     return handleError(err, c);
   }
