@@ -89,8 +89,8 @@ function LinkPreviewCard({ preview }: { preview: NonNullable<Message["linkPrevie
 }
 
 export type PostNotificationTarget =
-  | { kind: "note"; postId?: string }
-  | { kind: "album"; albumId?: string };
+  | { kind: "note"; postId?: string; homeId?: string }
+  | { kind: "album"; albumId?: string; homeId?: string };
 
 function PostNotificationCard({
   message,
@@ -109,8 +109,8 @@ function PostNotificationCard({
         onClick={() =>
           onOpen(
             notification.kind === "note"
-              ? { kind: "note", postId: notification.postId }
-              : { kind: "album", albumId: notification.albumId },
+              ? { kind: "note", postId: notification.postId, homeId: notification.homeId }
+              : { kind: "album", albumId: notification.albumId, homeId: notification.homeId },
           )
         }
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] text-left shadow-sm transition-colors hover:bg-[var(--vy-surface-2)]"

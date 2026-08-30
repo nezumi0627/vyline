@@ -424,7 +424,8 @@ function collectPosts(value: unknown): Array<Record<string, unknown>> {
 function collectPost(value: unknown): Record<string, unknown> | null {
   const root = record(value);
   const result = record(root?.result) ?? root;
-  return record(result?.post) ?? record(result?.item) ?? result;
+  const feed = record(result?.feed);
+  return record(result?.post) ?? record(feed?.post) ?? record(result?.item) ?? result;
 }
 
 type NoteView = {

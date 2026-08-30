@@ -123,6 +123,7 @@ export function ProfileDrawer({
     postNotificationTarget?.kind,
     postNotificationTarget?.kind === "note" ? postNotificationTarget.postId : undefined,
     postNotificationTarget?.kind === "album" ? postNotificationTarget.albumId : undefined,
+    postNotificationTarget?.homeId,
   ]);
 
   useEffect(() => {
@@ -462,7 +463,7 @@ export function ProfileDrawer({
           {section === "note" && accountId ? (
             <NoteModal
               accountId={accountId}
-              chatId={chat.id}
+              chatId={postNotificationTarget?.homeId ?? chat.id}
               embedded
               initialPostId={
                 postNotificationTarget?.kind === "note" ? postNotificationTarget.postId : undefined
@@ -472,7 +473,7 @@ export function ProfileDrawer({
           ) : section === "album" && accountId ? (
             <AlbumModal
               accountId={accountId}
-              chatId={chat.id}
+              chatId={postNotificationTarget?.homeId ?? chat.id}
               embedded
               initialAlbumId={
                 postNotificationTarget?.kind === "album"
