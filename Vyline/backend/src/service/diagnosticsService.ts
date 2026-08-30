@@ -3,6 +3,7 @@ import { appendFile, mkdir, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { DebugContext } from "@vyline/types";
 import { redactForDiagnostics } from "./redaction.js";
+import { loadAccountSettings } from "./accountSettingsService.js";
 import { safePathComponent } from "../storage/safeFile.js";
 
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
@@ -16,6 +17,8 @@ export async function appendDiagnostic(
   context: DebugContext,
   details?: unknown,
 ): Promise<void> {
+  const settings = await loadAccountSettings(mid);
+  if (!settings.debug.enabled) return;
   await mkdir(LOG_DIR, { recursive: true });
   const entry = redactForDiagnostics({ ...context, details, at: new Date().toISOString() });
   await appendFile(logPath(mid), `${JSON.stringify(entry)}\n`, "utf8");

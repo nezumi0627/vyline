@@ -1150,7 +1150,7 @@ function LadderModal({
     (async () => {
       setMembersLoading(true);
       try {
-        const res = await withTimeout(api.line.chatMembers(accountId, chatId), 10_000);
+        const res = await withTimeout(api.line.getChatMembers(accountId, chatId), 10_000);
         if (cancelled || res === "timeout" || !res.ok || !res.members?.length) return;
         const fetched = res.members.map((m) => mapMember(m.mid, m.displayName, m.thumbnailUrl));
         setMembers(fetched);

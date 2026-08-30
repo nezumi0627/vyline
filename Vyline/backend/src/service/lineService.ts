@@ -15,6 +15,7 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
+import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
 import {
@@ -2664,7 +2665,9 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      const needsBg = opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
+      // disk cache の freshness を正本にする。プロセス再起動直後に memory cache が
+      // 空でも、disk cache が新鮮なら remote RPC は再実行しない。
+      const needsBg = Boolean(opts?.refresh) || chatsAge > CHATS_CACHE_MS;
 
       if (needsBg) {
         const syncPromise = enqueueTalkRpcBackground(accountId, async () => {
@@ -2697,6 +2700,9 @@ async function fetchChatsCore(
       }
       if (memCached && now - memCached.at < CHATS_CACHE_MS) {
         return memCached.chats;
+      }
+      if (chatsAge <= CHATS_CACHE_MS) {
+        chatsCache.set(accountId, { at: now, chats: local });
       }
       return local;
     }
@@ -3977,7 +3983,7 @@ export async function sendMessage(
   await assertChatUnlocked(accountId, chatMid);
   // ブロック中の友だちには送信しない（サーバ側でも防ぐ）
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "send blocked: user is blocked");
       return null;
@@ -4250,7 +4256,7 @@ export async function sendMedia(
 ): Promise<void> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMedia blocked: user is blocked");
       return;
@@ -4428,7 +4434,7 @@ export async function sendMediaBatch(
 ): Promise<number> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMediaBatch blocked: user is blocked");
       return 0;
@@ -4672,7 +4678,7 @@ export async function sendSticker(
 ): Promise<Message | null> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendSticker blocked: user is blocked");
       return null;
@@ -4969,7 +4975,7 @@ export async function sendCombinationSticker(
 ): Promise<Message | null> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendCombinationSticker blocked: user is blocked");
       return null;
@@ -5007,7 +5013,7 @@ export async function sendLineEmoji(
 ): Promise<void> {
   await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendLineEmoji blocked: user is blocked");
       return;
@@ -5074,6 +5080,9 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
     const found = await findStoredMessageByIdLocal(accountId, messageId);
+    if (!found) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message timestamp unavailable");
+    }
     const chatMid = found?.chatMid;
     if (chatMid) await assertChatUnlocked(accountId, chatMid);
     if (found) {
@@ -5085,6 +5094,10 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
         stored.contentType === "UNSEND"
       ) {
         throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+      }
+      const premium = await fetchPremiumStatus(accountId);
+      if (!canUnsendMessage(stored.createdTime, premium.active)) {
+        throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
       }
     }
     const client = requireClient(accountId);
@@ -5360,7 +5373,7 @@ const BLOCKED_CACHE_TTL_MS = Number(process.env.VYLINE_BLOCKED_CACHE_TTL_MS ?? 5
 const BLOCKED_RPC_TIMEOUT_MS = Number(process.env.VYLINE_BLOCKED_RPC_TIMEOUT_MS ?? 8_000);
 const blockedInflight = new Map<string, Promise<string[]>>();
 
-export async function fetchBlockedContactIds(accountId: string): Promise<string[]> {
+export async function getBlockedContactIds(accountId: string): Promise<string[]> {
   const cached = blockedCache.get(accountId);
   if (cached && Date.now() - cached.at < BLOCKED_CACHE_TTL_MS) return cached.ids;
   const inflight = blockedInflight.get(accountId);
@@ -5373,7 +5386,7 @@ export async function fetchBlockedContactIds(accountId: string): Promise<string[
           client.base.talk.getBlockedContactIds({ syncReason: "INTERNAL" }),
         ),
         BLOCKED_RPC_TIMEOUT_MS,
-        "fetchBlockedContactIds",
+        "getBlockedContactIds",
       );
       const out = (ids ?? []).map(String);
       blockedCache.set(accountId, { at: Date.now(), ids: out });
@@ -5719,7 +5732,7 @@ export async function reactToMessage(
 }
 
 /** チャットルームのアナウンス一覧 — Desktop: TalkService_getChatRoomAnnouncements */
-export async function getChatAnnouncements(
+export async function getChatRoomAnnouncements(
   accountId: string,
   chatMid: string,
 ): Promise<
@@ -5756,7 +5769,7 @@ export async function getChatAnnouncements(
 }
 
 /** メッセージをアナウンスとしてピン留め — Desktop: TalkService_createChatRoomAnnouncement */
-export async function announceMessage(
+export async function createChatRoomAnnouncement(
   accountId: string,
   chatMid: string,
   text: string,
@@ -5785,7 +5798,7 @@ export async function announceMessage(
 }
 
 /** アナウンスの解除（ピン解除）— Desktop: TalkService_removeChatRoomAnnouncement */
-export async function removeChatAnnouncement(
+export async function removeChatRoomAnnouncement(
   accountId: string,
   chatMid: string,
   announcementSeq: string | number,

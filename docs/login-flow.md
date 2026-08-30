@@ -1,6 +1,6 @@
 # Login Flow
 
-最終更新: 2026-08-24
+最終更新: 2026-08-30
 
 旧実装 (Go + Wails) で確認済みの LINE ログインフロー。linejs 移行後も参考になる。
 
@@ -131,18 +131,29 @@ i32/i64: [zigzag varint]
 
 ---
 
-## Token 保存
+## Token 保存と自動更新
 
-```json
-// %APPDATA%/Vyline/session.json (旧実装)
-// 新実装では SQLite に暗号化保存
-{
-  "accessToken": "eyJ...",
-  "refreshToken": "eyJ...",
-  "certificate": "...",
-  "device": "IOSIPAD"
-}
+現在の Vyline はアカウント単位で認証情報を分離する。
+
+```text
+Vyline/backend/data/accounts/<accountId>/
+  credentials.json  # primary access token + session metadata
+  protocol.json     # refreshToken / expire / cert / qrCert / channel / E2EE 等
 ```
+
+Windows の primary access token は DPAPI CurrentUser で保護する。
+V3 login で取得した refresh token と refresh 基準時刻は protocol storage に保存し、Vyline が必要に応じて自動更新する。
+
+自動更新は 3 箇所で行う。
+
+1. 起動時に `expire` が設定した refresh lead 以内なら refresh してからセッションを復元する。
+2. 起動中は 60 秒ごとに確認し、設定した refresh lead（既定 7 日前）に入ったら proactive refresh する。
+3. LINE が `MUST_REFRESH_V3_TOKEN` を返した場合は protocol request 層で refresh 後に元の RPC を再試行する。
+
+refresh response に新しい refresh token が含まれる場合は古い値を置き換える。これにより refresh-token rotation に追従する。
+同時 refresh は 1 本へまとめ、同一セッションで refresh RPC を重複させない。
+
+詳細: [LINE token lifecycle in Vyline](./analysis/token-lifecycle.md)
 
 > **同時ログイン**: Vyline 既定は `IOSIPAD`（`VYLINE_DEVICE`）。  
 > `DESKTOPWIN` のままだと公式 LINE Desktop Windows と同じスロットを占有し、互いにキックする。  
@@ -155,7 +166,12 @@ i32/i64: [zigzag varint]
 外部 `@evex/linejs` は使わない。backend が `@vyline/protocol` 経由でログインする。
 
 ```typescript
-import { loginWithQR, loginWithEmail, loginWithToken } from "@vyline/protocol";
+import {
+  loginWithQR,
+  loginWithEmail,
+  loginWithToken,
+  loginWithStoredRefreshToken,
+} from "@vyline/protocol";
 
 // QR ログイン（backend: POST /auth/qr 等）
 const session = await loginWithQR({/* … */});
@@ -163,12 +179,16 @@ const session = await loginWithQR({/* … */});
 // メールログイン（E2EE フロー — 本ドキュメント前半参照）
 const session = await loginWithEmail({ email, password });
 
-// トークン復元
-const session = await loginWithToken({ accessToken, refreshToken });
+// 保存済み access token からの復元
+const session = await loginWithToken(accessToken, init);
+
+// 保存済み refresh token から access token を更新して復元
+const refreshed = await loginWithStoredRefreshToken(init);
 ```
 
 - Desktop ヘッダー追従: `patchDesktopTransport` / `VylineUpdater`
 - ログイン RPC パッチ: `patchDesktopLogin`（DESKTOPWIN 時）
+- token refresh: `AuthService.tryRefreshToken()` / backend token watcher
 - 詳細: [packages/protocol/README.md](../Vyline/packages/protocol/README.md)
 
 ---

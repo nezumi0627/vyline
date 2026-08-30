@@ -70,10 +70,10 @@ Vyline は **外部 LINE.js に依存しない**。
 
 | 操作 | backend                           |
 | ---- | --------------------------------- |
-| 送信 | `POST /line/:id/send`             |
-| 取消 | `POST /line/:id/unsend`           |
-| 既読 | `POST /line/:id/read`             |
-| 履歴 | `GET /line/:id/messages/:chatMid` |
+| 送信 | `POST /line/:id/sendMessage`                         |
+| 取消 | `POST /line/:id/unsendMessage`                       |
+| 既読 | `POST /line/:id/sendChatChecked`                     |
+| 履歴 | `GET /line/:id/getPreviousMessagesV2WithRequest/:chatMid` |
 
 ---
 

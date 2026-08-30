@@ -57,7 +57,7 @@
 
 | カテゴリ | 内容 |
 | --- | --- |
-| **ログイン** | QR / Email ログイン、マルチアカウント、セッション復元 |
+| **ログイン** | QR / Email ログイン、マルチアカウント、セッション復元、V3 access token の自動リフレッシュ |
 | **メッセージ** | 送受信、返信、送信取り消し、既読制御、再送 |
 | **メンション** | `@ALL` / `@名前`、LINE Desktop 準拠の `MENTION` metadata |
 | **メディア** | 画像、動画、音声、LINE 絵文字（sticon）、スタンプ。画像の自動圧縮と高画質送信に対応 |
@@ -102,6 +102,12 @@ Vyline は個人開発のオープンソースプロジェクトです。支援�
 | [nezumi0627](https://github.com/nezumi0627) | リード開発者 |
 | [YoseiUshida](https://github.com/youseiushida) | 定期メンテナー |
 
+### Development Partner
+
+- [LEINs](https://github.com/areteruhiro/LEINs) — Development Partner
+
+Vyline と LEINs は、それぞれ独立したプロジェクトとして開発・運営を続けながら、必要に応じて開発や技術研究で協力します。
+
 ### メンテナー・コントリビューター募集
 
 Vyline の継続的な開発を支えるメンテナーとコントリビューターを募集しています。
@@ -121,6 +127,7 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 - **同意ゲート**: ログイン後に利用規約と免責事項を表示します。同意が完了するまで、同期・通信・メッセージ表示を含むアプリ機能は開始されません。ゲートの回避や改変はサポート対象外です。
 - **利用目的**: 教育、学習、研究、個人利用を想定しています。不正アクセス、攻撃、迷惑行為、権利侵害への利用は禁止します。
 - **データの保存**: ログイン情報、セッション、暗号鍵、トーク履歴は、ユーザーが管理するローカル環境またはセルフホスト先に保存されます。通常動作に必要な通信を除き、Vyline 開発者が運営する外部サーバーへ送信しません。
+- **ログイン状態の維持**: V3 対応ログインでは refresh token と更新時刻をローカルに保存し、access token は必要に応じて自動更新されます。既定では LINE の更新目安の 7 日前から更新を試し、設定 > ログイン・セッションで 1 日前などへ変更できます。Vyline を常時起動していなくても、次回起動時に更新時刻を確認して必要なら先に refresh します。LINE 側で端末認証が有効な限り、保存済みセッションを継続的に復元します。端末認証が解除・失効した場合は再ログインが必要です。詳細は [token lifecycle](docs/analysis/token-lifecycle.md) を参照してください。
 - **無保証**: 本ソフトウェアの使用により生じたアカウント停止、データ破損、損失、法的問題などについて、開発者およびコントリビューターは責任を負いません。
 - **解析ツール**: `tools/` 以下は [vyline-search](https://github.com/nezumi0627/vyline-search) を Git Submodule として参照します。教育・研究目的でのみ使用し、解析対象や解析結果を不適切に再配布しないでください。詳細は [docs/tools/DISCLAIMER.md](docs/tools/DISCLAIMER.md) を参照してください。
 - **ベータ機能**: 「ベータ機能」タブの機能は、全体の利用規約同意とは別に機能単位の説明・同意を表示します。同意ログとベータ機能の処理結果は端末内で扱い、メッセージ本文や確認結果を Vyline の外部サービスへ送信しません。LINE との通常の通信は発生します。これは法的助言ではありません。
@@ -507,6 +514,8 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 
 参加前に [コントリビューションガイド](docs/CONTRIBUTING.md) を確認してください。Pull Request に解析対象ソフトウェア、セッション、鍵、トークンなどの機密情報を含めないでください。
 
+並行開発では **`1 task = 1 branch = 1 git worktree`** を推奨します。repository全体を機能ごとにコピーせず、`Vyline-worktrees` 配下へタスク単位のworktreeを作成してください。詳しい手順は [Git Worktree 開発フロー](docs/development-worktrees.md) にまとめています。
+
 ### エージェント / Skill 方針
 
 開発では必要に応じて Ponytail、Caveman、agent-skills-standard、addyosmani agent-skills、Minimize-Cursor-Cost などの coding-agent 用 Skill を利用します。不要なコードと過剰設計を避け、レビュー品質を保つことが目的です。
@@ -520,6 +529,20 @@ bun run vyline:find-native -- sendMessage  # ネイティブシンボルを検�
 5. 実装量・トークン・コストの削減
 
 効率化よりも正確性と安全性を優先します。詳細は [AGENTS.md](AGENTS.md) を参照してください。
+
+---
+
+## References
+
+以下のプロジェクトは、Vyline の調査・研究・実装において技術的な参考資料として参照したものです。
+
+特記がない限り、これらのプロジェクトおよび開発者と Vyline の間に、公式な提携・所属・承認・その他の深い関係はありません。
+
+- [CHRLINE (old)](https://github.com/DeachSword/CHRLINE)
+- [CHRLINE-Thrift](https://github.com/DeachSword/CHRLINE-Thrift/)
+- [CHRLINE-Patch](https://github.com/WEDeach/CHRLINE-Patch)
+- [linejs](https://github.com/evex-dev/linejs)
+- [line-py](https://github.com/fadhiilrachman/line-py)
 
 ---
 

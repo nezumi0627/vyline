@@ -109,7 +109,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/profile",
+    "/line/{accountId}/getProfile",
     "get",
     {
       op: "getProfile",
@@ -121,6 +121,24 @@ const routes: Array<[string, Method, OpSpec]> = [
         "200": jsonRes("プロフィール"),
         "401": { description: "未ログイン", content: { "application/json": { schema: error } } },
       },
+    },
+  ],
+  [
+    "/line/{accountId}/updateProfileAttributes",
+    "patch",
+    {
+      op: "updateProfileAttributes",
+      summary: "プロフィール属性更新",
+      description: "LINE: TalkService.updateProfileAttributes",
+      tags: ["session"],
+      params: [acc],
+      requestBody: body([], {
+        displayName: { type: "string" },
+        statusMessage: { type: "string" },
+        phoneticName: { type: "string" },
+        musicProfile: { type: "string" },
+      }),
+      responses: { "200": jsonRes("プロフィール") },
     },
   ],
   [
@@ -161,7 +179,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/events/poll",
+    "/line/{accountId}/fetchOperations",
     "get",
     {
       op: "fetchOperations",
@@ -175,7 +193,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── chats ───────────────────────────────────────────────
   [
-    "/line/{accountId}/chats",
+    "/line/{accountId}/getMessageBoxes",
     "get",
     {
       op: "getMessageBoxes",
@@ -187,7 +205,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/create-group",
+    "/line/{accountId}/createChat",
     "post",
     {
       op: "createChat",
@@ -208,7 +226,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/{chatMid}/members",
+    "/line/{accountId}/getChatMembers/{chatMid}",
     "get",
     {
       op: "getChatMembers",
@@ -219,7 +237,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/{chatMid}/invite",
+    "/line/{accountId}/inviteIntoChat/{chatMid}",
     "post",
     {
       op: "inviteIntoChat",
@@ -273,7 +291,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── messages ────────────────────────────────────────────
   [
-    "/line/{accountId}/messages/{chatMid}",
+    "/line/{accountId}/getPreviousMessagesV2WithRequest/{chatMid}",
     "get",
     {
       op: "getPreviousMessagesV2WithRequest",
@@ -309,7 +327,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/messages/{chatMid}/delta",
+    "/line/{accountId}/getMessageDelta/{chatMid}",
     "get",
     {
       op: "getMessageDelta",
@@ -321,7 +339,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/messages/{chatMid}/{messageId}/history",
+    "/line/{accountId}/getMessageHistory/{chatMid}/{messageId}",
     "get",
     {
       op: "getMessageHistory",
@@ -333,7 +351,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/send",
+    "/line/{accountId}/sendMessage",
     "post",
     {
       op: "sendMessage",
@@ -368,7 +386,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/edit-notice/{chatMid}",
+    "/line/{accountId}/getEditNotice/{chatMid}",
     "get",
     {
       op: "getEditNotice",
@@ -380,7 +398,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/unsend",
+    "/line/{accountId}/unsendMessage",
     "post",
     {
       op: "unsendMessage",
@@ -393,7 +411,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/read",
+    "/line/{accountId}/sendChatChecked",
     "post",
     {
       op: "sendChatChecked",
@@ -409,7 +427,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/read-receipts/{chatMid}",
+    "/line/{accountId}/getMessageReadRange/{chatMid}",
     "get",
     {
       op: "getMessageReadRange",
@@ -583,7 +601,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers/can-create",
+    "/line/{accountId}/canCreateCombinationSticker",
     "post",
     {
       op: "canCreateCombinationSticker",
@@ -594,10 +612,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers/available",
+    "/line/{accountId}/isStickerAvailableForCombinationSticker",
     "post",
     {
-      op: "getAvailableCombinationStickers",
+      op: "isStickerAvailableForCombinationSticker",
       summary: "利用可能スタンプ一覧",
       tags: ["stickers"],
       params: [acc],
@@ -605,7 +623,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers",
+    "/line/{accountId}/createCombinationSticker",
     "post",
     {
       op: "createCombinationSticker",
@@ -646,7 +664,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── contacts ────────────────────────────────────────────
   [
-    "/line/{accountId}/contact/{targetMid}",
+    "/line/{accountId}/getContact/{targetMid}",
     "get",
     {
       op: "getContact",
@@ -658,7 +676,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/common-groups/{targetMid}",
+    "/line/{accountId}/getCommonGroupIds/{targetMid}",
     "get",
     {
       op: "getCommonGroupIds",
@@ -670,7 +688,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/contacts/{mid}/block",
+    "/line/{accountId}/blockContact/{mid}",
     "post",
     {
       op: "blockContact",
@@ -682,7 +700,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/contacts/{mid}/block",
+    "/line/{accountId}/unblockContact/{mid}",
     "delete",
     {
       op: "unblockContact",
@@ -694,10 +712,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/blocked",
+    "/line/{accountId}/getBlockedContactIds",
     "get",
     {
-      op: "getBlockedContacts",
+      op: "getBlockedContactIds",
       summary: "ブロックリスト取得",
       description: "キャッシュ + background キュー付き（504 回避）",
       tags: ["contacts"],
@@ -1272,24 +1290,24 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── announcements ───────────────────────────────────────
   [
-    "/line/{accountId}/announcements/{chatMid}",
+    "/line/{accountId}/getChatRoomAnnouncements/{chatMid}",
     "get",
     {
-      op: "getChatAnnouncements",
+      op: "getChatRoomAnnouncements",
       summary: "アナウンス一覧取得",
-      description: "LINE: getChatAnnouncementsV2",
+      description: "LINE: getChatRoomAnnouncements",
       tags: ["announcements"],
       params: [acc, chatMid],
       responses: { "200": jsonRes("アナウンス配列") },
     },
   ],
   [
-    "/line/{accountId}/announcements",
+    "/line/{accountId}/createChatRoomAnnouncement",
     "post",
     {
-      op: "createChatAnnouncement",
+      op: "createChatRoomAnnouncement",
       summary: "アナウンス作成",
-      description: "LINE: createChatAnnouncementV2",
+      description: "LINE: createChatRoomAnnouncement",
       tags: ["announcements"],
       params: [acc],
       requestBody: body(["chatMid", "text"], {
@@ -1301,12 +1319,12 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/announcements/{chatMid}/{seq}",
+    "/line/{accountId}/removeChatRoomAnnouncement/{chatMid}/{seq}",
     "delete",
     {
-      op: "removeChatAnnouncement",
+      op: "removeChatRoomAnnouncement",
       summary: "アナウンス削除",
-      description: "LINE: removeChatAnnouncementV2",
+      description: "LINE: removeChatRoomAnnouncement",
       tags: ["announcements"],
       params: [acc, chatMid, pathParam("seq", "アナウンス連番")],
       responses: { "200": okRes() },
@@ -1617,10 +1635,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/notifications",
+    "/line/{accountId}/setNotificationsEnabled",
     "post",
     {
-      op: "updateNotificationSettings",
+      op: "setNotificationsEnabled",
       summary: "通知設定更新",
       tags: ["misc"],
       params: [acc],

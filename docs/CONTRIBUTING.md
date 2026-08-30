@@ -1,6 +1,6 @@
 # CONTRIBUTING — Vyline への貢献ガイド
 
-最終更新: 2026-08-24
+最終更新: 2026-08-30
 
 新規参入者向け。**UI/UX を触らずにプロトコル・backend・protocol を伸ばす**ときの道筋です。
 
@@ -39,6 +39,12 @@ bun run dev   # backend :3001 + frontend :5173
 ```
 
 詳細: [development.md](./development.md)
+
+### 並行開発は Git worktree を使う
+
+Vyline の推奨開発方式は **`1 task = 1 branch = 1 git worktree`** です。複数のAIエージェント、人間、IDEが同時に作業する場合も、repository全体をコピーせずタスクごとにworktreeを分離してください。
+
+標準配置、作成・削除手順、競合時の扱いは [development-worktrees.md](./development-worktrees.md) を参照してください。
 
 ---
 

@@ -9,6 +9,7 @@ import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { QRCodeSVG } from "qrcode.react";
+import type { AccountSettings, SavedSession } from "@vyline/types";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -59,6 +60,7 @@ type Section =
   | "display"
   | "theme"
   | "privacy"
+  | "session"
   | "notifications"
   | "advanced"
   | "subdevices"
@@ -75,6 +77,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
+  { key: "session", label: "ログイン・セッション", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
@@ -150,7 +153,7 @@ export function SettingsSections() {
         displayName: nameDraft.trim(),
         statusMessage: statusDraft,
       };
-      const res = await api.line.updateProfile(accountId, body);
+      const res = await api.line.updateProfileAttributes(accountId, body);
       if (!res.ok || !res.profile) {
         setProfileMsg(
           res.ok === false ? ((res as { error?: string }).error ?? "更新失敗") : "更新失敗",
@@ -562,6 +565,8 @@ export function SettingsSections() {
 
               {section === "privacy" && <PrivacySection />}
 
+              {section === "session" && <SessionSection />}
+
               {section === "advanced" && <AdvancedSection />}
 
               {section === "subdevices" && <SubdevicesSection />}
@@ -692,6 +697,8 @@ function HandoffSection() {
   const accountId = useStore((s) => s.accountId);
   const updateSelf = useStore((s) => s.updateSelf);
   const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
+  const [savingDebug, setSavingDebug] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
   useEffect(() => {
@@ -702,7 +709,7 @@ function HandoffSection() {
     if (!accountId) return;
     let cancelled = false;
     void api.line
-      .profile(accountId)
+      .getProfile(accountId)
       .then((result) => {
         if (cancelled || !result.ok || !result.profile?.mid) return;
         setResolvedMid(result.profile.mid);
@@ -714,6 +721,36 @@ function HandoffSection() {
     };
   }, [accountId, mid, updateSelf]);
   const diagnosticMid = resolvedMid ?? mid;
+  useEffect(() => {
+    if (!diagnosticMid) return;
+    let cancelled = false;
+    void api.settings
+      .account(diagnosticMid)
+      .then((result) => {
+        if (!cancelled && result.ok) setAccountSettings(result.settings);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [diagnosticMid]);
+
+  const setDebugEnabled = async (enabled: boolean) => {
+    if (!diagnosticMid || !accountSettings || savingDebug) return;
+    setSavingDebug(true);
+    setMessage(null);
+    try {
+      const result = await api.settings.saveAccount(diagnosticMid, {
+        debug: { ...accountSettings.debug, enabled },
+      });
+      setAccountSettings(result.settings);
+      setMessage(enabled ? "デバッグログの記録を開始しました" : "デバッグログの記録を停止しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "デバッグログ設定の保存に失敗しました");
+    } finally {
+      setSavingDebug(false);
+    }
+  };
   const download = (name: string, content: BlobPart, type: string) => {
     const url = URL.createObjectURL(new Blob([content], { type }));
     const anchor = document.createElement("a");
@@ -830,6 +867,16 @@ function HandoffSection() {
       </Section>
       <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
         <Card>
+          <Row
+            title="デバッグログを記録"
+            desc="既定でONです。起動・セッション復元などの診断情報をサニタイズして保存します"
+          >
+            <Toggle
+              checked={accountSettings?.debug.enabled ?? true}
+              disabled={savingDebug || !accountSettings}
+              onChange={(enabled) => void setDebugEnabled(enabled)}
+            />
+          </Row>
           <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
             <button
               type="button"
@@ -1190,7 +1237,142 @@ function ThemeSectionWithPreview() {
   );
 }
 
-type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
+type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
+
+const TOKEN_REFRESH_PRESETS = [
+  { seconds: 30 * 24 * 60 * 60, label: "30日前" },
+  { seconds: 7 * 24 * 60 * 60, label: "7日前" },
+  { seconds: 3 * 24 * 60 * 60, label: "3日前" },
+  { seconds: 24 * 60 * 60, label: "1日前" },
+  { seconds: 6 * 60 * 60, label: "6時間前" },
+  { seconds: 60 * 60, label: "1時間前" },
+] as const;
+
+function formatTokenSchedule(timestamp: number): string {
+  const date = new Date(timestamp);
+  const absolute = date.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const diff = timestamp - Date.now();
+  if (diff <= 0) return `${absolute}（次回の監視・起動時に更新）`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days >= 1) return `${absolute}（約${days}日後）`;
+  const hours = Math.max(1, Math.floor(diff / 3_600_000));
+  return `${absolute}（約${hours}時間後）`;
+}
+
+function SessionSection() {
+  const accountId = useStore((s) => s.accountId);
+  const selfMid = useStore((s) => s.self.mid);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
+  const [session, setSession] = useState<SavedSession | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    void api.auth.sessions().then(async (res) => {
+      if (cancelled || !res.ok) return;
+      const current = res.sessions.find((item) => item.accountId === accountId) ?? null;
+      setSession(current);
+      const mid = current?.mid ?? selfMid;
+      if (!mid) return;
+      const settingsRes = await api.settings.account(mid);
+      if (!cancelled && settingsRes.ok) setAccountSettings(settingsRes.settings);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, selfMid]);
+
+  const saveRefreshLead = async (seconds: number) => {
+    const mid = session?.mid ?? selfMid;
+    if (!mid || !accountSettings || saving) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await api.settings.saveAccount(mid, {
+        auth: { ...accountSettings.auth, tokenRefreshLeadSeconds: seconds },
+      });
+      if (!res.ok) throw new Error("設定の保存に失敗しました");
+      setAccountSettings(res.settings);
+      setMessage("自動更新タイミングを保存しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "設定の保存に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const leadSeconds = accountSettings?.auth.tokenRefreshLeadSeconds ?? 7 * 24 * 60 * 60;
+  const plannedRefreshAt = session?.tokenRefreshAt
+    ? session.tokenRefreshAt - leadSeconds * 1000
+    : null;
+
+  return (
+    <Section
+      title="ログイン・セッション"
+      desc="LINE の access token を再ログインなしで安全に更新するタイミングを管理します"
+    >
+      <Card>
+        <div className="py-4">
+          <p className="text-sm font-medium">Access token の自動更新</p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+            Vyline
+            を常時起動していなくても、起動時に期限を確認します。選んだ余裕幅に入っていれば、保存済み
+            refresh token で先に更新してからセッションを復元します。
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {TOKEN_REFRESH_PRESETS.map((preset) => (
+              <button
+                key={preset.seconds}
+                type="button"
+                disabled={saving || !accountSettings}
+                onClick={() => void saveRefreshLead(preset.seconds)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  leadSeconds === preset.seconds
+                    ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_14%,transparent)] text-[var(--vy-accent)]"
+                    : "border-[var(--vy-border)] hover:bg-[var(--vy-surface-2)]",
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Row
+          title="現在の設定"
+          desc={`LINE の更新目安より ${TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? `${Math.round(leadSeconds / 3600)}時間前`} から更新を試します`}
+        >
+          <span className="text-xs font-medium text-[var(--vy-text)]">
+            {TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? "カスタム"}
+          </span>
+        </Row>
+        <Row title="次回の更新目安" desc="LINE が返した更新時刻と現在の設定から算出した目安です">
+          <span className="max-w-[260px] text-right text-xs text-[var(--vy-text-dim)]">
+            {plannedRefreshAt
+              ? formatTokenSchedule(plannedRefreshAt)
+              : "更新時刻をまだ取得できていません"}
+          </span>
+        </Row>
+        <Row
+          title="自動更新の状態"
+          desc="端末認証が LINE 側で解除された場合のみ、再ログインが必要です"
+        >
+          <span className="text-xs font-medium">
+            {session?.hasRefreshToken ? "自動更新できます" : "refresh token 未保存"}
+          </span>
+        </Row>
+      </Card>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
+    </Section>
+  );
+}
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
@@ -1226,7 +1408,7 @@ function AdvancedSection() {
     setRestoring(true);
     setRestoreResult(null);
     try {
-      const res = await api.line.restoreDesktop(accountId);
+      const res = await api.line.restoreFromDesktop(accountId);
       setRestoreResult(res);
     } catch (e) {
       setRestoreResult({
@@ -1695,7 +1877,7 @@ function StorageSection() {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await api.line.vylineStorage(accountId);
+      const res = await api.line.getVylineStorageInfo(accountId);
       if (res.ok) setStorage(res);
       else setMsg(res.error ?? "取得に失敗しました");
     } catch (e) {
@@ -1839,9 +2021,7 @@ function StorageSection() {
           ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
-          onDelete={() =>
-            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId!))
-          }
+          onDelete={() => clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))}
           disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
@@ -1853,7 +2033,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId!))
+            clearType("アイコンキャッシュ", () => api.line.clearIconCache(accountId!))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
@@ -1868,7 +2048,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId!, "image"))
+            clearType("保存画像", () => api.line.clearSavedMediaByType(accountId!, "image"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#3b82f6"
@@ -1883,7 +2063,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId!, "video"))
+            clearType("保存動画", () => api.line.clearSavedMediaByType(accountId!, "video"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#a855f7"
@@ -1898,7 +2078,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId!, "audio"))
+            clearType("保存音声", () => api.line.clearSavedMediaByType(accountId!, "audio"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#22c55e"
@@ -1913,7 +2093,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId!, "file"))
+            clearType("保存ファイル", () => api.line.clearSavedMediaByType(accountId!, "file"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#6b7280"
@@ -2157,7 +2337,7 @@ function NotificationsSection() {
     setSaving(true);
     setMsg(null);
     try {
-      const res = await api.line.setNotification(accountId, next);
+      const res = await api.line.setNotificationsEnabled(accountId, next);
       if (!res.ok) throw new Error(res.error ?? "失敗");
       updateSetting("notificationsEnabled", next);
       // マスタースイッチが無効のままなら通知は鳴らないので明示する
@@ -2212,7 +2392,7 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.setProxy(accountId!, enabled, proxyUrl);
+      const res = await api.line.setProxySettings(accountId!, enabled, proxyUrl);
       setProxyMsg(
         res.ok
           ? enabled
@@ -2235,13 +2415,13 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.blockedContacts(accountId!);
+      const res = await api.line.getBlockedContactIds(accountId!);
       const mids = res.ok ? (res.mids ?? []) : [];
       // プロフィール取得
       const withProfiles = await Promise.all(
         mids.map(async (mid) => {
           try {
-            const prof = await api.line.contactProfile(accountId!, mid);
+            const prof = await api.line.getContact(accountId!, mid);
             if (!prof.ok) return { mid };
             return {
               mid,

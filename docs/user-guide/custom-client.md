@@ -53,21 +53,21 @@ Public API (/v1) を使う場合は `Authorization: Bearer vyl_...` ヘッダー
 
 | 操作 | エンドポイント |
 |---|---|
-| プロフィール | `GET /line/:accountId/profile` |
-| チャット一覧 | `GET /line/:accountId/chats` |
-| メッセージ取得 | `GET /line/:accountId/messages/:chatMid?limit=30` |
-| テキスト送信 | `POST /line/:accountId/send` `{chatMid, text}` |
+| プロフィール | `GET /line/:accountId/getProfile` |
+| チャット一覧 | `GET /line/:accountId/getMessageBoxes` |
+| メッセージ取得 | `GET /line/:accountId/getPreviousMessagesV2WithRequest/:chatMid?limit=30` |
+| テキスト送信 | `POST /line/:accountId/sendMessage` `{chatMid, text}` |
 | 画像送信(複数) | `POST /line/:accountId/send-media-batch` |
 | スタンプ送信 | `POST /line/:accountId/send-sticker` |
-| 既読 | `POST /line/:accountId/read` |
-| 新着待機 | `GET /line/:accountId/events/poll` |
+| 既読 | `POST /line/:accountId/sendChatChecked` |
+| 新着待機 | `GET /line/:accountId/fetchOperations` |
 
 完全な一覧は `/openapi.json`、サンプルコードは
 [examples/api](../../examples/api/) を参照してください。
 
 ## 4. 設計のヒント
 
-- **ポーリングより長ポール**: `/events/poll` はサーバー側で最大 60 秒待つため、
+- **ポーリングより長ポール**: `/fetchOperations` はサーバー側で最大 60 秒待つため、
   短いインターバルの再試行より効率的です
 - **メディアは URL で受ける**: 画像は `GET /line/:a/media/:chatMid/:messageId`
   （キャッシュ付き）。base64 で受けないこと

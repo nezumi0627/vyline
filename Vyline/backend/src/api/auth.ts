@@ -14,6 +14,7 @@
  * DELETE /auth/accounts/:id — アカウント削除
  */
 
+import { randomInt } from "node:crypto";
 import { Hono } from "hono";
 import { childLogger } from "../logger.js";
 import {
@@ -28,6 +29,7 @@ import {
   getContentQrState,
   loginContentWithQRCode,
   removeClient,
+  waitForSessionRestore,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
 
@@ -39,8 +41,9 @@ const emailLoginState = new Map<
   { status: EmailLoginStatus; pincode: string | null; error: string | null }
 >();
 
+// 端末確認 PIN は認証情報。Math.random は予測可能なため CSPRNG を使う。
 function random6DigitPin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+  return String(randomInt(100000, 1000000));
 }
 
 // ─────────────────────────────────────────────
@@ -333,6 +336,7 @@ authRouter.post("/switch/:id", async (c) => {
 // GET /auth/accounts
 // ─────────────────────────────────────────────
 authRouter.get("/accounts", async (c) => {
+  await waitForSessionRestore();
   const active = listAccounts();
   const saved = await loadTokens();
   const sessions = await listSavedSessions();
