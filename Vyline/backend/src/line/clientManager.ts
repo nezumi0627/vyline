@@ -28,6 +28,7 @@ import {
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
+import { appendDiagnostic } from "../service/diagnosticsService.js";
 import { restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
@@ -661,10 +662,61 @@ async function restoreAllSessionsImpl(): Promise<void> {
   log.info({ count: ids.length }, "restoring sessions");
   await Promise.allSettled(
     ids.map(async (id) => {
+      const mid = tokens[id]?.mid;
+      if (mid) {
+        await appendDiagnostic(
+          mid,
+          {
+            appVersion: process.env.npm_package_version ?? "dev",
+            buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+            platform: "desktop",
+            runtime: `bun ${Bun.version}`,
+            os: process.platform,
+            connection: { state: "session-restore-start" },
+            screen: "startup",
+          },
+          { event: "backend-startup", accountId: id },
+        ).catch(() => undefined);
+      }
       try {
         await loginWithToken(id);
+        if (mid) {
+          await appendDiagnostic(
+            mid,
+            {
+              appVersion: process.env.npm_package_version ?? "dev",
+              buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+              platform: "desktop",
+              runtime: `bun ${Bun.version}`,
+              os: process.platform,
+              connection: { state: "session-restored" },
+              screen: "startup",
+            },
+            { event: "session-restore-success", accountId: id },
+          ).catch(() => undefined);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (mid) {
+          await appendDiagnostic(
+            mid,
+            {
+              appVersion: process.env.npm_package_version ?? "dev",
+              buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+              platform: "desktop",
+              runtime: `bun ${Bun.version}`,
+              os: process.platform,
+              error: {
+                name: err instanceof Error ? err.name : "Error",
+                message: msg,
+                ...(err instanceof Error && err.stack ? { stack: err.stack } : {}),
+              },
+              connection: { state: "session-restore-failed" },
+              screen: "startup",
+            },
+            { event: "session-restore-failed", accountId: id },
+          ).catch(() => undefined);
+        }
         const authFailed =
           msg.includes("AUTHENTICATION_FAILED") ||
           msg.includes("Authentication Failed") ||

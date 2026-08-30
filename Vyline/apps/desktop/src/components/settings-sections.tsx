@@ -697,6 +697,8 @@ function HandoffSection() {
   const accountId = useStore((s) => s.accountId);
   const updateSelf = useStore((s) => s.updateSelf);
   const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
+  const [savingDebug, setSavingDebug] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
   useEffect(() => {
@@ -719,6 +721,36 @@ function HandoffSection() {
     };
   }, [accountId, mid, updateSelf]);
   const diagnosticMid = resolvedMid ?? mid;
+  useEffect(() => {
+    if (!diagnosticMid) return;
+    let cancelled = false;
+    void api.settings
+      .account(diagnosticMid)
+      .then((result) => {
+        if (!cancelled && result.ok) setAccountSettings(result.settings);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [diagnosticMid]);
+
+  const setDebugEnabled = async (enabled: boolean) => {
+    if (!diagnosticMid || !accountSettings || savingDebug) return;
+    setSavingDebug(true);
+    setMessage(null);
+    try {
+      const result = await api.settings.saveAccount(diagnosticMid, {
+        debug: { ...accountSettings.debug, enabled },
+      });
+      setAccountSettings(result.settings);
+      setMessage(enabled ? "デバッグログの記録を開始しました" : "デバッグログの記録を停止しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "デバッグログ設定の保存に失敗しました");
+    } finally {
+      setSavingDebug(false);
+    }
+  };
   const download = (name: string, content: BlobPart, type: string) => {
     const url = URL.createObjectURL(new Blob([content], { type }));
     const anchor = document.createElement("a");
@@ -835,6 +867,16 @@ function HandoffSection() {
       </Section>
       <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
         <Card>
+          <Row
+            title="デバッグログを記録"
+            desc="既定でONです。起動・セッション復元などの診断情報をサニタイズして保存します"
+          >
+            <Toggle
+              checked={accountSettings?.debug.enabled ?? true}
+              disabled={savingDebug || !accountSettings}
+              onChange={(enabled) => void setDebugEnabled(enabled)}
+            />
+          </Row>
           <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
             <button
               type="button"
