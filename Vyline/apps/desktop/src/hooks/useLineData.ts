@@ -40,6 +40,10 @@ interface UseLineDataOptions {
 }
 
 export function useLineData({ accountId }: UseLineDataOptions) {
+  // State below is reset in an effect, so during the first render after an account
+  // switch it still belongs to the previous account. Keep that ownership explicit
+  // so useVylineSync never hydrates stale account data into the new store.
+  const [dataAccountId, setDataAccountId] = useState<string | null>(accountId);
   const [profile, setProfile] = useState<LineProfile | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const chatsRef = useRef(chats);
@@ -58,10 +62,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const contactCacheRef = useRef(contactCache);
   contactCacheRef.current = contactCache;
   const contactFetching = useRef<Set<string>>(new Set());
+  // account 切替前の Promise が残っていても、新アカウントの初期ロードを止めない。
+  // boolean だけだと account-1 の finally が account-2 の in-flight 状態まで解除してしまう。
   const inFlight = useRef({
-    profile: false,
-    chats: false,
-    bootstrap: false,
+    profile: new Set<string>(),
+    chats: new Set<string>(),
+    bootstrap: new Set<string>(),
   });
   const bootstrapMessages = useRef<Map<string, Message[]>>(new Map());
   const historyWindows = useRef<Map<string, ChatHistoryWindow>>(new Map());
@@ -126,6 +132,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       api.line
         .contactProfile(accountId, mid)
         .then((res) => {
+          if (accountIdRef.current !== accountId) return;
           if (!res.ok || !res.profile) return;
           mergeContact(mid, {
             name: res.profile.displayName || undefined,
@@ -159,23 +166,23 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   );
 
   const loadProfile = useCallback(async () => {
-    if (!accountId || inFlight.current.profile) return;
-    inFlight.current.profile = true;
+    if (!accountId || inFlight.current.profile.has(accountId)) return;
+    inFlight.current.profile.add(accountId);
     setLoadingProfile(true);
     try {
       const res = await api.line.profile(accountId);
       if (accountIdRef.current !== accountId) return;
       if (res.ok && res.profile) setProfile(res.profile);
     } finally {
-      setLoadingProfile(false);
-      inFlight.current.profile = false;
+      inFlight.current.profile.delete(accountId);
+      if (accountIdRef.current === accountId) setLoadingProfile(false);
     }
   }, [accountId]);
 
   const loadChats = useCallback(
     async (opts?: { light?: boolean; refresh?: boolean; force?: boolean }) => {
-      if (!accountId || inFlight.current.chats) return;
-      inFlight.current.chats = true;
+      if (!accountId || inFlight.current.chats.has(accountId)) return;
+      inFlight.current.chats.add(accountId);
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
@@ -201,8 +208,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           prefetchContacts(warmTargets, 10);
         }
       } finally {
-        setLoadingChats(false);
-        inFlight.current.chats = false;
+        inFlight.current.chats.delete(accountId);
+        if (accountIdRef.current === accountId) setLoadingChats(false);
       }
     },
     [accountId, applyChatsToContactCache, prefetchContacts],
@@ -383,8 +390,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
-    if (!accountId || inFlight.current.bootstrap) return;
-    inFlight.current.bootstrap = true;
+    if (!accountId || inFlight.current.bootstrap.has(accountId)) return;
+    inFlight.current.bootstrap.add(accountId);
     try {
       const res = await api.line.bootstrap(accountId);
       if (accountIdRef.current !== accountId) return;
@@ -419,7 +426,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     } catch {
       /* bootstrap optional */
     } finally {
-      inFlight.current.bootstrap = false;
+      inFlight.current.bootstrap.delete(accountId);
     }
   }, [accountId, applyChatsToContactCache]);
 
@@ -445,6 +452,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
     messagesGen.current += 1;
+    setDataAccountId(accountId);
     setProfile(null);
     setChats([]);
     setSelectedChatMid("");
@@ -515,6 +523,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }, [contactCache]);
 
   return {
+    dataAccountId,
     profile,
     chats,
     selectedChatMid,

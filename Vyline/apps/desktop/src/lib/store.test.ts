@@ -86,4 +86,40 @@ describe("useStore account initialization", () => {
 
     expect(useStore.getState().activeChatId).toBeNull();
   });
+
+  it("does not leak the previous account profile into the next account", () => {
+    useStore.setState({
+      accountId: "account-1",
+      self: {
+        name: "Account One",
+        avatar: "A",
+        avatarUrl: "https://example.com/a.png",
+        status: "old",
+        mid: "u-account-1",
+      },
+    });
+
+    useStore.getState().setAccountId("account-2");
+
+    expect(useStore.getState().self).toEqual({ name: "Vyline", avatar: "V", status: "" });
+  });
+
+  it("hydrates the active account MID along with its profile", () => {
+    useStore.setState({ accountId: "account-2", chats: [], messages: [] });
+
+    useStore.getState().hydrateLineData({
+      profile: {
+        mid: "u-account-2",
+        displayName: "Account Two",
+        statusMessage: "ready",
+      },
+      chats: [],
+      messages: [],
+      hiddenMids: new Set(),
+      contactCache: new Map(),
+    });
+
+    expect(useStore.getState().self.mid).toBe("u-account-2");
+    expect(useStore.getState().self.name).toBe("Account Two");
+  });
 });

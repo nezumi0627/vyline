@@ -1,11 +1,24 @@
 import { describe, expect, it } from "bun:test";
 import {
   addChatPane,
+  chatPaneDropEffect,
   closeChatPaneAt,
   equalChatPaneSizes,
   replaceFocusedChatPane,
   resizeAdjacentChatPanes,
 } from "./chatPanes.js";
+
+describe("chat drag and drop", () => {
+  it("copies sidebar chats into panes and moves existing pane drags", () => {
+    expect(chatPaneDropEffect(["application/x-vyline-chat"])).toBe("copy");
+    expect(
+      chatPaneDropEffect([
+        "application/x-vyline-chat",
+        "application/x-vyline-chat-pane-index",
+      ]),
+    ).toBe("move");
+  });
+});
 
 describe("chat pane state", () => {
   it("adds unique panes up to four and focuses an existing pane", () => {

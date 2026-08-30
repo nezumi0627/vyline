@@ -113,6 +113,10 @@ function rememberLastOpenedChat(accountId: string, chatId: string): void {
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
 
+function emptySelfProfile(): SelfProfile {
+  return { name: "Vyline", avatar: "V", status: "" };
+}
+
 function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
   const contactCache = new Map<string, ContactInfo>();
   for (const c of chats) {
@@ -562,7 +566,7 @@ export const useStore = create<State>()(
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
-      self: { name: "Vyline", avatar: "V", status: "" },
+      self: emptySelfProfile(),
       sidebarWidth: 360,
       sidebarCollapsed: false,
       customOrder: [],
@@ -609,6 +613,8 @@ export const useStore = create<State>()(
             initialChatScrollMessageId: null,
             initialChatScrollMode: null,
             memberProfile: null,
+            profileDrawerOpen: false,
+            self: emptySelfProfile(),
             readWatermarks: {},
             announcements: {},
             readDisabledMids: {},
@@ -635,6 +641,7 @@ export const useStore = create<State>()(
         set({
           chats: [],
           messages: [],
+          self: emptySelfProfile(),
           profileDrawerOpen: false,
           announcements: {},
           drafts: {},

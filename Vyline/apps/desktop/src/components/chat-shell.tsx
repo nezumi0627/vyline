@@ -7,6 +7,7 @@ import { IconPanelLeft } from "@/components/icons";
 import {
   CHAT_PANE_DRAG_TYPE,
   CHAT_PANE_SOURCE_TYPE,
+  chatPaneDropEffect,
   chatPaneDropPlan,
   chatPaneRects,
   equalChatPaneSizes,
@@ -325,17 +326,21 @@ function ChatShellBase() {
     const preview = computeDropPreview(event);
     if (!preview) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "move";
+    event.stopPropagation();
+    event.dataTransfer.dropEffect = chatPaneDropEffect(Array.from(event.dataTransfer.types));
     setDropPreview(preview);
   };
 
   const handleChatDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!isDesktop) return;
+    if (!isDesktop || !hasChatDrag(event)) return;
+    // drop を受理することを最初に確定する。validation 後の preventDefault では
+    // Chromium が「禁止された drop」として先に破棄するケースがある。
+    event.preventDefault();
+    event.stopPropagation();
     const chatId = event.dataTransfer.getData(CHAT_PANE_DRAG_TYPE);
     const preview = computeDropPreview(event) ?? dropPreview;
     setDropPreview(null);
     if (!chatId || !preview || !chats.some((chat) => chat.id === chatId)) return;
-    event.preventDefault();
 
     const isExisting = paneIds.includes(chatId);
     if (!isExisting && paneIds.length >= 4) {

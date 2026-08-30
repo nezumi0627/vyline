@@ -170,6 +170,9 @@ export function useVylineSync(enabled = true) {
 
   useEffect(() => {
     if (!enabled || !accountId) return;
+    // useLineData state is effect-reset on account changes. During the transition
+    // render it can still contain the previous account, so never hydrate it here.
+    if (line.dataAccountId !== accountId) return;
 
     if (!line.chats.length && useStore.getState().chats.length > 0) return;
 
@@ -180,6 +183,7 @@ export function useVylineSync(enabled = true) {
       hydrateLineData({
         profile: line.profile
           ? {
+              mid: line.profile.mid,
               displayName: line.profile.displayName,
               phoneticName: line.profile.phoneticName,
               pictureStatus: line.profile.pictureStatus,
@@ -211,6 +215,8 @@ export function useVylineSync(enabled = true) {
     enabled,
 
     accountId,
+
+    line.dataAccountId,
 
     line.profile,
 

@@ -377,30 +377,29 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
 
   void persist("initial");
 
-  // プロフィール取得後に表示名などを追記
-  void client.base.talk
-    .getProfile()
-    .then(async (profile) => {
-      client.base.profile = profile;
-      const meta: {
-        mid?: string;
-        displayName?: string;
-        picturePath?: string;
-        statusMessage?: string;
-      } = {};
-      if (profile.mid) meta.mid = String(profile.mid);
-      if (profile.displayName) meta.displayName = String(profile.displayName);
-      const pic =
-        (profile as { picturePath?: string }).picturePath ??
-        (profile as { pictureStatus?: string }).pictureStatus;
-      if (pic) meta.picturePath = String(pic);
-      if (profile.statusMessage) meta.statusMessage = String(profile.statusMessage);
-      await updateSessionMeta(accountId, meta);
-      await persist("profile");
-    })
-    .catch((err) => {
-      log.debug({ accountId, err }, "profile enrich for session skipped");
-    });
+  // activateClient() が取得済みの profile を再利用する。未取得時だけ RPC する。
+  // ログイン直後に同じ getProfile を重ねると複数 account の H2 初期化と競合しやすい。
+  void (async () => {
+    const profile = client.base.profile ?? (await client.base.talk.getProfile());
+    client.base.profile = profile;
+    const meta: {
+      mid?: string;
+      displayName?: string;
+      picturePath?: string;
+      statusMessage?: string;
+    } = {};
+    if (profile.mid) meta.mid = String(profile.mid);
+    if (profile.displayName) meta.displayName = String(profile.displayName);
+    const pic =
+      (profile as { picturePath?: string }).picturePath ??
+      (profile as { pictureStatus?: string }).pictureStatus;
+    if (pic) meta.picturePath = String(pic);
+    if (profile.statusMessage) meta.statusMessage = String(profile.statusMessage);
+    await updateSessionMeta(accountId, meta);
+    await persist("profile");
+  })().catch((err) => {
+    log.debug({ accountId, err }, "profile enrich for session skipped");
+  });
 
   let lastToken = String(client.authToken ?? client.base.authToken ?? "");
   const interval = setInterval(
@@ -417,6 +416,108 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
 }
 
 const tokenWatchIntervals = new Map<string, ReturnType<typeof setInterval>>();
+
+const SESSION_READY_GRACE_MS = 1_500;
+const SESSION_READY_RETRY_DELAYS_MS = [0, 250, 750] as const;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * protocol は authToken 発行直後に client を返すため、特に 2 アカウント目以降では
+ * loginProcess.ready()（getProfile）がまだ完了していないことがある。
+ * その状態で fetchOps / Talk RPC を開始すると「active だが送受信不能」な半端な
+ * セッションになるので、バックエンドに登録する前に Talk が使える状態まで待つ。
+ *
+ * E2EE の後処理は protocol 側で best-effort のまま継続する。ここでは profile 取得だけを
+ * readiness 条件にして、既に発行済みの token を E2EE enrichment の失敗で捨てない。
+ */
+async function ensureOperationalSession(client: VylineClient, accountId: string): Promise<void> {
+  if (client.base.profile?.mid) return;
+
+  // protocol の post-auth finalize が先に完了するなら、その結果をそのまま使う。
+  const deadline = Date.now() + SESSION_READY_GRACE_MS;
+  while (!client.base.profile?.mid && Date.now() < deadline) {
+    await sleep(50);
+  }
+  if (client.base.profile?.mid) return;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < SESSION_READY_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = SESSION_READY_RETRY_DELAYS_MS[attempt]!;
+    if (delayMs > 0) await sleep(delayMs);
+    try {
+      await client.base.loginProcess.ready();
+      if (client.base.profile?.mid) {
+        log.debug({ accountId, attempt: attempt + 1 }, "authenticated session is ready");
+        return;
+      }
+      lastError = new Error("profile unavailable after login readiness check");
+    } catch (error) {
+      lastError = error;
+      log.warn(
+        { accountId, attempt: attempt + 1, error },
+        "authenticated session not ready yet; retrying",
+      );
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`authenticated session not ready: ${accountId}`);
+}
+
+async function persistIssuedToken(client: VylineClient, accountId: string): Promise<void> {
+  const token = client.authToken ?? client.base.authToken;
+  if (!token) throw new Error(`login returned without auth token: ${accountId}`);
+
+  const profile = client.base.profile;
+  const meta: {
+    mid?: string;
+    displayName?: string;
+    picturePath?: string;
+    statusMessage?: string;
+    deviceMode?: string;
+  } = { deviceMode: String(client.base.device) };
+  if (profile?.mid) meta.mid = String(profile.mid);
+  if (profile?.displayName) meta.displayName = String(profile.displayName);
+  const picturePath =
+    (profile as { picturePath?: string } | undefined)?.picturePath ??
+    (profile as { pictureStatus?: string } | undefined)?.pictureStatus;
+  if (picturePath) meta.picturePath = String(picturePath);
+  if (profile?.statusMessage) meta.statusMessage = String(profile.statusMessage);
+
+  try {
+    // ready() が失敗しても LINE が発行した token 自体は失わない。次回 restore で再試行できる。
+    await saveToken(accountId, token, meta);
+  } catch (error) {
+    log.warn({ accountId, error }, "issued auth token could not be persisted immediately");
+  }
+}
+
+async function activateClient(accountId: string, client: VylineClient): Promise<VylineClient> {
+  // Persist once as soon as LINE issues the token, then again after ready() so
+  // account metadata (MID/name/avatar) is guaranteed to be available to the UI.
+  await persistIssuedToken(client, accountId);
+  await ensureOperationalSession(client, accountId);
+  await persistIssuedToken(client, accountId);
+
+  clients.set(accountId, {
+    client,
+    accountId,
+    qrUrl: null,
+    qrExpired: false,
+    pincode: null,
+    loggedInAt: Date.now(),
+  });
+  watchAuthToken(client, accountId);
+  void warmLineCache(accountId).catch((error) =>
+    log.warn({ accountId, error }, "post-login cache warm skipped"),
+  );
+  restorePluginsForSession(accountId);
+  return client;
+}
 
 export async function loginWithEmail(
   accountId: string,
@@ -449,17 +550,7 @@ export async function loginWithEmail(
     loginInit(accountId),
   );
 
-  clients.set(accountId, {
-    client,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
-    pincode: null,
-    loggedInAt: Date.now(),
-  });
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
-  restorePluginsForSession(accountId);
+  await activateClient(accountId, client);
   log.info({ accountId }, "email login success");
   return client;
 }
@@ -524,31 +615,13 @@ export async function loginWithQRCode(
         loginInit(accountId),
       );
 
-      const token = client.authToken ?? client.base.authToken;
-      if (!token) throw new Error("QR login returned without auth token");
-
-      clients.set(accountId, {
-        client,
-        accountId,
-        qrUrl: null,
-        qrExpired: false,
-        pincode: null,
-        loggedInAt: Date.now(),
-      });
+      await activateClient(accountId, client);
       state.url = null;
       state.expired = false;
       state.pincode = null;
       state.inProgress = false;
       state.error = null;
 
-      // Everything below is enrichment. The authenticated client is already
-      // visible to /auth/accounts so a late E2EE/profile/cache failure cannot
-      // make account 2+ disappear after LINE accepted the login.
-      watchAuthToken(client, accountId);
-      void warmLineCache(accountId).catch((error) =>
-        log.warn({ accountId, error }, "post-login cache warm skipped"),
-      );
-      restorePluginsForSession(accountId);
       log.info({ accountId }, "QR login success");
       return client;
     } catch (err) {
@@ -592,17 +665,7 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
       ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
     });
 
-    clients.set(accountId, {
-      client,
-      accountId,
-      qrUrl: null,
-      qrExpired: false,
-      pincode: null,
-      loggedInAt: Date.now(),
-    });
-    watchAuthToken(client, accountId);
-    void warmLineCache(accountId).catch(() => undefined);
-    restorePluginsForSession(accountId);
+    await activateClient(accountId, client);
     log.info({ accountId }, "token login success");
     return client;
   })();
@@ -632,17 +695,7 @@ export async function loginWithAuthToken(
     ...(deviceMode ? { deviceMode } : {}),
   });
 
-  clients.set(accountId, {
-    client,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
-    pincode: null,
-    loggedInAt: Date.now(),
-  });
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
-  restorePluginsForSession(accountId);
+  await activateClient(accountId, client);
   log.info({ accountId }, "authToken login success");
   return client;
 }

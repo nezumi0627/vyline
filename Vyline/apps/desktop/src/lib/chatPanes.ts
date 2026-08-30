@@ -2,6 +2,10 @@ export const CHAT_PANE_DRAG_TYPE = "application/x-vyline-chat";
 export const CHAT_PANE_SOURCE_TYPE = "application/x-vyline-chat-pane-index";
 export const MAX_CHAT_PANES = 4;
 
+export function chatPaneDropEffect(types: readonly string[]): "copy" | "move" {
+  return types.includes(CHAT_PANE_SOURCE_TYPE) ? "move" : "copy";
+}
+
 export type ChatPaneState = {
   ids: string[];
   sizes: number[];

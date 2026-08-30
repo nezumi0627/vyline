@@ -707,7 +707,9 @@ const ChatRow = memo(function ChatRow({
       data-vy-chat-row
       draggable
       onDragStart={(event) => {
-        event.dataTransfer.effectAllowed = reorderable ? "copyMove" : "copy";
+        // 一覧の並べ替えは move、トーク領域への分割追加は copy。
+        // source 側で copy のみにすると target が move を選んだ瞬間に drop 自体が拒否される。
+        event.dataTransfer.effectAllowed = "copyMove";
         event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chat.id);
         event.dataTransfer.setData("text/plain", chat.id);
         if (event.currentTarget instanceof HTMLElement) {
