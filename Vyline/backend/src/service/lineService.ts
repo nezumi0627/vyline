@@ -2665,7 +2665,9 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      const needsBg = opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
+      // disk cache の freshness を正本にする。プロセス再起動直後に memory cache が
+      // 空でも、disk cache が新鮮なら remote RPC は再実行しない。
+      const needsBg = Boolean(opts?.refresh) || chatsAge > CHATS_CACHE_MS;
 
       if (needsBg) {
         const syncPromise = enqueueTalkRpcBackground(accountId, async () => {
@@ -2698,6 +2700,9 @@ async function fetchChatsCore(
       }
       if (memCached && now - memCached.at < CHATS_CACHE_MS) {
         return memCached.chats;
+      }
+      if (chatsAge <= CHATS_CACHE_MS) {
+        chatsCache.set(accountId, { at: now, chats: local });
       }
       return local;
     }

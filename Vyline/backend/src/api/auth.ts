@@ -29,6 +29,7 @@ import {
   getContentQrState,
   loginContentWithQRCode,
   removeClient,
+  waitForSessionRestore,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
 
@@ -321,6 +322,7 @@ authRouter.post("/switch/:id", async (c) => {
 // GET /auth/accounts
 // ─────────────────────────────────────────────
 authRouter.get("/accounts", async (c) => {
+  await waitForSessionRestore();
   const active = listAccounts();
   const saved = await loadTokens();
   const sessions = await listSavedSessions();

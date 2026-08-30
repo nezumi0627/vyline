@@ -42,6 +42,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [onboarding.md](./onboarding.md)     | 初日チェックリスト（環境・コード地図・Desktop ツール）             |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 機能追加フロー（辞書 → Desktop → domain → BFF）                    |
 | [development.md](./development.md)   | 開発コマンド・環境変数                                             |
+| [performance.md](./performance.md)   | 起動時間・CPU・メモリ計測と Bun/Vite 最適化                       |
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
 | [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
