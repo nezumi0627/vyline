@@ -43,3 +43,26 @@ describe("chat pane state", () => {
     expect(resizeAdjacentChatPanes([50, 50], 0, 40, 25)).toEqual([75, 25]);
   });
 });
+
+describe("smart chat pane layouts", () => {
+  it("supports the requested three-pane variants", async () => {
+    const { chatPaneDropPlan, chatPaneRects } = await import("./chatPanes.js");
+    expect(chatPaneDropPlan(3, 0.5, 0.5).mode).toBe("columns");
+    expect(chatPaneDropPlan(3, 0.1, 0.1).mode).toBe("split-left");
+    expect(chatPaneDropPlan(3, 0.9, 0.9).mode).toBe("split-right");
+    expect(chatPaneRects(3, "split-right")).toHaveLength(3);
+  });
+
+  it("keeps both four-column and four-corner layouts", async () => {
+    const { chatPaneDropPlan, chatPaneRects } = await import("./chatPanes.js");
+    expect(chatPaneDropPlan(4, 0.6, 0.5).mode).toBe("columns");
+    expect(chatPaneDropPlan(4, 0.9, 0.1).mode).toBe("grid");
+    expect(chatPaneRects(4, "columns")).toHaveLength(4);
+    expect(chatPaneRects(4, "grid")).toHaveLength(4);
+  });
+
+  it("reorders an existing pane instead of duplicating it", async () => {
+    const { placeChatPane } = await import("./chatPanes.js");
+    expect(placeChatPane(["a", "b", "c"], "a", 2)).toEqual(["b", "c", "a"]);
+  });
+});

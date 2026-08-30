@@ -50,6 +50,15 @@ interface ManagedClient {
 const clients = new Map<string, ManagedClient>();
 /** Deduplicate startup restore and frontend /auth/restore for the same account. */
 const sessionRestoreInflight = new Map<string, Promise<VylineClient>>();
+type QrLoginState = {
+  url: string | null;
+  expired: boolean;
+  pincode: string | null;
+  inProgress: boolean;
+  error: string | null;
+};
+const qrLoginState = new Map<string, QrLoginState>();
+const qrLoginInflight = new Map<string, Promise<VylineClient>>();
 const contentClients = new Map<string, Promise<VylineClient>>();
 const contentQrState = new Map<
   string,
@@ -440,8 +449,6 @@ export async function loginWithEmail(
     loginInit(accountId),
   );
 
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
@@ -450,6 +457,8 @@ export async function loginWithEmail(
     pincode: null,
     loggedInAt: Date.now(),
   });
+  watchAuthToken(client, accountId);
+  void warmLineCache(accountId).catch(() => undefined);
   restorePluginsForSession(accountId);
   log.info({ accountId }, "email login success");
   return client;
@@ -459,6 +468,11 @@ export async function loginWithQRCode(
   accountId: string,
   onQrUrl: (url: string) => void,
 ): Promise<VylineClient> {
+  const active = clients.get(accountId);
+  if (active?.loggedInAt != null && active.client) return active.client;
+  const existing = qrLoginInflight.get(accountId);
+  if (existing) return existing;
+
   const profile = getVylineProfile();
   log.info(
     {
@@ -470,15 +484,14 @@ export async function loginWithQRCode(
     "starting QR login via Vyline",
   );
 
-  const managed: ManagedClient = {
-    client: null as unknown as VylineClient,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
+  const state: QrLoginState = {
+    url: null,
+    expired: false,
     pincode: null,
-    loggedInAt: null,
+    inProgress: true,
+    error: null,
   };
-  clients.set(accountId, managed);
+  qrLoginState.set(accountId, state);
 
   const isExpiredError = (err: unknown): boolean => {
     if (!(err instanceof Error)) return false;
@@ -492,43 +505,72 @@ export async function loginWithQRCode(
     );
   };
 
-  try {
-    const client = await vylineLoginQR(
-      {
-        onReceiveQRUrl(url: string) {
-          log.info({ accountId, url }, "QR URL received");
-          managed.qrUrl = url;
-          managed.qrExpired = false;
-          onQrUrl(url);
+  const login = (async () => {
+    try {
+      const client = await vylineLoginQR(
+        {
+          onReceiveQRUrl(url: string) {
+            log.info({ accountId, url }, "QR URL received");
+            state.url = url;
+            state.expired = false;
+            state.error = null;
+            onQrUrl(url);
+          },
+          onPincodeRequest(pin: string) {
+            log.info({ accountId, pin }, "QR pincode requested");
+            state.pincode = pin;
+          },
         },
-        onPincodeRequest(pin: string) {
-          log.info({ accountId, pin }, "QR pincode requested");
-          managed.pincode = pin;
-        },
-      },
-      loginInit(accountId),
-    );
+        loginInit(accountId),
+      );
 
-    managed.client = client;
-    managed.qrUrl = null;
-    managed.qrExpired = false;
-    managed.pincode = null;
-    managed.loggedInAt = Date.now();
-    watchAuthToken(client, accountId);
-    void warmLineCache(accountId).catch(() => undefined);
-    restorePluginsForSession(accountId);
-    log.info({ accountId }, "QR login success");
-    return client;
-  } catch (err) {
-    if (isExpiredError(err)) {
-      log.info({ accountId }, "QR expired — waiting for user to regenerate");
-      managed.qrExpired = true;
-      managed.qrUrl = null;
-      managed.pincode = null;
+      const token = client.authToken ?? client.base.authToken;
+      if (!token) throw new Error("QR login returned without auth token");
+
+      clients.set(accountId, {
+        client,
+        accountId,
+        qrUrl: null,
+        qrExpired: false,
+        pincode: null,
+        loggedInAt: Date.now(),
+      });
+      state.url = null;
+      state.expired = false;
+      state.pincode = null;
+      state.inProgress = false;
+      state.error = null;
+
+      // Everything below is enrichment. The authenticated client is already
+      // visible to /auth/accounts so a late E2EE/profile/cache failure cannot
+      // make account 2+ disappear after LINE accepted the login.
+      watchAuthToken(client, accountId);
+      void warmLineCache(accountId).catch((error) =>
+        log.warn({ accountId, error }, "post-login cache warm skipped"),
+      );
+      restorePluginsForSession(accountId);
+      log.info({ accountId }, "QR login success");
+      return client;
+    } catch (err) {
+      state.inProgress = false;
+      state.error = err instanceof Error ? err.message : String(err);
+      if (isExpiredError(err)) {
+        log.info({ accountId }, "QR expired — waiting for user to regenerate");
+        state.expired = true;
+        state.url = null;
+        state.pincode = null;
+      } else {
+        log.warn({ accountId, err }, "QR login failed before client registration");
+      }
       throw err;
     }
-    clients.delete(accountId);
-    throw err;
+  })();
+
+  qrLoginInflight.set(accountId, login);
+  try {
+    return await login;
+  } finally {
+    if (qrLoginInflight.get(accountId) === login) qrLoginInflight.delete(accountId);
   }
 }
 
@@ -550,8 +592,6 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
       ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
     });
 
-    watchAuthToken(client, accountId);
-    void warmLineCache(accountId).catch(() => undefined);
     clients.set(accountId, {
       client,
       accountId,
@@ -560,6 +600,8 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
       pincode: null,
       loggedInAt: Date.now(),
     });
+    watchAuthToken(client, accountId);
+    void warmLineCache(accountId).catch(() => undefined);
     restorePluginsForSession(accountId);
     log.info({ accountId }, "token login success");
     return client;
@@ -590,8 +632,6 @@ export async function loginWithAuthToken(
     ...(deviceMode ? { deviceMode } : {}),
   });
 
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
@@ -600,6 +640,8 @@ export async function loginWithAuthToken(
     pincode: null,
     loggedInAt: Date.now(),
   });
+  watchAuthToken(client, accountId);
+  void warmLineCache(accountId).catch(() => undefined);
   restorePluginsForSession(accountId);
   log.info({ accountId }, "authToken login success");
   return client;
@@ -735,15 +777,19 @@ export function getQrState(accountId: string): {
   pincode: string | null;
   /** QR ログイン処理がメモリ上で進行中か */
   inProgress: boolean;
+  error?: string | null;
 } {
-  const m = clients.get(accountId);
-  if (!m) return { url: null, expired: false, pincode: null, inProgress: false };
-  const inProgress = m.loggedInAt === null && !m.qrExpired;
+  const active = clients.get(accountId);
+  if (active?.loggedInAt != null && active.client) {
+    return { url: null, expired: false, pincode: null, inProgress: false, error: null };
+  }
+  const state = qrLoginState.get(accountId);
   return {
-    url: m.qrUrl,
-    expired: m.qrExpired,
-    pincode: m.pincode,
-    inProgress,
+    url: state?.url ?? null,
+    expired: state?.expired ?? false,
+    pincode: state?.pincode ?? null,
+    inProgress: state?.inProgress ?? false,
+    error: state?.error ?? null,
   };
 }
 

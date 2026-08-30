@@ -7,6 +7,7 @@ import {
   useRef,
   useState,
   type UIEvent,
+  type DragEvent,
 } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -97,6 +98,7 @@ type ChatAreaProps = {
   onFocus?: () => void;
   onClosePane?: () => void;
   reserveSidebarToggle?: boolean;
+  onPaneDragStart?: (event: DragEvent<HTMLDivElement>) => void;
 };
 
 function ChatAreaBase({
@@ -105,6 +107,7 @@ function ChatAreaBase({
   onFocus,
   onClosePane,
   reserveSidebarToggle = true,
+  onPaneDragStart,
 }: ChatAreaProps) {
   const storeActiveChatId = useStore((s) => s.activeChatId);
   const activeChatId = chatId ?? storeActiveChatId;
@@ -501,7 +504,7 @@ function ChatAreaBase({
         {/* header */}
         <header
           className={cn(
-            "flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pr-4",
+            "relative flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pr-4",
             reserveSidebarToggle ? "md:pl-12" : "md:pl-4",
           )}
         >
@@ -542,6 +545,23 @@ function ChatAreaBase({
               </span>
             </span>
           </button>
+          {paneCount > 1 && onPaneDragStart && (
+            <div
+              data-vy-pane-drag-handle
+              draggable
+              onDragStart={onPaneDragStart}
+              onPointerDown={(event) => event.stopPropagation()}
+              title="ドラッグしてトーク画面を移動"
+              aria-label="トーク画面をドラッグして再配置"
+              className="absolute left-1/2 top-1/2 z-20 hidden h-7 w-14 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)]/95 shadow-sm active:cursor-grabbing md:flex"
+            >
+              <span className="grid grid-cols-3 gap-1" aria-hidden>
+                {Array.from({ length: 6 }, (_, index) => (
+                  <span key={index} className="h-1 w-1 rounded-full bg-[var(--vy-text-dim)]" />
+                ))}
+              </span>
+            </div>
+          )}
           <HeaderButton
             label="検索"
             active={search.open}

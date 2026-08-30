@@ -1,4 +1,5 @@
 export const CHAT_PANE_DRAG_TYPE = "application/x-vyline-chat";
+export const CHAT_PANE_SOURCE_TYPE = "application/x-vyline-chat-pane-index";
 export const MAX_CHAT_PANES = 4;
 
 export type ChatPaneState = {
@@ -143,4 +144,95 @@ export function resizeAdjacentChatPanes(
   next[dividerIndex] = left + delta;
   next[dividerIndex + 1] = right - delta;
   return next;
+}
+
+
+export type ChatPaneLayoutMode = "columns" | "split-left" | "split-right" | "grid";
+
+export type ChatPaneRect = { x: number; y: number; width: number; height: number };
+
+export function normalizeChatPaneLayout(count: number, mode: ChatPaneLayoutMode): ChatPaneLayoutMode {
+  if (count <= 2) return "columns";
+  if (count === 3) return mode === "split-left" || mode === "split-right" ? mode : "columns";
+  if (count === 4) return mode === "grid" ? "grid" : "columns";
+  return "columns";
+}
+
+export function chatPaneRects(
+  count: number,
+  mode: ChatPaneLayoutMode,
+  mainRatio = 50,
+  crossRatio = 50,
+): ChatPaneRect[] {
+  const normalized = normalizeChatPaneLayout(count, mode);
+  const main = Math.max(22, Math.min(78, mainRatio));
+  const cross = Math.max(22, Math.min(78, crossRatio));
+  if (count <= 0) return [];
+  if (normalized === "columns") {
+    const width = 100 / count;
+    return Array.from({ length: count }, (_, index) => ({ x: width * index, y: 0, width, height: 100 }));
+  }
+  if (count === 3 && normalized === "split-left") {
+    return [
+      { x: 0, y: 0, width: main, height: cross },
+      { x: 0, y: cross, width: main, height: 100 - cross },
+      { x: main, y: 0, width: 100 - main, height: 100 },
+    ];
+  }
+  if (count === 3 && normalized === "split-right") {
+    return [
+      { x: 0, y: 0, width: main, height: 100 },
+      { x: main, y: 0, width: 100 - main, height: cross },
+      { x: main, y: cross, width: 100 - main, height: 100 - cross },
+    ];
+  }
+  return [
+    { x: 0, y: 0, width: main, height: cross },
+    { x: main, y: 0, width: 100 - main, height: cross },
+    { x: 0, y: cross, width: main, height: 100 - cross },
+    { x: main, y: cross, width: 100 - main, height: 100 - cross },
+  ].slice(0, count);
+}
+
+export function chatPaneDropPlan(
+  countAfterDrop: number,
+  xRatio: number,
+  yRatio: number,
+): { mode: ChatPaneLayoutMode; slot: number; label: string } {
+  const x = Math.max(0, Math.min(0.999999, xRatio));
+  const y = Math.max(0, Math.min(0.999999, yRatio));
+  if (countAfterDrop <= 1) return { mode: "columns", slot: 0, label: "ここに表示" };
+  if (countAfterDrop === 2) {
+    const slot = x < 0.5 ? 0 : 1;
+    return { mode: "columns", slot, label: slot === 0 ? "左に追加" : "右に追加" };
+  }
+  if (countAfterDrop === 3) {
+    if (y > 0.27 && y < 0.73) {
+      const slot = Math.min(2, Math.floor(x * 3));
+      return { mode: "columns", slot, label: `左から${slot + 1}番目に追加` };
+    }
+    if (x < 0.5) {
+      const slot = y < 0.5 ? 0 : 1;
+      return { mode: "split-left", slot, label: y < 0.5 ? "左上に追加" : "左下に追加" };
+    }
+    const slot = y < 0.5 ? 1 : 2;
+    return { mode: "split-right", slot, label: y < 0.5 ? "右上に追加" : "右下に追加" };
+  }
+  if (y > 0.30 && y < 0.70) {
+    const slot = Math.min(3, Math.floor(x * 4));
+    return { mode: "columns", slot, label: `左から${slot + 1}番目に追加` };
+  }
+  const left = x < 0.5;
+  const top = y < 0.5;
+  const slot = top ? (left ? 0 : 1) : left ? 2 : 3;
+  const label = top ? (left ? "左上に追加" : "右上に追加") : left ? "左下に追加" : "右下に追加";
+  return { mode: "grid", slot, label };
+}
+
+export function placeChatPane(ids: readonly string[], chatId: string, slot: number): string[] {
+  const without = ids.filter((id) => id && id !== chatId);
+  const index = Math.max(0, Math.min(without.length, slot));
+  const next = [...without];
+  next.splice(index, 0, chatId);
+  return next.slice(0, MAX_CHAT_PANES);
 }

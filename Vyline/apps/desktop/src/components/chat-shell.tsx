@@ -6,8 +6,16 @@ import { cn } from "@/lib/utils";
 import { IconPanelLeft } from "@/components/icons";
 import {
   CHAT_PANE_DRAG_TYPE,
+  CHAT_PANE_SOURCE_TYPE,
+  chatPaneDropPlan,
+  chatPaneRects,
+  equalChatPaneSizes,
+  normalizeChatPaneLayout,
   normalizeChatPaneSizes,
+  placeChatPane,
   resizeAdjacentChatPanes,
+  type ChatPaneLayoutMode,
+  type ChatPaneRect,
 } from "@/lib/chatPanes";
 import { startSerialPoll } from "@/lib/serialPoll";
 
@@ -27,18 +35,56 @@ function useDesktopChatLayout(): boolean {
   return desktop;
 }
 
+function layoutStorageKey(accountId: string | null): string {
+  return `vyline:chat-pane-layout:${accountId ?? "default"}`;
+}
+
+function readLayout(accountId: string | null): {
+  mode: ChatPaneLayoutMode;
+  mainRatio: number;
+  crossRatio: number;
+} {
+  if (typeof localStorage === "undefined") return { mode: "columns", mainRatio: 50, crossRatio: 50 };
+  try {
+    const parsed = JSON.parse(localStorage.getItem(layoutStorageKey(accountId)) ?? "{}") as {
+      mode?: ChatPaneLayoutMode;
+      mainRatio?: number;
+      crossRatio?: number;
+    };
+    return {
+      mode: parsed.mode ?? "columns",
+      mainRatio: Number.isFinite(parsed.mainRatio) ? Math.max(22, Math.min(78, parsed.mainRatio!)) : 50,
+      crossRatio: Number.isFinite(parsed.crossRatio)
+        ? Math.max(22, Math.min(78, parsed.crossRatio!))
+        : 50,
+    };
+  } catch {
+    return { mode: "columns", mainRatio: 50, crossRatio: 50 };
+  }
+}
+
+function columnRects(sizes: readonly number[]): ChatPaneRect[] {
+  const normalized = normalizeChatPaneSizes(sizes.length, sizes);
+  let x = 0;
+  return normalized.map((width) => {
+    const rect = { x, y: 0, width, height: 100 };
+    x += width;
+    return rect;
+  });
+}
+
 function ChatPaneRuntime({
   chatId,
   index,
   count,
-  size,
+  rect,
   focused,
   reserveSidebarToggle,
 }: {
   chatId: string;
   index: number;
   count: number;
-  size: number;
+  rect: ChatPaneRect;
   focused: boolean;
   reserveSidebarToggle: boolean;
 }) {
@@ -51,8 +97,6 @@ function ChatPaneRuntime({
 
   useEffect(() => {
     void loadAnnouncements(chatId);
-    // The focused pane is hydrated by useLineData. Only background panes need
-    // their own bounded local/latest-page refresh.
     if (!focused && !demoMode) void refreshMessages(chatId);
   }, [chatId, demoMode, focused, loadAnnouncements, refreshMessages]);
 
@@ -75,14 +119,19 @@ function ChatPaneRuntime({
   return (
     <section
       className={cn(
-        "relative h-full min-w-0 overflow-hidden bg-[var(--vy-chat-bg)]",
+        "absolute overflow-hidden bg-[var(--vy-chat-bg)] transition-[left,top,width,height] duration-150",
         focused && count > 1 && "ring-1 ring-inset ring-[var(--vy-accent)]",
       )}
-      style={{ flex: `${size} 1 0px` }}
+      style={{
+        left: `${rect.x}%`,
+        top: `${rect.y}%`,
+        width: `${rect.width}%`,
+        height: `${rect.height}%`,
+      }}
       data-vy-chat-pane={chatId}
       onPointerDownCapture={(event) => {
         const target = event.target as HTMLElement;
-        if (target.closest(".vy-msg-text, a")) return;
+        if (target.closest(".vy-msg-text, a, [data-vy-pane-drag-handle]")) return;
         focusChatPane(index);
       }}
     >
@@ -92,13 +141,31 @@ function ChatPaneRuntime({
         onFocus={() => focusChatPane(index)}
         onClosePane={() => closeChatPane(index)}
         reserveSidebarToggle={reserveSidebarToggle}
+        onPaneDragStart={(event) => {
+          event.dataTransfer.effectAllowed = "move";
+          event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chatId);
+          event.dataTransfer.setData(CHAT_PANE_SOURCE_TYPE, String(index));
+        }}
       />
     </section>
   );
 }
 
+type DropPreview = {
+  mode: ChatPaneLayoutMode;
+  slot: number;
+  label: string;
+  count: number;
+};
+
+type PaneResize =
+  | { kind: "columns"; dividerIndex: number; startX: number; startSizes: number[]; width: number }
+  | { kind: "main"; startX: number; startRatio: number; width: number }
+  | { kind: "cross"; startY: number; startRatio: number; height: number };
+
 function ChatShellBase() {
   const activeChatId = useStore((state) => state.activeChatId);
+  const accountId = useStore((state) => state.accountId);
   const chatPaneIds = useStore((state) => state.chatPaneIds);
   const chatPaneSizes = useStore((state) => state.chatPaneSizes);
   const focusedChatPane = useStore((state) => state.focusedChatPane);
@@ -111,16 +178,30 @@ function ChatShellBase() {
   const toggleSidebar = useStore((state) => state.toggleSidebar);
 
   const isDesktop = useDesktopChatLayout();
+  const initialLayout = useMemo(() => readLayout(accountId), [accountId]);
+  const [layoutMode, setLayoutMode] = useState<ChatPaneLayoutMode>(initialLayout.mode);
+  const [mainRatio, setMainRatio] = useState(initialLayout.mainRatio);
+  const [crossRatio, setCrossRatio] = useState(initialLayout.crossRatio);
   const [sidebarDragging, setSidebarDragging] = useState(false);
-  const [dropActive, setDropActive] = useState(false);
-  const [paneResize, setPaneResize] = useState<{
-    dividerIndex: number;
-    startX: number;
-    startSizes: number[];
-    width: number;
-  } | null>(null);
+  const [dropPreview, setDropPreview] = useState<DropPreview | null>(null);
+  const [paneResize, setPaneResize] = useState<PaneResize | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
   const paneContainerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const next = readLayout(accountId);
+    setLayoutMode(next.mode);
+    setMainRatio(next.mainRatio);
+    setCrossRatio(next.crossRatio);
+  }, [accountId]);
+
+  useEffect(() => {
+    if (typeof localStorage === "undefined") return;
+    localStorage.setItem(
+      layoutStorageKey(accountId),
+      JSON.stringify({ mode: layoutMode, mainRatio, crossRatio }),
+    );
+  }, [accountId, crossRatio, layoutMode, mainRatio]);
 
   const paneIds = useMemo(() => {
     const valid = chatPaneIds.filter((id) => chats.some((chat) => chat.id === id)).slice(0, 4);
@@ -131,8 +212,21 @@ function ChatShellBase() {
     () => normalizeChatPaneSizes(paneIds.length, chatPaneSizes),
     [chatPaneSizes, paneIds.length],
   );
+  const effectiveLayout = normalizeChatPaneLayout(paneIds.length, layoutMode);
+  const paneRects = useMemo(
+    () =>
+      effectiveLayout === "columns"
+        ? columnRects(paneSizes)
+        : chatPaneRects(paneIds.length, effectiveLayout, mainRatio, crossRatio),
+    [crossRatio, effectiveLayout, mainRatio, paneIds.length, paneSizes],
+  );
   const focusedPaneId = chatPaneIds[focusedChatPane] ?? activeChatId;
   const effectiveFocusedPane = Math.max(0, paneIds.indexOf(focusedPaneId ?? ""));
+
+  useEffect(() => {
+    const normalized = normalizeChatPaneLayout(paneIds.length, layoutMode);
+    if (normalized !== layoutMode) setLayoutMode(normalized);
+  }, [layoutMode, paneIds.length]);
 
   const moveSidebar = useCallback(
     (clientX: number) => {
@@ -172,22 +266,30 @@ function ChatShellBase() {
     if (!paneResize) return;
     const previousCursor = document.body.style.cursor;
     const previousSelection = document.body.style.userSelect;
-    document.body.style.cursor = "col-resize";
+    document.body.style.cursor = paneResize.kind === "cross" ? "row-resize" : "col-resize";
     document.body.style.userSelect = "none";
 
     const move = (event: PointerEvent) => {
-      const count = paneResize.startSizes.length;
-      const naturalMinimum = (220 / Math.max(1, paneResize.width)) * 100;
-      const minimum = Math.max(10, Math.min(100 / count - 1, naturalMinimum));
-      const deltaPercent = ((event.clientX - paneResize.startX) / paneResize.width) * 100;
-      setChatPaneSizes(
-        resizeAdjacentChatPanes(
-          paneResize.startSizes,
-          paneResize.dividerIndex,
-          deltaPercent,
-          minimum,
-        ),
-      );
+      if (paneResize.kind === "columns") {
+        const count = paneResize.startSizes.length;
+        const naturalMinimum = (220 / Math.max(1, paneResize.width)) * 100;
+        const minimum = Math.max(10, Math.min(100 / count - 1, naturalMinimum));
+        const deltaPercent = ((event.clientX - paneResize.startX) / paneResize.width) * 100;
+        setChatPaneSizes(
+          resizeAdjacentChatPanes(
+            paneResize.startSizes,
+            paneResize.dividerIndex,
+            deltaPercent,
+            minimum,
+          ),
+        );
+      } else if (paneResize.kind === "main") {
+        const delta = ((event.clientX - paneResize.startX) / Math.max(1, paneResize.width)) * 100;
+        setMainRatio(Math.max(22, Math.min(78, paneResize.startRatio + delta)));
+      } else {
+        const delta = ((event.clientY - paneResize.startY) / Math.max(1, paneResize.height)) * 100;
+        setCrossRatio(Math.max(22, Math.min(78, paneResize.startRatio + delta)));
+      }
     };
     const stop = () => setPaneResize(null);
     window.addEventListener("pointermove", move);
@@ -205,21 +307,59 @@ function ChatShellBase() {
   const hasChatDrag = (event: React.DragEvent) =>
     Array.from(event.dataTransfer.types).includes(CHAT_PANE_DRAG_TYPE);
 
+  const computeDropPreview = (event: React.DragEvent<HTMLDivElement>): DropPreview | null => {
+    if (!isDesktop || !hasChatDrag(event)) return null;
+    const chatId = event.dataTransfer.getData(CHAT_PANE_DRAG_TYPE);
+    const existing = paneIds.includes(chatId);
+    const count = Math.min(4, Math.max(1, paneIds.length + (existing ? 0 : 1)));
+    const rect = event.currentTarget.getBoundingClientRect();
+    const plan = chatPaneDropPlan(
+      count,
+      (event.clientX - rect.left) / Math.max(1, rect.width),
+      (event.clientY - rect.top) / Math.max(1, rect.height),
+    );
+    return { ...plan, count };
+  };
+
   const handleChatDragOver = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!isDesktop || !hasChatDrag(event)) return;
+    const preview = computeDropPreview(event);
+    if (!preview) return;
     event.preventDefault();
-    event.dataTransfer.dropEffect = "copy";
-    setDropActive(true);
+    event.dataTransfer.dropEffect = "move";
+    setDropPreview(preview);
   };
 
   const handleChatDrop = (event: React.DragEvent<HTMLDivElement>) => {
     if (!isDesktop) return;
     const chatId = event.dataTransfer.getData(CHAT_PANE_DRAG_TYPE);
-    setDropActive(false);
-    if (!chatId || !chats.some((chat) => chat.id === chatId)) return;
+    const preview = computeDropPreview(event) ?? dropPreview;
+    setDropPreview(null);
+    if (!chatId || !preview || !chats.some((chat) => chat.id === chatId)) return;
     event.preventDefault();
-    openChatInSplit(chatId);
+
+    const isExisting = paneIds.includes(chatId);
+    if (!isExisting && paneIds.length >= 4) {
+      useStore.getState().showNotice("同時に開けるトークは最大4画面です");
+      return;
+    }
+    if (!isExisting) openChatInSplit(chatId);
+
+    const state = useStore.getState();
+    const sourceIds = state.chatPaneIds.length ? state.chatPaneIds : paneIds;
+    const nextIds = placeChatPane(sourceIds, chatId, preview.slot);
+    const focusIndex = Math.max(0, nextIds.indexOf(chatId));
+    useStore.setState({
+      chatPaneIds: nextIds,
+      chatPaneSizes: equalChatPaneSizes(nextIds.length),
+      focusedChatPane: focusIndex,
+      activeChatId: chatId,
+    });
+    setLayoutMode(preview.mode);
   };
+
+  const previewRects = dropPreview
+    ? chatPaneRects(dropPreview.count, dropPreview.mode, 50, 50)
+    : [];
 
   return (
     <div
@@ -271,13 +411,11 @@ function ChatShellBase() {
         {isDesktop ? (
           <div
             ref={paneContainerRef}
-            className="relative flex h-full min-w-0 flex-1 overflow-hidden"
+            className="relative h-full min-w-0 flex-1 overflow-hidden"
             onDragEnter={handleChatDragOver}
             onDragOver={handleChatDragOver}
             onDragLeave={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
-                setDropActive(false);
-              }
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropPreview(null);
             }}
             onDrop={handleChatDrop}
           >
@@ -285,49 +423,119 @@ function ChatShellBase() {
               <ChatArea />
             ) : (
               paneIds.map((chatId, index) => (
-                <div key={chatId} className="contents">
-                  <ChatPaneRuntime
-                    chatId={chatId}
-                    index={index}
-                    count={paneIds.length}
-                    size={paneSizes[index] ?? 100 / paneIds.length}
-                    focused={index === effectiveFocusedPane}
-                    reserveSidebarToggle={index === 0}
-                  />
-                  {index < paneIds.length - 1 && (
-                    <div
-                      role="separator"
-                      aria-orientation="vertical"
-                      aria-label={`${index + 1}番目と${index + 2}番目のトーク画面の幅を調整`}
-                      onPointerDown={(event) => {
-                        event.preventDefault();
-                        const width = paneContainerRef.current?.getBoundingClientRect().width ?? 1;
-                        setPaneResize({
-                          dividerIndex: index,
-                          startX: event.clientX,
-                          startSizes: [...paneSizes],
-                          width,
-                        });
-                      }}
-                      onDoubleClick={() => setChatPaneSizes(normalizeChatPaneSizes(paneIds.length, []))}
-                      className={cn(
-                        "group relative z-30 w-1.5 shrink-0 cursor-col-resize bg-[var(--vy-border)] transition-colors hover:bg-[var(--vy-accent)]",
-                        paneResize?.dividerIndex === index && "bg-[var(--vy-accent)]",
-                      )}
-                    >
-                      <span className="absolute inset-y-0 left-1/2 w-px -translate-x-1/2 bg-[var(--vy-text-dim)] opacity-35 group-hover:opacity-0" />
-                    </div>
-                  )}
-                </div>
+                <ChatPaneRuntime
+                  key={chatId}
+                  chatId={chatId}
+                  index={index}
+                  count={paneIds.length}
+                  rect={paneRects[index] ?? { x: 0, y: 0, width: 100, height: 100 }}
+                  focused={index === effectiveFocusedPane}
+                  reserveSidebarToggle={index === 0}
+                />
               ))
             )}
 
-            {dropActive && (
-              <div className="pointer-events-none absolute inset-3 z-50 flex items-center justify-center rounded-2xl border-2 border-dashed border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_16%,var(--vy-bg))] backdrop-blur-sm">
-                <div className="rounded-xl bg-[var(--vy-surface)] px-5 py-3 text-center shadow-xl">
-                  <p className="text-sm font-semibold">ここにトーク画面を追加</p>
-                  <p className="mt-1 text-xs text-[var(--vy-text-dim)]">最大4画面・境界をドラッグして幅調整</p>
-                </div>
+            {effectiveLayout === "columns" &&
+              paneRects.slice(0, -1).map((rect, index) => (
+                <div
+                  key={`column-divider-${index}`}
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label={`${index + 1}番目と${index + 2}番目のトーク画面の幅を調整`}
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    const width = paneContainerRef.current?.getBoundingClientRect().width ?? 1;
+                    setPaneResize({
+                      kind: "columns",
+                      dividerIndex: index,
+                      startX: event.clientX,
+                      startSizes: [...paneSizes],
+                      width,
+                    });
+                  }}
+                  onDoubleClick={() => setChatPaneSizes(equalChatPaneSizes(paneIds.length))}
+                  className="absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                  style={{ left: `${rect.x + rect.width}%` }}
+                />
+              ))}
+
+            {(effectiveLayout === "split-left" || effectiveLayout === "split-right" || effectiveLayout === "grid") && (
+              <div
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="左右のトーク領域の幅を調整"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setPaneResize({
+                    kind: "main",
+                    startX: event.clientX,
+                    startRatio: mainRatio,
+                    width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
+                  });
+                }}
+                onDoubleClick={() => setMainRatio(50)}
+                className="absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                style={{ left: `${mainRatio}%` }}
+              />
+            )}
+
+            {(effectiveLayout === "split-left" || effectiveLayout === "split-right" || effectiveLayout === "grid") && (
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="上下のトーク領域の高さを調整"
+                onPointerDown={(event) => {
+                  event.preventDefault();
+                  setPaneResize({
+                    kind: "cross",
+                    startY: event.clientY,
+                    startRatio: crossRatio,
+                    height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
+                  });
+                }}
+                onDoubleClick={() => setCrossRatio(50)}
+                className="absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                style={{
+                  top: `${crossRatio}%`,
+                  left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
+                  width:
+                    effectiveLayout === "grid"
+                      ? "100%"
+                      : effectiveLayout === "split-left"
+                        ? `${mainRatio}%`
+                        : `${100 - mainRatio}%`,
+                }}
+              />
+            )}
+
+            {dropPreview && (
+              <div className="pointer-events-none absolute inset-2 z-50 rounded-2xl bg-black/20 backdrop-blur-[2px]">
+                {previewRects.map((rect, index) => (
+                  <div
+                    key={`preview-${index}`}
+                    className={cn(
+                      "absolute rounded-xl border-2 bg-[color-mix(in_oklab,var(--vy-surface)_72%,transparent)] shadow-lg transition-all",
+                      index === dropPreview.slot
+                        ? "border-[var(--vy-accent)] ring-2 ring-inset ring-[var(--vy-accent)]"
+                        : "border-white/35",
+                    )}
+                    style={{
+                      left: `calc(${rect.x}% + 4px)`,
+                      top: `calc(${rect.y}% + 4px)`,
+                      width: `calc(${rect.width}% - 8px)`,
+                      height: `calc(${rect.height}% - 8px)`,
+                    }}
+                  >
+                    {index === dropPreview.slot && (
+                      <div className="flex h-full items-center justify-center">
+                        <div className="rounded-xl border border-dashed border-[var(--vy-accent)] bg-[var(--vy-surface)]/90 px-4 py-3 text-center shadow-xl">
+                          <div className="text-2xl font-light text-[var(--vy-accent)]">＋</div>
+                          <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">{dropPreview.label}</p>
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                ))}
               </div>
             )}
           </div>
