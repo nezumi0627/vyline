@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, describe, expect, test } from "bun:test";
 import * as fs from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -40,6 +40,11 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
 
   const accountId = "sqlite-test";
   const now = new Date().toISOString();
+
+  afterAll(async () => {
+    await flushAccountChatDb(accountId);
+    await fs.rm(root, { recursive: true, force: true });
+  });
 
   describe("SQLite chat persistence", () => {
     test("ignores legacy chatdb.json and opens WAL SQLite without hydrating it", async () => {
@@ -162,7 +167,4 @@ if (process.env.VYLINE_SQLITE_CHAT_TEST_CHILD !== "1") {
       expect(await exportChatDb(accountId)).toEqual(before);
     });
   });
-
-  await flushAccountChatDb(accountId);
-  await fs.rm(root, { recursive: true, force: true });
 }
