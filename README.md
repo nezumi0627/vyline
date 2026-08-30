@@ -340,7 +340,7 @@ curl -X POST http://localhost:3001/v1/tokens \
 ### API の利用例
 
 ```bash
-curl http://localhost:3001/v1/accounts/{accountId}/getMessageBoxes \
+curl http://localhost:3001/v1/accounts/{accountId}/chats \
   -H "Authorization: Bearer vyl_xxxx..."
 ```
 

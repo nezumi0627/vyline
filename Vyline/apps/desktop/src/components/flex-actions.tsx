@@ -205,13 +205,7 @@ function ScheduleAnswer({
           status: v ?? "MAYBE",
         }))
         .filter((a) => Number.isFinite(a.candidate) && a.candidate > 0);
-      const res = await api.line.schedule.answer(
-        accountId,
-        chatId,
-        eventKey,
-        answers,
-        comment,
-      );
+      const res = await api.line.schedule.answer(accountId, chatId, eventKey, answers, comment);
       if (!res.ok) throw new Error((res as { error?: string }).error || "回答に失敗しました");
       onClose();
     } catch (e) {

@@ -1839,9 +1839,7 @@ function StorageSection() {
           ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
-          onDelete={() =>
-            clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))
-          }
+          onDelete={() => clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))}
           disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
