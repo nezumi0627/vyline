@@ -8,16 +8,15 @@ export interface StoredMessageRef {
 }
 
 type MessageRefMap = Record<string, Record<string, { id: string }>>;
+const LAZY_REFS = "__vylineIterateStoredMessageRefs" as const;
 type LazyRefCarrier = MessageRefMap & {
   [LAZY_REFS]?: () => IterableIterator<StoredMessageRef>;
 };
 
-const LAZY_REFS = Symbol.for("@vyline/storage-usage-message-refs");
-
 /**
  * Return the historical message-ref API shape without materializing every row.
  * Callers may still add enumerable refs (e.g. an incoming restore) to this object.
- * The stored SQLite rows remain behind a non-enumerable Symbol-backed iterator.
+ * The stored SQLite rows remain behind a non-enumerable iterator property.
  */
 export async function getStoredMessageRefs(accountId: string): Promise<MessageRefMap> {
   const path = accountFile(accountId, "chatdb.sqlite");
