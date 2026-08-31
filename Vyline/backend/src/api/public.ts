@@ -280,10 +280,7 @@ publicRouter.post("/tokens", async (c) => {
   }
   const accountIds = body.accountIds === undefined ? listLineAccounts() : body.accountIds;
   if (!Array.isArray(accountIds) || accountIds.length === 0) {
-    return c.json(
-      { ok: false, error: "accountIds must contain at least one active account" },
-      400,
-    );
+    return c.json({ ok: false, error: "accountIds must contain at least one active account" }, 400);
   }
 
   try {

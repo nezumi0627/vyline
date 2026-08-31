@@ -151,9 +151,7 @@ if (process.env.VYLINE_CDN_CACHE_TEST_CHILD !== "1") {
       await expect(
         getCachedLineCdnAsset("https://static.line-scdn.net/tests/redirect-localhost.png"),
       ).rejects.toThrow("cdn redirect target not allowed");
-      expect(calls).toEqual([
-        "https://static.line-scdn.net/tests/redirect-localhost.png",
-      ]);
+      expect(calls).toEqual(["https://static.line-scdn.net/tests/redirect-localhost.png"]);
       expect(await getCdnCacheSize()).toBe(0);
     });
 
