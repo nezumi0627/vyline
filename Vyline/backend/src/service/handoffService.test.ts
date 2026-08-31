@@ -2,6 +2,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "bun:test";
+import { strToU8, zipSync } from "fflate";
 
 describe("handoff archive", () => {
   test("exports a verifiable zip and rejects tampering", async () => {
@@ -39,5 +40,23 @@ describe("handoff archive", () => {
       matchesCurrentAccount: false,
     });
     await rm(dataDir, { recursive: true, force: true });
+  });
+
+  test("rejects a small compressed archive before expanding an oversized payload", async () => {
+    const { inspectHandoff } = await import("./handoffService.js");
+    const compressedBomb = zipSync(
+      {
+        "manifest.json": strToU8("{}"),
+        "settings.json": new Uint8Array(6 * 1024 * 1024),
+      },
+      { level: 9 },
+    );
+    expect(compressedBomb.byteLength).toBeLessThan(5 * 1024 * 1024);
+    expect(() =>
+      inspectHandoff(
+        "u1234567890abcdef1234567890abcdef",
+        Buffer.from(compressedBomb).toString("base64"),
+      ),
+    ).toThrow("expands beyond");
   });
 });

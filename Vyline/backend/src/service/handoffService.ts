@@ -15,7 +15,8 @@ import { loadAccountSettings } from "./accountSettingsService.js";
 import { anonymousId } from "./redaction.js";
 
 const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+const MAX_EXPANDED_BYTES = 5 * 1024 * 1024;
+const MAX_ARCHIVE_ENTRIES = 16;
 
 function sha256(data: Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");
@@ -36,7 +37,32 @@ function parseHandoff(archiveBase64: string): ParsedHandoff {
   const archive = Buffer.from(archiveBase64, "base64");
   if (archive.byteLength === 0 || archive.byteLength > MAX_ARCHIVE_BYTES)
     throw new Error("handoff archive is too large");
-  const entries = unzipSync(archive);
+  let expandedBytes = 0;
+  let entryCount = 0;
+  const entries = unzipSync(archive, {
+    filter(file) {
+      entryCount++;
+      if (entryCount > MAX_ARCHIVE_ENTRIES) throw new Error("handoff archive has too many files");
+      if (!/^[-a-zA-Z0-9_.]+$/.test(file.name) || file.name.includes("..")) {
+        throw new Error("unsafe handoff path");
+      }
+      if (!Number.isSafeInteger(file.originalSize) || file.originalSize < 0) {
+        throw new Error("invalid handoff entry size");
+      }
+      expandedBytes += file.originalSize;
+      if (expandedBytes > MAX_EXPANDED_BYTES) {
+        throw new Error("handoff archive expands beyond the allowed size");
+      }
+      return true;
+    },
+  });
+  const actualExpandedBytes = Object.values(entries).reduce(
+    (total, entry) => total + entry.byteLength,
+    0,
+  );
+  if (actualExpandedBytes > MAX_EXPANDED_BYTES) {
+    throw new Error("handoff archive expands beyond the allowed size");
+  }
   const manifestBytes = entries["manifest.json"];
   if (!manifestBytes) throw new Error("manifest.json is required");
   const manifest = JSON.parse(strFromU8(manifestBytes)) as HandoffManifest;
@@ -112,12 +138,13 @@ export async function importHandoff(
   const next = mode === "merge" ? { ...current, ...incoming } : incoming;
   const dir = accountDir(mid);
   await mkdir(dir, { recursive: true });
-  const backup = join(
-    DATA_DIR,
-    "accounts",
-    `${safePathComponent(mid)}.handoff-backup-${Date.now()}`,
-  );
   const currentPath = accountFile(mid, "settings.json");
+  // Keep the rollback file beside the destination so rename remains atomic
+  // even when the configured data directory is a Docker bind mount.
+  const backup = join(
+    dir,
+    `.settings.json.handoff-backup-${Date.now()}-${safePathComponent(randomUUID())}`,
+  );
   if (existsSync(currentPath)) await rename(currentPath, backup);
   try {
     await writeJsonAtomic(currentPath, next);
