@@ -12,6 +12,22 @@ function formatStorageBytes(bytes: number): string {
   return `${(bytes / 1024 ** index).toFixed(index === 0 ? 0 : 1)} ${units[index]}`;
 }
 
+// 初回表示では保存済みの全アカウント行が同時に mount される。旧バックエンドや
+// 初回 SQLite 集計の再構築中でも Pi に重い照会を重ねないよう、容量照会だけを
+// 小さな直列キューへ通す。メッセージ同期や通常 API はこのキューの対象外。
+let storageRequestTail: Promise<void> = Promise.resolve();
+
+function queuedBackupStorage(accountId: string) {
+  const request = storageRequestTail
+    .catch(() => undefined)
+    .then(() => api.line.backupStorage(accountId));
+  storageRequestTail = request.then(
+    () => undefined,
+    () => undefined,
+  );
+  return request;
+}
+
 function AccountStorageRow({
   accountId,
   label,
@@ -36,8 +52,7 @@ function AccountStorageRow({
     let active = true;
     setLoading(true);
     setError(null);
-    void api.line
-      .backupStorage(accountId)
+    void queuedBackupStorage(accountId)
       .then((result) => {
         if (!active) return;
         if (!result.ok || result.storage?.accountId !== accountId)

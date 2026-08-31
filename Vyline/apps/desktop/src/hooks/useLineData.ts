@@ -21,10 +21,7 @@ import {
 } from "../lib/vyline-cache.js";
 import { messagePreview, useStore } from "../lib/store.js";
 import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
-import {
-  hydrateBootstrapChatPreviews,
-  mergeResolvedChatPreviews,
-} from "../lib/chatPreview.js";
+import { hydrateBootstrapChatPreviews, mergeResolvedChatPreviews } from "../lib/chatPreview.js";
 import {
   HISTORY_PAGE_SIZE,
   MAX_LOCAL_HISTORY_LIMIT,
@@ -266,7 +263,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         // 再入室時は表示を待たせずキャッシュを出し、その後に最新1ページだけローカルDBから統合する。
         // 3,000件読んだ履歴を3,000件再取得することも、ネットワーク先読みすることもない。
         try {
-          const local = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, { local: true });
+          const local = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, {
+            local: true,
+          });
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const latestAsc = [...local.messages].reverse();
@@ -302,11 +301,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const asc = [...local.messages].reverse();
-            commitHistoryWindow(
-              chatMid,
-              asc,
-              local.hasMore ?? local.messages.length >= localLimit,
-            );
+            commitHistoryWindow(chatMid, asc, local.hasMore ?? local.messages.length >= localLimit);
             return;
           }
         }
@@ -495,9 +490,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
       void loadProfile();
-      await loadChats({ refresh: true, light: true });
+      // 通常起動は backend のSQLite freshness判定に任せ、毎回remote RPCを強制しない。
+      await loadChats({ light: true });
       if (accountIdRef.current !== accountId) return;
-
 
       // E2EE 一覧プレビューの有限 background warm を拾う。常時 prefetch はしない。
       for (const delay of [4_000, 12_000]) {
