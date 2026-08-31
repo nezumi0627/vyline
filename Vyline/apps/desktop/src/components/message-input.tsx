@@ -98,16 +98,6 @@ function detectMentionTrigger(
   return null;
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 export function MessageInput({ chatId }: { chatId: string }) {
   const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
@@ -362,8 +352,9 @@ export function MessageInput({ chatId }: { chatId: string }) {
     setSendingMediaBatch(true);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
-      const items = await Promise.all(
-        pendingMedia.map(async (item) => {
+      const selected = [...pendingMedia];
+      async function* prepareItems() {
+        for (const item of selected) {
           const prepared =
             item.kind === "video"
               ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
@@ -377,16 +368,19 @@ export function MessageInput({ chatId }: { chatId: string }) {
                 : `画像が大きすぎます（圧縮後も 11MB 超）: ${item.file.name}`,
             );
           }
-          const dataBase64 = await blobToBase64(prepared.blob);
-          return {
-            dataBase64,
+          const filename =
+            item.kind === "image" && prepared.mime === "image/jpeg" && prepared.blob !== item.file
+              ? `${(item.file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
+              : item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg");
+          yield {
+            body: prepared.blob,
             mimeType: prepared.mime,
-            filename: item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg"),
+            filename,
             mediaType: item.kind,
           };
-        }),
-      );
-      const res = await api.line.sendMediaBatch(accountId, chatId, items);
+        }
+      }
+      const res = await api.line.sendMediaBatch(accountId, chatId, prepareItems(), selected.length);
       if (!res.ok) {
         window.alert(res.error ?? "まとめて送信に失敗しました");
         return;

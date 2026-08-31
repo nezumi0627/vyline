@@ -18,6 +18,7 @@ import type {
 import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
+import { fetchTrustedLineMediaDownloadUrl } from "./lineMediaDownloadUrl.js";
 import {
   getClient,
   enqueueTalkRpcBackground,
@@ -62,13 +63,14 @@ import {
   prefetchDmPeerKeysForMessages,
   invalidatePeerPubCache,
   LETTER_SEALING_CONTENT_TYPE,
-  downloadObsMessageBytes as vylineDownloadObs,
+  downloadObsMessageResponse as vylineDownloadObsResponse,
   wrapSession,
   type ProfileUpdateInput,
   type ContactRenameInput,
 } from "@vyline/protocol";
 import {
   getMessages,
+  findStoredMessageById,
   getStoredChats,
   getStoredMessages,
   getBootstrapPayload,
@@ -86,14 +88,21 @@ import {
   shouldPreserveResolvedLastMessagePreview,
   type BootstrapPayload,
   type StoredChat,
+  type StoredMessage,
 } from "../storage/chatStore.js";
 
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
-import { writeMediaStorage } from "../storage/mediaStorage.js";
+import {
+  importMediaStorageFile,
+  writeMediaStorageProducedFile,
+  writeMediaStorageStream,
+  type MediaStorageStat,
+} from "../storage/mediaStorage.js";
 import { dispatchPluginMessage } from "../line/pluginRuntime.js";
 import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
+import { MediaSendUploadError } from "./mediaSendStaging.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
@@ -2672,7 +2681,9 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      const needsBg = opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
+      // SQLite上のfreshnessを正本にする。プロセス再起動でmemory cacheが空でも、
+      // disk cacheが新鮮なら同じchat一覧RPCをやり直さない。
+      const needsBg = Boolean(opts?.refresh) || chatsAge > CHATS_CACHE_MS;
 
       if (needsBg) {
         const syncPromise = enqueueTalkRpcBackground(accountId, async () => {
@@ -2705,6 +2716,9 @@ async function fetchChatsCore(
       }
       if (memCached && now - memCached.at < CHATS_CACHE_MS) {
         return memCached.chats;
+      }
+      if (chatsAge <= CHATS_CACHE_MS) {
+        chatsCache.set(accountId, { at: now, chats: local });
       }
       return local;
     }
@@ -2906,10 +2920,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const storedByMid = new Map(storedPreviewChats.map((chat) => [chat.mid, chat]));
   for (const chat of result) {
     const stored = storedByMid.get(chat.mid);
-    if (
-      stored?.lastMessagePreview &&
-      shouldPreserveResolvedLastMessagePreview(stored, chat)
-    ) {
+    if (stored?.lastMessagePreview && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
       chat.lastMessagePreview = stored.lastMessagePreview;
     }
   }
@@ -3061,8 +3072,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     const storedTime = stored.lastMessageTime ?? 0;
     const liveTime = live.lastMessageTime ?? 0;
     const useStoredLast = storedTime > liveTime;
-    const liveNameIsFallback =
-      !live.name || live.name === live.mid || live.name === "(No Name)";
+    const liveNameIsFallback = !live.name || live.name === live.mid || live.name === "(No Name)";
     return {
       ...stored,
       ...live,
@@ -4222,8 +4232,13 @@ export async function sendMessage(
 }
 
 export type MediaSendType = "image" | "video" | "audio" | "file" | "gif";
+export type MediaSendSource = {
+  path: string;
+  sizeBytes: number;
+};
 export type MediaBatchItem = {
-  dataBase64: string;
+  path: string;
+  sizeBytes: number;
   mimeType?: string;
   filename?: string;
   mediaType?: MediaSendType;
@@ -4234,6 +4249,54 @@ export type MediaBatchItem = {
 const MEDIA_SEND_TIMEOUT_MS = 90_000;
 const MEDIA_FLOW_REQSEQ = 1;
 const mediaFlowCache = new Map<string, { flowMap: Record<string, number>; expiresAt: number }>();
+const configuredMediaSendConcurrency = Number(process.env.VYLINE_MEDIA_SEND_CONCURRENCY ?? 1);
+const MEDIA_SEND_CONCURRENCY = Number.isSafeInteger(configuredMediaSendConcurrency)
+  ? Math.min(4, Math.max(1, configuredMediaSendConcurrency))
+  : 1;
+const MEDIA_SEND_QUEUE_MAX = 16;
+const mediaSendQueue: Array<{
+  run: () => Promise<unknown>;
+  resolve: (value: unknown) => void;
+  reject: (error: unknown) => void;
+}> = [];
+let activeMediaSends = 0;
+
+function drainMediaSendQueue(): void {
+  while (activeMediaSends < MEDIA_SEND_CONCURRENCY) {
+    const next = mediaSendQueue.shift();
+    if (!next) return;
+    activeMediaSends++;
+    void next
+      .run()
+      .then(next.resolve, next.reject)
+      .finally(() => {
+        activeMediaSends--;
+        drainMediaSendQueue();
+      });
+  }
+}
+
+function withMediaSendSlot<T>(run: () => Promise<T>): Promise<T> {
+  if (mediaSendQueue.length >= MEDIA_SEND_QUEUE_MAX) {
+    throw new MediaSendUploadError("media send queue is full; retry later", 409);
+  }
+  return new Promise<T>((resolve, reject) => {
+    mediaSendQueue.push({
+      run,
+      resolve: resolve as (value: unknown) => void,
+      reject,
+    });
+    drainMediaSendQueue();
+  });
+}
+
+function openMediaSource(source: MediaSendSource, mimeType: string) {
+  const file = Bun.file(source.path, { type: mimeType });
+  if (file.size <= 0 || file.size !== source.sizeBytes) {
+    throw new Error("staged media size changed before send");
+  }
+  return file;
+}
 
 function mediaContentTypeNumber(mediaType: MediaSendType): number {
   if (mediaType === "video") return 2;
@@ -4284,7 +4347,7 @@ async function determinePlainMediaFlow(
 export async function sendMedia(
   accountId: string,
   chatMid: string,
-  dataBase64: string,
+  source: MediaSendSource,
   opts?: {
     mimeType?: string;
     filename?: string;
@@ -4299,77 +4362,82 @@ export async function sendMedia(
       return;
     }
   }
-  return runSendRpc(
-    accountId,
-    async () => {
-      const client = requireClient(accountId);
-      await resolveMyMid(client, accountId);
-      // テキスト送信と同じキャッシュ版を使い、送信ごとの E2EE 鍵再取得を避ける
-      try {
-        await ensureE2EEIdentityCached(client, accountId);
-      } catch (err) {
-        log.warn({ accountId, err }, "E2EE ensure before media send failed");
-      }
-
-      const mime = opts?.mimeType ?? "image/png";
-      const mediaType: MediaSendType =
-        opts?.mediaType ??
-        (mime.startsWith("video/")
-          ? "video"
-          : mime.startsWith("audio/")
-            ? "audio"
-            : mime === "image/gif"
-              ? "gif"
-              : mime.startsWith("image/")
-                ? "image"
-                : "file");
-
-      const binary = Uint8Array.from(atob(dataBase64), (c) => c.charCodeAt(0));
-      const blob = new Blob([binary], { type: mime });
-      const filename =
-        opts?.filename ??
-        (mediaType === "image" || mediaType === "gif"
-          ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
-          : "file.bin");
-
-      // Desktop 準拠: REFRESH_MEDIA_FLOW を待たず、送信前にメディア flow を確認する。
-      // flow=1 は OBS /r/talk/m/reqseq でサーバー側に message を作らせる。
-      let plainMode =
-        noE2eePeers.has(chatMid) ||
-        (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
-
-      // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
-      // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
-      // 新規 register はしない（テキストは plain フォールバックで問題ない）
-      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+  return withMediaSendSlot(() =>
+    runSendRpc(
+      accountId,
+      async (signal) => {
+        if (!signal) throw new Error("media send abort signal unavailable");
+        signal.throwIfAborted();
+        const client = requireClient(accountId);
+        await resolveMyMid(client, accountId);
+        // テキスト送信と同じキャッシュ版を使い、送信ごとの E2EE 鍵再取得を避ける
         try {
-          await ensureGroupE2EEKey(client, chatMid);
-          if (groupKeyWarmFailed.has(chatMid)) {
-            groupKeyWarmFailed.delete(chatMid);
-            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
-          }
+          await ensureE2EEIdentityCached(client, accountId);
         } catch (err) {
-          log.warn(
-            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-            "group E2EE key setup failed — sending media as plain",
-          );
-          plainMode = true;
+          log.warn({ accountId, err }, "E2EE ensure before media send failed");
         }
-        plainMode = plainMode || noE2eePeers.has(chatMid);
-      }
 
-      const tryUpload = async () => {
-        await client.base.obs.uploadMediaByE2EE({
-          data: blob,
-          oType: mediaType,
-          to: chatMid,
-          filename,
-        });
-      };
+        const mime = opts?.mimeType ?? "image/png";
+        const mediaType: MediaSendType =
+          opts?.mediaType ??
+          (mime.startsWith("video/")
+            ? "video"
+            : mime.startsWith("audio/")
+              ? "audio"
+              : mime === "image/gif"
+                ? "gif"
+                : mime.startsWith("image/")
+                  ? "image"
+                  : "file");
 
-      try {
-        if (plainMode) {
-          // 平文チャットは E2EE メディアメッセージではなく raw OBS upload で送る。
+        const blob = openMediaSource(source, mime);
+        const sourceSize = blob.size;
+        const filename =
+          opts?.filename ??
+          (mediaType === "image" || mediaType === "gif"
+            ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+            : "file.bin");
+
+        // Desktop 準拠: REFRESH_MEDIA_FLOW を待たず、送信前にメディア flow を確認する。
+        // flow=1 は OBS /r/talk/m/reqseq でサーバー側に message を作らせる。
+        let plainMode =
+          noE2eePeers.has(chatMid) ||
+          (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
+
+        // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
+        // 鍵が無いのに勝手に新規登録すると本家クライアントと不整合になり画像が見えなくなるため、
+        // 新規 register はしない（テキストは plain フォールバックで問題ない）
+        if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+          try {
+            await ensureGroupE2EEKey(client, chatMid);
+            if (groupKeyWarmFailed.has(chatMid)) {
+              groupKeyWarmFailed.delete(chatMid);
+              await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+            }
+          } catch (err) {
+            log.warn(
+              { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+              "group E2EE key setup failed — sending media as plain",
+            );
+            plainMode = true;
+          }
+          plainMode = plainMode || noE2eePeers.has(chatMid);
+        }
+
+        const tryUpload = async () => {
+          signal?.throwIfAborted();
+          await client.base.obs.uploadMediaByE2EEFromFile({
+            dataPath: source.path,
+            size: source.sizeBytes,
+            mimeType: mime,
+            oType: mediaType,
+            to: chatMid,
+            filename,
+            signal,
+          });
+        };
+
+        const uploadPlain = async () => {
           // uploadObjTalk が talk 側のメッセージ作成まで面倒を見るため、sendMessage は呼ばない。
           const { objId, objHash } = await client.base.obs.uploadObjTalk(
             chatMid,
@@ -4377,90 +4445,98 @@ export async function sendMedia(
             blob,
             undefined,
             filename,
+            undefined,
+            undefined,
+            signal,
           );
-          // uploadObjTalk の成功後に、送信元バイト列を永続保存する。
-          // OBS の保持期限や 404 に依存せず、自分が送ったメディアを再表示できるようにする。
-          await writeMediaStorage(accountId, chatMid, objId, binary, mime);
+          await importMediaStorageFile(accountId, chatMid, objId, source.path, mime);
           log.info(
             {
               accountId,
               chatMid,
               mediaType,
-              size: binary.byteLength,
+              size: sourceSize,
               plain: true,
               objId,
               objHash,
             },
             "media sent",
           );
+        };
+
+        try {
+          if (plainMode) {
+            // 平文チャットは E2EE メディアメッセージではなく raw OBS upload で送る。
+            await uploadPlain();
+            return;
+          }
+          await tryUpload();
+          log.info({ accountId, chatMid, mediaType, size: sourceSize }, "media sent");
           return;
-        }
-        await tryUpload();
-        log.info({ accountId, chatMid, mediaType, size: binary.byteLength }, "media sent");
-        return;
-      } catch (err) {
-        let errMsg = err instanceof Error ? err.message : String(err);
+        } catch (err) {
+          let errMsg = err instanceof Error ? err.message : String(err);
 
-        if (isSenderKeyError(errMsg)) {
-          log.warn(
-            { accountId, chatMid, errMsg },
-            "media send: invalid sender key — rotating and retrying",
-          );
-          try {
-            await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
-            await tryUpload();
-            log.info(
-              { accountId, chatMid, mediaType, size: binary.byteLength, rotated: true },
-              "media sent",
-            );
-            return;
-          } catch (retryErr) {
-            err = retryErr;
-            errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          }
-        }
-
-        if (
-          (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
-          (chatMid.startsWith("c") || chatMid.startsWith("r"))
-        ) {
-          log.warn(
-            { accountId, chatMid, errMsg },
-            "media send: old/missing group key — recreating and retrying",
-          );
-          try {
-            await recreateE2EEGroupKey(client, chatMid);
-            groupKeyWarm.delete(chatMid);
-            groupKeyWarmFailed.delete(chatMid);
-            await tryUpload();
-            log.info(
-              {
-                accountId,
-                chatMid,
-                mediaType,
-                size: binary.byteLength,
-                groupKeyRecreated: true,
-              },
-              "media sent",
-            );
-            return;
-          } catch (retryErr) {
+          if (isSenderKeyError(errMsg)) {
             log.warn(
-              {
-                accountId,
-                chatMid,
-                retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
-              },
-              "media send after group-key recreate failed",
+              { accountId, chatMid, errMsg },
+              "media send: invalid sender key — rotating and retrying",
             );
-            throw retryErr;
+            try {
+              await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+              await tryUpload();
+              log.info(
+                { accountId, chatMid, mediaType, size: sourceSize, rotated: true },
+                "media sent",
+              );
+              return;
+            } catch (retryErr) {
+              err = retryErr;
+              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            }
           }
-        }
 
-        throw err;
-      }
-    },
-    { timeoutMs: MEDIA_SEND_TIMEOUT_MS },
+          if (
+            (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+            (chatMid.startsWith("c") || chatMid.startsWith("r"))
+          ) {
+            log.warn(
+              { accountId, chatMid, errMsg },
+              "media send: old/missing group key — recreating and retrying",
+            );
+            try {
+              await recreateE2EEGroupKey(client, chatMid);
+              groupKeyWarm.delete(chatMid);
+              groupKeyWarmFailed.delete(chatMid);
+              await tryUpload();
+              log.info(
+                {
+                  accountId,
+                  chatMid,
+                  mediaType,
+                  size: sourceSize,
+                  groupKeyRecreated: true,
+                },
+                "media sent",
+              );
+              return;
+            } catch (retryErr) {
+              err = retryErr;
+              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+            }
+          }
+
+          if (isRetryPlainError(errMsg) || errMsg.includes("Not support E2EE")) {
+            markNoE2eePeer(chatMid, errMsg);
+            log.info({ accountId, chatMid, errMsg }, "media E2EE unsupported — using raw OBS");
+            await uploadPlain();
+            return;
+          }
+
+          throw err;
+        }
+      },
+      { timeoutMs: MEDIA_SEND_TIMEOUT_MS, abortOnTimeout: true },
+    ),
   );
 }
 
@@ -4478,232 +4554,245 @@ export async function sendMediaBatch(
     }
   }
 
-  return runSendRpc(
-    accountId,
-    async () => {
-      const client = requireClient(accountId);
-      await resolveMyMid(client, accountId);
-      try {
-        await ensureE2EEIdentityCached(client, accountId);
-      } catch (err) {
-        log.warn({ accountId, err }, "E2EE ensure before media batch send failed");
-      }
-
-      const batchMediaTypes = items.map((item) => {
-        const mime = item.mimeType ?? "image/png";
-        return (
-          item.mediaType ??
-          (mime.startsWith("video/")
-            ? "video"
-            : mime.startsWith("audio/")
-              ? "audio"
-              : mime === "image/gif"
-                ? "gif"
-                : mime.startsWith("image/")
-                  ? "image"
-                  : "file")
-        );
-      });
-      let plainMode =
-        noE2eePeers.has(chatMid) ||
-        (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
-      if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+  return withMediaSendSlot(() =>
+    runSendRpc(
+      accountId,
+      async (signal) => {
+        if (!signal) throw new Error("media send abort signal unavailable");
+        signal.throwIfAborted();
+        const client = requireClient(accountId);
+        await resolveMyMid(client, accountId);
         try {
-          await ensureGroupE2EEKey(client, chatMid);
-          if (groupKeyWarmFailed.has(chatMid)) {
-            groupKeyWarmFailed.delete(chatMid);
-            await ensureGroupKeyReadyForSend(client, accountId, chatMid);
-          }
+          await ensureE2EEIdentityCached(client, accountId);
         } catch (err) {
-          log.warn(
-            { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
-            "group E2EE key setup failed — sending media batch as plain",
-          );
-          plainMode = true;
+          log.warn({ accountId, err }, "E2EE ensure before media batch send failed");
         }
-        plainMode = plainMode || noE2eePeers.has(chatMid);
-      }
 
-      if (plainMode) {
-        // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
-        // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
-        // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らないため
-        // 失敗時のフォールバック送信も行わない（二重送信になる）。
-        const uploaded = await client.base.obs.uploadObjTalkBatch(
-          chatMid,
-          items.map((item, idx) => ({
-            type: (batchMediaTypes[idx] ?? "image") as Parameters<
-              typeof client.base.obs.uploadObjTalk
-            >[1],
-            data: new Blob([Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0))], {
-              type: item.mimeType ?? "image/png",
-            }),
-            filename:
-              item.filename ??
-              ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
-          })),
-        );
-        // reqseq 生成メッセージは OBS から OID が取れないため、
-        // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-        // 送信バイトを永続メディアストレージに置く。
-        let count = 0;
-        for (let i = 0; i < uploaded.length; i++) {
-          const result = uploaded[i];
-          if (!result || "error" in result) {
-            log.warn(
-              {
-                accountId,
-                chatMid,
-                index: i,
-                err: result && "error" in result ? String(result.error) : "no result",
-              },
-              "media batch item failed (partial success kept)",
-            );
-            continue;
-          }
-          count++;
-          const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
-          await writeMediaStorage(
-            accountId,
-            chatMid,
-            result.objId,
-            binary,
-            items[i]!.mimeType ?? "image/png",
+        const batchMediaTypes = items.map((item) => {
+          const mime = item.mimeType ?? "image/png";
+          return (
+            item.mediaType ??
+            (mime.startsWith("video/")
+              ? "video"
+              : mime.startsWith("audio/")
+                ? "audio"
+                : mime === "image/gif"
+                  ? "gif"
+                  : mime.startsWith("image/")
+                    ? "image"
+                    : "file")
           );
-        }
-        log.info(
-          {
-            accountId,
-            chatMid,
-            count,
-            total: items.length,
-            batch: true,
-            plain: true,
-            reqseq: true,
-          },
-          "media batch sent via OBS reqseq",
-        );
-        return count;
-      }
-
-      let count = 0;
-      let previousMessageId: string | undefined;
-      for (const item of items) {
-        const mime = item.mimeType ?? "image/png";
-        const mediaType: MediaSendType =
-          item.mediaType ??
-          (mime.startsWith("video/")
-            ? "video"
-            : mime.startsWith("audio/")
-              ? "audio"
-              : mime === "image/gif"
-                ? "gif"
-                : mime.startsWith("image/")
-                  ? "image"
-                  : "file");
-        const binary = Uint8Array.from(atob(item.dataBase64), (c) => c.charCodeAt(0));
-        const blob = new Blob([binary], { type: mime });
-        const filename =
-          item.filename ??
-          (mediaType === "image" || mediaType === "gif"
-            ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
-            : "file.bin");
-
-        const tryUpload = async () => {
-          const message = await client.base.obs.uploadMediaByE2EE({
-            data: blob,
-            oType: mediaType,
-            to: chatMid,
-            filename,
-            ...(previousMessageId
-              ? {
-                  relatedMessageId: previousMessageId,
-                  messageRelationType: "SUBORDINATE",
-                }
-              : {}),
-          });
-          previousMessageId = message.id;
-          return message;
-        };
-
-        try {
-          const message = await tryUpload();
-          log.info(
-            {
-              accountId,
-              chatMid,
-              mediaType,
-              size: binary.byteLength,
-              batch: true,
-              messageId: message.id,
-              relatedMessageId: message.relatedMessageId,
-              messageRelationType: message.messageRelationType,
-            },
-            "media batch item sent",
-          );
-          count++;
-        } catch (err) {
-          let errMsg = err instanceof Error ? err.message : String(err);
-
-          if (isSenderKeyError(errMsg)) {
-            log.warn(
-              { accountId, chatMid, errMsg },
-              "media batch send: invalid sender key — rotating and retrying",
-            );
-            try {
-              await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
-              const message = await tryUpload();
-              previousMessageId = message.id;
-              count++;
-              continue;
-            } catch (retryErr) {
-              err = retryErr;
-              errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-            }
-          }
-
-          if (
-            (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
-            (chatMid.startsWith("c") || chatMid.startsWith("r"))
-          ) {
-            log.warn(
-              { accountId, chatMid, errMsg },
-              "media batch send: old/missing group key — recreating and retrying",
-            );
-            try {
-              await recreateE2EEGroupKey(client, chatMid);
-              groupKeyWarm.delete(chatMid);
+        });
+        let plainMode =
+          noE2eePeers.has(chatMid) ||
+          (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
+        if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
+          try {
+            await ensureGroupE2EEKey(client, chatMid);
+            if (groupKeyWarmFailed.has(chatMid)) {
               groupKeyWarmFailed.delete(chatMid);
-              const message = await tryUpload();
-              previousMessageId = message.id;
-              count++;
-              continue;
-            } catch (retryErr) {
+              await ensureGroupKeyReadyForSend(client, accountId, chatMid);
+            }
+          } catch (err) {
+            log.warn(
+              { accountId, chatMid, err: err instanceof Error ? err.message : String(err) },
+              "group E2EE key setup failed — sending media batch as plain",
+            );
+            plainMode = true;
+          }
+          plainMode = plainMode || noE2eePeers.has(chatMid);
+        }
+
+        const uploadPlainBatch = async (): Promise<number> => {
+          signal?.throwIfAborted();
+          // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
+          // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
+          // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らないため
+          // 失敗時のフォールバック送信も行わない（二重送信になる）。
+          const uploaded = await client.base.obs.uploadObjTalkBatch(
+            chatMid,
+            items.map((item, idx) => ({
+              type: (batchMediaTypes[idx] ?? "image") as Parameters<
+                typeof client.base.obs.uploadObjTalk
+              >[1],
+              data: openMediaSource(item, item.mimeType ?? "image/png"),
+              filename:
+                item.filename ??
+                ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
+            })),
+            signal,
+          );
+          // reqseq 生成メッセージは OBS から OID が取れないため、
+          // アップロード応答の objId（== 生成メッセージID の実測）をキーに
+          // 送信バイトを永続メディアストレージに置く。
+          let count = 0;
+          for (let i = 0; i < uploaded.length; i++) {
+            const result = uploaded[i];
+            if (!result || "error" in result) {
               log.warn(
                 {
                   accountId,
                   chatMid,
-                  retryErr: retryErr instanceof Error ? retryErr.message : String(retryErr),
+                  index: i,
+                  err: result && "error" in result ? String(result.error) : "no result",
                 },
-                "media batch send after group-key recreate failed",
+                "media batch item failed (partial success kept)",
               );
-              throw retryErr;
+              continue;
             }
+            count++;
+            await importMediaStorageFile(
+              accountId,
+              chatMid,
+              result.objId,
+              items[i]!.path,
+              items[i]!.mimeType ?? "image/png",
+            );
           }
+          log.info(
+            {
+              accountId,
+              chatMid,
+              count,
+              total: items.length,
+              batch: true,
+              plain: true,
+              reqseq: true,
+            },
+            "media batch sent via OBS reqseq",
+          );
+          return count;
+        };
 
-          // 部分成功をエラーメッセージに含める（リトライ時の二重送信防止のヒント）
-          throw new Error(`media send failed after ${count} items: ${errMsg}`);
+        if (plainMode) return await uploadPlainBatch();
+
+        let count = 0;
+        let previousMessageId: string | undefined;
+        for (const item of items) {
+          signal?.throwIfAborted();
+          const mime = item.mimeType ?? "image/png";
+          const mediaType: MediaSendType =
+            item.mediaType ??
+            (mime.startsWith("video/")
+              ? "video"
+              : mime.startsWith("audio/")
+                ? "audio"
+                : mime === "image/gif"
+                  ? "gif"
+                  : mime.startsWith("image/")
+                    ? "image"
+                    : "file");
+          const blob = openMediaSource(item, mime);
+          const sourceSize = blob.size;
+          const filename =
+            item.filename ??
+            (mediaType === "image" || mediaType === "gif"
+              ? `screenshot.${mime.includes("jpeg") ? "jpg" : "png"}`
+              : "file.bin");
+
+          const tryUpload = async () => {
+            signal?.throwIfAborted();
+            const message = await client.base.obs.uploadMediaByE2EEFromFile({
+              dataPath: item.path,
+              size: item.sizeBytes,
+              mimeType: mime,
+              oType: mediaType,
+              to: chatMid,
+              filename,
+              signal,
+              ...(previousMessageId
+                ? {
+                    relatedMessageId: previousMessageId,
+                    messageRelationType: "SUBORDINATE",
+                  }
+                : {}),
+            });
+            previousMessageId = message.id;
+            return message;
+          };
+
+          try {
+            const message = await tryUpload();
+            log.info(
+              {
+                accountId,
+                chatMid,
+                mediaType,
+                size: sourceSize,
+                batch: true,
+                messageId: message.id,
+                relatedMessageId: message.relatedMessageId,
+                messageRelationType: message.messageRelationType,
+              },
+              "media batch item sent",
+            );
+            count++;
+          } catch (err) {
+            let errMsg = err instanceof Error ? err.message : String(err);
+
+            if (isSenderKeyError(errMsg)) {
+              log.warn(
+                { accountId, chatMid, errMsg },
+                "media batch send: invalid sender key — rotating and retrying",
+              );
+              try {
+                await ensureValidE2EEIdentity(client, { forceNewSenderKey: true });
+                const message = await tryUpload();
+                previousMessageId = message.id;
+                count++;
+                continue;
+              } catch (retryErr) {
+                err = retryErr;
+                errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+              }
+            }
+
+            if (
+              (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+              (chatMid.startsWith("c") || chatMid.startsWith("r"))
+            ) {
+              log.warn(
+                { accountId, chatMid, errMsg },
+                "media batch send: old/missing group key — recreating and retrying",
+              );
+              try {
+                await recreateE2EEGroupKey(client, chatMid);
+                groupKeyWarm.delete(chatMid);
+                groupKeyWarmFailed.delete(chatMid);
+                const message = await tryUpload();
+                previousMessageId = message.id;
+                count++;
+                continue;
+              } catch (retryErr) {
+                err = retryErr;
+                errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
+              }
+            }
+
+            if (count === 0 && (isRetryPlainError(errMsg) || errMsg.includes("Not support E2EE"))) {
+              markNoE2eePeer(chatMid, errMsg);
+              log.info(
+                { accountId, chatMid, errMsg },
+                "media batch E2EE unsupported — using raw OBS",
+              );
+              return await uploadPlainBatch();
+            }
+
+            // 部分成功をエラーメッセージに含める（リトライ時の二重送信防止のヒント）
+            throw new Error(`media send failed after ${count} items: ${errMsg}`);
+          }
         }
-      }
 
-      return count;
-    },
-    {
-      timeoutMs: Math.min(
-        300_000,
-        Math.max(MEDIA_SEND_TIMEOUT_MS, MEDIA_SEND_TIMEOUT_MS * items.length),
-      ),
-    },
+        return count;
+      },
+      {
+        timeoutMs: Math.min(
+          300_000,
+          Math.max(MEDIA_SEND_TIMEOUT_MS, MEDIA_SEND_TIMEOUT_MS * items.length),
+        ),
+        abortOnTimeout: true,
+      },
+    ),
   );
 }
 
@@ -5154,15 +5243,9 @@ async function findStoredMessageByIdLocal(
   messageId: string,
 ): Promise<{
   chatMid: string;
-  message: Awaited<ReturnType<typeof getStoredMessages>>[number];
+  message: StoredMessage;
 } | null> {
-  const chats = await getStoredChats(accountId);
-  for (const chat of chats) {
-    const messages = await getStoredMessages(accountId, chat.mid, Number.MAX_SAFE_INTEGER);
-    const message = messages.find((m) => m.id === messageId);
-    if (message) return { chatMid: chat.mid, message };
-  }
-  return null;
+  return await findStoredMessageById(accountId, messageId);
 }
 
 /** メッセージ編集（Desktop: editMessage） */
@@ -5205,7 +5288,7 @@ export async function editMessage(
     } catch (err) {
       log.debug({ err }, "logMessageAsync failed during editMessage");
     }
-    log.info({ accountId, chatMid, messageId, text }, "message edited");
+    log.info({ accountId, chatMid, messageId }, "message edited");
     return { message: mapped };
   });
 }
@@ -5281,13 +5364,11 @@ export async function updateMyProfile(
 /** 自分のアバター画像を OBS アップロード + ProfileAttribute.PICTURE 更新 */
 export async function updateMyProfileImage(
   accountId: string,
-  bytes: Uint8Array,
-  mime = "image/jpeg",
+  data: Blob,
 ): Promise<{ objId: string; objHash: string; profile: LineProfile }> {
   const client = requireClient(accountId);
   const session = wrapSession(client);
-  const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
-  const uploaded = await session.profile.uploadAvatar(blob);
+  const uploaded = await session.profile.uploadAvatar(data);
   myMidCache.delete(accountId);
   const profile = await fetchProfile(accountId);
   log.info({ accountId, objId: uploaded.objId }, "my profile image updated");
@@ -5297,13 +5378,11 @@ export async function updateMyProfileImage(
 /** 自分のプロフィール背景 */
 export async function updateMyProfileBackground(
   accountId: string,
-  bytes: Uint8Array,
-  mime = "image/jpeg",
+  data: Blob,
 ): Promise<{ objId: string; objHash: string; backgroundUrl: string }> {
   const client = requireClient(accountId);
   const session = wrapSession(client);
-  const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
-  const uploaded = await session.profile.uploadBackground(blob);
+  const uploaded = await session.profile.uploadBackground(data);
   log.info({ accountId, objId: uploaded.objId }, "my profile background updated");
   const backgroundUrl = backgroundObjToUrl(uploaded.objId) ?? "";
   // プロフィールキャッシュにも反映（起動直後に取れるように）
@@ -5343,13 +5422,11 @@ export async function updateChatName(
 export async function updateChatPicture(
   accountId: string,
   chatMid: string,
-  bytes: Uint8Array,
-  mime = "image/jpeg",
+  data: Blob,
 ): Promise<{ picturePath: string; objId: string; objHash: string }> {
   await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
-  const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
-  const result = await wrapSession(client).chat.uploadAndSetPicture(chatMid, blob);
+  const result = await wrapSession(client).chat.uploadAndSetPicture(chatMid, data);
   log.info({ accountId, chatMid, picturePath: result.picturePath }, "chat picture updated");
   return result;
 }
@@ -6069,8 +6146,21 @@ const MEDIA_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "1", "2", "3", "
 /** 一時的な OBS / 復号失敗の連打を抑える短期バックオフ（期限切れにはしない） */
 const mediaFailedAt = new Map<string, number>();
 const MEDIA_FAILURE_BACKOFF_MS = 30_000;
+const MEDIA_FAILURE_MAX_ENTRIES = 2_048;
 /** OBS ダウンロードがハングしないよう打ち切る（30s 固まり防止） */
 const MEDIA_OBS_TIMEOUT_MS = Number(process.env.VYLINE_MEDIA_OBS_TIMEOUT_MS ?? 15_000);
+/** プレビュー/RICHのようにバイト列が必要な応答だけに適用する固定RAM上限。 */
+const MEDIA_BUFFERED_RESPONSE_MAX_BYTES = 16 * 1024 * 1024;
+
+function rememberMediaFailure(failureKey: string): void {
+  mediaFailedAt.delete(failureKey);
+  mediaFailedAt.set(failureKey, Date.now());
+  while (mediaFailedAt.size > MEDIA_FAILURE_MAX_ENTRIES) {
+    const oldest = mediaFailedAt.keys().next().value as string | undefined;
+    if (oldest == null) break;
+    mediaFailedAt.delete(oldest);
+  }
+}
 
 /**
  * OBS からメッセージメディアのバイト列だけ取る。
@@ -6082,20 +6172,47 @@ async function downloadObsMessageBytes(
   preview: boolean,
   contentType: string,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_OBS_TIMEOUT_MS);
+  try {
+    const response = await downloadObsMessageResponse(
+      client,
+      messageId,
+      controller.signal,
+      preview,
+    );
+    return {
+      bytes: await readResponseBytesBounded(response, MEDIA_BUFFERED_RESPONSE_MAX_BYTES),
+      contentType:
+        response.headers.get("content-type")?.split(";", 1)[0]?.trim() ||
+        guessMediaMime(contentType),
+    };
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/** Open an OBS body without converting it to Blob/ArrayBuffer. */
+async function downloadObsMessageResponse(
+  client: NonNullable<ReturnType<typeof getClient>>,
+  messageId: string,
+  signal: AbortSignal,
+  preview = false,
+): Promise<Response> {
   const base = client.base as unknown as {
     authToken?: string;
     fetch: (url: string, init?: RequestInit) => Promise<Response>;
     request?: { systemType?: string };
   };
   if (!base.authToken) throw new Error("not authenticated");
-  return await vylineDownloadObs(
+  return await vylineDownloadObsResponse(
     {
       authToken: base.authToken,
       systemType: base.request?.systemType ?? "",
       fetch: base.fetch.bind(base),
     },
     messageId,
-    { preview, fallbackMime: guessMediaMime(contentType) },
+    { preview, signal },
   );
 }
 
@@ -6163,19 +6280,203 @@ async function downloadUrlBytes(
   fallbackMime = guessMediaMime("IMAGE"),
   ms = 20_000,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const res = await withTimeout(fetch(url), ms, "downloadUrlBytes");
-  if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`);
-  const bytes = new Uint8Array(await res.arrayBuffer());
-  const contentType = res.headers.get("content-type") || fallbackMime;
-  return { bytes, contentType };
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), ms);
+  try {
+    const res = await fetchTrustedLineMediaDownloadUrl(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`);
+    const bytes = await readResponseBytesBounded(res, MEDIA_BUFFERED_RESPONSE_MAX_BYTES);
+    const contentType = res.headers.get("content-type") || fallbackMime;
+    return { bytes, contentType };
+  } finally {
+    clearTimeout(timeout);
+  }
 }
+
+function responseLength(response: Response): number | undefined {
+  const raw = response.headers.get("content-length");
+  if (raw == null) return undefined;
+  return /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+}
+
+async function readResponseBytesBounded(response: Response, maxBytes: number): Promise<Uint8Array> {
+  const declared = responseLength(response);
+  if (declared != null && declared > maxBytes) {
+    await response.body?.cancel().catch(() => undefined);
+    throw new Error(`buffered media exceeds ${maxBytes} bytes`);
+  }
+  if (!response.body) throw new Error("media download returned empty body");
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value?.byteLength) continue;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel().catch(() => undefined);
+        throw new Error(`buffered media exceeds ${maxBytes} bytes`);
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  if (total === 0) throw new Error("media download returned empty body");
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return bytes;
+}
+
+async function streamRemoteMediaToStorage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  fallbackMime: string,
+  timeoutMs: number,
+  load: (signal: AbortSignal) => Promise<Response>,
+): Promise<MediaStorageStat> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await load(controller.signal);
+    if (!response.ok) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error(`media download failed: HTTP ${response.status}`);
+    }
+    if (!response.body) throw new Error("media download returned empty body");
+    const contentType =
+      response.headers.get("content-type")?.split(";", 1)[0]?.trim() || fallbackMime;
+    return await writeMediaStorageStream(
+      accountId,
+      chatMid,
+      messageId,
+      response.body,
+      contentType,
+      responseLength(response),
+    );
+  } catch (error) {
+    controller.abort(error);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function streamE2eeMediaToStorage(
+  client: ReturnType<typeof requireClient>,
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  message: Parameters<typeof client.base.obs.downloadMediaByE2EEToFile>[0],
+  contentType: string,
+): Promise<MediaStorageStat> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), MEDIA_OBS_TIMEOUT_MS);
+  try {
+    return await writeMediaStorageProducedFile(
+      accountId,
+      chatMid,
+      messageId,
+      contentType,
+      async (temporaryPath, guard) => {
+        const result = await client.base.obs.downloadMediaByE2EEToFile(
+          message,
+          temporaryPath,
+          guard.maxBytes,
+          controller.signal,
+          guard.beforeWrite,
+        );
+        if (!result) throw new Error("E2EE media download returned no file");
+        return result.size;
+      },
+    );
+  } catch (error) {
+    controller.abort(error);
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+/**
+ * Stream a confidently plain, original media body into saved-media. E2EE media
+ * remains on fetchMessageMedia so its authenticated file decrypt path can run.
+ */
+export async function fetchPlainMessageMediaToStorage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<MediaStorageStat | null> {
+  let stored: Awaited<ReturnType<typeof findStoredMessageById>>;
+  try {
+    stored = await findStoredMessageById(accountId, messageId);
+  } catch (error) {
+    log.debug({ accountId, messageId, error }, "plain media local lookup failed");
+    return null;
+  }
+  if (!stored || stored.chatMid !== chatMid) return null;
+
+  const message = stored.message;
+  const meta = (message.contentMetadata ?? {}) as Record<string, unknown>;
+  if (meta.e2eeVersion || meta.keyMaterial) return null;
+
+  const client = requireClient(accountId);
+  const contentType = message.contentType || "IMAGE";
+  const fallbackMime = guessMediaMime(contentType);
+  const downloadUrl = typeof meta.DOWNLOAD_URL === "string" ? meta.DOWNLOAD_URL : undefined;
+  if (downloadUrl) {
+    try {
+      return await streamRemoteMediaToStorage(
+        accountId,
+        chatMid,
+        messageId,
+        fallbackMime,
+        20_000,
+        (signal) => fetchTrustedLineMediaDownloadUrl(downloadUrl, { signal }),
+      );
+    } catch (error) {
+      log.debug(
+        { messageId, err: error instanceof Error ? error.message : String(error) },
+        "streaming media download_url failed, falling back",
+      );
+      if (!MEDIA_TYPES.has(String(contentType))) return null;
+    }
+  }
+
+  if (!MEDIA_TYPES.has(String(contentType))) return null;
+  try {
+    return await streamRemoteMediaToStorage(
+      accountId,
+      chatMid,
+      messageId,
+      fallbackMime,
+      MEDIA_OBS_TIMEOUT_MS,
+      (signal) => downloadObsMessageResponse(client, messageId, signal),
+    );
+  } catch (error) {
+    const messageText = error instanceof Error ? error.message : String(error);
+    if (messageText.includes("404")) rememberMediaFailure(`${accountId}:${messageId}`);
+    throw error;
+  }
+}
+
+export type MessageMediaFetchResult =
+  | { bytes: Uint8Array; contentType: string }
+  | { stored: MediaStorageStat };
 
 export async function fetchMessageMedia(
   accountId: string,
   chatMid: string,
   messageId: string,
   preview = true,
-): Promise<{ bytes: Uint8Array; contentType: string }> {
+): Promise<MessageMediaFetchResult> {
   const client = requireClient(accountId);
 
   // 失敗直後だけ短期バックオフし、恒久的な再取得不能にはしない。
@@ -6198,6 +6499,18 @@ export async function fetchMessageMedia(
       const dl = typeof meta.DOWNLOAD_URL === "string" ? meta.DOWNLOAD_URL : undefined;
       if (dl) {
         try {
+          if (!preview) {
+            return {
+              stored: await streamRemoteMediaToStorage(
+                accountId,
+                chatMid,
+                messageId,
+                guessMediaMime(hit.contentType || "IMAGE"),
+                20_000,
+                (signal) => fetchTrustedLineMediaDownloadUrl(dl, { signal }),
+              ),
+            };
+          }
           return await downloadUrlBytes(dl);
         } catch (err) {
           log.debug(
@@ -6211,21 +6524,16 @@ export async function fetchMessageMedia(
       // OBS 直取得 + keyMaterial 復号（自送信メッセージなど chunks 無しでも即表示）
       if (meta.keyMaterial && meta.OID && meta.SID && (hit as { to?: string }).to) {
         try {
-          return await withTimeout(
-            (async () => {
-              const file = await client.base.obs.downloadMediaByE2EE(
-                hit as unknown as Parameters<typeof client.base.obs.downloadMediaByE2EE>[0],
-              );
-              if (!file) throw new Error("no media");
-              const ab = await file.arrayBuffer();
-              return {
-                bytes: new Uint8Array(ab),
-                contentType: file.type || guessMediaMime(ct),
-              };
-            })(),
-            MEDIA_OBS_TIMEOUT_MS,
-            "obsE2eeFast",
-          );
+          return {
+            stored: await streamE2eeMediaToStorage(
+              client,
+              accountId,
+              chatMid,
+              messageId,
+              hit as unknown as Parameters<typeof client.base.obs.downloadMediaByE2EEToFile>[0],
+              guessMediaMime(ct),
+            ),
+          };
         } catch (err) {
           log.debug(
             { messageId, err: err instanceof Error ? err.message : String(err) },
@@ -6233,8 +6541,20 @@ export async function fetchMessageMedia(
           );
         }
       }
-      if (!hit.contentMetadata || !(hit as { chunks?: unknown }).chunks) {
+      if ((!hit.contentMetadata || !(hit as { chunks?: unknown }).chunks) && !meta.keyMaterial) {
         try {
+          if (!preview) {
+            return {
+              stored: await streamRemoteMediaToStorage(
+                accountId,
+                chatMid,
+                messageId,
+                guessMediaMime(ct),
+                MEDIA_OBS_TIMEOUT_MS,
+                (signal) => downloadObsMessageResponse(client, messageId, signal),
+              ),
+            };
+          }
           return await withTimeout(
             downloadObsMessageBytes(client, messageId, preview, ct),
             MEDIA_OBS_TIMEOUT_MS,
@@ -6298,6 +6618,18 @@ export async function fetchMessageMedia(
         /* ignore */
       }
       try {
+        if (!preview) {
+          return {
+            stored: await streamRemoteMediaToStorage(
+              accountId,
+              chatMid,
+              messageId,
+              guessMediaMime(fallbackCt),
+              MEDIA_OBS_TIMEOUT_MS,
+              (signal) => downloadObsMessageResponse(client, messageId, signal),
+            ),
+          };
+        }
         return await withTimeout(
           downloadObsMessageBytes(client, messageId, preview, fallbackCt),
           MEDIA_OBS_TIMEOUT_MS,
@@ -6307,7 +6639,7 @@ export async function fetchMessageMedia(
         const msg = err instanceof Error ? err.message : String(err);
         // 404 は期限切れ/削除 — 500 連打しない
         if (msg.includes("404")) {
-          mediaFailedAt.set(failureKey, Date.now());
+          rememberMediaFailure(failureKey);
           throw new Error(`media expired or unavailable (OBS 404): ${messageId}`);
         }
         throw new Error(`message not found in history and OBS fallback failed: ${msg}`);
@@ -6319,6 +6651,18 @@ export async function fetchMessageMedia(
     const foundDl = typeof foundMeta.DOWNLOAD_URL === "string" ? foundMeta.DOWNLOAD_URL : undefined;
     if (foundDl) {
       try {
+        if (!preview) {
+          return {
+            stored: await streamRemoteMediaToStorage(
+              accountId,
+              chatMid,
+              messageId,
+              guessMediaMime(String(found.contentType ?? "IMAGE")),
+              20_000,
+              (signal) => fetchTrustedLineMediaDownloadUrl(foundDl, { signal }),
+            ),
+          };
+        }
         return await downloadUrlBytes(foundDl);
       } catch (err) {
         log.debug(
@@ -6359,24 +6703,41 @@ export async function fetchMessageMedia(
 
     let e2eeFailed = false;
 
-    const tryDownload = async (): Promise<{ bytes: Uint8Array; contentType: string }> => {
+    const tryDownload = async (): Promise<MessageMediaFetchResult> => {
       // グループ鍵が無い場合はE2EE復号をスキップしてOBSに直行
-      if (found.chunks && !groupKeyMissing) {
+      if (foundMeta.keyMaterial || (found.chunks && !groupKeyMissing)) {
         try {
-          const file = await client.base.obs.downloadMediaByE2EE(found);
-          if (file) {
-            const ab = await file.arrayBuffer();
-            return {
-              bytes: new Uint8Array(ab),
-              contentType: file.type || guessMediaMime(ct),
-            };
-          }
+          return {
+            stored: await streamE2eeMediaToStorage(
+              client,
+              accountId,
+              chatMid,
+              messageId,
+              found,
+              guessMediaMime(ct),
+            ),
+          };
         } catch (err) {
           e2eeFailed = true;
           log.debug({ err, messageId }, "downloadMediaByE2EE failed, trying plain OBS");
+          // A plaintext keyMaterial field proves the OBS object is encrypted.
+          // Never persist authenticated-decryption failures as if they were originals.
+          if (foundMeta.keyMaterial) throw err;
         }
       }
 
+      if (!preview) {
+        return {
+          stored: await streamRemoteMediaToStorage(
+            accountId,
+            chatMid,
+            messageId,
+            guessMediaMime(ct),
+            MEDIA_OBS_TIMEOUT_MS,
+            (signal) => downloadObsMessageResponse(client, String(found.id), signal),
+          ),
+        };
+      }
       return await withTimeout(
         downloadObsMessageBytes(client, String(found.id), preview, ct),
         MEDIA_OBS_TIMEOUT_MS,
@@ -6397,7 +6758,7 @@ export async function fetchMessageMedia(
         await ensureGroupKeyById(client, chatMid, gk);
         return await tryDownload();
       }
-      mediaFailedAt.set(failureKey, Date.now());
+      rememberMediaFailure(failureKey);
       throw err;
     }
   });
@@ -6483,15 +6844,39 @@ function packTitle(title: StickerMeta["title"], fallback: string): string {
 
 const packMetaCache = new Map<string, { data: CatalogPack | null; at: number }>();
 const PACK_META_TTL = 3_600_000; // 1h
+const PACK_META_MAX_ENTRIES = 128;
+
+function readPackMetaCache(key: string): CatalogPack | null | undefined {
+  const cached = packMetaCache.get(key);
+  if (!cached) return undefined;
+  if (Date.now() - cached.at >= PACK_META_TTL) {
+    packMetaCache.delete(key);
+    return undefined;
+  }
+  packMetaCache.delete(key);
+  packMetaCache.set(key, cached);
+  return cached.data;
+}
+
+function writePackMetaCache(key: string, data: CatalogPack | null): void {
+  packMetaCache.delete(key);
+  packMetaCache.set(key, { data, at: Date.now() });
+  while (packMetaCache.size > PACK_META_MAX_ENTRIES) {
+    const oldest = packMetaCache.keys().next().value as string | undefined;
+    if (oldest == null) break;
+    packMetaCache.delete(oldest);
+  }
+}
 
 async function loadStickerPack(packageId: string): Promise<CatalogPack | null> {
-  const cached = packMetaCache.get(`stk:${packageId}`);
-  if (cached && Date.now() - cached.at < PACK_META_TTL) return cached.data;
+  const cacheKey = `stk:${packageId}`;
+  const cached = readPackMetaCache(cacheKey);
+  if (cached !== undefined) return cached;
   const meta = await fetchJsonSafe<StickerMeta>(
     `https://stickershop.line-scdn.net/stickershop/v1/product/${packageId}/android/productInfo.meta`,
   );
   if (!meta?.stickers?.length) {
-    packMetaCache.set(`stk:${packageId}`, { data: null, at: Date.now() });
+    writePackMetaCache(cacheKey, null);
     return null;
   }
   const animated = Boolean(meta.hasAnimation);
@@ -6511,18 +6896,19 @@ async function loadStickerPack(packageId: string): Promise<CatalogPack | null> {
       };
     }),
   };
-  packMetaCache.set(`stk:${packageId}`, { data: result, at: Date.now() });
+  writePackMetaCache(cacheKey, result);
   return result;
 }
 
 async function loadEmojiPack(packageId: string): Promise<CatalogPack | null> {
-  const cached = packMetaCache.get(`emoji:${packageId}`);
-  if (cached && Date.now() - cached.at < PACK_META_TTL) return cached.data;
+  const cacheKey = `emoji:${packageId}`;
+  const cached = readPackMetaCache(cacheKey);
+  if (cached !== undefined) return cached;
   const meta = await fetchJsonSafe<SticonMeta>(
     `https://stickershop.line-scdn.net/sticonshop/v1/sticon/${packageId}/ANDROID/meta.json`,
   );
   if (!meta?.orders?.length) {
-    packMetaCache.set(`emoji:${packageId}`, { data: null, at: Date.now() });
+    writePackMetaCache(cacheKey, null);
     return null;
   }
   const first = String(meta.orders[0]);
@@ -6542,7 +6928,7 @@ async function loadEmojiPack(packageId: string): Promise<CatalogPack | null> {
       return item;
     }),
   };
-  packMetaCache.set(`emoji:${packageId}`, { data: result, at: Date.now() });
+  writePackMetaCache(cacheKey, result);
   return result;
 }
 
@@ -6649,14 +7035,51 @@ async function listOwnedPackageIds(
 /** 所持スタンプ / LINE 絵文字 + プレミアム状態。10分間キャッシュ */
 const catalogCache = new Map<string, { data: StickersCatalog; at: number }>();
 const CATALOG_CACHE_TTL_MS = 10 * 60_000;
+const CATALOG_CACHE_MAX_ACCOUNTS = 32;
+const CATALOG_REMOTE_CONCURRENCY = 4;
+
+async function mapCatalogBounded<T, R>(
+  items: readonly T[],
+  worker: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let cursor = 0;
+  const run = async () => {
+    for (;;) {
+      const index = cursor++;
+      if (index >= items.length) return;
+      results[index] = await worker(items[index]!);
+    }
+  };
+  await Promise.all(
+    Array.from({ length: Math.min(CATALOG_REMOTE_CONCURRENCY, items.length) }, () => run()),
+  );
+  return results;
+}
+
+function writeCatalogCache(accountId: string, data: StickersCatalog): void {
+  catalogCache.delete(accountId);
+  catalogCache.set(accountId, { data, at: Date.now() });
+  while (catalogCache.size > CATALOG_CACHE_MAX_ACCOUNTS) {
+    const oldest = catalogCache.keys().next().value as string | undefined;
+    if (oldest == null) break;
+    catalogCache.delete(oldest);
+  }
+}
 
 export async function fetchStickersCatalog(
   accountId: string,
   opts?: { force?: boolean },
 ): Promise<StickersCatalog> {
   const cached = catalogCache.get(accountId);
-  if (!opts?.force && cached && Date.now() - cached.at < CATALOG_CACHE_TTL_MS) {
-    return cached.data;
+  if (cached) {
+    if (Date.now() - cached.at >= CATALOG_CACHE_TTL_MS) {
+      catalogCache.delete(accountId);
+    } else if (!opts?.force) {
+      catalogCache.delete(accountId);
+      catalogCache.set(accountId, cached);
+      return cached.data;
+    }
   }
 
   const client = requireClient(accountId);
@@ -6672,16 +7095,16 @@ export async function fetchStickersCatalog(
   const uniqueStickers = [...new Set(stickerIds)].slice(0, 40);
   const uniqueEmojis = [...new Set(emojiIds)].slice(0, 40);
 
-  const stickerPacks = (await Promise.all(uniqueStickers.map((id) => loadStickerPack(id)))).filter(
-    (p): p is CatalogPack => Boolean(p),
+  const stickerPacks = (await mapCatalogBounded(uniqueStickers, loadStickerPack)).filter(
+    (pack): pack is CatalogPack => Boolean(pack),
   );
 
-  const emojiPacks = (await Promise.all(uniqueEmojis.map((id) => loadEmojiPack(id)))).filter(
-    (p): p is CatalogPack => Boolean(p),
+  const emojiPacks = (await mapCatalogBounded(uniqueEmojis, loadEmojiPack)).filter(
+    (pack): pack is CatalogPack => Boolean(pack),
   );
 
   const result: StickersCatalog = { premium, stickerPacks, emojiPacks };
-  catalogCache.set(accountId, { data: result, at: Date.now() });
+  writeCatalogCache(accountId, result);
 
   log.info(
     {

@@ -464,14 +464,32 @@ const routes: Array<[string, Method, OpSpec]> = [
         acc,
         chatMid,
         pathParam("messageId", "メッセージ ID"),
-        { name: "preview", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+        {
+          name: "preview",
+          in: "query",
+          description:
+            "1: 表示用プレビュー（既定）、0: 原本。保存済み原本があればオフライン互換のため再利用する。",
+          schema: { type: "string", enum: ["0", "1"] },
+        },
+        {
+          name: "Range",
+          in: "header",
+          required: false,
+          description: "単一 byte range（例: bytes=0-1048575）",
+          schema: { type: "string" },
+        },
       ],
       responses: {
         "200": {
           description: "バイナリ",
           content: { "*/*": { schema: { type: "string", format: "binary" } } },
         },
+        "206": {
+          description: "Range 部分レスポンス",
+          content: { "*/*": { schema: { type: "string", format: "binary" } } },
+        },
         "401": { description: "未ログイン" },
+        "416": { description: "Range が不正または範囲外" },
         "422": { description: "取得不能（期限切れ等）" },
       },
     },
@@ -484,55 +502,114 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "単体メディア送信",
       description: "LINE OBS: uploadMediaByE2EE / uploadObjectForService",
       tags: ["media"],
-      params: [acc],
-      requestBody: body(["chatMid", "dataBase64"], {
-        chatMid: { type: "string" },
-        dataBase64: { type: "string", description: "最大 ~12MB base64" },
-        mimeType: { type: "string" },
-        filename: { type: "string" },
-        mediaType: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
-      }),
-      responses: { "200": okRes() },
-    },
-  ],
-  [
-    "/line/{accountId}/send-media-batch",
-    "post",
-    {
-      op: "sendMediaBatch",
-      summary: "複数メディアの一括送信",
-      description:
-        "各アイテムは個別の IMAGE メッセージとして送信される。" +
-        "plain 経路では OBS /r/talk/m/reqseq 連番アップロードにより LINE サーバ側がメッセージを生成する。",
-      tags: ["media"],
-      params: [acc],
+      params: [
+        acc,
+        {
+          name: "X-Vyline-Chat-Mid",
+          in: "header",
+          required: true,
+          schema: { type: "string" },
+        },
+        {
+          name: "X-Vyline-Media-Filename",
+          in: "header",
+          description: "encodeURIComponent済みファイル名",
+          schema: { type: "string" },
+        },
+        {
+          name: "X-Vyline-Media-Type",
+          in: "header",
+          schema: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
+        },
+      ],
       requestBody: {
         required: true,
         content: {
-          "application/json": { schema: { $ref: "#/components/schemas/MediaBatchRequest" } },
+          "application/octet-stream": { schema: { type: "string", format: "binary" } },
         },
       },
       responses: {
-        "200": {
-          description: "送信完了",
-          content: {
-            "application/json": {
-              schema: {
-                type: "object",
-                properties: {
-                  ok: { type: "boolean" },
-                  count: { type: "integer", description: "送信できたアイテム数" },
-                },
-              },
-            },
-          },
-        },
-        "400": {
-          description: "chatMid/items 不備",
-          content: { "application/json": { schema: error } },
-        },
-        "413": { description: "ファイル超過", content: { "application/json": { schema: error } } },
+        "200": okRes(),
+        "400": { description: "メタデータまたはbody不備" },
+        "413": { description: "11,250,000 bytes超過" },
       },
+    },
+  ],
+  [
+    "/line/{accountId}/send-media-batch/start",
+    "post",
+    {
+      op: "startMediaBatchUpload",
+      summary: "複数メディア送信のdisk-backed uploadを開始",
+      tags: ["media"],
+      params: [acc],
+      requestBody: body(["chatMid", "itemCount"], {
+        chatMid: { type: "string" },
+        itemCount: { type: "integer", minimum: 1, maximum: 64 },
+      }),
+      responses: {
+        "200": jsonRes("uploadIdと単品上限"),
+        "400": { description: "chatMid/itemCount不備" },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/send-media-batch/{uploadId}/items/{index}",
+    "post",
+    {
+      op: "uploadMediaBatchItem",
+      summary: "一括送信アイテムをbinary upload",
+      tags: ["media"],
+      params: [
+        acc,
+        pathParam("uploadId", "upload session ID"),
+        pathParam("index", "0-based item index"),
+        {
+          name: "X-Vyline-Media-Filename",
+          in: "header",
+          schema: { type: "string" },
+        },
+        {
+          name: "X-Vyline-Media-Type",
+          in: "header",
+          schema: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: {
+          "application/octet-stream": { schema: { type: "string", format: "binary" } },
+        },
+      },
+      responses: {
+        "200": jsonRes("disk staging完了"),
+        "400": { description: "index/body不備" },
+        "413": { description: "11,250,000 bytes超過" },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/send-media-batch/{uploadId}/complete",
+    "post",
+    {
+      op: "completeMediaBatchUpload",
+      summary: "staged mediaを関連メッセージとして順次送信",
+      description:
+        "plainではOBS reqseq、E2EEでは2件目以降をSUBORDINATE関連メッセージとして送信する。",
+      tags: ["media"],
+      params: [acc, pathParam("uploadId", "upload session ID")],
+      responses: { "200": jsonRes("送信件数"), "400": { description: "upload未完了" } },
+    },
+  ],
+  [
+    "/line/{accountId}/send-media-batch/{uploadId}",
+    "delete",
+    {
+      op: "cancelMediaBatchUpload",
+      summary: "一括送信のstagingを破棄",
+      tags: ["media"],
+      params: [acc, pathParam("uploadId", "upload session ID")],
+      responses: { "200": okRes(), "409": { description: "送信処理中" } },
     },
   ],
 
@@ -1818,31 +1895,6 @@ export const lineOpenApiSpec = {
   paths: buildPaths(),
   components: {
     schemas: {
-      MediaBatchItem: {
-        type: "object",
-        required: ["dataBase64"],
-        properties: {
-          dataBase64: {
-            type: "string",
-            description: "base64 エンコードされたバイナリ（最大 ~12MB）",
-          },
-          mimeType: { type: "string", example: "image/png" },
-          filename: { type: "string" },
-          mediaType: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
-        },
-      },
-      MediaBatchRequest: {
-        type: "object",
-        required: ["chatMid", "items"],
-        properties: {
-          chatMid: { type: "string" },
-          items: {
-            type: "array",
-            minItems: 1,
-            items: { $ref: "#/components/schemas/MediaBatchItem" },
-          },
-        },
-      },
       Message: {
         type: "object",
         properties: {

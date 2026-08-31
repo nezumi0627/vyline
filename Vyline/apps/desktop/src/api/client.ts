@@ -49,6 +49,13 @@ export interface AgentIHistoryItem {
   text: string;
 }
 
+export interface BinaryMediaUploadItem {
+  body: Blob;
+  mimeType?: string;
+  filename?: string;
+  mediaType?: "image" | "video" | "audio" | "file" | "gif";
+}
+
 const BASE = "/api";
 const SUBDEVICE_INSTALLATION_ID_KEY = "vyline:subdevice-installation-id";
 const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -160,11 +167,7 @@ async function request<T>(
   return parseJsonResponse<T>(res);
 }
 
-async function uploadBinary<T>(
-  path: string,
-  body: Blob,
-  extraHeaders?: HeadersInit,
-): Promise<T> {
+async function uploadBinary<T>(path: string, body: Blob, extraHeaders?: HeadersInit): Promise<T> {
   const headers = new Headers(extraHeaders);
   if (!headers.has("Content-Type")) headers.set("Content-Type", "application/octet-stream");
   const res = await backendFetch(path, { method: "POST", headers, body });
@@ -173,6 +176,35 @@ async function uploadBinary<T>(
       "リバースプロキシがアップロードchunkを拒否しました（HTTP 413）。Nginx の client_max_body_size が 512 KiB 未満になっていないか確認してください。",
     );
   }
+  return parseJsonResponse<T>(res);
+}
+
+function binaryMediaHeaders(
+  body: Blob,
+  metadata: Omit<BinaryMediaUploadItem, "body">,
+  chatMid?: string,
+): Headers {
+  const headers = new Headers({
+    "Content-Type": metadata.mimeType || body.type || "application/octet-stream",
+  });
+  if (chatMid) headers.set("X-Vyline-Chat-Mid", chatMid);
+  if (metadata.filename) {
+    headers.set("X-Vyline-Media-Filename", encodeURIComponent(metadata.filename));
+  }
+  if (metadata.mediaType) headers.set("X-Vyline-Media-Type", metadata.mediaType);
+  return headers;
+}
+
+async function uploadMediaBinary<T>(
+  path: string,
+  item: BinaryMediaUploadItem,
+  chatMid?: string,
+): Promise<T> {
+  const res = await backendFetch(path, {
+    method: "POST",
+    headers: binaryMediaHeaders(item.body, item, chatMid),
+    body: item.body,
+  });
   return parseJsonResponse<T>(res);
 }
 
@@ -199,44 +231,48 @@ async function uploadAndroidBackupChunked(
 
   const chunkSize = Math.min(768 * 1024, Math.max(64 * 1024, Number(init.chunkSize ?? 512 * 1024)));
   try {
-  let index = 0;
-  for (let offset = 0; offset < file.size; offset += chunkSize, index += 1) {
-    const end = Math.min(file.size, offset + chunkSize);
-    const chunk = file.slice(offset, end);
-    let lastError: unknown = null;
-    let uploaded = false;
-    for (let attempt = 1; attempt <= 3 && !uploaded; attempt += 1) {
-      try {
-        const response = await uploadBinary<{
-          ok: boolean;
-          receivedBytes?: number;
-          expectedBytes?: number;
-          error?: string;
-        }>(`${basePath}/${encodeURIComponent(init.uploadId)}/chunks/${index}`, chunk);
-        if (!response.ok) {
-          throw new Error(response.error ?? `chunk ${index} の送信に失敗しました`);
-        }
-        onProgress?.(response.receivedBytes ?? end, file.size);
-        uploaded = true;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) {
-          await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+    let index = 0;
+    for (let offset = 0; offset < file.size; offset += chunkSize, index += 1) {
+      const end = Math.min(file.size, offset + chunkSize);
+      const chunk = file.slice(offset, end);
+      let lastError: unknown = null;
+      let uploaded = false;
+      for (let attempt = 1; attempt <= 3 && !uploaded; attempt += 1) {
+        try {
+          const response = await uploadBinary<{
+            ok: boolean;
+            receivedBytes?: number;
+            expectedBytes?: number;
+            error?: string;
+          }>(`${basePath}/${encodeURIComponent(init.uploadId)}/chunks/${index}`, chunk);
+          if (!response.ok) {
+            throw new Error(response.error ?? `chunk ${index} の送信に失敗しました`);
+          }
+          onProgress?.(response.receivedBytes ?? end, file.size);
+          uploaded = true;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) {
+            await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+          }
         }
       }
+      if (!uploaded) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error(`chunk ${index} の送信に失敗しました`);
+      }
     }
-    if (!uploaded) {
-      throw lastError instanceof Error ? lastError : new Error(`chunk ${index} の送信に失敗しました`);
-    }
-  }
 
-  return await request<{ ok: boolean; sessionId?: string; error?: string }>(
-    "POST",
-    `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
-  );
+    return await request<{ ok: boolean; sessionId?: string; error?: string }>(
+      "POST",
+      `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
+    );
   } finally {
     // Completion removes the upload session; failures release temporary space.
-    await request("DELETE", `${basePath}/${encodeURIComponent(init.uploadId)}`).catch(() => undefined);
+    await request("DELETE", `${basePath}/${encodeURIComponent(init.uploadId)}`).catch(
+      () => undefined,
+    );
   }
 }
 
@@ -447,33 +483,78 @@ export const api = {
     sendMedia: (
       accountId: string,
       chatMid: string,
-      dataBase64: string,
-      opts?: { mimeType?: string; filename?: string; mediaType?: string },
-    ) =>
-      request<SendResponse>("POST", `/line/${accountId}/send-media`, {
-        chatMid,
-        dataBase64,
-        ...opts,
-      }),
-
-    sendMediaBatch: (
-      accountId: string,
-      chatMid: string,
-      items: Array<{
-        dataBase64: string;
+      body: Blob,
+      opts?: {
         mimeType?: string;
         filename?: string;
-        mediaType?: string;
-      }>,
+        mediaType?: BinaryMediaUploadItem["mediaType"];
+      },
     ) =>
-      request<{ ok: boolean; count?: number; error?: string }>(
-        "POST",
-        `/line/${accountId}/send-media-batch`,
+      uploadMediaBinary<SendResponse>(
+        `/line/${accountId}/send-media`,
         {
-          chatMid,
-          items,
+          body,
+          ...(opts?.mimeType ? { mimeType: opts.mimeType } : {}),
+          ...(opts?.filename ? { filename: opts.filename } : {}),
+          ...(opts?.mediaType ? { mediaType: opts.mediaType } : {}),
         },
+        chatMid,
       ),
+
+    sendMediaBatch: async (
+      accountId: string,
+      chatMid: string,
+      items: Iterable<BinaryMediaUploadItem> | AsyncIterable<BinaryMediaUploadItem>,
+      itemCount: number,
+    ) => {
+      const start = await request<{
+        ok: boolean;
+        uploadId?: string;
+        maxItemBytes?: number;
+        error?: string;
+      }>("POST", `/line/${accountId}/send-media-batch/start`, {
+        chatMid,
+        itemCount,
+      });
+      if (!start.ok || !start.uploadId) {
+        return { ok: false, error: start.error ?? "一括送信を開始できませんでした" };
+      }
+      const uploadId = start.uploadId;
+      try {
+        let index = 0;
+        for await (const item of items) {
+          if (index >= itemCount) {
+            return { ok: false, error: "送信項目数が開始時の件数を超えています" };
+          }
+          const uploaded = await uploadMediaBinary<{
+            ok: boolean;
+            receivedBytes?: number;
+            receivedItems?: number;
+            expectedItems?: number;
+            error?: string;
+          }>(
+            `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/items/${index}`,
+            item,
+          );
+          if (!uploaded.ok) {
+            return { ok: false, error: uploaded.error ?? `${index + 1}件目の送信に失敗しました` };
+          }
+          index++;
+        }
+        if (index !== itemCount) {
+          return { ok: false, error: `送信項目数が一致しません（${index}/${itemCount}）` };
+        }
+        return await request<{ ok: boolean; count?: number; error?: string }>(
+          "POST",
+          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/complete`,
+        );
+      } finally {
+        await request(
+          "DELETE",
+          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}`,
+        ).catch(() => undefined);
+      }
+    },
 
     sendSticker: (
       accountId: string,
@@ -729,24 +810,20 @@ export const api = {
       },
     ) => request<ProfileResponse>("PATCH", `/line/${accountId}/profile`, body),
 
-    updateProfileImage: async (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") => {
+    updateProfileImage: async (accountId: string, image: Blob, mime = "image/jpeg") => {
       const res = await backendFetch(`/line/${encodeURIComponent(accountId)}/profile/image`, {
         method: "POST",
         headers: { "Content-Type": mime },
-        body: bytes,
+        body: image,
       });
       return parseJsonResponse<ProfileResponse & { objId?: string }>(res);
     },
 
-    updateProfileBackground: async (
-      accountId: string,
-      bytes: ArrayBuffer,
-      mime = "image/jpeg",
-    ) => {
+    updateProfileBackground: async (accountId: string, image: Blob, mime = "image/jpeg") => {
       const res = await backendFetch(`/line/${encodeURIComponent(accountId)}/profile/background`, {
         method: "POST",
         headers: { "Content-Type": mime },
-        body: bytes,
+        body: image,
       });
       return parseJsonResponse<{
         ok: boolean;

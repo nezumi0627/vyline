@@ -191,8 +191,7 @@ export function SettingsSections() {
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      const buf = await file.arrayBuffer();
-      const res = await api.line.updateProfileImage(accountId!, buf, file.type || "image/jpeg");
+      const res = await api.line.updateProfileImage(accountId!, file, file.type || "image/jpeg");
       if (res.ok && res.profile?.thumbnailUrl) {
         updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
         setProfileMsg("アイコンを更新しました");
@@ -216,10 +215,9 @@ export function SettingsSections() {
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      const buf = await file.arrayBuffer();
       const res = await api.line.updateProfileBackground(
         accountId!,
-        buf,
+        file,
         file.type || "image/jpeg",
       );
       if (res.ok) {
@@ -1578,8 +1576,10 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       setMessage(error instanceof Error ? error.message : "バックアップ一覧を取得できませんでした"),
     );
     return onAppEvent("backup:restored", (event) => {
-      if (event.accountId === accountId) void load().catch((error) =>
-        setMessage(error instanceof Error ? error.message : "保存容量を取得できませんでした"));
+      if (event.accountId === accountId)
+        void load().catch((error) =>
+          setMessage(error instanceof Error ? error.message : "保存容量を取得できませんでした"),
+        );
     });
   }, [accountId]);
   const create = async () => {
@@ -1619,7 +1619,8 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
     if (
       !accountId ||
       !window.confirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
-    ) return;
+    )
+      return;
     setBusy(true);
     try {
       const result = await api.line.backupDelete(accountId, id);
@@ -1847,7 +1848,7 @@ function StorageSection() {
   const persistentPathLabel =
     storage?.dataPath && storage?.storagePath && storage.dataPath !== storage.storagePath
       ? `${storage.dataPath} + ${storage.storagePath}`
-      : storage?.storagePath ?? storage?.dataPath ?? storage?.driveLetter ?? "---";
+      : (storage?.storagePath ?? storage?.dataPath ?? storage?.driveLetter ?? "---");
 
   const segments = storage
     ? [
@@ -1878,9 +1879,7 @@ function StorageSection() {
           <div className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="text-xs text-[var(--vy-text-dim)]">
-                  保存先 {persistentPathLabel}
-                </p>
+                <p className="text-xs text-[var(--vy-text-dim)]">保存先 {persistentPathLabel}</p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
                 </p>
@@ -1982,9 +1981,7 @@ function StorageSection() {
           title="画像"
           desc="チャット画像"
           size={storage?.savedMedia.image ?? 0}
-          ratio={
-            removableTotal > 0 ? (storage?.savedMedia.image ?? 0) / removableTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.image ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -1997,9 +1994,7 @@ function StorageSection() {
           title="動画"
           desc="チャット動画"
           size={storage?.savedMedia.video ?? 0}
-          ratio={
-            removableTotal > 0 ? (storage?.savedMedia.video ?? 0) / removableTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.video ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2012,9 +2007,7 @@ function StorageSection() {
           title="音声"
           desc="ボイスメッセージなど"
           size={storage?.savedMedia.audio ?? 0}
-          ratio={
-            removableTotal > 0 ? (storage?.savedMedia.audio ?? 0) / removableTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.audio ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2027,9 +2020,7 @@ function StorageSection() {
           title="ファイル"
           desc="PDF など"
           size={storage?.savedMedia.file ?? 0}
-          ratio={
-            removableTotal > 0 ? (storage?.savedMedia.file ?? 0) / removableTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.file ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
           onDelete={() =>

@@ -991,9 +991,10 @@ export const useStore = create<State>()(
 
         // hide flag: always preserve prev.hidden when chat already exists,
         // taking precedence over the newly mapped hidden from hiddenMids
+        const previousChatsById = new Map(get().chats.map((chat) => [chat.id, chat]));
         const hiddenByPrev = new Map<string, boolean>();
         mappedChats.forEach((c) => {
-          const prev = useStore.getState().chats.find((p) => p.id === c.id);
+          const prev = previousChatsById.get(c.id);
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
@@ -1020,7 +1021,7 @@ export const useStore = create<State>()(
           chats: mappedChats
             .filter((c) => !dismissed.has(c.id) || restored.has(c.id))
             .map((c) => {
-              const prev = st.chats.find((p) => p.id === c.id);
+              const prev = previousChatsById.get(c.id);
               const mergedName =
                 c.name && !looksLikeMid(c.name)
                   ? c.name
@@ -1605,17 +1606,13 @@ export const useStore = create<State>()(
             set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
             return;
           }
-          const buf = await blob.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          let binary = "";
-          const chunk = 0x8000;
-          for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-          }
-          const dataBase64 = btoa(binary);
-          const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+          const filename =
+            !isVideo && mime === "image/jpeg" && blob !== file
+              ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
+              : file.name || (isVideo ? "video.mp4" : "image.jpg");
+          const res = await api.line.sendMedia(accountId!, chatId, blob, {
             mimeType: mime,
-            filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
+            filename,
             mediaType: isVideo ? "video" : "image",
           });
           if (res.ok) {
@@ -1668,17 +1665,9 @@ export const useStore = create<State>()(
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         void (async () => {
           try {
-            const buf = await blob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = "";
-            const chunk = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-            }
-            const dataBase64 = btoa(binary);
             const mime = blob.type || "audio/webm";
             const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
-            const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+            const res = await api.line.sendMedia(accountId!, chatId, blob, {
               mimeType: mime,
               filename: `voice-${seconds}s.${ext}`,
               mediaType: "audio",
