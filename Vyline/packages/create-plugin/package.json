@@ -20,7 +20,7 @@
   "files": ["src", "README.md", "package.json"],
   "scripts": {
     "dev": "bun src/index.ts",
-    "typecheck": "bun --check src/index.ts",
+    "typecheck": "node ../../backend/node_modules/typescript/bin/tsc --noEmit --target ESNext --module ESNext --moduleResolution bundler --strict --skipLibCheck --types bun src/index.ts",
     "prepublishOnly": "bun run typecheck"
   },
   "publishConfig": {
