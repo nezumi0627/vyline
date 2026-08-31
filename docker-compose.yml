@@ -11,6 +11,7 @@ services:
     environment:
       VYLINE_HOST: 0.0.0.0
       VYLINE_LAN_ACCESS: ${VYLINE_LAN_ACCESS:-false}
+      VYLINE_TRUST_REMOTE_OWNER: ${VYLINE_TRUST_REMOTE_OWNER:-false}
       PORT: 3000
       VYLINE_DATA_DIR: /app/data
       VYLINE_STORAGE_DIR: /app/storage

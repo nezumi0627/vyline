@@ -60,9 +60,23 @@ export function requiresRemoteAuthentication(lanAccess: boolean, bindHost: strin
   return lanAccess || !isLoopbackBindHost(bindHost);
 }
 
-/** Bun's requestIP address is the authority; forwarded/client-provided headers are ignored. */
+/**
+ * Explicit owner-access escape hatch for deployments whose outer transport is
+ * already authenticated (for example Tailscale ACLs or Cloudflare Access).
+ * This must stay opt-in because enabling it promotes every peer that can reach
+ * the backend to the same trust level as a loopback owner request.
+ */
+export function trustsRemoteOwnerAccess(): boolean {
+  return process.env.VYLINE_TRUST_REMOTE_OWNER === "true";
+}
+
+/**
+ * Bun's requestIP address is the authority; forwarded/client-provided headers
+ * are ignored. An operator can explicitly promote the already-protected remote
+ * transport to owner trust with VYLINE_TRUST_REMOTE_OWNER=true.
+ */
 export function isLoopbackRequestAddress(address: string): boolean {
-  return isLoopbackBindHost(address);
+  return trustsRemoteOwnerAccess() || isLoopbackBindHost(address);
 }
 
 export function withServerVerifiedLocalRequest(request: Request, address: string): Request {
