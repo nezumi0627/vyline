@@ -12,8 +12,20 @@ function jwt(payload: Record<string, unknown>): string {
 
 describe("Windows LINE token classification", () => {
   test("classifies and pairs access/refresh credentials by token ids", () => {
-    const access = jwt({ scp: "LINE_CORE", ctype: "access", jti: "access-1", rtid: "refresh-1", exp: 2_000_000_000 });
-    const refresh = jwt({ scp: "LINE_CORE", jti: "refresh-1", ati: "access-1", rot: true, exp: 2_000_000_001 });
+    const access = jwt({
+      scp: "LINE_CORE",
+      ctype: "access",
+      jti: "access-1",
+      rtid: "refresh-1",
+      exp: 2_000_000_000,
+    });
+    const refresh = jwt({
+      scp: "LINE_CORE",
+      jti: "refresh-1",
+      ati: "access-1",
+      rot: true,
+      exp: 2_000_000_001,
+    });
     const inventory = classifyWindowsLineTokenSet([access, refresh, access]);
 
     expect(inventory.candidates).toHaveLength(2);
@@ -36,7 +48,10 @@ describe("Windows LINE token classification", () => {
 
   test("describes expiry without exposing the token", () => {
     const access = jwt({ scp: "LINE_CORE", ctype: "access", jti: "access-1", exp: 2_000 });
-    const views = describeWindowsLineTokenInventory(classifyWindowsLineTokenSet([access]), 1_000_000);
+    const views = describeWindowsLineTokenInventory(
+      classifyWindowsLineTokenSet([access]),
+      1_000_000,
+    );
 
     expect(views[0]).toMatchObject({ kind: "access", status: "usable", remainingSeconds: 1_000 });
     expect(views[0]?.fingerprint).toHaveLength(12);

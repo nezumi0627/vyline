@@ -52,7 +52,7 @@ function decodeJwtPayload(token: string): JwtPayload | undefined {
   const parts = token.split(".");
   if (parts.length !== 3) return undefined;
   try {
-    const encoded = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const encoded = parts[1]!.replace(/-/g, "+").replace(/_/g, "/");
     const padded = encoded + "=".repeat((4 - (encoded.length % 4)) % 4);
     return JSON.parse(Buffer.from(padded, "base64").toString("utf8")) as JwtPayload;
   } catch {
@@ -63,9 +63,8 @@ function decodeJwtPayload(token: string): JwtPayload | undefined {
 export function classifyWindowsLineJwt(token: string): WindowsLineTokenCandidate | undefined {
   const payload = decodeJwtPayload(token);
   if (!payload || payload.scp !== "LINE_CORE") return undefined;
-  const expiresAt = typeof payload.exp === "number" && Number.isFinite(payload.exp)
-    ? payload.exp
-    : undefined;
+  const expiresAt =
+    typeof payload.exp === "number" && Number.isFinite(payload.exp) ? payload.exp : undefined;
   const tokenId = typeof payload.jti === "string" ? payload.jti : undefined;
   if (payload.ctype !== undefined) {
     return {
@@ -96,10 +95,11 @@ export function pairWindowsLineTokens(
   const usedRefresh = new Set<WindowsLineTokenCandidate>();
   const pairs: WindowsLineTokenPair[] = [];
   for (const accessToken of access) {
-    const refreshToken = refresh.find((candidate) =>
-      !usedRefresh.has(candidate) &&
-      ((accessToken.refreshTokenId && accessToken.refreshTokenId === candidate.tokenId) ||
-        (accessToken.tokenId && accessToken.tokenId === candidate.accessTokenId)),
+    const refreshToken = refresh.find(
+      (candidate) =>
+        !usedRefresh.has(candidate) &&
+        ((accessToken.refreshTokenId && accessToken.refreshTokenId === candidate.tokenId) ||
+          (accessToken.tokenId && accessToken.tokenId === candidate.accessTokenId)),
     );
     if (refreshToken) usedRefresh.add(refreshToken);
     pairs.push({ access: accessToken, ...(refreshToken ? { refresh: refreshToken } : {}) });
@@ -124,9 +124,8 @@ export function describeWindowsLineToken(
   now = Date.now(),
 ): WindowsLineTokenView {
   const expiresAt = candidate.expiresAt;
-  const remainingSeconds = expiresAt === undefined
-    ? 0
-    : Math.max(0, Math.floor(expiresAt - now / 1000));
+  const remainingSeconds =
+    expiresAt === undefined ? 0 : Math.max(0, Math.floor(expiresAt - now / 1000));
   return {
     index,
     kind: candidate.kind,
@@ -154,7 +153,8 @@ export function describeWindowsLineTokenInventory(
     }
   }
   return inventory.candidates.map((candidate, index) =>
-    describeWindowsLineToken(candidate, index, pairedByCandidate.get(candidate), now));
+    describeWindowsLineToken(candidate, index, pairedByCandidate.get(candidate), now),
+  );
 }
 
 function windowsScannerSource(): string {
@@ -186,11 +186,15 @@ public static class VylineWindowsLineTokenScanner {
         while (VirtualQueryEx(handle, address, out mbi, (uint)Marshal.SizeOf(typeof(Mbi))) != 0) {
           long size = mbi.RegionSize.ToInt64();
           bool readable = Array.Exists(Readable, protection => (mbi.Protect & 0xff) == protection);
-          if (mbi.State == 0x1000 && readable && size > 0 && size <= 64L * 1024 * 1024) {
-            var buffer = new byte[(int)size]; IntPtr read;
-            if (ReadProcessMemory(handle, mbi.BaseAddress, buffer, buffer.Length, out read)) {
-              string text = Encoding.ASCII.GetString(buffer, 0, (int)read.ToInt64());
-              foreach (Match match in Jwt.Matches(text)) if (match.Value.Length > 100) output.Add(match.Value);
+          if (mbi.State == 0x1000 && readable && size > 0) {
+            for (long offset = 0; offset < size; offset += 64L * 1024 * 1024) {
+              int chunkSize = (int)Math.Min(64L * 1024 * 1024, size - offset);
+              var buffer = new byte[chunkSize]; IntPtr read;
+              var chunkAddress = new IntPtr(mbi.BaseAddress.ToInt64() + offset);
+              if (ReadProcessMemory(handle, chunkAddress, buffer, buffer.Length, out read)) {
+                string text = Encoding.ASCII.GetString(buffer, 0, (int)read.ToInt64());
+                foreach (Match match in Jwt.Matches(text)) if (match.Value.Length > 100) output.Add(match.Value);
+              }
             }
           }
           long next = mbi.BaseAddress.ToInt64() + size;
@@ -205,13 +209,21 @@ public static class VylineWindowsLineTokenScanner {
 }
 
 export async function extractWindowsLineTokens(): Promise<string[]> {
-  if (process.platform !== "win32") throw new Error("Windows LINE token extraction is only available on Windows");
+  if (process.platform !== "win32")
+    throw new Error("Windows LINE token extraction is only available on Windows");
   const script = `Add-Type -TypeDefinition @'\n${windowsScannerSource()}\n'@ -Language CSharp; [VylineWindowsLineTokenScanner]::Scan()`;
-  const { stdout } = await execFileAsync("powershell.exe", ["-NoProfile", "-NonInteractive", "-Command", script], {
-    maxBuffer: MAX_OUTPUT_BYTES,
-    windowsHide: true,
-  });
-  return stdout.split(/\r?\n/).map((token) => token.trim()).filter(Boolean);
+  const { stdout } = await execFileAsync(
+    "powershell.exe",
+    ["-NoProfile", "-NonInteractive", "-Command", script],
+    {
+      maxBuffer: MAX_OUTPUT_BYTES,
+      windowsHide: true,
+    },
+  );
+  return stdout
+    .split(/\r?\n/)
+    .map((token) => token.trim())
+    .filter(Boolean);
 }
 
 export async function inspectWindowsLineTokens(): Promise<WindowsLineTokenInventory> {
