@@ -231,6 +231,8 @@ export type Settings = {
   betaMidSearch: boolean;
   /** ベータ: Agent I AIアシスタント */
   betaAgentI: boolean;
+  /** ベータ: Windows版LINEのメモリから認証候補を確認 */
+  betaWindowsLineTokens: boolean;
 };
 
 export type SelfProfile = {
