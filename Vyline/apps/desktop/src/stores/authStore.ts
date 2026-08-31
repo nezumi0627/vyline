@@ -139,30 +139,11 @@ export const useAuthStore = create<AuthState>()(
         const res = await api.auth.accounts();
         if (!res.ok) return;
 
-        let active = res.active;
-        let saved = res.saved;
-        let sessions = res.sessions ?? [];
-
-        // メモリに無いが tokens.json にある → restore
-        const missing = saved.filter((id) => !active.includes(id));
-        if (missing.length > 0) {
-          // Protocol login mutates per-session transport/storage state. Restoring
-          // three or more accounts concurrently races that initialization and can
-          // leave later accounts missing. Restore deterministically one by one.
-          for (const id of missing) {
-            try {
-              await api.auth.restore(id);
-            } catch {
-              // Keep other saved accounts restorable even if one token is stale.
-            }
-          }
-          const again = await api.auth.accounts();
-          if (again.ok) {
-            active = again.active;
-            saved = again.saved;
-            sessions = again.sessions ?? sessions;
-          }
-        }
+        // Backend startup owns the single sequential restore. Calling /restore
+        // again here duplicated protocol/storage initialization for every tab.
+        const active = res.active;
+        const saved = res.saved;
+        const sessions = res.sessions ?? [];
 
         set({ accounts: active, saved, sessions });
 

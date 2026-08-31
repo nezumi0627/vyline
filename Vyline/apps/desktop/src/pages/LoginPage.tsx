@@ -8,7 +8,11 @@ import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { lineAvatarUrl } from "../utils/lineMedia.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
-import { accountIdValidationError, normalizeAccountId, suggestAccountId } from "../lib/accountIds.js";
+import {
+  accountIdValidationError,
+  normalizeAccountId,
+  suggestAccountId,
+} from "../lib/accountIds.js";
 
 type Tab = "email" | "qr" | "token" | "subdevice";
 type QrStatus = "idle" | "waiting" | "completed";
@@ -100,7 +104,9 @@ export function LoginPage() {
     if (loginMode !== "manual" || pendingLoginAccountId) return;
     const suggested = suggestAccountId(knownAccountIds);
     const chooseSuggested = (current: string) =>
-      !current.trim() || knownAccountIds.includes(normalizeAccountId(current)) ? suggested : current;
+      !current.trim() || knownAccountIds.includes(normalizeAccountId(current))
+        ? suggested
+        : current;
     setAccountId(chooseSuggested);
     setQrAccountId(chooseSuggested);
     setTokenAccountId(chooseSuggested);
@@ -109,11 +115,7 @@ export function LoginPage() {
   const validateNewAccountId = useCallback(
     (value: string): { ok: true; id: string } | { ok: false; error: string } => {
       const id = normalizeAccountId(value);
-      const validationError = accountIdValidationError(
-        id,
-        knownAccountIds,
-        pendingLoginAccountId,
-      );
+      const validationError = accountIdValidationError(id, knownAccountIds, pendingLoginAccountId);
       if (validationError) return { ok: false, error: validationError };
       return { ok: true, id };
     },
@@ -165,6 +167,15 @@ export function LoginPage() {
       return;
     }
     await goHome(id);
+  };
+
+  const prepareReauth = (id: string) => {
+    setPendingLogin(id);
+    setAccountId(id);
+    setQrAccountId(id);
+    setTokenAccountId(id);
+    setSessionError(null);
+    setTab("qr");
   };
 
   const handleDeleteSession = async (id: string) => {
@@ -220,7 +231,9 @@ export function LoginPage() {
         pauseWhenHidden: true,
         onError: (pollError) =>
           setEmailMsg(
-            pollError instanceof Error ? pollError.message : "メールログイン状態の取得に失敗しました。",
+            pollError instanceof Error
+              ? pollError.message
+              : "メールログイン状態の取得に失敗しました。",
           ),
       },
     );
@@ -387,16 +400,26 @@ export function LoginPage() {
                           {s.accountId}
                           {s.savedAt ? ` · ${formatSavedAt(s.savedAt)}` : ""}
                           {s.active ? " · 接続中" : ""}
+                          {s.reauthRequired ? " · 再認証が必要" : ""}
                         </p>
+                        {s.reauthRequired && (
+                          <p className="mt-1 text-[0.68rem] leading-relaxed text-amber-400">
+                            履歴・E2EE鍵・設定を残したまま再認証できます
+                          </p>
+                        )}
                       </div>
                       <button
                         type="button"
                         disabled={busy || loading}
-                        onClick={() => void handleRestore(s.accountId)}
+                        onClick={() =>
+                          s.reauthRequired
+                            ? prepareReauth(s.accountId)
+                            : void handleRestore(s.accountId)
+                        }
                         className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
                         style={{ background: "var(--vy-accent)" }}
                       >
-                        {busy ? "復元中…" : "続行"}
+                        {busy ? "復元中…" : s.reauthRequired ? "再認証" : "続行"}
                       </button>
                       <button
                         type="button"
