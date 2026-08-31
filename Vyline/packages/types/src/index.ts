@@ -267,6 +267,8 @@ export type SavedSession = {
   savedAt: string;
   hasToken: boolean;
   active?: boolean;
+  /** 同じaccountIdで再認証すれば履歴・鍵・設定を継続利用できる。 */
+  reauthRequired?: boolean;
   mid?: string;
   displayName?: string;
   picturePath?: string;

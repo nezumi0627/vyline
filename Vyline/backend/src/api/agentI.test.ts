@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 const previousLanAccess = process.env.VYLINE_LAN_ACCESS;
 const previousDataDir = process.env.VYLINE_DATA_DIR;
+const previousFetch = globalThis.fetch;
 const testDataDir = await mkdtemp(join(tmpdir(), "vyline-agent-i-lan-"));
 process.env.VYLINE_DATA_DIR = testDataDir;
 
@@ -12,12 +13,13 @@ const { agentIRouter } = await import("./agentI.js");
 const { completePairing, createPairing } = await import("../storage/subdeviceStore.js");
 
 afterEach(() => {
-  if (previousLanAccess === undefined) process.env.VYLINE_LAN_ACCESS = undefined;
+  if (previousLanAccess === undefined) Reflect.deleteProperty(process.env, "VYLINE_LAN_ACCESS");
   else process.env.VYLINE_LAN_ACCESS = previousLanAccess;
+  globalThis.fetch = previousFetch;
 });
 
 afterAll(async () => {
-  if (previousDataDir === undefined) process.env.VYLINE_DATA_DIR = undefined;
+  if (previousDataDir === undefined) Reflect.deleteProperty(process.env, "VYLINE_DATA_DIR");
   else process.env.VYLINE_DATA_DIR = previousDataDir;
   await rm(testDataDir, { recursive: true, force: true });
 });
@@ -67,5 +69,20 @@ describe("Agent I LAN authentication", () => {
     const denied = await agentIRouter.request("/account-b/history", { headers });
     expect(denied.status).toBe(403);
     expect(await denied.json()).toEqual({ ok: false, error: "subdevice account mismatch" });
+  });
+
+  test("does not expose upstream Agent I error details", async () => {
+    process.env.VYLINE_LAN_ACCESS = "false";
+    globalThis.fetch = (async () =>
+      new Response("upstream-secret-detail", { status: 503 })) as unknown as typeof fetch;
+
+    const response = await agentIRouter.request("/security-error-account/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prompt: "test" }),
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.json()).toEqual({ ok: false, error: "upstream service unavailable" });
   });
 });

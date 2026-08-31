@@ -26,6 +26,7 @@ import {
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
+import { redactForDiagnostics } from "../service/redaction.js";
 import { restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
@@ -36,6 +37,32 @@ function deviceLogFields() {
     device,
     kicksOfficialDesktop: kicksOfficialDesktop(device),
   };
+}
+
+const RPC_TRACE_METADATA_FIELDS = new Set([
+  "methodName",
+  "protocolType",
+  "path",
+  "method",
+  "timeout",
+  "status",
+  "requestBytes",
+  "responseBytes",
+  "hasError",
+  "received",
+  "verified",
+]);
+const RPC_TRACE_TYPES = new Set(["writeThrift", "request", "response", "readThrift"]);
+
+function safeStackLogData(type: string, data: unknown): unknown {
+  if (!RPC_TRACE_TYPES.has(type) || !data || typeof data !== "object") {
+    return redactForDiagnostics(data);
+  }
+  return Object.fromEntries(
+    Object.entries(data as Record<string, unknown>).filter(([key]) =>
+      RPC_TRACE_METADATA_FIELDS.has(key),
+    ),
+  );
 }
 
 interface ManagedClient {
@@ -50,6 +77,8 @@ interface ManagedClient {
 const clients = new Map<string, ManagedClient>();
 /** Deduplicate startup restore and frontend /auth/restore for the same account. */
 const sessionRestoreInflight = new Map<string, Promise<VylineClient>>();
+/** The process-wide startup restore is sequential and may only run once. */
+let initialSessionRestore: Promise<void> | null = null;
 type QrLoginState = {
   url: string | null;
   expired: boolean;
@@ -138,25 +167,48 @@ function withSendTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
 
 export function runSendRpc<T>(
   accountId: string,
-  work: () => Promise<T>,
-  opts?: { timeoutMs?: number },
+  work: (signal?: AbortSignal) => Promise<T>,
+  opts?: { timeoutMs?: number; abortOnTimeout?: boolean },
 ): Promise<T> {
   const timeoutMs = opts?.timeoutMs ?? SEND_TIMEOUT_MS;
   const prev = sendQueue.get(accountId) ?? Promise.resolve();
+  const abort = opts?.abortOnTimeout ? new AbortController() : undefined;
   // キューは「タイムアウト race」ではなく work そのもので保持する。
   // タイムアウトで reject されても work は H2 セッションを使い続けるため、
   // 次の送信が並行すると ECONNRESET 等で連続失敗するのを防ぐ。
-  const started = prev.catch(() => undefined).then(() => work());
+  const started = prev.catch(() => undefined).then(() => work(abort?.signal));
   sendQueue.set(accountId, started);
-  const raced = Promise.race([
-    started,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`send timed out after ${timeoutMs}ms`)), timeoutMs);
-    }),
-  ]);
-  return raced.finally(() => {
-    if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
-  });
+  if (abort) {
+    let timedOut = false;
+    const timeoutError = new Error(`send timed out after ${timeoutMs}ms`);
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      abort.abort(timeoutError);
+    }, timeoutMs);
+    // Media staging must stay alive until the aborted upload has actually
+    // unwound; callers may safely remove its files only after this settles.
+    return started
+      .then(
+        (value) => {
+          if (timedOut) throw timeoutError;
+          return value;
+        },
+        (error) => {
+          if (timedOut) throw timeoutError;
+          throw error;
+        },
+      )
+      .finally(() => {
+        clearTimeout(timeoutId);
+        if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+      });
+  }
+  void started
+    .finally(() => {
+      if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+    })
+    .catch(() => undefined);
+  return withSendTimeout(started, timeoutMs);
 }
 
 /**
@@ -336,17 +388,11 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   client.base.on("log", ({ type, data }) => {
     const t = type as string;
     if (t === "update:authtoken" || t.startsWith("vyline:e2ee") || t.startsWith("vyline:init")) {
-      log.debug(
-        { vylineType: t, ...(data as Record<string, unknown> | undefined) },
-        "vyline stack event",
-      );
+      log.debug({ vylineType: t, stackData: safeStackLogData(t, data) }, "vyline stack event");
       return;
     }
     // RPC request/response など高頻度ログ → trace のみ
-    log.trace(
-      { vylineType: t, ...(data as Record<string, unknown> | undefined) },
-      "vyline stack log",
-    );
+    log.trace({ vylineType: t, stackData: safeStackLogData(t, data) }, "vyline stack log");
   });
 
   const persist = async (reason: string) => {
@@ -543,7 +589,7 @@ export async function loginWithEmail(
       password,
       ...(pincode !== undefined ? { pincode } : {}),
       onPincodeRequest(pin: string) {
-        log.info({ accountId, pincode: pin }, "pincode requested");
+        log.info({ accountId }, "pincode requested");
         onPincode(pin);
       },
     },
@@ -602,14 +648,14 @@ export async function loginWithQRCode(
       const client = await vylineLoginQR(
         {
           onReceiveQRUrl(url: string) {
-            log.info({ accountId, url }, "QR URL received");
+            log.info({ accountId }, "QR URL received");
             state.url = url;
             state.expired = false;
             state.error = null;
             onQrUrl(url);
           },
           onPincodeRequest(pin: string) {
-            log.info({ accountId, pin }, "QR pincode requested");
+            log.info({ accountId }, "QR pincode requested");
             state.pincode = pin;
           },
         },
@@ -702,7 +748,7 @@ export async function loginWithAuthToken(
   return client;
 }
 
-export async function restoreAllSessions(): Promise<void> {
+async function restoreAllSessionsImpl(): Promise<void> {
   const tokens = await loadTokens();
   const ids = Object.keys(tokens).filter((id) => !id.endsWith(":content"));
   if (ids.length === 0) {
@@ -718,6 +764,13 @@ export async function restoreAllSessions(): Promise<void> {
       await loginWithToken(id);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
+      const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
+      if (expiredDevice) {
+        removeClient(id);
+        await updateSessionMeta(id, { reauthRequired: true });
+        log.warn({ accountId: id }, "saved session expired; reauthentication required");
+        continue;
+      }
       const authFailed =
         msg.includes("AUTHENTICATION_FAILED") ||
         msg.includes("Authentication Failed") ||
@@ -734,6 +787,15 @@ export async function restoreAllSessions(): Promise<void> {
       }
     }
   }
+}
+
+export function restoreAllSessions(): Promise<void> {
+  if (!initialSessionRestore) initialSessionRestore = restoreAllSessionsImpl();
+  return initialSessionRestore;
+}
+
+export function waitForSessionRestore(): Promise<void> {
+  return restoreAllSessions();
 }
 
 export function getClient(accountId: string): VylineClient | undefined {

@@ -29,6 +29,7 @@ import {
   getContentQrState,
   loginContentWithQRCode,
   removeClient,
+  waitForSessionRestore,
 } from "../line/clientManager.js";
 import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
 
@@ -258,8 +259,22 @@ authRouter.post("/restore", async (c) => {
     await loginWithToken(body.accountId);
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("NOT_AUTHORIZED_DEVICE") && message.includes("EXPIRED")) {
+      const { updateSessionMeta } = await import("../storage/tokenStore.js");
+      await updateSessionMeta(body.accountId, { reauthRequired: true });
+      return c.json(
+        {
+          ok: false,
+          code: "REAUTH_REQUIRED",
+          error:
+            "セッションの有効期限が切れました。再認証すると履歴・E2EE鍵・設定はそのまま引き継がれます。",
+        },
+        401,
+      );
+    }
     log.error({ accountId: body.accountId, err }, "restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -295,7 +310,7 @@ authRouter.post("/login/token", async (c) => {
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
     log.error({ accountId: body.accountId, err }, "token login failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -324,7 +339,7 @@ authRouter.post("/switch/:id", async (c) => {
     return c.json({ ok: true, accountId, restored: true });
   } catch (err) {
     log.error({ accountId, err }, "switch restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -332,6 +347,7 @@ authRouter.post("/switch/:id", async (c) => {
 // GET /auth/accounts
 // ─────────────────────────────────────────────
 authRouter.get("/accounts", async (c) => {
+  await waitForSessionRestore();
   const active = listAccounts();
   const saved = await loadTokens();
   const sessions = await listSavedSessions();

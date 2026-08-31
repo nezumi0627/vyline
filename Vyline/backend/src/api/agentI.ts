@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { childLogger } from "../logger.js";
 import {
   agentILimits,
   askAgentI,
@@ -9,6 +10,7 @@ import {
 import { getSubdeviceSession } from "../storage/subdeviceStore.js";
 
 export const agentIRouter = new Hono();
+const log = childLogger("bff:agent-i");
 
 function isLanAccessEnabled() {
   return process.env.VYLINE_LAN_ACCESS === "true";
@@ -68,10 +70,8 @@ agentIRouter.post("/:accountId/chat", async (c) => {
     const result = await askAgentI(accountId, body.prompt, validHistory(body.history));
     return c.json({ ok: true, ...result });
   } catch (error) {
-    return c.json(
-      { ok: false, error: error instanceof Error ? error.message : String(error) },
-      502,
-    );
+    log.warn({ err: error, accountId }, "agent i upstream request failed");
+    return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
 });
 

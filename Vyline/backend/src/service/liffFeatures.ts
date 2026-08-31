@@ -189,10 +189,10 @@ async function liffFetch(
       signal: controller.signal,
     });
     const text = await res.text();
-    log.info({ url: url.slice(0, 80), ms: Date.now() - t0, status: res.status }, "liff fetch");
+    log.info({ ms: Date.now() - t0, status: res.status }, "liff fetch");
     if (!res.ok) {
-      log.error({ url, status: res.status, text: text.slice(0, 300) }, "liff http error");
-      throw new Error(`LIFF API ${res.status}: ${text.slice(0, 200)}`);
+      log.error({ status: res.status, responseBytes: text.length }, "liff http error");
+      throw new Error(`LIFF API ${res.status}`);
     }
     if (!text) return null;
     try {
@@ -202,12 +202,12 @@ async function liffFetch(
     }
   } catch (err) {
     if ((err as Error).name === "AbortError") {
-      log.error({ url }, "liff fetch timed out");
-      throw new Error(`LIFF fetch timed out: ${url}`);
+      log.error("liff fetch timed out");
+      throw new Error("LIFF fetch timed out");
     }
     // 一時的なソケット切断 (ECONNRESET 等) はリトライ
     if (retries > 0) {
-      log.warn({ url, err: (err as Error).message, retries }, "liff fetch failed, retrying");
+      log.warn({ err, retries }, "liff fetch failed, retrying");
       await new Promise((r) => setTimeout(r, 800));
       return liffFetch(url, creds, opts, retries - 1);
     }
