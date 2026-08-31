@@ -30,9 +30,7 @@ function formatSavedAt(iso: string): string {
 export function LoginPage() {
   const navigate = useNavigate();
   const setScreen = useStore((s) => s.setScreen);
-  const isSubdevice =
-    typeof localStorage !== "undefined" &&
-    Boolean(localStorage.getItem("vyline:subdevice-session"));
+  const setStoreAccountId = useStore((s) => s.setAccountId);
   const {
     loginEmail,
     loginQrStart,
@@ -73,6 +71,10 @@ export function LoginPage() {
   const [tokenMsg, setTokenMsg] = useState("");
   const [tokenStatus, setTokenStatus] = useState<TokenStatus>("idle");
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [subdeviceUrl, setSubdeviceUrl] = useState("");
+  const [subdeviceName, setSubdeviceName] = useState("");
+  const [subdeviceMessage, setSubdeviceMessage] = useState<string | null>(null);
+  const [subdevicePending, setSubdevicePending] = useState(false);
 
   const [restoringId, setRestoringId] = useState<string | null>(null);
   const [sessionError, setSessionError] = useState<string | null>(null);
@@ -196,6 +198,41 @@ export function LoginPage() {
     await goHome(tokenAccountId);
   };
 
+  const handleSubdeviceConnect = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setSubdeviceMessage(null);
+    setSubdevicePending(true);
+    try {
+      const raw = subdeviceUrl.trim();
+      const url = new URL(raw);
+      const pairingToken = url.searchParams.get("pairing")?.trim();
+      if (url.pathname !== "/subdevice" || !pairingToken) {
+        throw new Error("PC側で表示したサブデバイス用URLを入力してください。");
+      }
+      const info = await api.subdevices.pairingInfo(pairingToken);
+      if (!info.ok) throw new Error("ペアリングURLの有効期限が切れています。");
+      const platform = /iPhone|iPad|iPod/i.test(navigator.userAgent)
+        ? "ios"
+        : /Android/i.test(navigator.userAgent)
+          ? "android"
+          : "web";
+      const result = await api.subdevices.complete(pairingToken, subdeviceName, platform);
+      if (!result.ok || !result.sessionToken || !result.device) {
+        throw new Error(result.error ?? "サブデバイス接続に失敗しました。");
+      }
+      localStorage.setItem("vyline:subdevice-session", result.sessionToken);
+      setStoreAccountId(result.device.accountId);
+      setScreen("chat");
+      navigate("/", { replace: true });
+    } catch (error) {
+      setSubdeviceMessage(
+        error instanceof Error ? error.message : "サブデバイス接続に失敗しました。",
+      );
+    } finally {
+      setSubdevicePending(false);
+    }
+  };
+
   const startQrLogin = useCallback(async () => {
     setQrUrl(null);
     setQrExpired(false);
@@ -239,9 +276,7 @@ export function LoginPage() {
   }, []);
 
   const savedSessions = sessions.filter((s) => s.hasToken);
-  const loginTabs: Tab[] = isSubdevice
-    ? ["email", "qr", "token", "subdevice"]
-    : ["email", "qr", "token"];
+  const loginTabs: Tab[] = ["email", "qr", "token"];
 
   return (
     <>
@@ -347,26 +382,34 @@ export function LoginPage() {
             </div>
           )}
 
-          <div className="flex mb-6 bg-[var(--vy-surface-2)] rounded-xl p-1">
-            {loginTabs.map((t) => (
-              <button
-                key={t}
-                type="button"
-                onClick={() => setTab(t)}
-                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  tab === t ? "text-[var(--vy-accent-contrast)]" : "text-[var(--vy-text-dim)]"
-                }`}
-                style={tab === t ? { background: "var(--vy-accent)" } : undefined}
-              >
-                {t === "email"
-                  ? "メール"
-                  : t === "qr"
-                    ? "QR コード"
-                    : t === "token"
-                      ? "トークン"
-                      : "サブデバイス"}
-              </button>
-            ))}
+          <div className="mb-6 space-y-2">
+            <div className="flex bg-[var(--vy-surface-2)] rounded-xl p-1">
+              {loginTabs.map((t) => (
+                <button
+                  key={t}
+                  type="button"
+                  onClick={() => setTab(t)}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                    tab === t ? "text-[var(--vy-accent-contrast)]" : "text-[var(--vy-text-dim)]"
+                  }`}
+                  style={tab === t ? { background: "var(--vy-accent)" } : undefined}
+                >
+                  {t === "email" ? "メール" : t === "qr" ? "QR コード" : "トークン"}
+                </button>
+              ))}
+            </div>
+            <button
+              type="button"
+              onClick={() => setTab("subdevice")}
+              className={`w-full rounded-xl py-2.5 text-sm font-semibold transition-colors ${
+                tab === "subdevice"
+                  ? "text-[var(--vy-accent-contrast)]"
+                  : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]"
+              }`}
+              style={tab === "subdevice" ? { background: "var(--vy-accent)" } : undefined}
+            >
+              サブデバイスとして接続
+            </button>
           </div>
 
           {error && (
@@ -513,19 +556,38 @@ export function LoginPage() {
           )}
 
           {tab === "subdevice" && (
-            <div className="space-y-4">
+            <form onSubmit={handleSubdeviceConnect} className="space-y-4">
               <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">
                 <p className="font-semibold">PCのVylineに接続</p>
                 <ol className="mt-3 list-decimal space-y-2 pl-5 text-[var(--vy-text-dim)]">
                   <li>PC側の設定から「サブデバイス」のQRコードを表示します。</li>
-                  <li>スマホの標準カメラでQRコードを読み取ります。</li>
-                  <li>開いたVyline画面で「この端末を接続」を押します。</li>
+                  <li>QRコードのURLをコピーして、下の欄に貼り付けます。</li>
+                  <li>「この端末を接続」を押します。</li>
                 </ol>
               </div>
-              <p className="text-center text-[0.7rem] text-[var(--vy-text-dim)]">
-                QR読み込み後、この画面ではなく接続確認画面が自動で開きます。
-              </p>
-            </div>
+              <input
+                value={subdeviceUrl}
+                onChange={(e) => setSubdeviceUrl(e.target.value)}
+                placeholder="サブデバイス用URLを貼り付け"
+                className="w-full rounded-xl bg-[var(--vy-surface-2)] border border-[var(--vy-border)] px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--vy-accent)]"
+                required
+              />
+              <input
+                value={subdeviceName}
+                onChange={(e) => setSubdeviceName(e.target.value)}
+                placeholder="端末名（任意）"
+                className="w-full rounded-xl bg-[var(--vy-surface-2)] border border-[var(--vy-border)] px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--vy-accent)]"
+              />
+              <button
+                type="submit"
+                disabled={subdevicePending}
+                className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                style={{ background: "var(--vy-accent)" }}
+              >
+                {subdevicePending ? "接続中…" : "この端末を接続"}
+              </button>
+              {subdeviceMessage && <p className="text-sm text-red-300">{subdeviceMessage}</p>}
+            </form>
           )}
         </div>
       </div>
