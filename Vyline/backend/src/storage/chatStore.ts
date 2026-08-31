@@ -29,6 +29,6 @@ export {
   flushAccountChatDb,
   listChatsWithCounts,
   getChatDbLogicalStorageBytes,
-  getStoredMessageRefs,
 } from "./chatStoreSqlite.js";
+export { getStoredMessageRefs } from "./storageUsageRefs.js";
 export type { BootstrapPayload } from "./chatStoreSqlite.js";
