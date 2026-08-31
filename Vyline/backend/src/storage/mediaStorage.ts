@@ -15,6 +15,7 @@ import { copyFile, mkdir, readFile, readdir, stat, writeFile } from "node:fs/pro
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { iterateStoredMessageRefs } from "./storageUsageRefs.js";
 import { VYLINE_SAVED_MEDIA_DIR } from "./vylineStorageInfo.js";
 
 const log = childLogger("media-storage");
@@ -130,7 +131,6 @@ export async function readMediaStorage(
     if (root === LEGACY_ROOT && existsSync(root) === false) continue;
     const dir = join(root, h.slice(0, 2));
     try {
-      const { readdir } = await import("node:fs/promises");
       const files = await readdir(dir);
       const hit = files.find((f) => f.startsWith(h));
       if (!hit) continue;
@@ -149,7 +149,7 @@ export async function statMediaStorage(accountId: string, chatMid: string, messa
   for (const root of new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)])) {
     const dir = join(root, hash.slice(0, 2));
     const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
-      if (error.code === "ENOENT") return [];
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
       throw error;
     });
     const entry = entries.find((entry) => entry.isFile() && entry.name.startsWith(`${hash}.`));
@@ -163,7 +163,11 @@ export async function statMediaStorage(accountId: string, chatMid: string, messa
 
 /** Import large attachments without buffering them or overwriting saved media. */
 export async function importMediaStorageFile(
-  accountId: string, chatMid: string, messageId: string, sourcePath: string, contentType: string,
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  sourcePath: string,
+  contentType: string,
 ): Promise<boolean> {
   if (await statMediaStorage(accountId, chatMid, messageId)) return false;
   const path = diskPath(accountId, chatMid, messageId, contentType);
@@ -177,32 +181,81 @@ export async function importMediaStorageFile(
   }
 }
 
-/** Legacy media is keyed by account/chat/message hashes, not by directory. */
-export async function getAccountMediaStorageSize(
-  accountId: string,
-  messages: Record<string, Record<string, { id: string }>>,
-): Promise<number> {
-  const hashes = new Set<string>();
-  for (const [chatMid, byId] of Object.entries(messages)) {
-    for (const id of Object.keys(byId)) hashes.add(key(accountId, chatMid, id));
-  }
-  const prefixes = new Set([...hashes].map((hash) => hash.slice(0, 2)));
-  let size = 0;
-  for (const root of new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)])) {
+type MessageRefMap = Record<string, Record<string, { id: string }>>;
+
+/**
+ * Scan physical saved-media files once and keep only hash -> byte totals in RAM.
+ * This makes usage accounting proportional to the number of actual media files,
+ * not to the (potentially much larger) number of chat messages.
+ */
+async function collectMediaBytesByHash(): Promise<Map<string, number>> {
+  const sizes = new Map<string, number>();
+  const roots = new Set([STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)]);
+  for (const root of roots) {
+    const prefixes = await readdir(root, { withFileTypes: true }).catch((error) => {
+      if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+      throw error;
+    });
     for (const prefix of prefixes) {
-      const dir = join(root, prefix);
+      if (!prefix.isDirectory() || !/^[0-9a-f]{2}$/i.test(prefix.name)) continue;
+      const dir = join(root, prefix.name);
       const entries = await readdir(dir, { withFileTypes: true }).catch((error) => {
-        if (error.code === "ENOENT") return [];
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
         throw error;
       });
       for (const entry of entries) {
-        if (!entry.isFile() || !hashes.has(entry.name.split(".")[0]!)) continue;
+        if (!entry.isFile()) continue;
+        const hash = entry.name.split(".", 1)[0];
+        if (!hash || !/^[0-9a-f]{64}$/i.test(hash)) continue;
         try {
-          size += (await stat(join(dir, entry.name))).size;
+          const bytes = (await stat(join(dir, entry.name))).size;
+          sizes.set(hash, (sizes.get(hash) ?? 0) + bytes);
         } catch (error) {
           if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
         }
       }
+    }
+  }
+  return sizes;
+}
+
+/**
+ * Account-scoped media usage without building a JS object/Set for every message.
+ * getStoredMessageRefs attaches a non-enumerable SQLite iterator; incoming restore
+ * refs remain ordinary enumerable properties and are included as well.
+ */
+export async function getAccountMediaStorageSize(
+  accountId: string,
+  messages: MessageRefMap,
+): Promise<number> {
+  const mediaBytesByHash = await collectMediaBytesByHash();
+  if (mediaBytesByHash.size === 0) return 0;
+
+  let size = 0;
+  const consume = (chatMid: string, messageId: string) => {
+    const hash = key(accountId, chatMid, messageId);
+    const bytes = mediaBytesByHash.get(hash);
+    if (bytes == null) return;
+    size += bytes;
+    // A message hash is unique. Deleting it also avoids double-counting an
+    // incoming restore ref that already exists in the destination database.
+    mediaBytesByHash.delete(hash);
+  };
+
+  const stored = iterateStoredMessageRefs(messages);
+  if (stored) {
+    for (const ref of stored) {
+      consume(ref.chatMid, ref.id);
+      if (mediaBytesByHash.size === 0) return size;
+    }
+  }
+
+  // Compatibility path for ordinary callers and incoming restore refs added by
+  // backupService. These are intentionally the only refs materialized in JS.
+  for (const [chatMid, byId] of Object.entries(messages)) {
+    for (const id of Object.keys(byId)) {
+      consume(chatMid, id);
+      if (mediaBytesByHash.size === 0) return size;
     }
   }
   return size;
@@ -272,7 +325,7 @@ export async function getMediaStorageSizeByType(): Promise<{
 async function clearDir(root: string): Promise<number> {
   let removed = 0;
   try {
-    const { readdir, rm } = await import("node:fs/promises");
+    const { rm } = await import("node:fs/promises");
     await mkdir(root, { recursive: true });
     const entries = await readdir(root, { withFileTypes: true });
     for (const e of entries) {
