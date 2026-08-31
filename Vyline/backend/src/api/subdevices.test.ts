@@ -38,11 +38,22 @@ describe("subdevice management", () => {
     const complete = () =>
       router.request(`/pairing/${pairing.token}/complete`, {
         method: "POST",
-        headers: { "content-type": "application/json", "x-vyline-installation-id": installationId },
+        headers: {
+          "content-type": "application/json",
+          "x-forwarded-proto": "https",
+          "x-vyline-installation-id": installationId,
+        },
         body: JSON.stringify({ name: "Test browser", platform: "web" }),
       });
-    const result = await (await complete()).json();
+    const completeResponse = await complete();
+    const result = await completeResponse.json();
     expect(result.device.accountId).toBe("account-2");
+    const issuedCookies = completeResponse.headers.getSetCookie().join("; ");
+    expect(issuedCookies).toContain("vyline_subdevice_session=");
+    expect(issuedCookies).toContain("vyline_subdevice_installation=");
+    expect(issuedCookies).toContain("HttpOnly");
+    expect(issuedCookies).toContain("SameSite=Strict");
+    expect(issuedCookies).toContain("Secure");
     expect((await complete()).status).toBe(410);
     const headers = {
       authorization: `Bearer ${result.sessionToken}`,

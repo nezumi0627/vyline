@@ -10,7 +10,13 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
-import { listTokens, createToken, validateToken, revokeToken } from "../storage/apiTokenStore.js";
+import {
+  listTokens,
+  createToken,
+  validateToken,
+  revokeToken,
+  tokenAllowsAccount,
+} from "../storage/apiTokenStore.js";
 import type { ApiToken } from "../storage/apiTokenStore.js";
 import { listAccounts as listLineAccounts } from "../line/clientManager.js";
 import {
@@ -22,6 +28,9 @@ import {
 } from "../service/lineService.js";
 
 const log = childLogger("public-api");
+const RATE_LIMIT_WINDOW_MS = 60_000;
+const RATE_LIMIT_MAX_REQUESTS = 300;
+const rateWindows = new WeakMap<ApiToken, { startedAt: number; count: number }>();
 
 export const publicRouter = new Hono();
 
@@ -38,6 +47,20 @@ async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Resp
   if (!apiToken) {
     return c.json({ ok: false, error: "Invalid or revoked token" }, 401);
   }
+  const now = Date.now();
+  const current = rateWindows.get(apiToken);
+  if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
+    rateWindows.set(apiToken, { startedAt: now, count: 1 });
+  } else {
+    current.count += 1;
+    if (current.count > RATE_LIMIT_MAX_REQUESTS) {
+      c.header(
+        "Retry-After",
+        String(Math.max(1, Math.ceil((RATE_LIMIT_WINDOW_MS - (now - current.startedAt)) / 1000))),
+      );
+      return c.json({ ok: false, error: "rate limit exceeded" }, 429);
+    }
+  }
   return { token: apiToken };
 }
 
@@ -45,6 +68,13 @@ async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Resp
 function requireScope(c: Context<any>, token: ApiToken, scope: "read" | "write"): true | Response {
   if (!token.scopes.includes(scope))
     return c.json({ ok: false, error: `token requires ${scope} scope` }, 403);
+  return true;
+}
+
+function requireAccount(c: Context<any>, token: ApiToken, accountId: string): true | Response {
+  if (!tokenAllowsAccount(token, accountId)) {
+    return c.json({ ok: false, error: "token is not authorized for this account" }, 403);
+  }
   return true;
 }
 
@@ -80,7 +110,7 @@ function handlePublicError(err: unknown, c: Context<any>): Response {
   const isNetwork = /connection|connect|ECONN|ENET|ETIMEDOUT|Unable to connect/i.test(message);
   if (isNetwork) {
     log.warn({ err: message }, "public api network error");
-    return c.json({ ok: false, error: message }, 502);
+    return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
   log.error({ err }, "public api error");
   return c.json({ ok: false, error: "internal server error" }, 500);
@@ -96,7 +126,9 @@ publicRouter.get("/accounts", async (c) => {
   const permission = requireScope(c, auth.token, "read");
   if (permission instanceof Response) return permission;
 
-  const accounts = listLineAccounts().map((accountId) => ({ accountId }));
+  const accounts = listLineAccounts()
+    .filter((accountId) => tokenAllowsAccount(auth.token, accountId))
+    .map((accountId) => ({ accountId }));
   return c.json({ ok: true, accounts });
 });
 
@@ -111,6 +143,8 @@ publicRouter.get("/accounts/:accountId/chats", async (c) => {
   if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
+  const accountPermission = requireAccount(c, auth.token, accountId);
+  if (accountPermission instanceof Response) return accountPermission;
   const light = c.req.query("light") === "1" || c.req.query("light") === "true";
 
   try {
@@ -132,6 +166,8 @@ publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
   if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
+  const accountPermission = requireAccount(c, auth.token, accountId);
+  if (accountPermission instanceof Response) return accountPermission;
   const chatMid = c.req.param("chatMid");
   const limitParam = Number(c.req.query("limit") ?? "20");
   const limit = Math.min(Math.max(1, Number.isFinite(limitParam) ? limitParam : 20), 100);
@@ -162,6 +198,8 @@ publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
   if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
+  const accountPermission = requireAccount(c, auth.token, accountId);
+  if (accountPermission instanceof Response) return accountPermission;
   const chatMid = c.req.param("chatMid");
 
   let body: { text?: string };
@@ -191,6 +229,8 @@ publicRouter.get("/accounts/:accountId/events/poll", async (c) => {
   if (auth instanceof Response) return auth;
 
   const accountId = c.req.param("accountId");
+  const accountPermission = requireAccount(c, auth.token, accountId);
+  if (accountPermission instanceof Response) return accountPermission;
   const permission = requireScope(c, auth.token, "read");
   if (permission instanceof Response) return permission;
 
@@ -213,9 +253,10 @@ publicRouter.get("/tokens", async (c) => {
   if (admin instanceof Response) return admin;
 
   const tokens = await listTokens();
-  const data = tokens.map(({ name, scopes, createdAt, lastUsedAt }) => ({
+  const data = tokens.map(({ name, scopes, accountIds, createdAt, lastUsedAt }) => ({
     name,
     scopes,
+    accountIds,
     createdAt,
     lastUsedAt,
   }));
@@ -227,7 +268,7 @@ publicRouter.post("/tokens", async (c) => {
   const admin = requireAdmin(c);
   if (admin instanceof Response) return admin;
 
-  let body: { name?: string; scopes?: string[] };
+  let body: { name?: string; scopes?: string[]; accountIds?: string[] };
   try {
     body = await c.req.json();
   } catch {
@@ -237,9 +278,18 @@ publicRouter.post("/tokens", async (c) => {
   if (!body.name) {
     return c.json({ ok: false, error: "name required" }, 400);
   }
+  const accountIds = body.accountIds === undefined ? listLineAccounts() : body.accountIds;
+  if (!Array.isArray(accountIds) || accountIds.length === 0) {
+    return c.json(
+      { ok: false, error: "accountIds must contain at least one active account" },
+      400,
+    );
+  }
 
   try {
-    const token = await createToken(body.name, body.scopes);
+    // Keep the documented legacy request shape useful without creating an
+    // unscoped token: omission means exactly the accounts active at creation.
+    const token = await createToken(body.name, accountIds, body.scopes);
     return c.json({ ok: true, data: token }, 201);
   } catch (err) {
     log.error({ err }, "failed to create token");

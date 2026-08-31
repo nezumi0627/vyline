@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { setCookie } from "hono/cookie";
 import { networkInterfaces } from "node:os";
 import {
   authenticateSubdevice,
@@ -12,6 +13,14 @@ import {
   setSubdeviceBlocked,
   type Subdevice,
 } from "../storage/subdeviceStore.js";
+import {
+  bearerTokenFromAuthorization,
+  requiresRemoteAuthentication,
+  resolveBackendHost,
+  resolveSubdeviceCredentials,
+  SUBDEVICE_INSTALLATION_COOKIE,
+  SUBDEVICE_SESSION_COOKIE,
+} from "../remoteAccess.js";
 
 export const subdeviceRouter = new Hono();
 
@@ -21,13 +30,21 @@ function isLanAccessEnabled() {
   return process.env.VYLINE_LAN_ACCESS === "true";
 }
 
+function isRemoteAuthenticationRequired() {
+  const lanAccess = isLanAccessEnabled();
+  return requiresRemoteAuthentication(
+    lanAccess,
+    resolveBackendHost(lanAccess, process.env.VYLINE_HOST),
+  );
+}
+
 function canManageSubdevices(c: Context) {
-  // With LAN authentication disabled, owner access relies on the deployment
-  // boundary (loopback or an authenticated proxy), just like /auth/accounts.
-  // LAN mode still requires a server-verified loopback request.
+  // Owner access may rely on the bind boundary only when it is actually
+  // loopback. A non-loopback VYLINE_HOST remains protected even if the legacy
+  // LAN flag was accidentally left false.
   // A paired browser never gains owner permissions, including through a proxy.
   if (bearer(c)) return false;
-  return !isLanAccessEnabled() || c.req.header("x-vyline-local-request") === "1";
+  return !isRemoteAuthenticationRequired() || c.req.header("x-vyline-local-request") === "1";
 }
 
 function getLanHost(): string | null {
@@ -70,12 +87,30 @@ export function buildPairingUrl(origin: string | undefined, token: string): stri
 }
 
 function bearer(c: { req: { header(name: string): string | undefined } }) {
-  const value = c.req.header("authorization") ?? "";
-  return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
+  return resolveSubdeviceCredentials({
+    authorization: c.req.header("authorization"),
+    installationId: c.req.header("x-vyline-installation-id"),
+    cookie: c.req.header("cookie"),
+  }).sessionToken;
 }
 
 function installationId(c: { req: { header(name: string): string | undefined } }) {
   return c.req.header("x-vyline-installation-id");
+}
+
+function issueBrowserSessionCookies(c: Context, sessionToken: string, deviceId: string): void {
+  const forwardedProto = c.req.header("x-forwarded-proto")?.split(",", 1)[0]?.trim().toLowerCase();
+  const options = {
+    httpOnly: true,
+    sameSite: "Strict" as const,
+    // TLS commonly terminates at Caddy/Cloudflare/Nginx in Docker. A spoofed
+    // https value only makes the caller's own cookie stricter, never weaker.
+    secure: new URL(c.req.url).protocol === "https:" || forwardedProto === "https",
+    path: "/",
+    maxAge: 365 * 24 * 60 * 60,
+  };
+  setCookie(c, SUBDEVICE_SESSION_COOKIE, sessionToken, options);
+  setCookie(c, SUBDEVICE_INSTALLATION_COOKIE, deviceId, options);
 }
 
 subdeviceRouter.post("/pairing", async (c) => {
@@ -124,9 +159,9 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
     return c.json({ ok: false, error: "valid device installation ID required" }, 400);
   }
   const result = await completePairing(c.req.param("token"), body.name ?? "", platform, deviceId);
-  return result
-    ? c.json({ ok: true, ...result })
-    : c.json({ ok: false, error: "pairing expired or already used" }, 410);
+  if (!result) return c.json({ ok: false, error: "pairing expired or already used" }, 410);
+  issueBrowserSessionCookies(c, result.sessionToken, deviceId);
+  return c.json({ ok: true, ...result });
 });
 
 subdeviceRouter.get("/", async (c) => {
@@ -137,7 +172,10 @@ subdeviceRouter.get("/", async (c) => {
 });
 
 subdeviceRouter.post("/heartbeat", async (c) => {
-  const device = await authenticateSubdevice(bearer(c), installationId(c));
+  const device = await authenticateSubdevice(
+    bearerTokenFromAuthorization(c.req.header("authorization")),
+    installationId(c),
+  );
   return device ? c.json({ ok: true, device }) : c.json({ ok: false, error: "unauthorized" }, 401);
 });
 

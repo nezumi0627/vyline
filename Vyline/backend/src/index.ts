@@ -21,7 +21,6 @@ import { publicRouter } from "./api/public.js";
 import { lineOpenApiSpec } from "./api/openapi.line.js";
 import { getClient, restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
-import { warmAccountCache } from "./storage/chatStore.js";
 import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
@@ -32,6 +31,14 @@ import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
 import { requestDiagnostics } from "./service/requestDiagnostics.js";
 import { BACKUP_STORAGE_LIMIT_BYTES } from "./storage/backupLimits.js";
+import {
+  createRemoteAccessGuard,
+  isLoopbackRequestAddress,
+  requiresRemoteAuthentication,
+  resolveSubdeviceCredentials,
+  resolveBackendHost,
+  withServerVerifiedLocalRequest,
+} from "./remoteAccess.js";
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MAX_REQUEST_BODY_BYTES = Number(
@@ -39,7 +46,8 @@ const MAX_REQUEST_BODY_BYTES = Number(
     BACKUP_STORAGE_LIMIT_BYTES,
 );
 const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
-const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
+const HOST = resolveBackendHost(LAN_ACCESS, process.env.VYLINE_HOST);
+const REMOTE_AUTH_REQUIRED = requiresRemoteAuthentication(LAN_ACCESS, HOST);
 const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
 const CORS_ORIGINS = new Set(
   CORS_ORIGIN.split(",")
@@ -55,15 +63,6 @@ const app = new Hono();
 function allowedCorsOrigin(origin: string | undefined) {
   if (!origin) return CORS_ORIGIN;
   return CORS_ORIGINS.has(origin) ? origin : CORS_ORIGIN;
-}
-
-function subdeviceInstallationId(c: Context) {
-  return c.req.header("x-vyline-installation-id");
-}
-
-function subdeviceBearer(c: Context) {
-  const auth = c.req.header("authorization") ?? "";
-  return auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
 }
 
 function isPublicPairingRequest(path: string, method: string) {
@@ -100,55 +99,55 @@ app.use(
   }),
 );
 
-// LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
-// QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
-
-async function requireLanSubdevice(c: Context, next: () => Promise<void>) {
-  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
-  const device = await getSubdeviceSession(subdeviceBearer(c), subdeviceInstallationId(c));
-  if (!device) {
-    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
-  }
-  const scope = scopedAccount(c.req.path);
-  if (scope?.kind === "accountId" && scope.value !== device.accountId) {
-    return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
-  }
-  if (scope?.kind === "mid") {
-    const clientMid = String(getClient(device.accountId)?.base.profile?.mid ?? "");
-    const ownMid = clientMid || (/^u[0-9a-f]{32}$/i.test(device.accountId) ? device.accountId : "");
-    if (!ownMid || scope.value !== ownMid) {
-      return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+// Any non-loopback bind is a remote deployment even when VYLINE_LAN_ACCESS was
+// left false. Remote BFF access is limited to installation-bound subdevice
+// sessions. Only pairing inspection/completion is public before a session exists.
+const requireRemoteSubdevice = createRemoteAccessGuard({
+  remoteAuthRequired: REMOTE_AUTH_REQUIRED,
+  mode: "subdevice",
+  authenticateSubdevice: getSubdeviceSession,
+  authorizeSubdevice(c, device) {
+    const scope = scopedAccount(c.req.path);
+    if (scope?.kind === "accountId" && scope.value !== device.accountId) {
+      return "subdevice account mismatch";
     }
-  }
-  return next();
-}
+    if (scope?.kind === "mid") {
+      const clientMid = String(getClient(device.accountId)?.base.profile?.mid ?? "");
+      const ownMid =
+        clientMid || (/^u[0-9a-f]{32}$/i.test(device.accountId) ? device.accountId : "");
+      if (!ownMid || scope.value !== ownMid) return "subdevice account mismatch";
+    }
+    return null;
+  },
+});
+const requireLocalRequest = createRemoteAccessGuard({
+  remoteAuthRequired: REMOTE_AUTH_REQUIRED,
+  mode: "local",
+});
 
-async function requireLocalOnLan(c: Context, next: () => Promise<void>) {
-  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
-  return c.json({ ok: false, error: "local request required" }, 403);
-}
-
-app.use("/line/*", requireLanSubdevice);
-app.use("/line/:accountId/proxy", requireLocalOnLan);
-app.use("/beta/agent-i/*", requireLanSubdevice);
-app.use("/debug/*", requireLocalOnLan);
-app.use("/api/line/:accountId/proxy", requireLocalOnLan);
+app.use("/line/*", requireRemoteSubdevice);
+app.use("/cdn/*", requireRemoteSubdevice);
+app.use("/line/:accountId/proxy", requireLocalRequest);
+app.use("/beta/agent-i/*", requireRemoteSubdevice);
+app.use("/debug/*", requireLocalRequest);
+app.use("/api/line/:accountId/proxy", requireLocalRequest);
 
 app.use("/api/*", async (c, next) => {
-  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+  // The public API alias has its own account-scoped Bearer/admin auth. Requiring
+  // a subdevice token here would make the single Authorization header unusable.
+  if (/^\/api\/v1(?:\/|$)/.test(c.req.path)) return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
-  if (/^\/api\/debug(?:\/|$)/.test(c.req.path)) return requireLocalOnLan(c, next);
+  if (/^\/api\/debug(?:\/|$)/.test(c.req.path)) return requireLocalRequest(c, next);
   if (/^\/api\/auth(?:\/|$)/.test(c.req.path)) {
-    if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
-    return requireLanSubdevice(c, next);
+    if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalRequest(c, next);
+    return requireRemoteSubdevice(c, next);
   }
-  return requireLanSubdevice(c, next);
+  return requireRemoteSubdevice(c, next);
 });
 app.use("/auth/*", async (c, next) => {
-  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
-  if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
-  return requireLanSubdevice(c, next);
+  if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalRequest(c, next);
+  return requireRemoteSubdevice(c, next);
 });
 
 app.use("*", requestDiagnostics((c) => {
@@ -305,12 +304,13 @@ async function serveStaticFile(path: string) {
   }
   const file = join(STATIC_DIR, normalized === "/" ? "index.html" : normalized);
   if (!existsSync(file)) return null;
-  const buf = await readFile(file);
+  const body = Bun.file(file);
   const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
-  return new Response(buf, {
+  return new Response(body, {
     status: 200,
     headers: {
       "Content-Type": MIME[ext] ?? "application/octet-stream",
+      "Content-Length": String(body.size),
       "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
     },
   });
@@ -338,8 +338,20 @@ app.onError((err, c) => {
   return c.json({ ok: false, error: "internal server error" }, 500);
 });
 
+if (!LAN_ACCESS && REMOTE_AUTH_REQUIRED) {
+  logger.warn(
+    { host: HOST },
+    "VYLINE_HOST is non-loopback while VYLINE_LAN_ACCESS is false; remote subdevice authentication is enforced and owner auth/pairing management remains loopback-only",
+  );
+}
 logger.info(
-  { port: PORT, host: HOST, staticDir: STATIC_DIR, cors: CORS_ORIGIN },
+  {
+    port: PORT,
+    host: HOST,
+    staticDir: STATIC_DIR,
+    cors: CORS_ORIGIN,
+    remoteAuthRequired: REMOTE_AUTH_REQUIRED,
+  },
   "starting Vyline backend",
 );
 
@@ -367,16 +379,9 @@ void ensureCdnCacheDir().catch(() => undefined);
 void ensureMediaStorageDir().catch(() => undefined);
 void import("./tailscale.js").then((m) => m.startTailscaleWatcher(PORT)).catch(() => undefined);
 
-restoreAllSessions()
-  .then(async () => {
-    const { listAccounts } = await import("./line/clientManager.js");
-    for (const id of listAccounts()) {
-      await warmAccountCache(id).catch(() => undefined);
-    }
-  })
-  .catch((err) => {
-    logger.warn({ err }, "session restore had errors");
-  });
+restoreAllSessions().catch((err) => {
+  logger.warn({ err }, "session restore had errors");
+});
 
 type CallWsHandlers = typeof import("./call/callManager.js").callWebSocketHandler;
 let callWsHandlers: CallWsHandlers | null = null;
@@ -398,23 +403,31 @@ export default {
   idleTimeout: 120,
   async fetch(req: Request, server: Bun.Server<CallWsData>) {
     const address = server.requestIP(req)?.address ?? "";
-    const local = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
-    const headers = new Headers(req.headers);
-    headers.set("x-vyline-local-request", local ? "1" : "0");
-    const request = new Request(req, { headers });
+    const local = isLoopbackRequestAddress(address);
+    // Never trust a client/proxy supplied local marker.
+    const request = withServerVerifiedLocalRequest(req, address);
     const url = new URL(request.url);
     const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
     if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      const origin = request.headers.get("origin");
+      if (origin && origin !== url.origin && !CORS_ORIGINS.has(origin)) {
+        return new Response("websocket origin not allowed", { status: 403 });
+      }
       let accountId: string;
       try {
         accountId = decodeURIComponent(m[1]!);
       } catch {
         return new Response("invalid accountId", { status: 400 });
       }
-      if (LAN_ACCESS && !local) {
+      if (REMOTE_AUTH_REQUIRED && !local) {
+        const credentials = resolveSubdeviceCredentials({
+          authorization: request.headers.get("authorization") ?? undefined,
+          installationId: request.headers.get("x-vyline-installation-id") ?? undefined,
+          cookie: request.headers.get("cookie") ?? undefined,
+        });
         const device = await getSubdeviceSession(
-          (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""),
-          request.headers.get("x-vyline-installation-id") ?? undefined,
+          credentials.sessionToken,
+          credentials.installationId,
         );
         if (!device) {
           return new Response("subdevice authentication required", { status: 401 });
@@ -427,13 +440,20 @@ export default {
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
       }
-      const ok = server.upgrade(request, { data: { accountId, sessionId } });
+      // Bun requires the original Request object for WebSocket upgrades. The
+      // cloned request is only for the server-verified local marker used by Hono.
+      const ok = server.upgrade(req, { data: { accountId, sessionId } });
       if (ok) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
     return app.fetch(request, server);
   },
   websocket: {
+    // Reject oversized PCM frames before Bun allocates its default 16 MiB
+    // payload, and cap queued outbound audio for slow/disconnected browsers.
+    maxPayloadLength: 64 * 1024,
+    backpressureLimit: 512 * 1024,
+    closeOnBackpressureLimit: true,
     open(ws: Bun.ServerWebSocket<CallWsData>) {
       void getCallWsHandlers().then((h) => h.open(ws));
     },
