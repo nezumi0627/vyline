@@ -2,11 +2,13 @@ import { useState } from "react";
 import { useStore } from "@/lib/store";
 import { Button, SettingsRow, TextField, Toggle } from "@/components/vy-ui";
 import { api } from "@/api/client";
+import { WindowsLineTokenBetaPanel } from "@/components/windows-line-token-beta-panel";
 
 const CONSENT_KEY = "vyline:beta-feature-consent-v1";
 const BLOCK_CHECK_FEATURE = "block-status-check";
 const MID_SEARCH_FEATURE = "mid-user-search";
 const AGENT_I_FEATURE = "agent-i-assistant";
+const WINDOWS_LINE_TOKEN_FEATURE = "windows-line-token-inspection";
 
 type ConsentLog = Record<string, { consentedAt: string; version: string }>;
 
@@ -54,18 +56,30 @@ export function BetaSection() {
     statusMessage: string;
   } | null>(null);
   const [consentPending, setConsentPending] = useState<
-    "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | "betaAgentI" | null
+    | "betaBlockCheckManual"
+    | "betaBlockCheckAuto"
+    | "betaMidSearch"
+    | "betaAgentI"
+    | "betaWindowsLineTokens"
+    | null
   >(null);
 
   const requestEnable = (
-    key: "betaBlockCheckManual" | "betaBlockCheckAuto" | "betaMidSearch" | "betaAgentI",
+    key:
+      | "betaBlockCheckManual"
+      | "betaBlockCheckAuto"
+      | "betaMidSearch"
+      | "betaAgentI"
+      | "betaWindowsLineTokens",
   ) => {
     const feature =
       key === "betaMidSearch"
         ? MID_SEARCH_FEATURE
         : key === "betaAgentI"
           ? AGENT_I_FEATURE
-          : BLOCK_CHECK_FEATURE;
+          : key === "betaWindowsLineTokens"
+            ? WINDOWS_LINE_TOKEN_FEATURE
+            : BLOCK_CHECK_FEATURE;
     if (hasBetaFeatureConsent(feature)) {
       updateSetting(key, true);
       return;
@@ -80,7 +94,9 @@ export function BetaSection() {
         ? MID_SEARCH_FEATURE
         : consentPending === "betaAgentI"
           ? AGENT_I_FEATURE
-          : BLOCK_CHECK_FEATURE;
+          : consentPending === "betaWindowsLineTokens"
+            ? WINDOWS_LINE_TOKEN_FEATURE
+            : BLOCK_CHECK_FEATURE;
     if (!recordBetaFeatureConsent(feature)) return;
     updateSetting(consentPending, true);
     setConsentPending(null);
@@ -147,6 +163,20 @@ export function BetaSection() {
             label="Agent I AIアシスタント"
           />
         </SettingsRow>
+        <SettingsRow
+          title="Windows版LINEのトークン確認（Beta）"
+          description="起動中のLINE.exeから認証候補を読み取り、期限とペア関係だけを表示します。"
+        >
+          <Toggle
+            checked={settings.betaWindowsLineTokens}
+            onChange={(value) =>
+              value
+                ? requestEnable("betaWindowsLineTokens")
+                : updateSetting("betaWindowsLineTokens", false)
+            }
+            label="Windowsトークン確認"
+          />
+        </SettingsRow>
       </Card>
 
       {settings.betaMidSearch && (
@@ -211,6 +241,8 @@ export function BetaSection() {
           </div>
         </Card>
       )}
+
+      {settings.betaWindowsLineTokens && <WindowsLineTokenBetaPanel accountId={accountId} />}
 
       {consentPending && (
         <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">

@@ -14,7 +14,7 @@
  * DELETE /auth/accounts/:id — アカウント削除
  */
 
-import { randomInt } from "node:crypto";
+import { randomInt, randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { childLogger } from "../logger.js";
 import {
@@ -31,7 +31,18 @@ import {
   removeClient,
   waitForSessionRestore,
 } from "../line/clientManager.js";
-import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
+import {
+  deleteToken,
+  loadTokens,
+  listSavedSessions,
+  saveRefreshToken,
+  saveToken,
+} from "../storage/tokenStore.js";
+import {
+  describeWindowsLineTokenInventory,
+  inspectWindowsLineTokens,
+  type WindowsLineTokenInventory,
+} from "../service/windowsLineTokenService.js";
 
 const log = childLogger("api:auth");
 export const authRouter = new Hono();
@@ -40,11 +51,92 @@ const emailLoginState = new Map<
   string,
   { status: EmailLoginStatus; pincode: string | null; error: string | null }
 >();
+const WINDOWS_TOKEN_SCAN_TTL_MS = 2 * 60 * 1000;
+const windowsTokenScans = new Map<
+  string,
+  { inventory: WindowsLineTokenInventory; expiresAt: number }
+>();
+
+function pruneWindowsTokenScans(now = Date.now()): void {
+  for (const [scanId, scan] of windowsTokenScans) {
+    if (scan.expiresAt <= now) windowsTokenScans.delete(scanId);
+  }
+}
 
 // 端末確認 PIN は認証情報。Math.random は予測可能なため CSPRNG を使う。
 function random6DigitPin(): string {
   return String(randomInt(100000, 1000000));
 }
+
+// GET /auth/windows-line-tokens — LINE for Windows のメモリ上の候補を安全に一覧化
+authRouter.get("/windows-line-tokens", async (c) => {
+  if (process.platform !== "win32") {
+    return c.json({ ok: false, error: "Windows only" }, 400);
+  }
+  try {
+    pruneWindowsTokenScans();
+    const inventory = await inspectWindowsLineTokens();
+    const scanId = randomUUID();
+    windowsTokenScans.set(scanId, {
+      inventory,
+      expiresAt: Date.now() + WINDOWS_TOKEN_SCAN_TTL_MS,
+    });
+    return c.json({
+      ok: true,
+      scanId,
+      scannedAt: new Date().toISOString(),
+      tokens: describeWindowsLineTokenInventory(inventory),
+    });
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : "scanner failed" },
+      "Windows LINE token scan failed",
+    );
+    return c.json({ ok: false, error: "Windows LINE token scan failed" }, 500);
+  }
+});
+
+authRouter.post("/windows-line-tokens/import", async (c) => {
+  const body = await c.req.json<{
+    accountId?: unknown;
+    scanId?: unknown;
+    candidateIndex?: unknown;
+  }>();
+  const accountId = typeof body.accountId === "string" ? body.accountId.trim() : "";
+  const scanId = typeof body.scanId === "string" ? body.scanId.trim() : "";
+  const candidateIndex = typeof body.candidateIndex === "number" ? body.candidateIndex : Number.NaN;
+  if (!accountId || accountId.length > 100 || !scanId || !Number.isInteger(candidateIndex)) {
+    return c.json({ ok: false, error: "invalid import request" }, 400);
+  }
+  pruneWindowsTokenScans();
+  const scan = windowsTokenScans.get(scanId);
+  const candidate = scan?.inventory.candidates[candidateIndex];
+  if (
+    !scan ||
+    !candidate ||
+    candidate.kind !== "access" ||
+    !candidate.expiresAt ||
+    candidate.expiresAt * 1000 <= Date.now()
+  ) {
+    return c.json({ ok: false, error: "usable access token not found" }, 400);
+  }
+  try {
+    await loginWithAuthToken(accountId, candidate.token, "DESKTOPWIN");
+    await saveToken(accountId, candidate.token, { deviceMode: "DESKTOPWIN" });
+    const pair = scan.inventory.pairs.find((item) => item.access === candidate);
+    if (pair?.refresh) {
+      await saveRefreshToken(accountId, pair.refresh.token, pair.refresh.expiresAt);
+    }
+    windowsTokenScans.delete(scanId);
+    return c.json({ ok: true, accountId, pairedRefreshSaved: Boolean(pair?.refresh) });
+  } catch (err) {
+    log.warn(
+      { accountId, err: err instanceof Error ? err.message : "import failed" },
+      "Windows LINE token import failed",
+    );
+    return c.json({ ok: false, error: "Windows LINE token import failed" }, 400);
+  }
+});
 
 // ─────────────────────────────────────────────
 // POST /auth/login/email

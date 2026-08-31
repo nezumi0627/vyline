@@ -8,10 +8,10 @@
  */
 
 import { join, dirname } from "node:path";
-import { copyFile, mkdir, readFile, readdir, unlink, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
+import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import { protectSecret, unprotectSecret } from "./secureStore.js";
 
@@ -263,6 +263,30 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
   await persistAccount(accountId, existing);
+}
+
+export async function saveRefreshToken(
+  accountId: string,
+  refreshToken: string,
+  expire?: number,
+): Promise<void> {
+  if (!refreshToken.trim()) throw new Error("refresh token is empty");
+  await ensureDataDir();
+  const path = storagePathForAccount(accountId);
+  let protocol: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    } catch {
+      protocol = {};
+    }
+  }
+  protocol.refreshToken = refreshToken.trim();
+  if (typeof expire === "number" && Number.isFinite(expire)) protocol.expire = expire;
+  await mkdir(accountDir(accountId), { recursive: true });
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  await writeFile(temporary, JSON.stringify(protocol), "utf8");
+  await rename(temporary, path);
 }
 
 export async function deleteToken(accountId: string): Promise<void> {

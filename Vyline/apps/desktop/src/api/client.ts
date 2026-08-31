@@ -345,6 +345,34 @@ export const api = {
 
     accounts: () => request<AccountsResponse>("GET", "/auth/accounts"),
 
+    windowsLineTokens: () =>
+      request<{
+        ok: boolean;
+        scanId?: string;
+        scannedAt?: string;
+        tokens?: Array<{
+          index: number;
+          kind: "access" | "refresh" | "unknown";
+          status: "usable" | "unusable";
+          fingerprint: string;
+          expiresAt?: number;
+          remainingSeconds: number;
+          pairedIndex?: number;
+        }>;
+        error?: string;
+      }>("GET", "/auth/windows-line-tokens"),
+
+    importWindowsLineToken: (params: {
+      accountId: string;
+      scanId: string;
+      candidateIndex: number;
+    }) =>
+      request<{ ok: boolean; accountId?: string; pairedRefreshSaved?: boolean; error?: string }>(
+        "POST",
+        "/auth/windows-line-tokens/import",
+        params,
+      ),
+
     sessions: () => request<SessionsResponse>("GET", "/auth/sessions"),
 
     deleteSession: (accountId: string, opts?: { logout?: boolean }) =>
