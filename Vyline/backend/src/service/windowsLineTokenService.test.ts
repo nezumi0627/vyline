@@ -1,5 +1,9 @@
 import { describe, expect, test } from "bun:test";
-import { classifyWindowsLineTokenSet, pairWindowsLineTokens } from "./windowsLineTokenService.js";
+import {
+  classifyWindowsLineTokenSet,
+  describeWindowsLineTokenInventory,
+  pairWindowsLineTokens,
+} from "./windowsLineTokenService.js";
 
 function jwt(payload: Record<string, unknown>): string {
   const encode = (value: unknown) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -28,5 +32,14 @@ describe("Windows LINE token classification", () => {
     ]);
     expect(pairs).toHaveLength(2);
     expect(pairs.filter((pair) => pair.access && pair.refresh)).toHaveLength(0);
+  });
+
+  test("describes expiry without exposing the token", () => {
+    const access = jwt({ scp: "LINE_CORE", ctype: "access", jti: "access-1", exp: 2_000 });
+    const views = describeWindowsLineTokenInventory(classifyWindowsLineTokenSet([access]), 1_000_000);
+
+    expect(views[0]).toMatchObject({ kind: "access", status: "usable", remainingSeconds: 1_000 });
+    expect(views[0]?.fingerprint).toHaveLength(12);
+    expect(views[0]).not.toHaveProperty("token");
   });
 });

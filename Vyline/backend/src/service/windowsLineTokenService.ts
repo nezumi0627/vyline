@@ -1,4 +1,5 @@
 import { execFile } from "node:child_process";
+import { createHash } from "node:crypto";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
@@ -23,6 +24,18 @@ export interface WindowsLineTokenPair {
 export interface WindowsLineTokenInventory {
   candidates: WindowsLineTokenCandidate[];
   pairs: WindowsLineTokenPair[];
+}
+
+export type WindowsLineTokenStatus = "usable" | "unusable";
+
+export interface WindowsLineTokenView {
+  index: number;
+  kind: WindowsLineTokenKind;
+  status: WindowsLineTokenStatus;
+  fingerprint: string;
+  expiresAt?: number;
+  remainingSeconds: number;
+  pairedIndex?: number;
 }
 
 type JwtPayload = {
@@ -102,6 +115,46 @@ export function classifyWindowsLineTokenSet(tokens: string[]): WindowsLineTokenI
     .map((token) => classifyWindowsLineJwt(token))
     .filter((candidate): candidate is WindowsLineTokenCandidate => Boolean(candidate));
   return { candidates, pairs: pairWindowsLineTokens(candidates) };
+}
+
+export function describeWindowsLineToken(
+  candidate: WindowsLineTokenCandidate,
+  index: number,
+  pairedIndex?: number,
+  now = Date.now(),
+): WindowsLineTokenView {
+  const expiresAt = candidate.expiresAt;
+  const remainingSeconds = expiresAt === undefined
+    ? 0
+    : Math.max(0, Math.floor(expiresAt - now / 1000));
+  return {
+    index,
+    kind: candidate.kind,
+    status: remainingSeconds > 0 ? "usable" : "unusable",
+    fingerprint: createHash("sha256").update(candidate.token).digest("hex").slice(0, 12),
+    ...(expiresAt === undefined ? {} : { expiresAt }),
+    remainingSeconds,
+    ...(pairedIndex === undefined ? {} : { pairedIndex }),
+  };
+}
+
+export function describeWindowsLineTokenInventory(
+  inventory: WindowsLineTokenInventory,
+  now = Date.now(),
+): WindowsLineTokenView[] {
+  const pairedByCandidate = new Map<WindowsLineTokenCandidate, number>();
+  for (const pair of inventory.pairs) {
+    if (pair.access && pair.refresh) {
+      const accessIndex = inventory.candidates.indexOf(pair.access);
+      const refreshIndex = inventory.candidates.indexOf(pair.refresh);
+      if (accessIndex >= 0 && refreshIndex >= 0) {
+        pairedByCandidate.set(pair.access, refreshIndex);
+        pairedByCandidate.set(pair.refresh, accessIndex);
+      }
+    }
+  }
+  return inventory.candidates.map((candidate, index) =>
+    describeWindowsLineToken(candidate, index, pairedByCandidate.get(candidate), now));
 }
 
 function windowsScannerSource(): string {
