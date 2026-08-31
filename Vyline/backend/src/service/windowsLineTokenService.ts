@@ -62,7 +62,12 @@ function decodeJwtPayload(token: string): JwtPayload | undefined {
 
 export function classifyWindowsLineJwt(token: string): WindowsLineTokenCandidate | undefined {
   const payload = decodeJwtPayload(token);
-  if (!payload || payload.scp !== "LINE_CORE") return undefined;
+  if (
+    !payload ||
+    typeof payload.scp !== "string" ||
+    !["LINE_CORE", "LINE_AUTH", "LINE_AUTH_REFRESH"].includes(payload.scp)
+  )
+    return undefined;
   const expiresAt =
     typeof payload.exp === "number" && Number.isFinite(payload.exp) ? payload.exp : undefined;
   const tokenId = typeof payload.jti === "string" ? payload.jti : undefined;
