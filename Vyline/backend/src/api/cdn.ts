@@ -7,7 +7,7 @@
 import { Hono } from "hono";
 import {
   CdnNotFoundError,
-  getCachedLineCdn,
+  getCachedLineCdnAsset,
   isAllowedLineCdnUrl,
 } from "../storage/cdnAssetCache.js";
 import { childLogger } from "../logger.js";
@@ -37,14 +37,14 @@ cdnRouter.get("/line", async (c) => {
   }
 
   try {
-    const { buf, contentType, fromCache } = await getCachedLineCdn(url);
-    const body = Buffer.from(buf);
+    const asset = await getCachedLineCdnAsset(url);
+    const body = asset.kind === "memory" ? Buffer.from(asset.buf) : Bun.file(asset.path);
     return new Response(body, {
       status: 200,
       headers: {
-        "Content-Type": contentType,
+        "Content-Type": asset.contentType,
         "Cache-Control": "public, max-age=604800, immutable",
-        "X-Vyline-Cdn-Cache": fromCache ? "HIT" : "MISS",
+        "X-Vyline-Cdn-Cache": asset.fromCache ? "HIT" : "MISS",
       },
     });
   } catch (err) {
@@ -60,6 +60,6 @@ cdnRouter.get("/line", async (c) => {
         },
       });
     }
-    return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
+    return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
 });
