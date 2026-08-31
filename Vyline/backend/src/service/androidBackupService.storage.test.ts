@@ -1,6 +1,5 @@
-import { afterAll, afterEach, describe, expect, mock, spyOn, test } from "bun:test";
+import { afterAll, afterEach, describe, expect, mock, test } from "bun:test";
 import * as fs from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -13,7 +12,12 @@ import { zipSync } from "fflate";
 if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
   test("Android account storage integration in an isolated process", async () => {
     const child = Bun.spawn([process.execPath, "test", fileURLToPath(import.meta.url)], {
-      env: { ...process.env, VYLINE_ANDROID_STORAGE_TEST_CHILD: "1" },
+      env: {
+        ...process.env,
+        VYLINE_ANDROID_STORAGE_TEST_CHILD: "1",
+        VYLINE_BACKUP_HEAVY_MAX_RESERVED_BYTES: String(10 * 1024 ** 3),
+        VYLINE_ANDROID_BACKUP_MAX_ENTRIES: "3",
+      },
       stdout: "pipe",
       stderr: "pipe",
     });
@@ -46,17 +50,23 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
     getAndroidBackupSession,
     startAndroidBackupRestore,
   } = await import("./androidBackupService.js");
-  const { getBackupStorageUsage } = await import("./backupService.js");
+  const { closeBackupStorage, getBackupStorageUsage } = await import("./backupService.js");
   const { accountFile } = await import("../storage/accountDirs.js");
-  const { exportChatDb, flushAccountChatDb, mergeImportedChatDb, chatDbStorageBytes } =
-    await import("../storage/chatStore.js");
-  const { readMediaStorage } = await import("../storage/mediaStorage.js");
+  const {
+    closeAccountChatDb,
+    exportChatDb,
+    flushAccountChatDb,
+    getChatDbLogicalStorageBytes,
+    mergeImportedChatDb,
+  } = await import("../storage/chatStore.js");
+  const { closeMediaStorage, readMediaStorage } = await import("../storage/mediaStorage.js");
   const uploads: Array<{ accountId: string; uploadId: string }> = [];
   const accounts = new Set<string>();
   const bytesRequest = (bytes: Uint8Array) =>
     new Request("http://localhost/", { method: "POST", body: new Uint8Array(bytes) });
 
   async function upload(accountId: string, expectedBytes: number) {
+    accounts.add(accountId);
     const result = await createAndroidBackupChunkUpload(accountId, "LEIN.zip", true, expectedBytes);
     uploads.push({ accountId, uploadId: result.uploadId });
     return result;
@@ -77,7 +87,7 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
     );
   }
 
-  async function archive(text: string, id = "100") {
+  async function archive(text: string, id = "100", extraEntries = 0, duplicateMedia = false) {
     const path = join(root, `source-${crypto.randomUUID()}.db`);
     const db = new Database(path, { create: true });
     db.exec(`CREATE TABLE chat (chat_id TEXT, chat_name TEXT, message_count INTEGER, type INTEGER);
@@ -97,11 +107,16 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
     );
     db.close();
     const media = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 1, 2, 3, 4]);
+    const entries: Record<string, Uint8Array> = {
+      "database/naver_line": await fs.readFile(path),
+      "chats/c-test/messages/1.original": media,
+    };
+    for (let index = 0; index < extraEntries; index++) {
+      entries[`ignored/${index}.empty`] = new Uint8Array();
+    }
+    if (duplicateMedia) entries["chats\\c-test\\messages\\1.original"] = media;
     return {
-      bytes: zipSync({
-        "database/naver_line": await fs.readFile(path),
-        "chats/c-test/messages/1.original": media,
-      }),
+      bytes: zipSync(entries),
       media,
     };
   }
@@ -128,20 +143,18 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
     return waitForRestore(accountId, session.id);
   }
 
-  const realStat = fs.stat;
   async function fillAccount(accountId: string, size: number) {
-    const dir = join(
-      process.env.VYLINE_BACKUP_DIR!,
-      createHash("sha256").update(accountId).digest("hex"),
-    );
-    await fs.mkdir(dir, { recursive: true });
-    const path = join(dir, "occupied-test.bin");
-    await fs.writeFile(path, "x");
-    spyOn(fs, "stat").mockImplementation((async (target) => {
-      const result = await realStat(target);
-      if (String(target) === path) result.size = size;
-      return result;
-    }) as typeof fs.stat);
+    await getBackupStorageUsage(accountId);
+    const index = new Database(join(process.env.VYLINE_BACKUP_DIR!, "backup-index.sqlite"));
+    index
+      .query(`
+        INSERT INTO backup_index (
+          account_id, id, created_at, chat_count, message_count,
+          media_count, include_media, size_bytes
+        ) VALUES (?, 'vyline-backup-occupied-test', ?, 0, 0, 0, 0, ?)
+      `)
+      .run(accountId, new Date().toISOString(), size);
+    index.close();
   }
 
   afterEach(async () => {
@@ -151,7 +164,12 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
   });
 
   afterAll(async () => {
-    for (const account of accounts) await flushAccountChatDb(account);
+    for (const account of accounts) {
+      await flushAccountChatDb(account).catch(() => undefined);
+      await closeAccountChatDb(account).catch(() => undefined);
+    }
+    await closeBackupStorage();
+    await closeMediaStorage();
     for (const name of envNames) {
       if (oldEnv[name] === undefined) Reflect.deleteProperty(process.env, name);
       else process.env[name] = oldEnv[name];
@@ -162,21 +180,32 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
 
   describe("Android backup account storage", () => {
     test("reports account-scoped usage and Android limits through the actual BFF route", async () => {
+      accounts.add("bff-empty");
       const { lineRouter } = await import("../api/line.js");
       const response = await lineRouter.request("http://localhost/bff-empty/backup/storage");
       expect(response.status).toBe(200);
-      expect(await response.json()).toMatchObject({
+      const body = (await response.json()) as {
+        storage: {
+          accountId: string;
+          usedBytes: number;
+          limitBytes: number;
+          historyBytes: number;
+          mediaBytes: number;
+          backupBytes: number;
+        };
+      };
+      expect(body).toMatchObject({
         ok: true,
         storage: {
           accountId: "bff-empty",
-          usedBytes: 0,
           limitBytes: 10 * 1024 ** 3,
-          historyBytes: 0,
           mediaBytes: 0,
           backupBytes: 0,
         },
         android: { maxUploadBytes: 10 * 1024 ** 3, maxExtractBytes: 10 * 1024 ** 3 },
       });
+      expect(body.storage.historyBytes).toBeGreaterThan(0);
+      expect(body.storage.usedBytes).toBe(body.storage.historyBytes);
     });
 
     test("rejects a ZIP64 entry above the extraction limit before allocating its data", async () => {
@@ -198,10 +227,24 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       expect(session.status).toBe("failed");
       expect(session.error).toContain("展開サイズが上限 10.0 GB");
     });
+    test("rejects archives with too many entries, including irrelevant zero-byte files", async () => {
+      const source = await archive("entry cap", "100", 2);
+      const session = await restoreZip("entry-cap", source.bytes);
+      expect(session.status).toBe("failed");
+      expect(session.error).toContain("ZIPエントリ数が上限 3 件");
+    });
+    test("rejects ZIP entries that normalize to the same media target", async () => {
+      const source = await archive("target collision", "100", 0, true);
+      const session = await restoreZip("target-collision", source.bytes);
+      expect(session.status).toBe("failed");
+      expect(session.error).toContain("複数エントリが同じ展開先");
+    });
     test("admits the reported 2.1GB file and exactly 10GB, rejects 10GB + 1", async () => {
       expect(MAX_UPLOAD_BYTES).toBe(10 * 1024 ** 3);
       expect(MAX_EXTRACT_BYTES).toBe(MAX_UPLOAD_BYTES);
-      expect((await upload("large", Math.ceil(2.1 * 1024 ** 3))).uploadId).toBeTruthy();
+      const smaller = await upload("large", Math.ceil(2.1 * 1024 ** 3));
+      expect(smaller.uploadId).toBeTruthy();
+      await cancelAndroidBackupChunkUpload("large", smaller.uploadId);
       expect((await upload("limit", MAX_UPLOAD_BYTES)).uploadId).toBeTruthy();
       await expect(upload("oversize", MAX_UPLOAD_BYTES + 1)).rejects.toThrow("10.0 GB");
       await expect(
@@ -218,17 +261,20 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       ).rejects.toThrow("10.0 GB");
     });
 
-    test("reserves upload space independently per account and releases cancelled uploads", async () => {
+    test("bounds global and per-account reservations and releases cancelled uploads", async () => {
       const results = await Promise.allSettled([
         upload("concurrent", 7 * 1024 ** 3),
         upload("concurrent", 7 * 1024 ** 3),
       ]);
       expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-      expect((await upload("separate", MAX_UPLOAD_BYTES)).uploadId).toBeTruthy();
       const first = results.find(
         (result) => result.status === "fulfilled",
       ) as PromiseFulfilledResult<{ uploadId: string }>;
+      await expect(upload("separate", MAX_UPLOAD_BYTES)).rejects.toThrow("待機データ量");
       await cancelAndroidBackupChunkUpload("concurrent", first.value.uploadId);
+      const separate = await upload("separate", MAX_UPLOAD_BYTES);
+      expect(separate.uploadId).toBeTruthy();
+      await cancelAndroidBackupChunkUpload("separate", separate.uploadId);
       expect((await upload("concurrent", MAX_UPLOAD_BYTES)).uploadId).toBeTruthy();
     });
 
@@ -254,6 +300,77 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       ]);
       for (const result of results)
         expect(result).toMatchObject({ receivedBytes: 3, nextIndex: 1 });
+    });
+
+    test("does not hold the capacity lock while a direct upload body stalls", async () => {
+      accounts.add("direct-a");
+      accounts.add("direct-b");
+      let releaseFirst!: () => void;
+      let markFirstPull!: () => void;
+      let markSecondPull!: () => void;
+      const firstGate = new Promise<void>((resolve) => {
+        releaseFirst = resolve;
+      });
+      const firstPulled = new Promise<void>((resolve) => {
+        markFirstPull = resolve;
+      });
+      const secondPulled = new Promise<void>((resolve) => {
+        markSecondPull = resolve;
+      });
+      const firstBody = new ReadableStream<Uint8Array>(
+        {
+          async pull(controller) {
+            markFirstPull();
+            await firstGate;
+            controller.enqueue(new Uint8Array([1]));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      );
+      const secondBody = new ReadableStream<Uint8Array>(
+        {
+          pull(controller) {
+            markSecondPull();
+            controller.enqueue(new Uint8Array([2]));
+            controller.close();
+          },
+        },
+        { highWaterMark: 0 },
+      );
+
+      const first = startAndroidBackupRestore(
+        "direct-a",
+        "naver_line",
+        new Request("http://localhost/", {
+          method: "POST",
+          headers: { "content-length": "1" },
+          body: firstBody,
+        }),
+        false,
+      );
+      await firstPulled;
+      const second = startAndroidBackupRestore(
+        "direct-b",
+        "naver_line",
+        new Request("http://localhost/", {
+          method: "POST",
+          headers: { "content-length": "1" },
+          body: secondBody,
+        }),
+        false,
+      );
+      expect(
+        await Promise.race([
+          secondPulled.then(() => "pulled"),
+          Bun.sleep(30).then(() => "waiting"),
+        ]),
+      ).toBe("pulled");
+      releaseFirst();
+      const [firstSession, secondSession] = await Promise.all([first, second]);
+      await secondPulled;
+      expect((await waitForRestore("direct-a", firstSession.id)).status).toBe("failed");
+      expect((await waitForRestore("direct-b", secondSession.id)).status).toBe("failed");
     });
 
     test("bounds chunk streams without trusting Content-Length", async () => {
@@ -283,11 +400,13 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       expect((await restoreZip("usage-a", source.bytes)).status).toBe("completed");
       const usage = await getBackupStorageUsage("usage-a");
       expect(usage.accountId).toBe("usage-a");
-      expect(usage.historyBytes).toBe(chatDbStorageBytes(await exportChatDb("usage-a")));
+      expect(usage.historyBytes).toBe(await getChatDbLogicalStorageBytes("usage-a"));
       expect((await fs.stat(accountFile("usage-a", "chatdb.sqlite"))).size).toBeGreaterThan(0);
       expect(usage.mediaBytes).toBe(source.media.length);
       expect(usage.usedBytes).toBe(usage.historyBytes + usage.mediaBytes);
-      expect((await getBackupStorageUsage("usage-b")).usedBytes).toBe(0);
+      const emptyUsage = await getBackupStorageUsage("usage-b");
+      expect(emptyUsage.historyBytes).toBeGreaterThan(0);
+      expect(emptyUsage.usedBytes).toBe(emptyUsage.historyBytes);
       const second = await restoreZip("usage-a", source.bytes);
       expect(second.status).toBe("completed");
       expect(second.result?.merged.importedMessages).toBe(0);
@@ -316,7 +435,27 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
       expect((await restoreZip("empty-account", incoming.bytes)).status).toBe("completed");
     });
 
-    test("accepts an exact UTF-8 history budget and rejects one byte less without mutation", async () => {
+    test("rolls back only newly copied media when the SQLite merge fails", async () => {
+      const accountId = "media-rollback";
+      await loginFixture(accountId);
+      const existing = await archive("existing", "100");
+      expect((await restoreZip(accountId, existing.bytes)).status).toBe("completed");
+      const before = await getBackupStorageUsage(accountId);
+      const incoming = await archive("must roll back", "200");
+      const desiredHistoryLimit = before.historyBytes - 1;
+      await fillAccount(
+        accountId,
+        MAX_UPLOAD_BYTES - before.mediaBytes - incoming.media.length - desiredHistoryLimit,
+      );
+
+      const rejected = await restoreZip(accountId, incoming.bytes);
+      expect(rejected.status).toBe("failed");
+      expect((await exportChatDb(accountId)).messages["c-test"]?.["200"]).toBeUndefined();
+      expect((await readMediaStorage(accountId, "c-test", "100"))?.buf).toEqual(existing.media);
+      expect(await readMediaStorage(accountId, "c-test", "200")).toBeNull();
+    });
+
+    test("accepts an exact SQLite page budget and rejects one byte less without mutation", async () => {
       accounts.add("budget-source");
       accounts.add("budget-exact");
       accounts.add("budget-small");
@@ -339,9 +478,8 @@ if (process.env.VYLINE_ANDROID_STORAGE_TEST_CHILD !== "1") {
         },
       };
       await mergeImportedChatDb("budget-source", source);
-      const db = await exportChatDb("budget-source");
-      const bytes = chatDbStorageBytes(db);
-      expect(bytes).toBe(Buffer.byteLength(JSON.stringify(db)));
+      const bytes = await getChatDbLogicalStorageBytes("budget-source");
+      expect(bytes).toBeGreaterThan(0);
       expect((await mergeImportedChatDb("budget-exact", source, bytes)).importedMessages).toBe(1);
       await expect(mergeImportedChatDb("budget-small", source, bytes - 1)).rejects.toThrow("10GB");
       expect((await exportChatDb("budget-small")).messages).toEqual({});

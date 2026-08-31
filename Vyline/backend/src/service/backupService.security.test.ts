@@ -1,402 +1,468 @@
-import { afterAll, afterEach, describe, expect, mock, setSystemTime, spyOn, test } from "bun:test";
-import * as fs from "node:fs/promises";
-import { mkdir, mkdtemp, readFile, readdir, rm, stat, writeFile } from "node:fs/promises";
+import { afterAll, describe, expect, test } from "bun:test";
 import { createHash } from "node:crypto";
+import { mkdir, mkdtemp, readdir, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const testRoot = await mkdtemp(join(tmpdir(), "vyline-backup-security-"));
-const oldEnv = {
-  data: process.env.VYLINE_DATA_DIR,
-  backups: process.env.VYLINE_BACKUP_DIR,
-  media: process.env.VYLINE_MEDIA_STORAGE_DIR,
-  storage: process.env.VYLINE_STORAGE_DIR,
-};
-process.env.VYLINE_DATA_DIR = join(testRoot, "data");
-process.env.VYLINE_BACKUP_DIR = join(testRoot, "backups");
-process.env.VYLINE_STORAGE_DIR = join(testRoot, "storage");
-process.env.VYLINE_MEDIA_STORAGE_DIR = join(testRoot, "media");
-await mkdir(process.env.VYLINE_MEDIA_STORAGE_DIR, { recursive: true });
+const testRoot = await mkdtemp(join(tmpdir(), "vyline-sqlite-backup-test-"));
+const backupServiceUrl = new URL("./backupService.ts", import.meta.url).href;
+const chatStoreUrl = new URL("../storage/chatStore.ts", import.meta.url).href;
+const mediaStorageUrl = new URL("../storage/mediaStorage.ts", import.meta.url).href;
+const accountDirsUrl = new URL("../storage/accountDirs.ts", import.meta.url).href;
 
-const {
-  createBackup,
-  listBackups,
-  readBackup,
-  restoreBackup,
-  deleteBackup,
-  getBackupStorageUsage,
-  BACKUP_STORAGE_LIMIT_BYTES,
-} = await import("./backupService.js");
-const { exportChatDb, importChatDb, flushAccountChatDb } = await import("../storage/chatStore.js");
-const { readMediaStorage, writeMediaStorage, statMediaStorage } = await import(
-  "../storage/mediaStorage.js"
-);
-const { accountFile, readAccountJson } = await import("../storage/accountDirs.js");
-
-function backupDir(accountId: string) {
-  return join(process.env.VYLINE_BACKUP_DIR!, createHash("sha256").update(accountId).digest("hex"));
+interface ChildResult<T> {
+  value: T;
+  root: string;
 }
-async function seed(accountId: string, text: string) {
-  const date = new Date().toISOString();
-  await importChatDb(accountId, {
-    meta: {},
-    chats: {
-      shared: {
-        mid: "shared",
-        name: "shared chat",
-        kind: "direct",
-        hasMessages: true,
-        updatedAt: date,
-      },
+
+function scenarioRoot(name: string): string {
+  return join(testRoot, name);
+}
+
+async function runScenario<T>(
+  name: string,
+  body: string,
+  reuseRoot = false,
+): Promise<ChildResult<T>> {
+  const root = scenarioRoot(name);
+  if (!reuseRoot) await rm(root, { recursive: true, force: true });
+  await mkdir(root, { recursive: true });
+  const child = Bun.spawn([process.execPath, "--eval", body], {
+    env: {
+      ...process.env,
+      LOG_LEVEL: "silent",
+      VYLINE_DATA_DIR: join(root, "data"),
+      VYLINE_BACKUP_DIR: join(root, "backups"),
+      VYLINE_STORAGE_DIR: join(root, "storage"),
+      VYLINE_MEDIA_STORAGE_DIR: join(root, "saved-media"),
+      VYLINE_MEDIA_INDEX_PATH: join(root, "storage", "media-index.sqlite"),
     },
-    messages: {
-      shared: {
-        "1": {
-          id: "1",
-          chatMid: "shared",
-          from: "sender",
-          to: "shared",
-          text,
-          contentType: "IMAGE",
-          createdTime: 1,
-          isMyMessage: false,
-          savedAt: date,
-        },
-      },
-    },
+    stdout: "pipe",
+    stderr: "pipe",
   });
-  await flushAccountChatDb(accountId);
-}
-
-// Simulate occupied disk bytes without creating a physical 10GB test file.
-const realStat = fs.stat;
-async function occupy(accountId: string, bytes: number) {
-  const path = join(backupDir(accountId), "reserved-test-bytes.bin");
-  await mkdir(backupDir(accountId), { recursive: true });
-  await writeFile(path, "x");
-  spyOn(fs, "stat").mockImplementation((async (target) => {
-    const result = await realStat(target);
-    if (String(target) === path) result.size = bytes;
-    return result;
-  }) as typeof fs.stat);
-}
-
-afterEach(() => {
-  mock.restore();
-  setSystemTime();
-});
-
-afterAll(async () => {
-  for (const [name, value] of Object.entries({
-    VYLINE_DATA_DIR: oldEnv.data,
-    VYLINE_BACKUP_DIR: oldEnv.backups,
-    VYLINE_MEDIA_STORAGE_DIR: oldEnv.media,
-    VYLINE_STORAGE_DIR: oldEnv.storage,
-  })) {
-    if (value === undefined) Reflect.deleteProperty(process.env, name);
-    else process.env[name] = value;
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(child.stdout).text(),
+    new Response(child.stderr).text(),
+    child.exited,
+  ]);
+  if (exitCode !== 0) {
+    throw new Error(`child failed (${exitCode})\n${stderr}\n${stdout}`);
   }
-  if (testRoot.startsWith(join(tmpdir(), "vyline-backup-security-")))
-    await rm(testRoot, { recursive: true, force: true });
-});
+  const line = stdout.trim().split(/\r?\n/).filter(Boolean).at(-1);
+  if (!line) throw new Error(`child returned no result\n${stderr}`);
+  return { value: JSON.parse(line) as T, root };
+}
 
-describe("VylineBackup path safety", () => {
-  test("does not use a crafted account ID to read another account's legacy history", async () => {
-    const legacyPath = join(process.env.VYLINE_DATA_DIR!, "chatdb-victim.json");
-    await mkdir(process.env.VYLINE_DATA_DIR!, { recursive: true });
-    await writeFile(legacyPath, JSON.stringify({ owner: "victim" }));
-    expect(await readAccountJson("ignored/../chatdb-victim", "chatdb.json", legacyPath)).toBeNull();
-    expect(JSON.parse(await readFile(legacyPath, "utf8"))).toEqual({ owner: "victim" });
-  });
-  test("sanitizes account IDs before using them in snapshot filenames", async () => {
-    const accountId = "../../outside";
-    const summary = await createBackup(accountId, { includeMedia: false });
+function imports(): string {
+  return `
+    const backup = await import(${JSON.stringify(backupServiceUrl)});
+    const chat = await import(${JSON.stringify(chatStoreUrl)});
+    const media = await import(${JSON.stringify(mediaStorageUrl)});
+    const accounts = await import(${JSON.stringify(accountDirsUrl)});
+  `;
+}
 
-    expect(summary.id).not.toContain("..");
-    expect(summary.id).not.toMatch(/[\\/]/);
-    expect((await readdir(backupDir(accountId))).sort()).toEqual([
-      `${summary.id}.json`,
-      `${summary.id}.json.meta`,
-    ]);
-    expect((await listBackups(accountId)).map((item) => item.id)).toContain(summary.id);
-    expect(await readBackup(accountId, summary.id)).not.toBeNull();
-  });
-
-  test("separates messages, media, listing, restore and deletion across accounts with similar IDs", async () => {
-    const first = "same.a";
-    const second = "samea";
-    await seed(first, "日本語の履歴 A");
-    await seed(second, "別アカウント B");
-    await writeMediaStorage(first, "shared", "1", new TextEncoder().encode("image A"), "image/png");
-    await writeMediaStorage(
-      second,
-      "shared",
-      "1",
-      new TextEncoder().encode("image B"),
-      "image/png",
-    );
-    const [a, b] = await Promise.all([
-      createBackup(first, { includeMedia: true }),
-      createBackup(second, { includeMedia: true }),
-    ]);
-    expect(accountFile(first, "chatdb.json")).not.toBe(accountFile(second, "chatdb.json"));
-    expect(
-      JSON.parse(await readFile(accountFile(first, "chatdb.json"), "utf8")).messages.shared["1"]
-        .text,
-    ).toContain(" A");
-    expect((await readBackup(first, a.id))!.messages.shared!["1"]!.text).toContain(" A");
-    expect((await readBackup(second, b.id))!.messages.shared!["1"]!.text).toContain(" B");
-    expect((await listBackups(first)).map((entry) => entry.id)).toEqual([a.id]);
-    expect(await readBackup(first, b.id)).toBeNull();
-    expect(await deleteBackup(first, b.id)).toBe(false);
-    await expect(restoreBackup(first, b.id, { includeMedia: true })).rejects.toThrow(
-      "見つかりません",
-    );
-    expect(new TextDecoder().decode((await readMediaStorage(second, "shared", "1"))!.buf)).toBe(
-      "image B",
-    );
-    const bytes = await readFile(join(backupDir(first), `${a.id}.json`));
-    expect(a.sizeBytes).toBe(bytes.byteLength);
-    expect(a.sizeBytes).toBeGreaterThan(bytes.toString("utf8").length);
-  });
-
-  test("does not duplicate restored messages or overwrite newer text and media", async () => {
-    const accountId = "repeat-restore";
-    await seed(accountId, "old text");
-    await writeMediaStorage(
-      accountId,
-      "shared",
-      "1",
-      new TextEncoder().encode("old image"),
-      "image/png",
-    );
-    const snapshot = await createBackup(accountId, { includeMedia: true });
-    await seed(accountId, "new text");
-    await writeMediaStorage(
-      accountId,
-      "shared",
-      "1",
-      new TextEncoder().encode("new image"),
-      "image/png",
-    );
-    for (let attempt = 0; attempt < 2; attempt++) {
-      expect(await restoreBackup(accountId, snapshot.id, { includeMedia: true })).toMatchObject({
-        restoredMessages: 0,
-        restoredMedia: 0,
-      });
-    }
-    const db = await exportChatDb(accountId);
-    expect(Object.keys(db.messages.shared!)).toHaveLength(1);
-    expect(db.messages.shared!["1"]!.text).toBe("new text");
-    expect(new TextDecoder().decode((await readMediaStorage(accountId, "shared", "1"))!.buf)).toBe(
-      "new image",
-    );
-  });
-
-  test("restores selected messages and media from disk in a fresh process", async () => {
-    const accountId = "streamed-restore";
-    const text = "日本語の長いメッセージ".repeat(8000);
-    await seed(accountId, text);
-    await importChatDb(accountId, {
-      meta: {},
-      chats: {
-        excluded: {
-          mid: "excluded",
-          name: "not selected",
-          kind: "direct",
-          hasMessages: true,
-          updatedAt: new Date().toISOString(),
-        },
-      },
-      messages: {
-        excluded: {
-          "2": {
-            id: "2",
-            chatMid: "excluded",
-            from: "sender",
-            to: "excluded",
-            text: "not selected",
-            contentType: "TEXT",
-            createdTime: 2,
-            isMyMessage: false,
-            savedAt: new Date().toISOString(),
+function seedFunction(): string {
+  return `
+    async function seed(accountId, suffix = "") {
+      const now = new Date().toISOString();
+      await chat.importChatDb(accountId, {
+        meta: {},
+        chats: {
+          shared: {
+            mid: "shared", name: "shared chat", kind: "direct", hasMessages: true,
+            lastMessageTime: 1, lastMessageId: "1", lastMessagePreview: "old" + suffix,
+            updatedAt: now,
           },
         },
-      },
-    });
-    await flushAccountChatDb(accountId);
-    const media = new Uint8Array(128 * 1024).fill(42);
-    await writeMediaStorage(accountId, "shared", "1", media, "image/png");
-    const snapshot = await createBackup(accountId, { includeMedia: true });
-    const hash = createHash("sha256").update(`${accountId}:shared:1`).digest("hex");
-    const mediaPath = join(
-      process.env.VYLINE_MEDIA_STORAGE_DIR!,
-      "images",
-      hash.slice(0, 2),
-      `${hash}.png`,
+        messages: {
+          shared: {
+            "1": {
+              id: "1", chatMid: "shared", from: "sender", to: "shared",
+              text: "old text" + suffix, contentType: "IMAGE", createdTime: 1,
+              isMyMessage: false, savedAt: now,
+            },
+          },
+        },
+      });
+      await chat.flushAccountChatDb(accountId);
+    }
+  `;
+}
+
+afterAll(async () => {
+  if (testRoot.startsWith(join(tmpdir(), "vyline-sqlite-backup-test-"))) {
+    await rm(testRoot, { recursive: true, force: true });
+  }
+});
+
+describe("SQLite-native VylineBackup", () => {
+  test("publishes only normalized SQLite plus a disk-backed media sidecar", async () => {
+    const { value, root } = await runScenario<{
+      summary: { id: string; mediaCount: number; sizeBytes: number };
+      listed: Array<{ id: string }>;
+      usage: { backupBytes: number };
+      files: string[];
+      tables: string[];
+      mediaColumns: string[];
+      schemaVersion: number;
+      mediaRows: number;
+      journalMode: string;
+    }>(
+      "sqlite-layout",
+      `
+        ${imports()}
+        ${seedFunction()}
+        const { Database } = await import("bun:sqlite");
+        const { readdir } = await import("node:fs/promises");
+        const { createHash } = await import("node:crypto");
+        const { join } = await import("node:path");
+        const accountId = "sqlite-layout";
+        await seed(accountId);
+        await media.writeMediaStorage(
+          accountId, "shared", "1", new TextEncoder().encode("image payload"), "image/png"
+        );
+        const summary = await backup.createBackup(accountId, { includeMedia: true });
+        const dir = join(process.env.VYLINE_BACKUP_DIR, createHash("sha256").update(accountId).digest("hex"));
+        const path = join(dir, summary.id + ".sqlite");
+        const db = new Database(path, { readonly: true });
+        const tables = db.query("SELECT name FROM sqlite_master WHERE type='table' ORDER BY name").all().map((row) => row.name);
+        const mediaColumns = db.query("PRAGMA table_info(backup_media)").all().map((row) => row.name);
+        const schemaVersion = db.query("SELECT schema_version FROM backup_manifest").get().schema_version;
+        const mediaRows = db.query("SELECT count(*) AS count FROM backup_media").get().count;
+        const journalMode = db.query("PRAGMA journal_mode").get().journal_mode;
+        db.close();
+        console.log(JSON.stringify({
+          summary,
+          listed: await backup.listBackups(accountId),
+          usage: await backup.getBackupStorageUsage(accountId),
+          files: (await readdir(dir)).sort(),
+          tables,
+          mediaColumns,
+          schemaVersion,
+          mediaRows,
+          journalMode,
+        }));
+      `,
     );
-    await rm(accountFile(accountId, "chatdb.json"));
-    await rm(mediaPath);
-    const script = `import { restoreBackup } from ${JSON.stringify(new URL("./backupService.ts", import.meta.url).href)};
-      console.log(JSON.stringify(await restoreBackup(${JSON.stringify(accountId)}, ${JSON.stringify(snapshot.id)}, {chatMids:["shared"],includeMedia:true})));`;
-    const child = Bun.spawn([process.execPath, "--eval", script], {
-      env: { ...process.env, LOG_LEVEL: "silent" },
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [output, errors, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    expect({ code, errors }).toEqual({ code: 0, errors: "" });
-    expect(JSON.parse(output)).toEqual({ restoredChats: 1, restoredMessages: 1, restoredMedia: 1 });
-    const restored = JSON.parse(await readFile(accountFile(accountId, "chatdb.json"), "utf8"));
-    expect(Object.keys(restored.messages)).toEqual(["shared"]);
-    expect(restored.messages.shared["1"].text).toBe(text);
-    expect(new Uint8Array(await readFile(mediaPath))).toEqual(media);
+
+    expect(value.summary.mediaCount).toBe(1);
+    expect(value.listed.map((entry) => entry.id)).toEqual([value.summary.id]);
+    expect(value.usage.backupBytes).toBe(value.summary.sizeBytes);
+    expect(value.files).toContain(`${value.summary.id}.sqlite`);
+    expect(value.files).toContain(`${value.summary.id}.media`);
+    expect(value.files.some((name) => name.endsWith(".json"))).toBe(false);
+    expect(value.files.some((name) => name.includes("partial"))).toBe(false);
+    expect(value.tables).toContain("staged_chats");
+    expect(value.tables).toContain("staged_messages");
+    expect(value.tables).toContain("backup_manifest");
+    expect(value.mediaColumns).not.toContain("data");
+    expect(value.schemaVersion).toBe(2);
+    expect(value.mediaRows).toBe(1);
+    expect(value.journalMode).toBe("delete");
+    expect(root).toContain("sqlite-layout");
   });
 
-  test("never overwrites snapshots created at the same instant", async () => {
-    setSystemTime(new Date("2026-08-30T12:00:00.000Z"));
-    const snapshots = await Promise.all(
-      Array.from({ length: 3 }, () => createBackup("simultaneous", { includeMedia: false })),
+  test("hashes account directories and never crosses account boundaries", async () => {
+    const { value } = await runScenario<{
+      firstId: string;
+      secondId: string;
+      firstList: string[];
+      secondList: string[];
+      crossRestoreError: string;
+      crossDelete: boolean;
+      directories: string[];
+    }>(
+      "account-boundaries",
+      `
+        ${imports()}
+        ${seedFunction()}
+        const { readdir } = await import("node:fs/promises");
+        const first = "../../same.a";
+        const second = "samea";
+        await seed(first, " A");
+        await seed(second, " B");
+        const a = await backup.createBackup(first, { includeMedia: false });
+        const b = await backup.createBackup(second, { includeMedia: false });
+        let crossRestoreError = "";
+        try { await backup.restoreBackup(first, b.id, { includeMedia: false }); }
+        catch (error) { crossRestoreError = error.message; }
+        console.log(JSON.stringify({
+          firstId: a.id,
+          secondId: b.id,
+          firstList: (await backup.listBackups(first)).map((entry) => entry.id),
+          secondList: (await backup.listBackups(second)).map((entry) => entry.id),
+          crossRestoreError,
+          crossDelete: await backup.deleteBackup(first, b.id),
+          directories: (await readdir(process.env.VYLINE_BACKUP_DIR, { withFileTypes: true }))
+            .filter((entry) => entry.isDirectory()).map((entry) => entry.name).sort(),
+        }));
+      `,
     );
-    expect(new Set(snapshots.map((entry) => entry.id)).size).toBe(3);
-    expect(await listBackups("simultaneous")).toHaveLength(3);
+
+    expect(value.firstId).not.toContain("..");
+    expect(value.firstId).not.toMatch(/[\\/]/);
+    expect(value.firstList).toEqual([value.firstId]);
+    expect(value.secondList).toEqual([value.secondId]);
+    expect(value.crossRestoreError).toContain("見つかりません");
+    expect(value.crossDelete).toBe(false);
+    expect(value.directories).toHaveLength(2);
+    expect(value.directories.every((name) => /^[0-9a-f]{64}$/.test(name))).toBe(true);
   });
 
-  test("enforces 10GB per account even for concurrent creation and preserves old snapshots", async () => {
-    expect(BACKUP_STORAGE_LIMIT_BYTES).toBe(10 * 1024 ** 3);
-    const accountId = "quota-concurrent";
-    const first = await createBackup(accountId, { includeMedia: false });
-    const before = await readFile(join(backupDir(accountId), `${first.id}.json`));
-    const firstUsage = (await getBackupStorageUsage(accountId)).usedBytes;
-    await occupy(accountId, BACKUP_STORAGE_LIMIT_BYTES - 2 * firstUsage);
-    const results = await Promise.allSettled([
-      createBackup(accountId, { includeMedia: false }),
-      createBackup(accountId, { includeMedia: false }),
-    ]);
-    expect(results.filter((result) => result.status === "fulfilled")).toHaveLength(1);
-    const failed = results.find((result) => result.status === "rejected") as PromiseRejectedResult;
-    expect(failed.reason.message).toContain("10GB");
-    expect((await getBackupStorageUsage(accountId)).usedBytes).toBe(BACKUP_STORAGE_LIMIT_BYTES);
-    expect(await readFile(join(backupDir(accountId), `${first.id}.json`))).toEqual(before);
-    expect(await createBackup("independent-quota", { includeMedia: false })).toBeTruthy();
-    expect((await getBackupStorageUsage("independent-quota")).remainingBytes).toBeGreaterThan(0);
-    expect(await deleteBackup(accountId, first.id)).toBe(true);
-    expect((await getBackupStorageUsage(accountId)).remainingBytes).toBe(firstUsage);
-  });
-
-  test("cleans up a rejected partial backup and counts base64 and metadata bytes", async () => {
-    const accountId = "quota-media";
-    await seed(accountId, "text");
-    await writeMediaStorage(accountId, "shared", "1", new Uint8Array(1024), "image/png");
-    await occupy(accountId, BACKUP_STORAGE_LIMIT_BYTES - 1000);
-    await expect(createBackup(accountId, { includeMedia: true })).rejects.toThrow("10GB");
-    expect(await readdir(backupDir(accountId))).toEqual(["reserved-test-bytes.bin"]);
-    expect(await listBackups(accountId)).toEqual([]);
-  });
-
-  test("checks snapshot restore capacity before modifying history or restoring missing media", async () => {
-    const accountId = "quota-snapshot-restore";
-    await seed(accountId, "keep this history");
-    await writeMediaStorage(accountId, "shared", "1", new Uint8Array(64), "image/png");
-    const backup = await createBackup(accountId, { includeMedia: true });
-    const media = await statMediaStorage(accountId, "shared", "1");
-    await fs.unlink(media!.path);
-    const usage = await getBackupStorageUsage(accountId);
-    await occupy(accountId, BACKUP_STORAGE_LIMIT_BYTES - usage.usedBytes);
-    const before = await readFile(accountFile(accountId, "chatdb.json"));
-    await expect(restoreBackup(accountId, backup.id, { includeMedia: true })).rejects.toThrow(
-      "10GB",
+  test("restores selected history and media idempotently without overwriting newer data", async () => {
+    const { value } = await runScenario<{
+      first: { restoredChats: number; restoredMessages: number; restoredMedia: number };
+      second: { restoredMessages: number; restoredMedia: number };
+      chats: string[];
+      text: string;
+      media: string;
+    }>(
+      "selected-idempotent",
+      `
+        ${imports()}
+        ${seedFunction()}
+        const { rm } = await import("node:fs/promises");
+        const accountId = "selected-idempotent";
+        await seed(accountId);
+        const now = new Date().toISOString();
+        await chat.importChatDb(accountId, {
+          meta: {},
+          chats: { excluded: { mid: "excluded", name: "excluded", kind: "direct", hasMessages: true, updatedAt: now } },
+          messages: { excluded: { "2": { id: "2", chatMid: "excluded", from: "sender", to: "excluded", text: "excluded", contentType: "TEXT", createdTime: 2, isMyMessage: false, savedAt: now } } },
+        });
+        await media.writeMediaStorage(accountId, "shared", "1", new TextEncoder().encode("old image"), "image/png");
+        const snapshot = await backup.createBackup(accountId, { includeMedia: true });
+        const oldMedia = await media.statMediaStorage(accountId, "shared", "1");
+        await chat.closeAccountChatDb(accountId);
+        for (const suffix of ["", "-wal", "-shm"]) await rm(accounts.accountFile(accountId, "chatdb.sqlite") + suffix, { force: true });
+        await rm(oldMedia.path, { force: true });
+        const first = await backup.restoreBackup(accountId, snapshot.id, { chatMids: ["shared"], includeMedia: true });
+        await chat.importChatDb(accountId, {
+          meta: {}, chats: {},
+          messages: { shared: { "1": { id: "1", chatMid: "shared", from: "sender", to: "shared", text: "new text", contentType: "IMAGE", createdTime: 1, isMyMessage: false, savedAt: new Date().toISOString() } } },
+        });
+        await media.writeMediaStorage(accountId, "shared", "1", new TextEncoder().encode("new image"), "image/png");
+        const second = await backup.restoreBackup(accountId, snapshot.id, { chatMids: ["shared"], includeMedia: true });
+        const db = await chat.exportChatDb(accountId);
+        const storedMedia = await media.readMediaStorage(accountId, "shared", "1");
+        console.log(JSON.stringify({
+          first, second,
+          chats: Object.keys(db.chats).sort(),
+          text: db.messages.shared["1"].text,
+          media: new TextDecoder().decode(storedMedia.buf),
+        }));
+      `,
     );
-    expect(await readFile(accountFile(accountId, "chatdb.json"))).toEqual(before);
-    expect(await statMediaStorage(accountId, "shared", "1")).toBeNull();
-    expect(await readBackup(accountId, backup.id)).not.toBeNull();
+
+    expect(value.first).toEqual({ restoredChats: 1, restoredMessages: 1, restoredMedia: 1 });
+    expect(value.second.restoredMessages).toBe(0);
+    expect(value.second.restoredMedia).toBe(0);
+    expect(value.chats).toEqual(["shared"]);
+    expect(value.text).toBe("new text");
+    expect(value.media).toBe("new image");
   });
 
-  test("keeps legacy backups readable but never lists or counts a different prefix-sharing account", async () => {
-    const id = "vyline-backup-legacy-owner-2026-08-30";
-    const snapshot = {
-      schema: "vyline-backup",
-      version: 1,
-      accountId: "legacy-owner",
-      createdAt: new Date().toISOString(),
-      includeMedia: false,
-      chatMids: null,
-      chats: {},
-      messages: {},
-      media: [],
-    };
-    const path = join(process.env.VYLINE_BACKUP_DIR!, `${id}.json`);
-    await writeFile(path, JSON.stringify(snapshot));
-    expect(await listBackups("legacy")).toEqual([]);
-    expect((await getBackupStorageUsage("legacy")).usedBytes).toBe(0);
-    expect(await readBackup("legacy", id)).toBeNull();
-    expect(await readBackup("legacy-owner", id)).not.toBeNull();
-    expect((await getBackupStorageUsage("legacy-owner")).usedBytes).toBe((await stat(path)).size);
-    expect(await deleteBackup("legacy", id)).toBe(false);
-    expect(await deleteBackup("legacy-owner", id)).toBe(true);
+  test("serializes concurrent creation and never reuses an ID", async () => {
+    const { value } = await runScenario<{ ids: string[]; listed: number }>(
+      "concurrent-create",
+      `
+        ${imports()}
+        const ids = await Promise.all(
+          Array.from({ length: 3 }, () => backup.createBackup("same-account", { includeMedia: false }))
+        );
+        console.log(JSON.stringify({
+          ids: ids.map((entry) => entry.id),
+          listed: (await backup.listBackups("same-account")).length,
+        }));
+      `,
+    );
+    expect(new Set(value.ids).size).toBe(3);
+    expect(value.listed).toBe(3);
   });
 
-  test("recovers a completed snapshot if its small listing metadata was lost", async () => {
-    const accountId = "missing-metadata";
-    const backup = await createBackup(accountId, { includeMedia: false });
-    await rm(join(backupDir(accountId), `${backup.id}.json.meta`));
-    expect((await listBackups(accountId)).map((entry) => entry.id)).toEqual([backup.id]);
-    expect(await readBackup(accountId, backup.id)).not.toBeNull();
-    expect(await deleteBackup(accountId, backup.id)).toBe(true);
+  test("rejects quota overflow and removes every unpublished partial", async () => {
+    const { value } = await runScenario<{
+      error: string;
+      accountFiles: string[];
+      usage: { remainingBytes: number };
+    }>(
+      "quota-cleanup",
+      `
+        ${imports()}
+        const { Database } = await import("bun:sqlite");
+        const { readdir } = await import("node:fs/promises");
+        const { createHash } = await import("node:crypto");
+        const { join } = await import("node:path");
+        const accountId = "quota-cleanup";
+        const initial = await backup.getBackupStorageUsage(accountId);
+        const index = new Database(join(process.env.VYLINE_BACKUP_DIR, "backup-index.sqlite"));
+        index.query(
+          "INSERT INTO backup_index(account_id,id,created_at,chat_count,message_count,media_count,include_media,size_bytes) VALUES(?,?,?,?,?,?,?,?)"
+        ).run(accountId, "reserved", new Date().toISOString(), 0, 0, 0, 0, initial.limitBytes - initial.usedBytes - 1);
+        index.close();
+        let error = "";
+        try { await backup.createBackup(accountId, { includeMedia: false }); }
+        catch (caught) { error = caught.message; }
+        const dir = join(process.env.VYLINE_BACKUP_DIR, createHash("sha256").update(accountId).digest("hex"));
+        console.log(JSON.stringify({
+          error,
+          accountFiles: (await readdir(dir)).sort(),
+          usage: await backup.getBackupStorageUsage(accountId),
+        }));
+      `,
+    );
+    expect(value.error).toContain("10GB");
+    expect(value.accountFiles).toEqual([]);
+    expect(value.usage.remainingBytes).toBe(1);
   });
 
-  test("uses VYLINE_DATA_DIR for the default backup location", async () => {
-    const dataDir = join(testRoot, "default-location");
-    const env = { ...process.env, VYLINE_DATA_DIR: dataDir, LOG_LEVEL: "silent" };
-    Reflect.deleteProperty(env, "VYLINE_BACKUP_DIR");
-    const script = `import { createBackup } from ${JSON.stringify(new URL("./backupService.ts", import.meta.url).href)};
-      console.log(JSON.stringify(await createBackup("default-location-test", {includeMedia:false})));`;
-    const child = Bun.spawn([process.execPath, "--eval", script], {
-      env,
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [output, errors, code] = await Promise.all([
-      new Response(child.stdout).text(),
-      new Response(child.stderr).text(),
-      child.exited,
-    ]);
-    expect({ code, errors }).toEqual({ code: 0, errors: "" });
-    const id = JSON.parse(output).id;
-    const directory = createHash("sha256").update("default-location-test").digest("hex");
-    expect((await stat(join(dataDir, "backups", directory, `${id}.json`))).size).toBeGreaterThan(0);
+  test("rejects a tampered sidecar path before changing chat history", async () => {
+    const { value } = await runScenario<{ error: string; messages: number }>(
+      "tampered-media-path",
+      `
+        ${imports()}
+        ${seedFunction()}
+        const { Database } = await import("bun:sqlite");
+        const { rm } = await import("node:fs/promises");
+        const { createHash } = await import("node:crypto");
+        const { join } = await import("node:path");
+        const accountId = "tampered-media-path";
+        await seed(accountId);
+        await media.writeMediaStorage(accountId, "shared", "1", new Uint8Array([1, 2, 3]), "image/png");
+        const snapshot = await backup.createBackup(accountId, { includeMedia: true });
+        const path = join(process.env.VYLINE_BACKUP_DIR, createHash("sha256").update(accountId).digest("hex"), snapshot.id + ".sqlite");
+        const db = new Database(path);
+        db.query("UPDATE backup_media SET relative_path = '../../outside'").run();
+        db.close();
+        await chat.closeAccountChatDb(accountId);
+        for (const suffix of ["", "-wal", "-shm"]) await rm(accounts.accountFile(accountId, "chatdb.sqlite") + suffix, { force: true });
+        let error = "";
+        try { await backup.restoreBackup(accountId, snapshot.id, { includeMedia: true }); }
+        catch (caught) { error = caught.message; }
+        const restored = await chat.exportChatDb(accountId);
+        console.log(JSON.stringify({
+          error,
+          messages: Object.values(restored.messages).reduce((sum, byChat) => sum + Object.keys(byChat).length, 0),
+        }));
+      `,
+    );
+    expect(value.error).toContain("メディア索引が不正");
+    expect(value.messages).toBe(0);
   });
 
-  test("migrates an unambiguous legacy account directory without assigning it to another account", async () => {
-    const registryPath = join(process.env.VYLINE_DATA_DIR!, "accounts.json");
-    const registry = JSON.parse(await readFile(registryPath, "utf8"));
-    registry.accounts.push({
-      accountId: "CaseTest",
-      dirName: "casetest",
-      registeredAt: new Date().toISOString(),
-    });
-    await writeFile(registryPath, JSON.stringify(registry));
-    const oldPath = join(process.env.VYLINE_DATA_DIR!, "accounts", "casetest", "chatdb.json");
-    await mkdir(join(process.env.VYLINE_DATA_DIR!, "accounts", "casetest"), { recursive: true });
-    await writeFile(oldPath, JSON.stringify({ owner: "CaseTest" }));
-    expect(
-      await readAccountJson<{ owner: string }>(
-        "CaseTest",
-        "chatdb.json",
-        join(process.env.VYLINE_DATA_DIR!, "missing.json"),
-      ),
-    ).toEqual({ owner: "CaseTest" });
-    await expect(
-      readAccountJson(
-        "casetest",
-        "chatdb.json",
-        join(process.env.VYLINE_DATA_DIR!, "missing.json"),
-      ),
-    ).rejects.toThrow("重複");
-    expect(JSON.parse(await readFile(oldPath, "utf8"))).toEqual({ owner: "CaseTest" });
+  test("rebuilds its compact index from SQLite manifests after index loss", async () => {
+    const created = await runScenario<{ id: string }>(
+      "index-recovery",
+      `
+        ${imports()}
+        const summary = await backup.createBackup("recover", { includeMedia: false });
+        console.log(JSON.stringify({ id: summary.id }));
+      `,
+    );
+    const recovered = await runScenario<{ ids: string[]; backupBytes: number }>(
+      "index-recovery",
+      `
+        const { rm } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        for (const suffix of ["", "-wal", "-shm"])
+          await rm(join(process.env.VYLINE_BACKUP_DIR, "backup-index.sqlite" + suffix), { force: true });
+        ${imports()}
+        console.log(JSON.stringify({
+          ids: (await backup.listBackups("recover")).map((entry) => entry.id),
+          backupBytes: (await backup.getBackupStorageUsage("recover")).backupBytes,
+        }));
+      `,
+      true,
+    );
+    expect(recovered.value.ids).toEqual([created.value.id]);
+    expect(recovered.value.backupBytes).toBeGreaterThan(0);
   });
+
+  test("does not read or list the removed JSON backup format", async () => {
+    const { value } = await runScenario<{ listed: unknown[]; files: string[] }>(
+      "json-is-not-a-backup",
+      `
+        const { createHash } = await import("node:crypto");
+        const { mkdir, readdir, writeFile } = await import("node:fs/promises");
+        const { join } = await import("node:path");
+        const accountId = "json-owner";
+        const dir = join(process.env.VYLINE_BACKUP_DIR, createHash("sha256").update(accountId).digest("hex"));
+        await mkdir(dir, { recursive: true });
+        await writeFile(join(dir, "vyline-backup-old.json"), JSON.stringify({ schema: "vyline-backup" }));
+        ${imports()}
+        console.log(JSON.stringify({ listed: await backup.listBackups(accountId), files: await readdir(dir) }));
+      `,
+    );
+    expect(value.listed).toEqual([]);
+    expect(value.files).toContain("vyline-backup-old.json");
+  });
+});
+
+describe("SQLite backup responsiveness", () => {
+  test("backs up 100,000 generated messages with bounded RSS and event-loop yields", async () => {
+    const { value } = await runScenario<{
+      messageCount: number;
+      elapsedMs: number;
+      rssDelta: number;
+      ticks: number;
+      maxLagMs: number;
+      snapshotBytes: number;
+    }>(
+      "hundred-thousand",
+      `
+          ${imports()}
+          const accountId = "hundred-thousand";
+          const now = new Date().toISOString();
+          await chat.upsertChats(accountId, [{
+            mid: "c-stress", name: "stress", kind: "group", hasMessages: true, updatedAt: now,
+          }]);
+          const text = "低メモリ履歴".repeat(40);
+          for (let offset = 0; offset < 100000; offset += 500) {
+            const batch = [];
+            for (let index = offset; index < offset + 500; index++) {
+              const id = String(index + 1).padStart(12, "0");
+              batch.push({
+                id, chatMid: "c-stress", from: "sender", to: "c-stress", text,
+                contentType: "TEXT", createdTime: index + 1, isMyMessage: false, savedAt: now,
+              });
+            }
+            await chat.upsertMessages(accountId, "c-stress", batch);
+          }
+          Bun.gc(true);
+          const rssBefore = process.memoryUsage().rss;
+          let peakRss = rssBefore;
+          let ticks = 0;
+          let maxLagMs = 0;
+          let last = performance.now();
+          const timer = setInterval(() => {
+            const current = performance.now();
+            maxLagMs = Math.max(maxLagMs, current - last);
+            last = current;
+            ticks++;
+            peakRss = Math.max(peakRss, process.memoryUsage().rss);
+          }, 5);
+          const started = performance.now();
+          const summary = await backup.createBackup(accountId, { includeMedia: false });
+          const elapsedMs = performance.now() - started;
+          clearInterval(timer);
+          peakRss = Math.max(peakRss, process.memoryUsage().rss);
+          console.log(JSON.stringify({
+            messageCount: summary.messageCount,
+            elapsedMs,
+            rssDelta: peakRss - rssBefore,
+            ticks,
+            maxLagMs,
+            snapshotBytes: summary.sizeBytes,
+          }));
+        `,
+    );
+    expect(value.messageCount).toBe(100_000);
+    expect(value.snapshotBytes).toBeGreaterThan(30 * 1024 * 1024);
+    expect(value.ticks).toBeGreaterThan(20);
+    expect(value.maxLagMs).toBeLessThan(1_000);
+    expect(value.rssDelta).toBeLessThan(160 * 1024 * 1024);
+    expect(value.elapsedMs).toBeLessThan(120_000);
+    console.info("[backup-100k]", value);
+  }, 180_000);
 });

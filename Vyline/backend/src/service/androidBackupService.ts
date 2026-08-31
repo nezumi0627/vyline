@@ -1,7 +1,6 @@
 import { existsSync, mkdirSync } from "node:fs";
-import { appendFile, mkdtemp, open, rm, stat, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { basename, dirname, join } from "node:path";
+import { appendFile, open, stat, writeFile } from "node:fs/promises";
+import { basename, dirname, join, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import { Unzip, UnzipInflate } from "fflate";
 import type { MessageContentMeta, MessageReaction, MessageSnapshot } from "@vyline/types";
@@ -9,15 +8,36 @@ import { childLogger } from "../logger.js";
 import { getClient } from "../line/clientManager.js";
 import {
   flushAccountChatDb,
-  mergeImportedChatDb,
-  type ChatDbRecords,
+  mergeImportedChatDbFromStaging,
   type StoredChat,
   type StoredMessage,
 } from "../storage/chatStore.js";
-import { importMediaStorageFile, statMediaStorage } from "../storage/mediaStorage.js";
+import {
+  assertMediaStorageCapacity,
+  importMediaStorageFile,
+  removeMediaStorageEntry,
+  statMediaStorage,
+} from "../storage/mediaStorage.js";
 import { getToken } from "../storage/tokenStore.js";
 import { BACKUP_STORAGE_LIMIT_BYTES, BackupStorageLimitError } from "../storage/backupLimits.js";
 import { getBackupStorageUsage, withAccountBackupLock } from "./backupService.js";
+import {
+  AndroidBackupStaging,
+  type AndroidChatSeed,
+  type PlannedAndroidMedia,
+  type StagedAndroidMessage,
+  type StagedAndroidReaction,
+  type UnsupportedAndroidReaction,
+} from "./androidBackupStaging.js";
+import {
+  assertDiskBackedWorkFreeSpace,
+  createDiskBackedWorkDir,
+  type HeavyBackupWorkReservation,
+  pruneDiskBackedWorkDirs,
+  removeDiskBackedWorkDir,
+  reserveHeavyBackupWork,
+  withDiskBackedWorkCapacityLock,
+} from "./diskBackedWorkQueue.js";
 
 const log = childLogger("android-backup");
 
@@ -33,6 +53,35 @@ export const MAX_EXTRACT_BYTES = BACKUP_STORAGE_LIMIT_BYTES;
 const SQLITE_MAGIC = "SQLite format 3\u0000";
 const MEDIA_CONTENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE"]);
 const UNSENT_HISTORY_TYPES = new Set([27, 28, 38]);
+const STAGING_BATCH_SIZE = boundedInteger(
+  process.env.VYLINE_ANDROID_RESTORE_BATCH_SIZE,
+  500,
+  100,
+  1000,
+);
+const MAX_ZIP_ENTRIES = boundedInteger(
+  process.env.VYLINE_ANDROID_BACKUP_MAX_ENTRIES,
+  100_000,
+  1,
+  1_000_000,
+);
+const BACKUP_SESSION_TTL_MS = boundedInteger(
+  process.env.VYLINE_BACKUP_SESSION_TTL_MS,
+  24 * 60 * 60 * 1000,
+  60_000,
+  7 * 24 * 60 * 60 * 1000,
+);
+
+function boundedInteger(
+  raw: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = Number(raw ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, Math.floor(parsed)));
+}
 
 export interface AndroidBackupProgress {
   stage: string;
@@ -77,17 +126,18 @@ export interface AndroidBackupSession {
 type SqlValue = string | number | bigint | Uint8Array | null;
 type AndroidRow = Record<string, SqlValue>;
 
-interface AndroidMediaRef {
-  chatMid: string;
-  localId: string;
-  messageId: string;
-  contentType: string;
+export interface AndroidDatabaseStagingProgress {
+  phase: "metadata" | "reactions" | "messages" | "chats";
+  current: number;
+  total: number;
 }
 
-export interface ParsedAndroidDatabase {
-  records: ChatDbRecords;
-  mediaRefs: AndroidMediaRef[];
+export interface StagedAndroidDatabaseSummary {
+  stagingPath: string;
   databaseVersion: number;
+  chats: number;
+  totalMessages: number;
+  mediaRefs: number;
   reactions: number;
   unsupportedReactions: number;
 }
@@ -95,9 +145,60 @@ export interface ParsedAndroidDatabase {
 interface ExtractedAndroidZip {
   databasePath: string;
   mediaRoot: string | null;
+  extractedBytes: number;
 }
 
 const sessions = new Map<string, AndroidBackupSession>();
+
+function pruneCompletedSessions(now = Date.now()): void {
+  const threshold = now - BACKUP_SESSION_TTL_MS;
+  for (const [id, session] of sessions) {
+    if (session.completedAt !== null && session.completedAt < threshold) sessions.delete(id);
+  }
+}
+
+const uploadWrites = new Map<string, Promise<unknown>>();
+
+function withUploadLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const next = (uploadWrites.get(accountId) ?? Promise.resolve()).catch(() => undefined).then(work);
+  uploadWrites.set(accountId, next);
+  return next.finally(() => {
+    if (uploadWrites.get(accountId) === next) uploadWrites.delete(accountId);
+  });
+}
+
+async function yieldToEventLoop(): Promise<void> {
+  await Bun.sleep(0);
+}
+
+async function createAndroidWorkDir(prefix: string): Promise<string> {
+  return createDiskBackedWorkDir("android-restore", prefix);
+}
+
+async function removeAndroidWorkDir(path: string): Promise<void> {
+  await removeDiskBackedWorkDir(path);
+}
+
+async function updateWorkReservation(
+  reservation: HeavyBackupWorkReservation,
+  bytes: number,
+  beforeWrite: boolean,
+): Promise<void> {
+  await withDiskBackedWorkCapacityLock(async () => {
+    const current = reservation.reservedBytes;
+    const next = Math.max(current, bytes);
+    const additional = Math.max(0, next - current);
+    await assertDiskBackedWorkFreeSpace(beforeWrite ? additional : 0, current);
+    reservation.resizeReservedBytes(next);
+  });
+}
+
+let persistentWorkRootPruned = false;
+async function prunePersistentWorkRoot(): Promise<void> {
+  if (persistentWorkRootPruned) return;
+  persistentWorkRootPruned = true;
+  await pruneDiskBackedWorkDirs(CHUNK_UPLOAD_TTL_MS);
+}
 
 interface AndroidBackupChunkUpload {
   id: string;
@@ -110,16 +211,24 @@ interface AndroidBackupChunkUpload {
   workDir: string;
   sourcePath: string;
   updatedAt: number;
+  reservation: HeavyBackupWorkReservation;
 }
 
 const chunkUploads = new Map<string, AndroidBackupChunkUpload>();
 
 async function pruneStaleChunkUploads(): Promise<void> {
+  await prunePersistentWorkRoot();
   const threshold = Date.now() - CHUNK_UPLOAD_TTL_MS;
   const stale = [...chunkUploads.values()].filter((upload) => upload.updatedAt < threshold);
   for (const upload of stale) {
-    chunkUploads.delete(upload.id);
-    await rm(upload.workDir, { recursive: true, force: true }).catch(() => undefined);
+    try {
+      await upload.reservation.cleanupAndRelease(async () => {
+        await removeAndroidWorkDir(upload.workDir);
+        chunkUploads.delete(upload.id);
+      });
+    } catch {
+      // Keep both the upload and reservation tracked so cleanup can be retried.
+    }
   }
 }
 
@@ -129,6 +238,7 @@ function createRestoreSession(
   includeMedia: boolean,
   totalBytes: number,
 ): AndroidBackupSession {
+  pruneCompletedSessions();
   const id = `android-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
   return {
     id,
@@ -149,7 +259,11 @@ function createRestoreSession(
   };
 }
 
-async function writeRequestBodyToFile(request: Request, targetPath: string): Promise<number> {
+async function writeRequestBodyToFile(
+  request: Request,
+  targetPath: string,
+  reservation: HeavyBackupWorkReservation,
+): Promise<number> {
   const body = request.body;
   if (!body) return 0;
 
@@ -168,6 +282,20 @@ async function writeRequestBodyToFile(request: Request, targetPath: string): Pro
         throw new Error(
           `Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`,
         );
+      }
+      if (total > reservation.reservedBytes) {
+        try {
+          await withDiskBackedWorkCapacityLock(async () => {
+            const current = reservation.reservedBytes;
+            const additional = Math.max(0, total - current);
+            await assertDiskBackedWorkFreeSpace(additional, current);
+            reservation.resizeReservedBytes(total);
+            reservation.resizeInputBytes(total);
+          });
+        } catch (error) {
+          await reader.cancel("Android backup work quota exceeded").catch(() => undefined);
+          throw error;
+        }
       }
 
       let offset = 0;
@@ -189,6 +317,7 @@ function queueRestore(
   session: AndroidBackupSession,
   sourcePath: string,
   workDir: string,
+  reservation: HeavyBackupWorkReservation,
 ): AndroidBackupSession {
   session.progress = {
     stage: "queued",
@@ -197,7 +326,20 @@ function queueRestore(
     message: "復元処理を開始しています",
   };
   sessions.set(session.id, session);
-  void runRestore(session, sourcePath, workDir);
+  void reservation
+    .enqueue(
+      () =>
+        withAccountBackupLock(session.accountId, () =>
+          runRestore(session, sourcePath, workDir, reservation),
+        ),
+      () => removeAndroidWorkDir(workDir),
+    )
+    .catch((error) => {
+      session.status = "failed";
+      session.error =
+        error instanceof Error ? error.message : "Androidバックアップの復元に失敗しました";
+      session.completedAt = Date.now();
+    });
   return session;
 }
 
@@ -214,18 +356,34 @@ export async function startAndroidBackupRestore(
   }
 
   const session = createRestoreSession(accountId, sourceName, includeMedia, contentLength);
+  const reservedContentLength =
+    Number.isSafeInteger(contentLength) && contentLength > 0 ? contentLength : 0;
+  const reservation = reserveHeavyBackupWork(accountId, reservedContentLength);
 
-  const workDir = await mkdtemp(join(tmpdir(), `vyline-android-${session.id}-`));
-  const sourcePath = join(workDir, "source.bin");
+  let workDir: string | null = null;
   try {
-    const written = await writeRequestBodyToFile(request, sourcePath);
+    await withDiskBackedWorkCapacityLock(async () => {
+      if (reservedContentLength > 0) {
+        await assertDiskBackedWorkFreeSpace(reservedContentLength, reservation.reservedBytes);
+      } else {
+        await assertDiskBackedWorkFreeSpace(0, reservation.reservedBytes);
+      }
+    });
+    await prunePersistentWorkRoot();
+    workDir = await createAndroidWorkDir(`restore-${session.id}-`);
+    const sourcePath = join(workDir, "source.bin");
+    const written = await writeRequestBodyToFile(request, sourcePath, reservation);
     if (written <= 0) throw new Error("アップロードされたファイルが空です");
     if (written > MAX_UPLOAD_BYTES) {
       throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
     }
-    return queueRestore(session, sourcePath, workDir);
+    reservation.resizeReservedBytes(written);
+    reservation.resizeInputBytes(written);
+    return queueRestore(session, sourcePath, workDir, reservation);
   } catch (error) {
-    await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
+    if (workDir) {
+      await reservation.cleanupAndRelease(() => removeAndroidWorkDir(workDir!));
+    } else reservation.release();
     throw error;
   }
 }
@@ -240,7 +398,7 @@ export async function createAndroidBackupChunkUpload(
   includeMedia: boolean,
   expectedBytes: number,
 ): Promise<{ uploadId: string; chunkSize: number }> {
-  return withAccountBackupLock(accountId, async () => {
+  return withUploadLock(accountId, async () => {
     if (!accountId) throw new Error("accountId が必要です");
     if (!Number.isSafeInteger(expectedBytes) || expectedBytes <= 0) {
       throw new Error("Androidバックアップのファイルサイズが不正です");
@@ -258,23 +416,36 @@ export async function createAndroidBackupChunkUpload(
         "このアカウントのアップロード中データが10GBを超えます。先のアップロードを完了または中止してください",
       );
     }
-    const id = `android-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    const workDir = await mkdtemp(join(tmpdir(), `vyline-${id}-`));
-    const sourcePath = join(workDir, "source.bin");
-    await writeFile(sourcePath, new Uint8Array());
-    chunkUploads.set(id, {
-      id,
-      accountId,
-      sourceName: sanitizeDisplayName(sourceName),
-      includeMedia,
-      expectedBytes,
-      receivedBytes: 0,
-      nextIndex: 0,
-      workDir,
-      sourcePath,
-      updatedAt: Date.now(),
-    });
-    return { uploadId: id, chunkSize: CHUNK_UPLOAD_BYTES };
+    const reservation = reserveHeavyBackupWork(accountId, expectedBytes);
+    let workDir: string | null = null;
+    try {
+      await withDiskBackedWorkCapacityLock(() =>
+        assertDiskBackedWorkFreeSpace(expectedBytes, reservation.reservedBytes),
+      );
+      const id = `android-upload-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+      workDir = await createAndroidWorkDir(`upload-${id}-`);
+      const sourcePath = join(workDir, "source.bin");
+      await writeFile(sourcePath, new Uint8Array());
+      chunkUploads.set(id, {
+        id,
+        accountId,
+        sourceName: sanitizeDisplayName(sourceName),
+        includeMedia,
+        expectedBytes,
+        receivedBytes: 0,
+        nextIndex: 0,
+        workDir,
+        sourcePath,
+        updatedAt: Date.now(),
+        reservation,
+      });
+      return { uploadId: id, chunkSize: CHUNK_UPLOAD_BYTES };
+    } catch (error) {
+      if (workDir) {
+        await reservation.cleanupAndRelease(() => removeAndroidWorkDir(workDir!));
+      } else reservation.release();
+      throw error;
+    }
   });
 }
 
@@ -282,11 +453,13 @@ export async function cancelAndroidBackupChunkUpload(
   accountId: string,
   uploadId: string,
 ): Promise<void> {
-  return withAccountBackupLock(accountId, async () => {
+  return withUploadLock(accountId, async () => {
     const upload = chunkUploads.get(uploadId);
     if (!upload || upload.accountId !== accountId) return;
-    chunkUploads.delete(uploadId);
-    await rm(upload.workDir, { recursive: true, force: true });
+    await upload.reservation.cleanupAndRelease(async () => {
+      await removeAndroidWorkDir(upload.workDir);
+      chunkUploads.delete(uploadId);
+    });
   });
 }
 
@@ -316,7 +489,7 @@ export async function appendAndroidBackupChunk(
   index: number,
   request: Request,
 ): Promise<{ receivedBytes: number; expectedBytes: number; nextIndex: number }> {
-  return withAccountBackupLock(accountId, async () => {
+  return withUploadLock(accountId, async () => {
     const upload = chunkUploads.get(uploadId);
     if (!upload || upload.accountId !== accountId) {
       throw new Error("Androidバックアップのアップロードセッションが見つかりません");
@@ -348,10 +521,13 @@ export async function appendAndroidBackupChunk(
       throw new Error("アップロードサイズが宣言されたファイルサイズを超えました");
     }
 
-    await appendFile(upload.sourcePath, bytes);
-    upload.receivedBytes += bytes.byteLength;
-    upload.nextIndex += 1;
-    upload.updatedAt = Date.now();
+    await withDiskBackedWorkCapacityLock(async () => {
+      await assertDiskBackedWorkFreeSpace(bytes.byteLength, upload.reservation.reservedBytes);
+      await appendFile(upload.sourcePath, bytes);
+      upload.receivedBytes += bytes.byteLength;
+      upload.nextIndex += 1;
+      upload.updatedAt = Date.now();
+    });
     return {
       receivedBytes: upload.receivedBytes,
       expectedBytes: upload.expectedBytes,
@@ -364,7 +540,7 @@ export async function completeAndroidBackupChunkUpload(
   accountId: string,
   uploadId: string,
 ): Promise<AndroidBackupSession> {
-  return withAccountBackupLock(accountId, async () => {
+  return withUploadLock(accountId, async () => {
     const upload = chunkUploads.get(uploadId);
     if (!upload || upload.accountId !== accountId) {
       throw new Error("Androidバックアップのアップロードセッションが見つかりません");
@@ -375,10 +551,12 @@ export async function completeAndroidBackupChunkUpload(
       );
     }
 
-    chunkUploads.delete(uploadId);
     const actualBytes = (await stat(upload.sourcePath)).size;
     if (actualBytes !== upload.expectedBytes) {
-      await rm(upload.workDir, { recursive: true, force: true }).catch(() => undefined);
+      await upload.reservation.cleanupAndRelease(async () => {
+        await removeAndroidWorkDir(upload.workDir);
+        chunkUploads.delete(uploadId);
+      });
       throw new Error(
         `アップロード済みファイルサイズが一致しません（${formatBytes(actualBytes)} / ${formatBytes(upload.expectedBytes)}）`,
       );
@@ -389,7 +567,9 @@ export async function completeAndroidBackupChunkUpload(
       upload.includeMedia,
       actualBytes,
     );
-    return queueRestore(session, upload.sourcePath, upload.workDir);
+    const queued = queueRestore(session, upload.sourcePath, upload.workDir, upload.reservation);
+    chunkUploads.delete(uploadId);
+    return queued;
   });
 }
 
@@ -397,6 +577,7 @@ export function getAndroidBackupSession(
   accountId: string,
   id: string,
 ): AndroidBackupSession | null {
+  pruneCompletedSessions();
   const session = sessions.get(id);
   return session?.accountId === accountId ? session : null;
 }
@@ -405,9 +586,14 @@ async function runRestore(
   session: AndroidBackupSession,
   sourcePath: string,
   workDir: string,
+  reservation: HeavyBackupWorkReservation,
 ): Promise<void> {
   session.status = "running";
   try {
+    const sourceBytes = (await stat(sourcePath)).size;
+    let extractedBytes = 0;
+    let measuredWorkBytes = sourceBytes;
+    await updateWorkReservation(reservation, sourceBytes, false);
     const sourceKind = await detectBackupKind(sourcePath);
     let databasePath = sourcePath;
     let mediaRoot: string | null = null;
@@ -436,17 +622,18 @@ async function runRestore(
             ...(file ? { file } : {}),
           };
         },
+        async (reservedExtractionBytes) => {
+          const projectedWorkBytes = sourceBytes + reservedExtractionBytes;
+          await updateWorkReservation(reservation, projectedWorkBytes, true);
+        },
       );
       databasePath = extracted.databasePath;
       mediaRoot = extracted.mediaRoot;
+      extractedBytes = extracted.extractedBytes;
+      measuredWorkBytes = sourceBytes + extractedBytes;
+      reservation.resizeReservedBytes(measuredWorkBytes);
     }
 
-    session.progress = {
-      stage: "parse",
-      current: 0,
-      total: 1,
-      message: "naver_line DBを解析しています",
-    };
     const token = await getToken(session.accountId);
     const selfMid =
       token?.mid?.trim() || String(getClient(session.accountId)?.base.profile?.mid ?? "").trim();
@@ -455,73 +642,156 @@ async function runRestore(
         "復元先LINEアカウントのMIDを確認できません。再ログインしてから実行してください",
       );
     }
-    const parsed = parseAndroidDatabase(databasePath, selfMid);
 
-    session.progress = {
-      stage: "merge",
-      current: 0,
-      total: 1,
-      message: "Androidのトーク履歴をVylineへ統合しています",
-    };
-    const { merged, media } = await withAccountBackupLock(session.accountId, async () => {
-      const mediaPlan =
-        session.includeMedia && mediaRoot
-          ? await planAndroidMedia(session.accountId, mediaRoot, parsed.mediaRefs)
-          : [];
-      const usage = await getBackupStorageUsage(session.accountId, parsed.records.messages);
-      const newMediaBytes = mediaPlan.reduce((total, item) => total + item.sizeBytes, 0);
-      const maxHistoryBytes =
-        usage.limitBytes - usage.backupBytes - usage.mediaBytes - newMediaBytes;
-      if (maxHistoryBytes < 0) throw new BackupStorageLimitError();
-      const merged = await mergeImportedChatDb(session.accountId, parsed.records, maxHistoryBytes);
-      let media = { restored: 0, skipped: 0 };
+    const stagingPath = join(workDir, "android-import.sqlite");
+    const staged = await stageAndroidDatabase(
+      databasePath,
+      stagingPath,
+      selfMid,
+      ({ phase, current, total }) => {
+        const messages: Record<AndroidDatabaseStagingProgress["phase"], string> = {
+          metadata: "Androidのチャット情報を解析しています",
+          reactions: "Androidのリアクションを解析しています",
+          messages: "Androidのトーク履歴を解析しています",
+          chats: "復元するチャットを整理しています",
+        };
+        session.progress = {
+          stage: "parse",
+          current,
+          total,
+          message: messages[phase],
+        };
+      },
+      async (stagingBytes) => {
+        measuredWorkBytes = Math.max(
+          measuredWorkBytes,
+          sourceBytes + extractedBytes + stagingBytes,
+        );
+        await updateWorkReservation(reservation, measuredWorkBytes, false);
+      },
+    );
+
+    let mediaPlan = { count: 0, sizeBytes: 0 };
+    let restoredChatMids: string[] = [];
+    const staging = new AndroidBackupStaging(stagingPath);
+    try {
+      if (session.includeMedia && mediaRoot) {
+        session.progress = {
+          stage: "media-plan",
+          current: 0,
+          total: Math.max(1, staged.mediaRefs),
+          message: "Androidの保存済みメディアを確認しています",
+        };
+        await planAndroidMediaFromStaging(
+          session.accountId,
+          mediaRoot,
+          staging,
+          (current, total) => {
+            session.progress = {
+              stage: "media-plan",
+              current,
+              total,
+              message: "Androidの保存済みメディアを確認しています",
+            };
+          },
+        );
+        mediaPlan = staging.mediaPlanStats();
+      }
+      restoredChatMids = staging.restoredChatMids();
+      staging.checkpoint();
+    } finally {
+      staging.close();
+    }
+
+    const usage = await getBackupStorageUsage(session.accountId);
+    const maxHistoryBytes =
+      usage.limitBytes - usage.backupBytes - usage.mediaBytes - mediaPlan.sizeBytes;
+    if (maxHistoryBytes < 0) throw new BackupStorageLimitError();
+    if (mediaPlan.sizeBytes > 0) {
+      await assertMediaStorageCapacity(mediaPlan.sizeBytes);
+    }
+    reservation.resizeReservedBytes(measuredWorkBytes);
+
+    let media = { restored: 0, skipped: 0 };
+    const importedMedia: Array<{ chatMid: string; messageId: string }> = [];
+    let merged: Awaited<ReturnType<typeof mergeImportedChatDbFromStaging>>;
+    try {
+      // Publish new media first, then commit SQLite. A failed copy or merge rolls
+      // back only media created by this restore; existing saved media is untouched.
       if (session.includeMedia && mediaRoot) {
         session.progress = {
           stage: "media",
           current: 0,
-          total: parsed.mediaRefs.length,
+          total: Math.max(1, mediaPlan.count),
           message: "Androidの保存済みメディアを紐付けています",
         };
-        media = await restoreAndroidMedia(session.accountId, mediaPlan, (current, total) => {
-          session.progress = {
-            stage: "media",
-            current,
-            total,
-            message: "Androidの保存済みメディアを紐付けています",
-          };
-        });
-        media.skipped += parsed.mediaRefs.length - mediaPlan.length;
+        const stagedMedia = new AndroidBackupStaging(stagingPath);
+        try {
+          media = await restoreAndroidMediaFromStaging(
+            session.accountId,
+            stagedMedia,
+            importedMedia,
+            (current, total) => {
+              session.progress = {
+                stage: "media",
+                current,
+                total: Math.max(1, total),
+                message: "Androidの保存済みメディアを紐付けています",
+              };
+            },
+          );
+          media.skipped += staged.mediaRefs - mediaPlan.count;
+        } finally {
+          stagedMedia.close();
+        }
       }
 
       session.progress = {
-        stage: "save",
-        current: 1,
-        total: 1,
-        message: "復元結果を保存しています",
+        stage: "merge",
+        current: 0,
+        total: Math.max(1, staged.chats + staged.totalMessages),
+        message: "Androidのトーク履歴をVylineへ統合しています",
       };
-      await flushAccountChatDb(session.accountId);
-      return { merged, media };
+      merged = await mergeImportedChatDbFromStaging(
+        session.accountId,
+        stagingPath,
+        maxHistoryBytes,
+        ({ current, total }) => {
+          session.progress = {
+            stage: "merge",
+            current,
+            total: Math.max(1, total),
+            message: "Androidのトーク履歴をVylineへ統合しています",
+          };
+        },
+      );
+    } catch (error) {
+      await rollbackImportedMedia(session.accountId, importedMedia, "Android");
+      throw error;
+    }
+
+    session.progress = {
+      stage: "save",
+      current: 1,
+      total: 1,
+      message: "復元結果を保存しています",
+    };
+    await flushAccountChatDb(session.accountId).catch((error) => {
+      log.warn({ error, accountId: session.accountId }, "Android restore WAL checkpoint deferred");
     });
 
-    const totalMessages = Object.values(parsed.records.messages).reduce(
-      (sum, messages) => sum + Object.keys(messages).length,
-      0,
-    );
     session.result = {
       sourceName: session.sourceName,
       sourceKind,
-      databaseVersion: parsed.databaseVersion,
+      databaseVersion: staged.databaseVersion,
       restoredAt: new Date().toISOString(),
       parsed: {
-        chats: Object.keys(parsed.records.chats).length,
-        totalMessages,
-        reactions: parsed.reactions,
-        unsupportedReactions: parsed.unsupportedReactions,
+        chats: staged.chats,
+        totalMessages: staged.totalMessages,
+        reactions: staged.reactions,
+        unsupportedReactions: staged.unsupportedReactions,
       },
-      restoredChatMids: Object.values(parsed.records.chats)
-        .filter((chat) => chat.hasMessages)
-        .sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0))
-        .map((chat) => chat.mid),
+      restoredChatMids,
       merged,
       media,
     };
@@ -536,8 +806,6 @@ async function runRestore(
       { accountId: session.accountId, sourceName: session.sourceName, error },
       "Android backup restore failed",
     );
-  } finally {
-    await rm(workDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -555,11 +823,12 @@ async function detectBackupKind(path: string): Promise<"sqlite" | "zip"> {
   }
 }
 
-async function extractAndroidZip(
+export async function extractAndroidZip(
   sourcePath: string,
   outputDir: string,
   includeMedia: boolean,
   onProgress?: (current: number, total: number, file?: string) => void,
+  onReservedBytes?: (bytes: number) => Promise<void>,
 ): Promise<ExtractedAndroidZip> {
   mkdirSync(outputDir, { recursive: true });
   const total = (await stat(sourcePath)).size;
@@ -568,32 +837,127 @@ async function extractAndroidZip(
   let extractionError: Error | null = null;
   const databaseCandidates: Array<{ path: string; rank: number }> = [];
   const endTasks: Promise<unknown>[] = [];
+  const startTasks: Promise<void>[] = [];
   const writers = new Set<ReturnType<ReturnType<typeof Bun.file>["writer"]>>();
+  const claimedTargets = new Set<string>();
   let dbIndex = 0;
   let extractedMedia = false;
+  let entryCount = 0;
+  let reservedExtractionBytes = 0;
+  let declaredArchiveBytes = 0;
+  let processedArchiveBytes = 0;
 
   const unzipper = new Unzip((file) => {
+    entryCount++;
+    if (!extractionError && entryCount > MAX_ZIP_ENTRIES) {
+      extractionError = new Error(
+        `AndroidバックアップのZIPエントリ数が上限 ${MAX_ZIP_ENTRIES.toLocaleString()} 件を超えます`,
+      );
+    }
     if (extractionError) return;
     const name = file.name.replace(/\\/g, "/").replace(/^\/+/, "");
     const dbRank = androidDatabaseCandidateRank(name);
     const media = includeMedia ? parseAndroidMediaEntry(name) : null;
-    if (dbRank === null && !media) return;
 
+    const hasDeclaredSize = file.originalSize !== undefined;
     const declaredSize = Number(file.originalSize ?? 0);
+    if (hasDeclaredSize && (!Number.isSafeInteger(declaredSize) || declaredSize < 0)) {
+      extractionError = new Error("AndroidバックアップのZIPエントリサイズが不正です");
+      return;
+    }
+    if (hasDeclaredSize) {
+      if (declaredSize > MAX_EXTRACT_BYTES - declaredArchiveBytes) {
+        extractionError = new Error(
+          `Androidバックアップの展開サイズが上限 ${formatBytes(MAX_EXTRACT_BYTES)} を超えます`,
+        );
+        return;
+      }
+      declaredArchiveBytes += declaredSize;
+    }
+
+    let processedForFile = 0;
+    const accountOutput = (chunkBytes: number): boolean => {
+      if (hasDeclaredSize && chunkBytes > declaredSize - processedForFile) {
+        extractionError = new Error("AndroidバックアップのZIPエントリが宣言サイズを超えました");
+        try {
+          file.terminate();
+        } catch {
+          // ignore
+        }
+        return false;
+      }
+      if (chunkBytes > MAX_EXTRACT_BYTES - processedArchiveBytes) {
+        extractionError = new Error(
+          `Androidバックアップの展開サイズが上限 ${formatBytes(MAX_EXTRACT_BYTES)} を超えます`,
+        );
+        try {
+          file.terminate();
+        } catch {
+          // ignore
+        }
+        return false;
+      }
+      processedForFile += chunkBytes;
+      processedArchiveBytes += chunkBytes;
+      return true;
+    };
+    const validateFinalSize = (final: boolean): boolean => {
+      if (!final || !hasDeclaredSize || processedForFile === declaredSize) return true;
+      extractionError = new Error("AndroidバックアップのZIPエントリサイズが宣言と一致しません");
+      try {
+        file.terminate();
+      } catch {
+        // ignore
+      }
+      return false;
+    };
+
+    if (dbRank === null && !media) {
+      file.ondata = (error, chunk, final) => {
+        if (error) {
+          extractionError = error instanceof Error ? error : new Error(String(error));
+          return;
+        }
+        if (!accountOutput(chunk.byteLength)) return;
+        validateFinalSize(final);
+      };
+      try {
+        // fflate buffers every compressed chunk until start() is called. Consume
+        // ignored entries as a bounded stream instead of retaining them in RAM.
+        file.start();
+      } catch (error) {
+        extractionError = error instanceof Error ? error : new Error(String(error));
+      }
+      return;
+    }
+
+    const bytesToReserve = hasDeclaredSize
+      ? declaredSize
+      : MAX_EXTRACT_BYTES - reservedExtractionBytes;
     if (
-      Number.isFinite(declaredSize) &&
-      declaredSize > 0 &&
-      extractedBytes + declaredSize > MAX_EXTRACT_BYTES
+      !Number.isSafeInteger(bytesToReserve) ||
+      bytesToReserve < 0 ||
+      reservedExtractionBytes + bytesToReserve > MAX_EXTRACT_BYTES
     ) {
       extractionError = new Error(
         `Androidバックアップの展開サイズが上限 ${formatBytes(MAX_EXTRACT_BYTES)} を超えます`,
       );
       return;
     }
+    reservedExtractionBytes += bytesToReserve;
+    const entryReservedTotal = reservedExtractionBytes;
 
     const target = media
       ? join(outputDir, "media", media.chatMid, media.fileName)
       : join(outputDir, `database-${dbIndex++}.sqlite`);
+    const normalizedTarget = resolve(target).replace(/\\/g, "/").toLowerCase();
+    if (claimedTargets.has(normalizedTarget)) {
+      extractionError = new Error(
+        `Androidバックアップ内の複数エントリが同じ展開先を指しています: ${basename(target)}`,
+      );
+      return;
+    }
+    claimedTargets.add(normalizedTarget);
     mkdirSync(dirname(target), { recursive: true });
     const writer = Bun.file(target).writer({ highWaterMark: 1024 * 1024 });
     writers.add(writer);
@@ -609,15 +973,9 @@ async function extractAndroidZip(
         return;
       }
       try {
+        if (!accountOutput(chunk.byteLength) || !validateFinalSize(final)) return;
         writtenForFile += chunk.byteLength;
         extractedBytes += chunk.byteLength;
-        if (extractedBytes > MAX_EXTRACT_BYTES) {
-          extractionError = new Error(
-            `Androidバックアップの展開サイズが上限 ${formatBytes(MAX_EXTRACT_BYTES)} を超えます`,
-          );
-          file.terminate();
-          return;
-        }
         if (chunk.byteLength > 0) writer.write(chunk);
         if (final) {
           writers.delete(writer);
@@ -638,7 +996,21 @@ async function extractAndroidZip(
       }
     };
     onProgress?.(current, total, basename(name));
-    file.start();
+    startTasks.push(
+      Promise.resolve()
+        .then(async () => {
+          await onReservedBytes?.(entryReservedTotal);
+          if (!extractionError) file.start();
+        })
+        .catch((error) => {
+          extractionError = error instanceof Error ? error : new Error(String(error));
+          try {
+            file.terminate();
+          } catch {
+            // ignore
+          }
+        }),
+    );
   });
   unzipper.register(UnzipInflate);
 
@@ -647,11 +1019,13 @@ async function extractAndroidZip(
       const bytes = chunk instanceof Uint8Array ? chunk : new Uint8Array(chunk);
       current += bytes.byteLength;
       unzipper.push(bytes, false);
+      await Promise.all(startTasks.splice(0));
       if (extractionError) throw extractionError;
       await Promise.all([...endTasks.splice(0), ...[...writers].map((writer) => writer.flush())]);
       onProgress?.(Math.min(current, total), total);
     }
     unzipper.push(new Uint8Array(), true);
+    await Promise.all(startTasks.splice(0));
     if (extractionError) throw extractionError;
     await Promise.all(endTasks.splice(0));
   } finally {
@@ -665,6 +1039,7 @@ async function extractAndroidZip(
   return {
     databasePath: database.path,
     mediaRoot: includeMedia && extractedMedia ? join(outputDir, "media") : null,
+    extractedBytes,
   };
 }
 
@@ -687,15 +1062,158 @@ function parseAndroidMediaEntry(name: string): { chatMid: string; fileName: stri
   return { chatMid, fileName: `${messageId}${match[3] ?? ""}` };
 }
 
-export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAndroidDatabase {
-  const db = new Database(dbPath, { readonly: true, safeIntegers: true, strict: true });
+function sourceTableRowCount(db: Database, table: string): number {
+  const row = db.query(`SELECT count(*) AS count FROM "${table}"`).get() as {
+    count: number | bigint;
+  };
+  return Number(row.count);
+}
+
+async function sqliteBundleBytes(path: string): Promise<number> {
+  let total = 0;
+  for (const candidate of [path, `${path}-wal`, `${path}-shm`]) {
+    total += (await stat(candidate).catch(() => null))?.size ?? 0;
+  }
+  return total;
+}
+
+function sourceColumnProjection(db: Database, table: string, columns: string[]): string {
+  const available = new Set(
+    (db.query(`PRAGMA table_info("${table}")`).all() as AndroidRow[])
+      .map((row) => asString(row.name))
+      .filter(Boolean),
+  );
+  return columns
+    .map((column) => (available.has(column) ? `"${column}"` : `NULL AS "${column}"`))
+    .join(", ");
+}
+
+function stagedReactionFromRow(row: AndroidRow): {
+  staged: StagedAndroidReaction | null;
+  restored: number;
+  unsupported: number;
+} {
+  const messageId = asString(row.server_message_id);
+  const fromMid = asString(row.member_id);
+  const rawType = asString(row.reaction_type);
+  const customReaction = asString(row.custom_reaction);
+  const type = androidReactionType(rawType);
+  const atMillis = asNumber(row.reaction_time_millis);
+  if (messageId && fromMid && type) {
+    return {
+      staged: {
+        messageId,
+        supported: { fromMid, atMillis, type },
+        unsupported: null,
+      },
+      restored: 1,
+      unsupported: 0,
+    };
+  }
+  if (!rawType && !customReaction) return { staged: null, restored: 0, unsupported: 0 };
+  return {
+    staged: messageId
+      ? {
+          messageId,
+          supported: null,
+          unsupported: {
+            fromMid,
+            atMillis,
+            reactionType: rawType,
+            customReaction,
+          },
+        }
+      : null,
+    restored: 0,
+    unsupported: 1,
+  };
+}
+
+function androidMessageId(row: AndroidRow): string {
+  const localId = asString(row.id);
+  if (!localId) return "";
+  const serverId = asString(row.server_id);
+  return serverId && serverId !== "0" ? serverId : `android-local-${localId}`;
+}
+
+function stagedMessageFromAndroidRow(
+  row: AndroidRow,
+  selfMid: string,
+  savedAt: string,
+  reactions: { supported: MessageReaction[]; unsupported: UnsupportedAndroidReaction[] },
+): StagedAndroidMessage | null {
+  const chatMid = asString(row.chat_id);
+  const localId = asString(row.id);
+  const messageId = androidMessageId(row);
+  if (!chatMid || !localId || !messageId) return null;
+  const rawFrom = asString(row.from_mid);
+  const isMyMessage = !rawFrom || rawFrom === selfMid;
+  const from = isMyMessage ? selfMid : rawFrom;
+  const historyType = asNumber(row.type);
+  const attachmentType = asNumber(row.attachement_type);
+  const rawParameter = asNullableString(row.parameter);
+  const parsedMetadata = parseAndroidParameter(rawParameter);
+  const contentMetadata: MessageContentMeta | null =
+    parsedMetadata || reactions.unsupported.length
+      ? {
+          ...(parsedMetadata ?? {}),
+          ...(reactions.unsupported.length
+            ? { ANDROID_CUSTOM_REACTIONS: JSON.stringify(reactions.unsupported) }
+            : {}),
+        }
+      : null;
+  const contentType = androidContentType(historyType, attachmentType);
+  const relationType = String(contentMetadata?.message_relation_type_code ?? "").toLowerCase();
+  const relationId = String(contentMetadata?.message_relation_server_message_id ?? "").trim();
+  const createdTime = asNumber(row.created_time);
+  const readCount = asNumber(row.read_count);
+  const unsent = isAndroidUnsentRow(historyType, rawParameter);
+  const stickerOption = String(contentMetadata?.STKOPT ?? "").toUpperCase();
+  return {
+    message: {
+      id: messageId,
+      chatMid,
+      from,
+      to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : selfMid,
+      text: unsent ? null : asNullableString(row.content),
+      contentType: unsent ? "UNSENT" : contentType,
+      createdTime: Number.isFinite(createdTime) ? createdTime : 0,
+      isMyMessage,
+      ...(contentMetadata ? { contentMetadata } : {}),
+      ...(readCount > 0 ? { readCount } : {}),
+      ...(relationType === "reply" && relationId ? { relatedMessageId: relationId } : {}),
+      ...(stickerOption.includes("A") ? { stickerAnimated: true } : {}),
+      ...(reactions.supported.length ? { reactions: reactions.supported } : {}),
+      ...(unsent ? { messageState: isMyMessage ? "revoked-by-self" : "revoked-by-other" } : {}),
+      savedAt,
+    },
+    localId,
+    mediaContentType: MEDIA_CONTENT_TYPES.has(contentType) ? contentType : null,
+  };
+}
+
+/**
+ * Production Android import parser. It keeps at most STAGING_BATCH_SIZE source
+ * rows in memory and writes normalized rows directly to a disk-backed SQLite DB.
+ */
+export async function stageAndroidDatabase(
+  dbPath: string,
+  stagingPath: string,
+  selfMid: string,
+  onProgress?: (progress: AndroidDatabaseStagingProgress) => void,
+  onStagingBytes?: (bytes: number) => Promise<void>,
+): Promise<StagedAndroidDatabaseSummary> {
+  const source = new Database(dbPath, { readonly: true, safeIntegers: true, strict: true });
+  const staging = new AndroidBackupStaging(stagingPath);
   try {
-    db.exec("PRAGMA cache_size = -2048");
-    db.exec("PRAGMA mmap_size = 0");
-    db.exec("PRAGMA temp_store = FILE");
+    source.exec("PRAGMA query_only = ON");
+    source.exec("PRAGMA cache_size = -2048");
+    source.exec("PRAGMA mmap_size = 0");
+    source.exec("PRAGMA temp_store = FILE");
+    await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
 
     const tables = new Set(
-      (db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as AndroidRow[])
+      (source.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as AndroidRow[])
         .map((row) => asString(row.name))
         .filter(Boolean),
     );
@@ -706,170 +1224,246 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
     }
 
     const databaseVersion = Number(
-      (db.query("PRAGMA user_version").get() as AndroidRow | null)?.user_version ?? 0,
+      (source.query("PRAGMA user_version").get() as AndroidRow | null)?.user_version ?? 0,
     );
-    const chatRows = tables.has("chat")
-      ? (db.query("SELECT * FROM chat").all() as AndroidRow[])
-      : [];
-    const historyRows = db.query("SELECT * FROM chat_history").iterate() as IterableIterator<AndroidRow>;
-    const groupRows = tables.has("groups")
-      ? (db.query("SELECT * FROM groups").all() as AndroidRow[])
-      : [];
-    const contactRows = tables.has("contacts")
-      ? (db.query("SELECT * FROM contacts").all() as AndroidRow[])
-      : [];
-    const reactionRows: Iterable<AndroidRow> = tables.has("reactions")
-      ? (db.query("SELECT * FROM reactions").iterate() as IterableIterator<AndroidRow>)
-      : [];
+    staging.setMeta("databaseVersion", databaseVersion);
+    const metadataTotal = ["chat", "groups", "contacts"]
+      .filter((table) => tables.has(table))
+      .reduce((sum, table) => sum + sourceTableRowCount(source, table), 0);
+    let metadataCurrent = 0;
+    onProgress?.({ phase: "metadata", current: 0, total: Math.max(1, metadataTotal) });
 
-    const groupNames = new Map<string, string>();
-    for (const row of groupRows) {
-      const mid = firstString(row, ["id", "mid", "m_id"]);
-      const name = firstString(row, ["name", "group_name", "display_name"]);
-      if (mid && name) groupNames.set(mid, name);
+    if (tables.has("chat")) {
+      let batch: Array<{ mid: string; seed: AndroidChatSeed }> = [];
+      for (const row of source
+        .query("SELECT * FROM chat")
+        .iterate() as IterableIterator<AndroidRow>) {
+        const mid = asString(row.chat_id);
+        if (mid) {
+          batch.push({
+            mid,
+            seed: {
+              chatName: asString(row.chat_name),
+              messageCount: asNumber(row.message_count),
+              readMessageCount: asNumber(row.read_message_count),
+              type: asNumber(row.type),
+            },
+          });
+        }
+        metadataCurrent++;
+        if (metadataCurrent % STAGING_BATCH_SIZE === 0) {
+          staging.writeChatSeeds(batch);
+          batch = [];
+          onProgress?.({
+            phase: "metadata",
+            current: metadataCurrent,
+            total: Math.max(1, metadataTotal),
+          });
+          await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+          await yieldToEventLoop();
+        }
+      }
+      staging.writeChatSeeds(batch);
     }
 
-    const contactNames = new Map<string, string>();
-    for (const row of contactRows) {
-      const mid = firstString(row, ["m_id", "mid", "id"]);
-      const name = firstString(row, ["custom_name", "name", "display_name", "contact_name"]);
-      if (mid && name) contactNames.set(mid, name);
+    const nameTables: Array<{ table: "groups" | "contacts"; priority: number }> = [
+      { table: "groups", priority: 0 },
+      { table: "contacts", priority: 1 },
+    ];
+    for (const { table, priority } of nameTables) {
+      if (!tables.has(table)) continue;
+      let batch: Array<{ mid: string; name: string; priority: number }> = [];
+      for (const row of source
+        .query(`SELECT * FROM "${table}"`)
+        .iterate() as IterableIterator<AndroidRow>) {
+        const mid = firstString(
+          row,
+          table === "groups" ? ["id", "mid", "m_id"] : ["m_id", "mid", "id"],
+        );
+        const name = firstString(
+          row,
+          table === "groups"
+            ? ["name", "group_name", "display_name"]
+            : ["custom_name", "name", "display_name", "contact_name"],
+        );
+        if (mid && name) batch.push({ mid, name, priority });
+        metadataCurrent++;
+        if (metadataCurrent % STAGING_BATCH_SIZE === 0) {
+          staging.writeNames(batch);
+          batch = [];
+          onProgress?.({
+            phase: "metadata",
+            current: metadataCurrent,
+            total: Math.max(1, metadataTotal),
+          });
+          await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+          await yieldToEventLoop();
+        }
+      }
+      staging.writeNames(batch);
     }
+    onProgress?.({
+      phase: "metadata",
+      current: Math.max(1, metadataTotal),
+      total: Math.max(1, metadataTotal),
+    });
+    await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+    await yieldToEventLoop();
 
-    const {
-      byMessage: reactionsByMessage,
-      unsupportedByMessage,
-      restored,
-      unsupported,
-    } = parseAndroidReactions(reactionRows);
+    let restoredReactions = 0;
+    let unsupportedReactions = 0;
+    const reactionTotal = tables.has("reactions") ? sourceTableRowCount(source, "reactions") : 0;
+    let reactionCurrent = 0;
+    onProgress?.({ phase: "reactions", current: 0, total: Math.max(1, reactionTotal) });
+    if (tables.has("reactions")) {
+      let batch: StagedAndroidReaction[] = [];
+      for (const row of source
+        .query("SELECT * FROM reactions")
+        .iterate() as IterableIterator<AndroidRow>) {
+        const parsed = stagedReactionFromRow(row);
+        restoredReactions += parsed.restored;
+        unsupportedReactions += parsed.unsupported;
+        if (parsed.staged) batch.push(parsed.staged);
+        reactionCurrent++;
+        if (reactionCurrent % STAGING_BATCH_SIZE === 0) {
+          staging.writeReactions(batch);
+          batch = [];
+          onProgress?.({
+            phase: "reactions",
+            current: reactionCurrent,
+            total: Math.max(1, reactionTotal),
+          });
+          await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+          await yieldToEventLoop();
+        }
+      }
+      staging.writeReactions(batch);
+    }
+    staging.setMeta("reactions", restoredReactions);
+    staging.setMeta("unsupportedReactions", unsupportedReactions);
+    onProgress?.({
+      phase: "reactions",
+      current: Math.max(1, reactionTotal),
+      total: Math.max(1, reactionTotal),
+    });
+    await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+    await yieldToEventLoop();
+
+    const messageTotal = sourceTableRowCount(source, "chat_history");
+    const historyProjection = sourceColumnProjection(source, "chat_history", [
+      "id",
+      "server_id",
+      "type",
+      "chat_id",
+      "from_mid",
+      "content",
+      "created_time",
+      "read_count",
+      "attachement_type",
+      "parameter",
+    ]);
+    let messageCurrent = 0;
     const savedAt = new Date().toISOString();
-    const messages: Record<string, Record<string, StoredMessage>> = {};
-    const mediaRefsByMessage = new Map<string, AndroidMediaRef>();
-    const latestByChat = new Map<string, StoredMessage>();
-    const messageCountsByChat = new Map<string, number>();
-
-    for (const row of historyRows) {
-      const chatMid = asString(row.chat_id);
-      const localId = asString(row.id);
-      if (!chatMid || !localId) continue;
-      const rawServerId = asString(row.server_id);
-      const messageId =
-        rawServerId && rawServerId !== "0" ? rawServerId : `android-local-${localId}`;
-      const rawFrom = asString(row.from_mid);
-      const isMyMessage = !rawFrom || rawFrom === selfMid;
-      const from = isMyMessage ? selfMid : rawFrom;
-      const historyType = asNumber(row.type);
-      const attachmentType = asNumber(row.attachement_type);
-      const rawParameter = asNullableString(row.parameter);
-      const parsedMetadata = parseAndroidParameter(rawParameter);
-      const unsupportedReactionPayloads = unsupportedByMessage.get(messageId);
-      const contentMetadata: MessageContentMeta | null =
-        parsedMetadata || unsupportedReactionPayloads?.length
-          ? {
-              ...(parsedMetadata ?? {}),
-              ...(unsupportedReactionPayloads?.length
-                ? { ANDROID_CUSTOM_REACTIONS: JSON.stringify(unsupportedReactionPayloads) }
-                : {}),
-            }
-          : null;
-      const contentType = androidContentType(historyType, attachmentType);
-      const relationType = String(contentMetadata?.message_relation_type_code ?? "").toLowerCase();
-      const relationId = String(contentMetadata?.message_relation_server_message_id ?? "").trim();
-      const createdTime = asNumber(row.created_time);
-      const readCount = asNumber(row.read_count);
-      const reactions = reactionsByMessage.get(messageId);
-      const unsent = isAndroidUnsentRow(historyType, rawParameter);
-      const stickerOption = String(contentMetadata?.STKOPT ?? "").toUpperCase();
-
-      const message: StoredMessage = {
-        id: messageId,
-        chatMid,
-        from,
-        to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : selfMid,
-        text: unsent ? null : asNullableString(row.content),
-        contentType: unsent ? "UNSENT" : contentType,
-        createdTime: Number.isFinite(createdTime) ? createdTime : 0,
-        isMyMessage,
-        ...(contentMetadata ? { contentMetadata } : {}),
-        ...(readCount > 0 ? { readCount } : {}),
-        ...(relationType === "reply" && relationId ? { relatedMessageId: relationId } : {}),
-        ...(stickerOption.includes("A") ? { stickerAnimated: true } : {}),
-        ...(reactions?.length ? { reactions } : {}),
-        ...(unsent ? { messageState: isMyMessage ? "revoked-by-self" : "revoked-by-other" } : {}),
-        savedAt,
-      };
-      const byChat = (messages[chatMid] ??= {});
-      const previous = byChat[messageId];
-      const mergedMessage = mergeAndroidDuplicateMessage(previous, message);
-      byChat[messageId] = mergedMessage;
-      if (!previous) {
-        messageCountsByChat.set(chatMid, (messageCountsByChat.get(chatMid) ?? 0) + 1);
+    onProgress?.({ phase: "messages", current: 0, total: Math.max(1, messageTotal) });
+    let historyBatch: AndroidRow[] = [];
+    const flushHistoryBatch = async () => {
+      if (historyBatch.length === 0) return;
+      const reactions = staging.reactionsForMessages(historyBatch.map(androidMessageId));
+      const stagedRows: StagedAndroidMessage[] = [];
+      for (const row of historyBatch) {
+        const messageId = androidMessageId(row);
+        const staged = stagedMessageFromAndroidRow(
+          row,
+          selfMid,
+          savedAt,
+          reactions.get(messageId) ?? { supported: [], unsupported: [] },
+        );
+        if (staged) stagedRows.push(staged);
       }
-      const currentLatest = latestByChat.get(chatMid);
-      if (
-        !currentLatest ||
-        mergedMessage.createdTime > currentLatest.createdTime ||
-        (mergedMessage.createdTime === currentLatest.createdTime &&
-          compareId(mergedMessage.id, currentLatest.id) > 0) ||
-        currentLatest.id === mergedMessage.id
-      ) {
-        latestByChat.set(chatMid, mergedMessage);
-      }
+      staging.writeMessages(stagedRows, mergeAndroidDuplicateMessage);
+      historyBatch = [];
+      if (messageCurrent % 5_000 === 0) Bun.gc(true);
+      onProgress?.({
+        phase: "messages",
+        current: messageCurrent,
+        total: Math.max(1, messageTotal),
+      });
+      await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+      await yieldToEventLoop();
+    };
+    for (const row of source
+      .query(`SELECT ${historyProjection} FROM chat_history`)
+      .iterate() as IterableIterator<AndroidRow>) {
+      historyBatch.push(row);
+      messageCurrent++;
+      if (historyBatch.length >= STAGING_BATCH_SIZE) await flushHistoryBatch();
+    }
+    await flushHistoryBatch();
+    onProgress?.({
+      phase: "messages",
+      current: Math.max(1, messageTotal),
+      total: Math.max(1, messageTotal),
+    });
 
-      if (MEDIA_CONTENT_TYPES.has(contentType)) {
-        mediaRefsByMessage.set(`${chatMid}:${messageId}`, {
-          chatMid,
-          localId,
-          messageId,
-          contentType,
+    const chatTotal = staging.chatCandidateCount();
+    let chatCurrent = 0;
+    let afterMid = "";
+    onProgress?.({ phase: "chats", current: 0, total: Math.max(1, chatTotal) });
+    for (;;) {
+      const mids = staging.chatMidPage(afterMid, STAGING_BATCH_SIZE);
+      if (mids.length === 0) break;
+      const chats: StoredChat[] = [];
+      for (const mid of mids) {
+        const seed = staging.chatSeed(mid);
+        const parsedMessageCount = staging.messageCount(mid);
+        const latest = staging.latestMessage(mid);
+        const declaredMessageCount = seed?.messageCount ?? parsedMessageCount;
+        const readMessageCount = seed?.readMessageCount ?? declaredMessageCount;
+        const unreadCount = Math.max(0, declaredMessageCount - readMessageCount);
+        chats.push({
+          mid,
+          name: seed?.chatName || staging.displayName(mid) || mid,
+          kind: androidChatKind(mid, seed?.type ?? 0),
+          hasMessages: parsedMessageCount > 0,
+          restoredHistory: true,
+          ...(latest
+            ? {
+                lastMessageTime: latest.createdTime,
+                lastMessageId: latest.id,
+                lastMessagePreview: previewForStoredMessage(latest),
+              }
+            : {}),
+          ...(unreadCount > 0 ? { unreadCount } : {}),
+          updatedAt: savedAt,
         });
       }
+      staging.writeChats(chats);
+      afterMid = mids.at(-1) ?? afterMid;
+      chatCurrent += mids.length;
+      onProgress?.({
+        phase: "chats",
+        current: chatCurrent,
+        total: Math.max(1, chatTotal),
+      });
+      await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
+      await yieldToEventLoop();
     }
 
-    const chatRowsByMid = new Map<string, AndroidRow>();
-    for (const row of chatRows) {
-      const chatMid = asString(row.chat_id);
-      if (chatMid) chatRowsByMid.set(chatMid, row);
-    }
-
-    const chats: Record<string, StoredChat> = {};
-    const allChatMids = new Set([...chatRowsByMid.keys(), ...Object.keys(messages)]);
-    for (const chatMid of allChatMids) {
-      const row = chatRowsByMid.get(chatMid);
-      const parsedMessageCount = messageCountsByChat.get(chatMid) ?? 0;
-      const latest = latestByChat.get(chatMid);
-      const declaredName = row ? asString(row.chat_name) : "";
-      const name = declaredName || groupNames.get(chatMid) || contactNames.get(chatMid) || chatMid;
-      const messageCount = row ? asNumber(row.message_count) : parsedMessageCount;
-      const readMessageCount = row ? asNumber(row.read_message_count) : messageCount;
-      const unreadCount = Math.max(0, messageCount - readMessageCount);
-      chats[chatMid] = {
-        mid: chatMid,
-        name,
-        kind: androidChatKind(chatMid, row ? asNumber(row.type) : 0),
-        hasMessages: parsedMessageCount > 0,
-        restoredHistory: true,
-        ...(latest
-          ? {
-              lastMessageTime: latest.createdTime,
-              lastMessageId: latest.id,
-              lastMessagePreview: previewForStoredMessage(latest),
-            }
-          : {}),
-        ...(unreadCount > 0 ? { unreadCount } : {}),
-        updatedAt: savedAt,
-      };
-    }
-
+    const counts = staging.counts();
+    staging.checkpoint();
+    await onStagingBytes?.(await sqliteBundleBytes(stagingPath));
     return {
-      records: { chats, messages },
-      mediaRefs: [...mediaRefsByMessage.values()],
+      stagingPath,
       databaseVersion,
-      reactions: restored,
-      unsupportedReactions: unsupported,
+      chats: counts.chats,
+      totalMessages: counts.messages,
+      mediaRefs: counts.mediaRefs,
+      reactions: restoredReactions,
+      unsupportedReactions,
     };
   } finally {
-    db.close();
+    staging.close();
+    source.close();
   }
 }
 
@@ -1031,57 +1625,6 @@ export function androidContentType(historyType: number, attachmentType: number):
   }
 }
 
-function parseAndroidReactions(rows: Iterable<AndroidRow>): {
-  byMessage: Map<string, MessageReaction[]>;
-  unsupportedByMessage: Map<
-    string,
-    Array<{ fromMid: string; atMillis: number; reactionType: string; customReaction: string }>
-  >;
-  restored: number;
-  unsupported: number;
-} {
-  const byMessage = new Map<string, MessageReaction[]>();
-  const unsupportedByMessage = new Map<
-    string,
-    Array<{ fromMid: string; atMillis: number; reactionType: string; customReaction: string }>
-  >();
-  let restored = 0;
-  let unsupported = 0;
-  for (const row of rows) {
-    const messageId = asString(row.server_message_id);
-    const fromMid = asString(row.member_id);
-    const reactionType = asString(row.reaction_type);
-    const customReaction = asString(row.custom_reaction);
-    const type = androidReactionType(reactionType);
-    if (!messageId || !fromMid || !type) {
-      if (reactionType || customReaction) {
-        unsupported++;
-        if (messageId) {
-          const list = unsupportedByMessage.get(messageId) ?? [];
-          list.push({
-            fromMid,
-            atMillis: asNumber(row.reaction_time_millis),
-            reactionType,
-            customReaction,
-          });
-          unsupportedByMessage.set(messageId, list);
-        }
-      }
-      continue;
-    }
-    const reaction: MessageReaction = {
-      fromMid,
-      atMillis: asNumber(row.reaction_time_millis),
-      type,
-    };
-    const list = byMessage.get(messageId) ?? [];
-    list.push(reaction);
-    byMessage.set(messageId, list);
-    restored++;
-  }
-  return { byMessage, unsupportedByMessage, restored, unsupported };
-}
-
 function androidReactionType(value: string): number | null {
   switch (value.trim().toLowerCase()) {
     case "nice":
@@ -1101,69 +1644,101 @@ function androidReactionType(value: string): number | null {
   }
 }
 
-interface PlannedAndroidMedia extends AndroidMediaRef {
-  path: string;
-  sizeBytes: number;
-}
-
-async function planAndroidMedia(
+async function planAndroidMediaFromStaging(
   accountId: string,
   mediaRoot: string,
-  refs: AndroidMediaRef[],
-): Promise<PlannedAndroidMedia[]> {
-  const plan: PlannedAndroidMedia[] = [];
-  const seen = new Set<string>();
-  for (const ref of refs) {
-    if (!/^[a-z0-9_-]{4,128}$/i.test(ref.chatMid) || !/^\d+$/.test(ref.localId)) continue;
-    const identity = JSON.stringify([ref.chatMid, ref.messageId]);
-    if (seen.has(identity)) continue;
-    seen.add(identity);
-    if (await statMediaStorage(accountId, ref.chatMid, ref.messageId)) continue;
-    const candidates = [
-      join(mediaRoot, ref.chatMid, `${ref.localId}.original`),
-      join(mediaRoot, ref.chatMid, ref.localId),
-      ...(ref.contentType === "IMAGE"
-        ? [join(mediaRoot, ref.chatMid, `${ref.localId}.thumb`)]
-        : []),
-    ];
-    const path = candidates.find((candidate) => existsSync(candidate));
-    if (!path) continue;
-    const info = await stat(path);
-    if (info.isFile()) plan.push({ ...ref, path, sizeBytes: info.size });
+  staging: AndroidBackupStaging,
+  onProgress?: (current: number, total: number) => void,
+): Promise<void> {
+  const total = staging.counts().mediaRefs;
+  let current = 0;
+  let cursor: { chatMid: string; messageId: string } | null = null;
+  onProgress?.(0, Math.max(1, total));
+  for (;;) {
+    const refs = staging.mediaRefPage(cursor, STAGING_BATCH_SIZE);
+    if (refs.length === 0) break;
+    const plan: PlannedAndroidMedia[] = [];
+    for (const ref of refs) {
+      if (!/^[a-z0-9_-]{4,128}$/i.test(ref.chatMid) || !/^\d+$/.test(ref.localId)) continue;
+      if (await statMediaStorage(accountId, ref.chatMid, ref.messageId)) continue;
+      const candidates = [
+        join(mediaRoot, ref.chatMid, `${ref.localId}.original`),
+        join(mediaRoot, ref.chatMid, ref.localId),
+        ...(ref.contentType === "IMAGE"
+          ? [join(mediaRoot, ref.chatMid, `${ref.localId}.thumb`)]
+          : []),
+      ];
+      const path = candidates.find((candidate) => existsSync(candidate));
+      if (!path) continue;
+      const info = await stat(path);
+      if (info.isFile()) plan.push({ ...ref, path, sizeBytes: info.size });
+    }
+    staging.writeMediaPlan(plan);
+    current += refs.length;
+    const last = refs.at(-1);
+    if (last) cursor = { chatMid: last.chatMid, messageId: last.messageId };
+    onProgress?.(current, Math.max(1, total));
+    await yieldToEventLoop();
   }
-  return plan;
 }
 
-async function restoreAndroidMedia(
+async function restoreAndroidMediaFromStaging(
   accountId: string,
-  refs: PlannedAndroidMedia[],
+  staging: AndroidBackupStaging,
+  importedMedia: Array<{ chatMid: string; messageId: string }>,
   onProgress?: (current: number, total: number) => void,
 ): Promise<{ restored: number; skipped: number }> {
+  const total = staging.mediaPlanStats().count;
   let restored = 0;
   let skipped = 0;
   let current = 0;
-  onProgress?.(0, refs.length);
-  for (const ref of refs) {
-    const file = await open(ref.path, "r");
-    try {
-      const header = Buffer.alloc(16);
-      const { bytesRead } = await file.read(header, 0, header.length, 0);
-      const copied = await importMediaStorageFile(
-        accountId,
-        ref.chatMid,
-        ref.messageId,
-        ref.path,
-        sniffMediaMime(header.subarray(0, bytesRead), ref.contentType),
-      );
-      if (copied) restored++;
-      else skipped++;
-    } finally {
-      await file.close();
+  let cursor: { chatMid: string; messageId: string } | null = null;
+  onProgress?.(0, Math.max(1, total));
+  for (;;) {
+    const refs = staging.mediaPlanPage(cursor, STAGING_BATCH_SIZE);
+    if (refs.length === 0) break;
+    for (const ref of refs) {
+      const file = await open(ref.path, "r");
+      try {
+        const header = Buffer.alloc(16);
+        const { bytesRead } = await file.read(header, 0, header.length, 0);
+        const copied = await importMediaStorageFile(
+          accountId,
+          ref.chatMid,
+          ref.messageId,
+          ref.path,
+          sniffMediaMime(header.subarray(0, bytesRead), ref.contentType),
+        );
+        if (copied) {
+          importedMedia.push({ chatMid: ref.chatMid, messageId: ref.messageId });
+          restored++;
+        } else skipped++;
+      } finally {
+        await file.close();
+      }
+      current++;
+      onProgress?.(current, Math.max(1, total));
     }
-    current++;
-    onProgress?.(current, refs.length);
+    const last = refs.at(-1);
+    if (last) cursor = { chatMid: last.chatMid, messageId: last.messageId };
+    await yieldToEventLoop();
   }
   return { restored, skipped };
+}
+
+async function rollbackImportedMedia(
+  accountId: string,
+  importedMedia: Array<{ chatMid: string; messageId: string }>,
+  source: string,
+): Promise<void> {
+  for (let index = importedMedia.length - 1; index >= 0; index--) {
+    const media = importedMedia[index]!;
+    await removeMediaStorageEntry(accountId, media.chatMid, media.messageId).catch(
+      (cleanupError) => {
+        log.warn({ cleanupError, ...media }, `${source} restore media rollback failed`);
+      },
+    );
+  }
 }
 
 function sniffMediaMime(bytes: Uint8Array, kind: string): string {
@@ -1238,16 +1813,6 @@ function previewForStoredMessage(message: StoredMessage): string {
       return "通話";
     default:
       return message.contentType || "メッセージ";
-  }
-}
-
-function compareId(left: string, right: string): number {
-  try {
-    const a = BigInt(left);
-    const b = BigInt(right);
-    return a === b ? 0 : a < b ? -1 : 1;
-  } catch {
-    return left.localeCompare(right);
   }
 }
 
