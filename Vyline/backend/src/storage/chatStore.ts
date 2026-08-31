@@ -23,12 +23,22 @@ export {
   getCacheMeta,
   saveBoxOrder,
   exportChatDb,
+  iterateStoredChats,
+  iterateStoredMessages,
+  createAccountChatSnapshot,
   importChatDb,
   mergeImportedChatDb,
+  mergeImportedChatDbFromStaging,
+  mergeAccountChatSnapshot,
   rebuildAccountChatDb,
   flushAccountChatDb,
+  closeAccountChatDb,
   listChatsWithCounts,
   getChatDbLogicalStorageBytes,
 } from "./chatStoreSqlite.js";
 export { getStoredMessageRefs } from "./storageUsageRefs.js";
-export type { BootstrapPayload } from "./chatStoreSqlite.js";
+export type {
+  BootstrapPayload,
+  ChatSnapshotProgress,
+  ChatSnapshotProgressCallback,
+} from "./chatStoreSqlite.js";

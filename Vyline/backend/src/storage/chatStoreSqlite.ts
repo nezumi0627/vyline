@@ -13,8 +13,8 @@
  */
 
 import { existsSync } from "node:fs";
-import { copyFile, mkdir } from "node:fs/promises";
-import { dirname } from "node:path";
+import { copyFile, mkdir, stat } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { Database } from "bun:sqlite";
 import type { Chat, Message, MessageSnapshot } from "@vyline/types";
 import { childLogger } from "../logger.js";
@@ -46,10 +46,43 @@ const log = childLogger("chatStore");
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
 const SCHEMA_VERSION = 1;
+const SQLITE_CACHE_KIB = boundedInteger(process.env.VYLINE_SQLITE_CACHE_KIB, 4_096, 1_024, 65_536);
+const SQLITE_BUSY_TIMEOUT_MS = boundedInteger(
+  process.env.VYLINE_SQLITE_BUSY_TIMEOUT_MS,
+  1_000,
+  100,
+  10_000,
+);
+const STAGING_QUOTA_CHECK_BATCHES = 10;
 
 const databases = new Map<string, Database>();
+const databaseOpenInflight = new Map<string, Promise<Database>>();
+const databaseExclusiveTails = new Map<string, Promise<void>>();
+
+function boundedInteger(
+  raw: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+): number {
+  const parsed = Number(raw ?? fallback);
+  if (!Number.isFinite(parsed)) return fallback;
+  return Math.min(maximum, Math.max(minimum, Math.floor(parsed)));
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
 
 type SqlRow = Record<string, unknown>;
+
+export interface ChatSnapshotProgress {
+  phase: "chats" | "messages" | "merge";
+  current: number;
+  total: number;
+}
+
+export type ChatSnapshotProgressCallback = (progress: ChatSnapshotProgress) => void;
 
 type ChatRow = {
   mid: string;
@@ -131,15 +164,11 @@ function fromChatRow(row: ChatRow): StoredChat {
     hasMessages: row.has_messages !== 0,
     ...(row.last_message_time != null ? { lastMessageTime: row.last_message_time } : {}),
     ...(row.last_message_id != null ? { lastMessageId: row.last_message_id } : {}),
-    ...(row.last_message_preview != null
-      ? { lastMessagePreview: row.last_message_preview }
-      : {}),
+    ...(row.last_message_preview != null ? { lastMessagePreview: row.last_message_preview } : {}),
     ...(row.thumbnail_url != null ? { thumbnailUrl: row.thumbnail_url } : {}),
     ...(row.unread_count != null ? { unreadCount: row.unread_count } : {}),
     ...(row.is_official != null ? { isOfficial: row.is_official !== 0 } : {}),
-    ...(row.restored_history != null
-      ? { restoredHistory: row.restored_history !== 0 }
-      : {}),
+    ...(row.restored_history != null ? { restoredHistory: row.restored_history !== 0 } : {}),
     updatedAt: row.updated_at,
   };
 }
@@ -177,14 +206,16 @@ function fromMessageRow(row: MessageRow): StoredMessage {
   };
 }
 
-function initializeDb(db: Database): void {
+function initializeBaseSchema(db: Database): void {
   db.exec("PRAGMA journal_mode = WAL");
   db.exec("PRAGMA synchronous = NORMAL");
   db.exec("PRAGMA foreign_keys = ON");
-  db.exec("PRAGMA busy_timeout = 5000");
+  db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
   db.exec("PRAGMA wal_autocheckpoint = 1000");
   db.exec("PRAGMA journal_size_limit = 33554432");
-  db.exec("PRAGMA cache_size = -8192");
+  db.exec(`PRAGMA cache_size = -${SQLITE_CACHE_KIB}`);
+  db.exec("PRAGMA mmap_size = 0");
+  db.exec("PRAGMA temp_store = FILE");
   db.exec(`
     CREATE TABLE IF NOT EXISTS meta (
       key TEXT PRIMARY KEY,
@@ -232,6 +263,18 @@ function initializeDb(db: Database): void {
 
     CREATE INDEX IF NOT EXISTS idx_messages_chat_time
       ON messages (chat_mid, created_time DESC, id DESC);
+    CREATE INDEX IF NOT EXISTS idx_messages_chat_order
+      ON messages (
+        chat_mid,
+        created_time DESC,
+        (CASE WHEN id NOT GLOB '*[^0-9]*' THEN length(id) ELSE 0 END) DESC,
+        id DESC
+      );
+    CREATE INDEX IF NOT EXISTS idx_messages_unseen_inbound_numeric
+      ON messages (chat_mid, length(id), id)
+      WHERE is_my_message = 0
+        AND seen IS NOT 1
+        AND id NOT GLOB '*[^0-9]*';
     CREATE INDEX IF NOT EXISTS idx_messages_id ON messages (id);
 
     CREATE TABLE IF NOT EXISTS message_sync (
@@ -245,19 +288,185 @@ function initializeDb(db: Database): void {
       at TEXT NOT NULL
     );
   `);
-  db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+}
+
+function initializeDb(db: Database): void {
+  const currentVersion = Number(
+    (db.query("PRAGMA user_version").get() as { user_version?: number } | null)?.user_version ?? 0,
+  );
+  initializeBaseSchema(db);
+  if (currentVersion < SCHEMA_VERSION) db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
+}
+
+const STAGED_CHAT_COLUMNS = CHAT_COLUMNS;
+const STAGED_MESSAGE_COLUMNS = MESSAGE_COLUMNS;
+
+function resetAndInitializeStagingDb(db: Database): void {
+  db.exec("PRAGMA journal_mode = DELETE");
+  db.exec("PRAGMA synchronous = NORMAL");
+  db.exec(`PRAGMA busy_timeout = ${SQLITE_BUSY_TIMEOUT_MS}`);
+  db.exec("PRAGMA temp_store = FILE");
+  db.exec(`
+    DROP TABLE IF EXISTS staged_local_read;
+    DROP TABLE IF EXISTS staged_message_sync;
+    DROP TABLE IF EXISTS staged_meta;
+    DROP TABLE IF EXISTS staged_messages;
+    DROP TABLE IF EXISTS staged_chats;
+
+    CREATE TABLE staged_chats (
+      mid TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      has_messages INTEGER NOT NULL,
+      last_message_time INTEGER,
+      last_message_id TEXT,
+      last_message_preview TEXT,
+      thumbnail_url TEXT,
+      unread_count INTEGER,
+      is_official INTEGER,
+      restored_history INTEGER,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE TABLE staged_messages (
+      id TEXT NOT NULL,
+      chat_mid TEXT NOT NULL,
+      from_mid TEXT NOT NULL,
+      to_mid TEXT NOT NULL,
+      text TEXT,
+      content_type TEXT NOT NULL,
+      created_time INTEGER NOT NULL,
+      is_my_message INTEGER NOT NULL,
+      content_metadata TEXT,
+      read_count INTEGER,
+      read_by TEXT,
+      seen INTEGER,
+      related_message_id TEXT,
+      sticker_animated INTEGER,
+      sticker_sticky INTEGER,
+      reactions TEXT,
+      saved_at TEXT NOT NULL,
+      message_state TEXT,
+      history TEXT,
+      revoked_snapshot TEXT,
+      PRIMARY KEY (chat_mid, id)
+    ) WITHOUT ROWID;
+
+    CREATE TABLE staged_meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
+    CREATE TABLE staged_message_sync (
+      chat_mid TEXT PRIMARY KEY,
+      synced_at TEXT NOT NULL
+    );
+
+    CREATE TABLE staged_local_read (
+      chat_mid TEXT PRIMARY KEY,
+      message_id TEXT NOT NULL,
+      at TEXT NOT NULL
+    );
+  `);
+}
+
+function normalizedSelectedMids(selectedMids?: Iterable<string>): string[] | undefined {
+  if (!selectedMids) return undefined;
+  const mids = [...new Set([...selectedMids].filter((mid) => typeof mid === "string" && mid))];
+  return mids.length > 0 ? mids.sort() : undefined;
+}
+
+function installSelectedMids(db: Database, selectedMids?: Iterable<string>): boolean {
+  db.exec("DROP TABLE IF EXISTS temp.vyline_selected_mids");
+  const mids = normalizedSelectedMids(selectedMids);
+  if (!mids) return false;
+  db.exec("CREATE TEMP TABLE vyline_selected_mids (mid TEXT PRIMARY KEY) WITHOUT ROWID");
+  const insert = db.query("INSERT INTO temp.vyline_selected_mids(mid) VALUES (?)");
+  for (const mid of mids) insert.run(mid);
+  return true;
+}
+
+function clearSelectedMids(db: Database): void {
+  db.exec("DROP TABLE IF EXISTS temp.vyline_selected_mids");
+}
+
+function attachedTableExists(db: Database, table: string): boolean {
+  return Boolean(
+    db
+      .query(
+        "SELECT 1 AS present FROM vyline_stage.sqlite_master WHERE type = 'table' AND name = ? LIMIT 1",
+      )
+      .get(table),
+  );
+}
+
+function assertAttachedTableColumns(
+  db: Database,
+  table: string,
+  required: readonly string[],
+): void {
+  if (!attachedTableExists(db, table)) throw new Error(`Invalid chat snapshot: missing ${table}`);
+  const rows = db.query(`PRAGMA vyline_stage.table_info(${table})`).all() as Array<{
+    name: string;
+  }>;
+  const actual = new Set(rows.map((row) => row.name));
+  const missing = required.filter((column) => !actual.has(column));
+  if (missing.length > 0)
+    throw new Error(`Invalid chat snapshot: ${table} is missing ${missing.join(", ")}`);
+}
+
+async function getDbUnblocked(accountId: string): Promise<Database> {
+  const existing = databases.get(accountId);
+  if (existing) return existing;
+  const opening = databaseOpenInflight.get(accountId);
+  if (opening) return opening;
+
+  const task = (async () => {
+    ensureAccount(accountId);
+    const path = dbPath(accountId);
+    await mkdir(dirname(path), { recursive: true });
+    const db = new Database(path, { create: true });
+    try {
+      await initializeDb(db);
+      databases.set(accountId, db);
+      return db;
+    } catch (error) {
+      db.close();
+      throw error;
+    }
+  })();
+  databaseOpenInflight.set(accountId, task);
+  try {
+    return await task;
+  } finally {
+    if (databaseOpenInflight.get(accountId) === task) databaseOpenInflight.delete(accountId);
+  }
 }
 
 async function getDb(accountId: string): Promise<Database> {
-  const existing = databases.get(accountId);
-  if (existing) return existing;
-  ensureAccount(accountId);
-  const path = dbPath(accountId);
-  await mkdir(dirname(path), { recursive: true });
-  const db = new Database(path, { create: true });
-  initializeDb(db);
-  databases.set(accountId, db);
-  return db;
+  const barrier = databaseExclusiveTails.get(accountId);
+  if (barrier) await barrier;
+  return getDbUnblocked(accountId);
+}
+
+async function withExclusiveAccountDb<T>(
+  accountId: string,
+  work: (db: Database) => Promise<T>,
+): Promise<T> {
+  const previous = databaseExclusiveTails.get(accountId) ?? Promise.resolve();
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => held);
+  databaseExclusiveTails.set(accountId, tail);
+  await previous.catch(() => undefined);
+  try {
+    return await work(await getDbUnblocked(accountId));
+  } finally {
+    release();
+    if (databaseExclusiveTails.get(accountId) === tail) databaseExclusiveTails.delete(accountId);
+  }
 }
 
 function withTransaction<T>(db: Database, work: () => T): T {
@@ -277,9 +486,7 @@ function withTransaction<T>(db: Database, work: () => T): T {
 }
 
 function getMetaValue<T>(db: Database, key: string): T | undefined {
-  const row = db.query("SELECT value FROM meta WHERE key = ?").get(key) as
-    | { value: string }
-    | null;
+  const row = db.query("SELECT value FROM meta WHERE key = ?").get(key) as { value: string } | null;
   return row ? parseJson<T>(row.value) : undefined;
 }
 
@@ -290,9 +497,9 @@ function setMetaValue(db: Database, key: string, value: unknown): void {
 }
 
 function getChatRecord(db: Database, mid: string): StoredChat | undefined {
-  const row = db.query(`SELECT ${CHAT_COLUMNS} FROM chats WHERE mid = ?`).get(mid) as
-    | ChatRow
-    | null;
+  const row = db
+    .query(`SELECT ${CHAT_COLUMNS} FROM chats WHERE mid = ?`)
+    .get(mid) as ChatRow | null;
   return row ? fromChatRow(row) : undefined;
 }
 
@@ -412,9 +619,10 @@ function getLocalRead(
   db: Database,
   chatMid: string,
 ): { messageId: string; at: string } | undefined {
-  const row = db
-    .query("SELECT message_id, at FROM local_read WHERE chat_mid = ?")
-    .get(chatMid) as { message_id: string; at: string } | null;
+  const row = db.query("SELECT message_id, at FROM local_read WHERE chat_mid = ?").get(chatMid) as {
+    message_id: string;
+    at: string;
+  } | null;
   return row ? { messageId: row.message_id, at: row.at } : undefined;
 }
 
@@ -425,6 +633,7 @@ function applyLocalReadWatermarkSql(db: Database, chatMid: string, messageId: st
     SET seen = 1
     WHERE chat_mid = ?
       AND is_my_message = 0
+      AND seen IS NOT 1
       AND id NOT GLOB '*[^0-9]*'
       AND (
         length(id) < ? OR
@@ -446,11 +655,8 @@ function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
 
 /** Open the SQLite file and schema only; no full-history hydration is performed. */
 export async function warmAccountCache(accountId: string): Promise<void> {
-  const db = await getDb(accountId);
-  const counts = db
-    .query("SELECT (SELECT count(*) FROM chats) AS chats, (SELECT count(*) FROM messages) AS messages")
-    .get() as { chats: number; messages: number };
-  log.debug({ accountId, ...counts }, "sqlite chat cache ready");
+  await getDb(accountId);
+  log.debug({ accountId }, "sqlite chat cache ready");
 }
 
 export async function upsertChats(
@@ -471,7 +677,8 @@ export async function upsertChats(
       const existingTime = existing.lastMessageTime ?? 0;
       const keepExistingLast = existingTime > incomingTime;
       const keepResolvedPreview = shouldPreserveResolvedLastMessagePreview(existing, chat);
-      const incomingNameIsFallback = !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
+      const incomingNameIsFallback =
+        !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
       const incomingKindIsFallback = chat.kind === "unknown";
 
       writeChatRecord(db, {
@@ -578,7 +785,7 @@ export async function markStoredMessagesReadThrough(
   withTransaction(db, () => {
     const current = getLocalRead(db, chatMid)?.messageId;
     try {
-      if (current && BigInt(current) > BigInt(messageId)) return;
+      if (current && BigInt(current) >= BigInt(messageId)) return;
     } catch {
       /* replace malformed cursor */
     }
@@ -588,7 +795,8 @@ export async function markStoredMessagesReadThrough(
       ON CONFLICT(chat_mid) DO UPDATE SET message_id = excluded.message_id, at = excluded.at
     `).run(chatMid, messageId, now);
     applyLocalReadWatermarkSql(db, chatMid, messageId);
-    db.query("UPDATE chats SET unread_count = 0 WHERE mid = ?").run(chatMid);
+    const chat = getChatRecord(db, chatMid);
+    if (chat && chat.unreadCount !== 0) writeChatRecord(db, { ...chat, unreadCount: 0 });
   });
 }
 
@@ -635,14 +843,17 @@ export async function restoreRevokedMessage(
       : undefined;
     if (!snapshot && !lastNormal) return null;
     const restoredText = snapshot?.text ?? lastNormal?.text ?? null;
-    const restoredContentType = snapshot?.contentType ?? lastNormal?.contentType ?? stored.contentType;
+    const restoredContentType =
+      snapshot?.contentType ?? lastNormal?.contentType ?? stored.contentType;
     const entry = {
       state: "normal" as const,
       text: stored.text,
       contentType: stored.contentType,
       updatedTime: Date.now(),
     };
-    stored.messageState = (snapshot?.messageState ?? lastNormal?.state ?? "normal") as Message["messageState"];
+    stored.messageState = (snapshot?.messageState ??
+      lastNormal?.state ??
+      "normal") as Message["messageState"];
     stored.history = [...(stored.history ?? []), entry];
     if (snapshot) stored.revokedSnapshot = snapshot;
     stored.text = restoredText;
@@ -652,7 +863,8 @@ export async function restoreRevokedMessage(
       if (snapshot.readCount !== undefined) stored.readCount = snapshot.readCount;
       if (snapshot.readBy !== undefined) stored.readBy = snapshot.readBy;
       if (snapshot.seen !== undefined) stored.seen = snapshot.seen;
-      if (snapshot.relatedMessageId !== undefined) stored.relatedMessageId = snapshot.relatedMessageId;
+      if (snapshot.relatedMessageId !== undefined)
+        stored.relatedMessageId = snapshot.relatedMessageId;
       if (snapshot.stickerAnimated !== undefined) stored.stickerAnimated = snapshot.stickerAnimated;
       if (snapshot.stickerSticky !== undefined) stored.stickerSticky = snapshot.stickerSticky;
       if (snapshot.reactions !== undefined) stored.reactions = snapshot.reactions;
@@ -826,7 +1038,9 @@ function readMeta(db: Database): ChatDbMeta {
     synced_at: string;
   }>;
   if (syncRows.length) {
-    meta.messagesSyncedAt = Object.fromEntries(syncRows.map((row) => [row.chat_mid, row.synced_at]));
+    meta.messagesSyncedAt = Object.fromEntries(
+      syncRows.map((row) => [row.chat_mid, row.synced_at]),
+    );
   }
   const readRows = db.query("SELECT chat_mid, message_id, at FROM local_read").all() as Array<{
     chat_mid: string;
@@ -863,68 +1077,314 @@ export async function exportChatDb(accountId: string): Promise<ChatDb> {
   return { meta: readMeta(db), chats, messages };
 }
 
-function jsonBytes(value: unknown): number {
-  return Buffer.byteLength(JSON.stringify(value));
+/** Bounded compatibility iterator for callers that still need StoredChat objects. */
+export async function* iterateStoredChats(
+  accountId: string,
+  selectedMids?: Iterable<string>,
+  batchSize = 500,
+): AsyncGenerator<StoredChat> {
+  const db = await getDb(accountId);
+  const safeBatchSize = boundedInteger(String(batchSize), 500, 1, 2_000);
+  const selected = normalizedSelectedMids(selectedMids);
+  let yieldedSincePause = 0;
+
+  if (selected) {
+    const query = db.query(`SELECT ${CHAT_COLUMNS} FROM chats WHERE mid = ?`);
+    for (const mid of selected) {
+      const row = query.get(mid) as ChatRow | null;
+      if (row) yield fromChatRow(row);
+      if (row && ++yieldedSincePause >= safeBatchSize) {
+        yieldedSincePause = 0;
+        await yieldToEventLoop();
+      }
+    }
+    return;
+  }
+
+  let afterMid = "";
+  for (;;) {
+    const rows = db
+      .query(`SELECT ${CHAT_COLUMNS} FROM chats WHERE mid > ? ORDER BY mid LIMIT ?`)
+      .all(afterMid, safeBatchSize) as ChatRow[];
+    if (rows.length === 0) return;
+    for (const row of rows) yield fromChatRow(row);
+    afterMid = rows[rows.length - 1]!.mid;
+    await yieldToEventLoop();
+  }
 }
 
-function mapEntryBytes(key: string, valueBytes: number): number {
-  return jsonBytes(key) + 1 + valueBytes;
+/** Bounded compatibility iterator that never materializes the complete history. */
+export async function* iterateStoredMessages(
+  accountId: string,
+  selectedMids?: Iterable<string>,
+  batchSize = 500,
+): AsyncGenerator<StoredMessage> {
+  const db = await getDb(accountId);
+  const safeBatchSize = boundedInteger(String(batchSize), 500, 1, 2_000);
+  const selected = normalizedSelectedMids(selectedMids);
+
+  if (selected) {
+    for (const chatMid of selected) {
+      let afterId = "";
+      for (;;) {
+        const rows = db
+          .query(`
+            SELECT ${MESSAGE_COLUMNS}
+            FROM messages
+            WHERE chat_mid = ? AND id > ?
+            ORDER BY id
+            LIMIT ?
+          `)
+          .all(chatMid, afterId, safeBatchSize) as MessageRow[];
+        if (rows.length === 0) break;
+        for (const row of rows) yield fromMessageRow(row);
+        afterId = rows[rows.length - 1]!.id;
+        await yieldToEventLoop();
+      }
+    }
+    return;
+  }
+
+  let afterChatMid = "";
+  let afterId = "";
+  for (;;) {
+    const rows = db
+      .query(`
+        SELECT ${MESSAGE_COLUMNS}
+        FROM messages
+        WHERE chat_mid > ? OR (chat_mid = ? AND id > ?)
+        ORDER BY chat_mid, id
+        LIMIT ?
+      `)
+      .all(afterChatMid, afterChatMid, afterId, safeBatchSize) as MessageRow[];
+    if (rows.length === 0) return;
+    for (const row of rows) yield fromMessageRow(row);
+    const last = rows[rows.length - 1]!;
+    afterChatMid = last.chat_mid;
+    afterId = last.id;
+    await yieldToEventLoop();
+  }
+}
+
+function runStagingTransaction(db: Database, work: () => void): void {
+  db.exec("BEGIN");
+  try {
+    work();
+    db.exec("COMMIT");
+  } catch (error) {
+    db.exec("ROLLBACK");
+    throw error;
+  }
 }
 
 /**
- * Exact logical chat history size used by the existing backup quota, calculated
- * from SQLite in bounded chunks rather than materializing the whole DB object.
+ * Create a normalized SQLite snapshot without constructing ChatDb JSON. Source
+ * reads and destination writes are bounded, with an event-loop yield per batch.
  */
-function sqliteLogicalStorageBytes(db: Database): number {
-  const meta = readMeta(db);
-  let total = jsonBytes({ meta, chats: {}, messages: {} }) - 4;
+export async function createAccountChatSnapshot(
+  accountId: string,
+  targetPath: string,
+  selectedMids?: Iterable<string>,
+  onProgress?: ChatSnapshotProgressCallback,
+): Promise<{ chats: number; messages: number }> {
+  if (resolve(targetPath) === resolve(dbPath(accountId)))
+    throw new Error("Chat snapshot target must differ from the live database");
+  await mkdir(dirname(targetPath), { recursive: true });
 
-  const chatRows = db.query(`SELECT ${CHAT_COLUMNS} FROM chats`).all() as ChatRow[];
-  let chatsBytes = 2;
-  for (let index = 0; index < chatRows.length; index++) {
-    const chat = fromChatRow(chatRows[index]!);
-    chatsBytes += mapEntryBytes(chat.mid, jsonBytes(chat));
-    if (index > 0) chatsBytes++;
-  }
-  total += chatsBytes;
+  return withExclusiveAccountDb(accountId, async (source) => {
+    const selected = normalizedSelectedMids(selectedMids);
+    const hasSelection = installSelectedMids(source, selected);
+    const selectionJoin = hasSelection
+      ? "JOIN temp.vyline_selected_mids selected ON selected.mid = source_rows.mid"
+      : "";
+    const messageSelectionJoin = hasSelection
+      ? "JOIN temp.vyline_selected_mids selected ON selected.mid = source_rows.chat_mid"
+      : "";
+    const target = new Database(targetPath, { create: true });
+    try {
+      resetAndInitializeStagingDb(target);
+      const chatTotal = Number(
+        (
+          source
+            .query(`SELECT count(*) AS count FROM chats source_rows ${selectionJoin}`)
+            .get() as { count?: number } | null
+        )?.count ?? 0,
+      );
+      const messageTotal = Number(
+        (
+          source
+            .query(`SELECT count(*) AS count FROM messages source_rows ${messageSelectionJoin}`)
+            .get() as { count?: number } | null
+        )?.count ?? 0,
+      );
 
-  const mids = db.query("SELECT DISTINCT chat_mid FROM messages ORDER BY chat_mid").all() as Array<{
-    chat_mid: string;
-  }>;
-  let messagesBytes = 2;
-  for (let midIndex = 0; midIndex < mids.length; midIndex++) {
-    const chatMid = mids[midIndex]!.chat_mid;
-    let innerBytes = 2;
-    let count = 0;
-    let afterId = "";
-    let afterTime = -1;
-    for (;;) {
-      const rows = db
-        .query(`
-          SELECT ${MESSAGE_COLUMNS}
-          FROM messages
-          WHERE chat_mid = ? AND (
-            created_time > ? OR (created_time = ? AND id > ?)
-          )
-          ORDER BY created_time, id
-          LIMIT 1000
-        `)
-        .all(chatMid, afterTime, afterTime, afterId) as MessageRow[];
-      if (rows.length === 0) break;
-      for (const row of rows) {
-        const message = fromMessageRow(row);
-        innerBytes += mapEntryBytes(message.id, jsonBytes(message));
-        if (count++ > 0) innerBytes++;
-        afterTime = row.created_time;
-        afterId = row.id;
+      const insertChat = target.query(`
+        INSERT INTO staged_chats (${STAGED_CHAT_COLUMNS})
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+      const insertMessage = target.query(`
+        INSERT INTO staged_messages (${STAGED_MESSAGE_COLUMNS})
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `);
+
+      if (!hasSelection) {
+        const insertMeta = target.query("INSERT INTO staged_meta(key, value) VALUES (?, ?)");
+        for (const row of source.query("SELECT key, value FROM meta").all() as Array<{
+          key: string;
+          value: string;
+        }>)
+          insertMeta.run(row.key, row.value);
       }
-      if (rows.length < 1000) break;
+      target
+        .query("INSERT OR REPLACE INTO staged_meta(key, value) VALUES ('snapshot_format', ?)")
+        .run("vyline-normalized-v1");
+
+      const syncJoin = hasSelection
+        ? "JOIN temp.vyline_selected_mids selected ON selected.mid = source_rows.chat_mid"
+        : "";
+      const insertSync = target.query(
+        "INSERT INTO staged_message_sync(chat_mid, synced_at) VALUES (?, ?)",
+      );
+      for (const row of source
+        .query(
+          `SELECT source_rows.chat_mid, source_rows.synced_at FROM message_sync source_rows ${syncJoin}`,
+        )
+        .all() as Array<{ chat_mid: string; synced_at: string }>)
+        insertSync.run(row.chat_mid, row.synced_at);
+
+      const insertRead = target.query(
+        "INSERT INTO staged_local_read(chat_mid, message_id, at) VALUES (?, ?, ?)",
+      );
+      for (const row of source
+        .query(
+          `SELECT source_rows.chat_mid, source_rows.message_id, source_rows.at FROM local_read source_rows ${syncJoin}`,
+        )
+        .all() as Array<{ chat_mid: string; message_id: string; at: string }>)
+        insertRead.run(row.chat_mid, row.message_id, row.at);
+
+      let copiedChats = 0;
+      let afterMid = "";
+      onProgress?.({ phase: "chats", current: 0, total: chatTotal });
+      for (;;) {
+        const rows = source
+          .query(`
+            SELECT source_rows.*
+            FROM chats source_rows
+            ${selectionJoin}
+            WHERE source_rows.mid > ?
+            ORDER BY source_rows.mid
+            LIMIT 500
+          `)
+          .all(afterMid) as ChatRow[];
+        if (rows.length === 0) break;
+        runStagingTransaction(target, () => {
+          for (const row of rows)
+            insertChat.run(
+              row.mid,
+              row.name,
+              row.kind,
+              row.has_messages,
+              row.last_message_time,
+              row.last_message_id,
+              row.last_message_preview,
+              row.thumbnail_url,
+              row.unread_count,
+              row.is_official,
+              row.restored_history,
+              row.updated_at,
+            );
+        });
+        copiedChats += rows.length;
+        afterMid = rows[rows.length - 1]!.mid;
+        onProgress?.({ phase: "chats", current: copiedChats, total: chatTotal });
+        await yieldToEventLoop();
+      }
+
+      let copiedMessages = 0;
+      let afterChatMid = "";
+      let afterMessageId = "";
+      onProgress?.({ phase: "messages", current: 0, total: messageTotal });
+      for (;;) {
+        const rows = source
+          .query(`
+            SELECT source_rows.*
+            FROM messages source_rows
+            ${messageSelectionJoin}
+            WHERE source_rows.chat_mid > ?
+               OR (source_rows.chat_mid = ? AND source_rows.id > ?)
+            ORDER BY source_rows.chat_mid, source_rows.id
+            LIMIT 500
+          `)
+          .all(afterChatMid, afterChatMid, afterMessageId) as MessageRow[];
+        if (rows.length === 0) break;
+        runStagingTransaction(target, () => {
+          for (const row of rows)
+            insertMessage.run(
+              row.id,
+              row.chat_mid,
+              row.from_mid,
+              row.to_mid,
+              row.text,
+              row.content_type,
+              row.created_time,
+              row.is_my_message,
+              row.content_metadata,
+              row.read_count,
+              row.read_by,
+              row.seen,
+              row.related_message_id,
+              row.sticker_animated,
+              row.sticker_sticky,
+              row.reactions,
+              row.saved_at,
+              row.message_state,
+              row.history,
+              row.revoked_snapshot,
+            );
+        });
+        copiedMessages += rows.length;
+        const last = rows[rows.length - 1]!;
+        afterChatMid = last.chat_mid;
+        afterMessageId = last.id;
+        onProgress?.({ phase: "messages", current: copiedMessages, total: messageTotal });
+        await yieldToEventLoop();
+      }
+
+      target
+        .query("INSERT OR REPLACE INTO staged_meta(key, value) VALUES ('snapshot_complete', '1')")
+        .run();
+      return { chats: copiedChats, messages: copiedMessages };
+    } finally {
+      clearSelectedMids(source);
+      target.close();
     }
-    messagesBytes += mapEntryBytes(chatMid, innerBytes);
-    if (midIndex > 0) messagesBytes++;
+  });
+}
+
+/**
+ * O(1) storage accounting based on allocated SQLite pages that currently hold
+ * data. Freelist pages are excluded because SQLite can reuse them without
+ * growing the database. Retained WAL capacity is managed separately.
+ */
+function sqliteUsedStorageBytes(db: Database): number {
+  const pageCount = Number(
+    (db.query("PRAGMA page_count").get() as { page_count?: number } | null)?.page_count ?? 0,
+  );
+  const freelistCount = Number(
+    (db.query("PRAGMA freelist_count").get() as { freelist_count?: number } | null)
+      ?.freelist_count ?? 0,
+  );
+  const pageSize = Number(
+    (db.query("PRAGMA page_size").get() as { page_size?: number } | null)?.page_size ?? 0,
+  );
+  if (![pageCount, freelistCount, pageSize].every(Number.isFinite)) return 0;
+  return Math.max(0, pageCount - freelistCount) * Math.max(0, pageSize);
+}
+
+function assertWithinStorageQuota(db: Database, maxStorageBytes: number): void {
+  if (Number.isFinite(maxStorageBytes) && sqliteUsedStorageBytes(db) > maxStorageBytes) {
+    throw new BackupStorageLimitError();
   }
-  total += messagesBytes;
-  return total;
 }
 
 export async function importChatDb(
@@ -961,11 +1421,14 @@ export async function importChatDb(
 
 function replaceDatabaseRecords(db: Database, data: ChatDb): void {
   withTransaction(db, () => {
-    db.exec("DELETE FROM messages; DELETE FROM chats; DELETE FROM message_sync; DELETE FROM local_read; DELETE FROM meta;");
+    db.exec(
+      "DELETE FROM messages; DELETE FROM chats; DELETE FROM message_sync; DELETE FROM local_read; DELETE FROM meta;",
+    );
     for (const chat of Object.values(data.chats)) writeChatRecord(db, chat);
     for (const messages of Object.values(data.messages))
       for (const message of Object.values(messages)) writeMessageRecord(db, message);
-    if (data.meta.lastOpRevision != null) setMetaValue(db, "lastOpRevision", data.meta.lastOpRevision);
+    if (data.meta.lastOpRevision != null)
+      setMetaValue(db, "lastOpRevision", data.meta.lastOpRevision);
     if (data.meta.boxOrder) setMetaValue(db, "boxOrder", data.meta.boxOrder);
     if (data.meta.chatsSyncedAt) setMetaValue(db, "chatsSyncedAt", data.meta.chatsSyncedAt);
     for (const [mid, iso] of Object.entries(data.meta.messagesSyncedAt ?? {}))
@@ -1004,7 +1467,9 @@ function mergeImportedRecordsSql(db: Database, incoming: ChatDbRecords): ChatDbM
       ...existing,
       kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
       hasMessages: existing.hasMessages || incomingChat.hasMessages,
-      ...(existing.restoredHistory || incomingChat.restoredHistory ? { restoredHistory: true } : {}),
+      ...(existing.restoredHistory || incomingChat.restoredHistory
+        ? { restoredHistory: true }
+        : {}),
       lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
       ...(incomingIsNewer && incomingChat.lastMessageId
         ? { lastMessageId: incomingChat.lastMessageId }
@@ -1084,12 +1549,431 @@ export async function mergeImportedChatDb(
   maxStorageBytes = Number.POSITIVE_INFINITY,
 ): Promise<ChatDbMergeResult> {
   const db = await getDb(accountId);
-  return withTransaction(db, () => {
+  const result = withTransaction(db, () => {
     const result = mergeImportedRecordsSql(db, incoming);
-    if (Number.isFinite(maxStorageBytes) && sqliteLogicalStorageBytes(db) > maxStorageBytes)
+    if (Number.isFinite(maxStorageBytes) && sqliteUsedStorageBytes(db) > maxStorageBytes)
       throw new BackupStorageLimitError();
     return result;
   });
+  try {
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+  } catch (error) {
+    log.warn({ accountId, error }, "legacy chat restore WAL truncation deferred");
+  }
+  return result;
+}
+
+const REQUIRED_STAGED_CHAT_COLUMNS = CHAT_COLUMNS.split(",").map((column) => column.trim());
+const REQUIRED_STAGED_MESSAGE_COLUMNS = MESSAGE_COLUMNS.split(",").map((column) => column.trim());
+
+async function mergeNormalizedStagingDb(
+  accountId: string,
+  stagingPath: string,
+  selectedMids: Iterable<string> | undefined,
+  maxStorageBytes: number,
+  onProgress?: ChatSnapshotProgressCallback,
+): Promise<ChatDbMergeResult> {
+  if (!existsSync(stagingPath)) throw new Error(`Chat snapshot not found: ${stagingPath}`);
+  if (resolve(stagingPath) === resolve(dbPath(accountId)))
+    throw new Error("Cannot merge the live chat database as a snapshot");
+
+  return withExclusiveAccountDb(accountId, async (db) => {
+    let attached = false;
+    let transactionOpen = false;
+    try {
+      db.query("ATTACH DATABASE ? AS vyline_stage").run(resolve(stagingPath));
+      attached = true;
+      assertAttachedTableColumns(db, "staged_chats", REQUIRED_STAGED_CHAT_COLUMNS);
+      assertAttachedTableColumns(db, "staged_messages", REQUIRED_STAGED_MESSAGE_COLUMNS);
+
+      const selected = normalizedSelectedMids(selectedMids);
+      const hasSelection = installSelectedMids(db, selected);
+      const chatSelectionJoin = hasSelection
+        ? "JOIN temp.vyline_selected_mids selected ON selected.mid = staged.mid"
+        : "";
+      const messageSelectionJoin = hasSelection
+        ? "JOIN temp.vyline_selected_mids selected ON selected.mid = staged.chat_mid"
+        : "";
+
+      const totalChats = Number(
+        (
+          db
+            .query(
+              `SELECT count(*) AS count FROM vyline_stage.staged_chats staged ${chatSelectionJoin}`,
+            )
+            .get() as { count?: number } | null
+        )?.count ?? 0,
+      );
+      const totalMessages = Number(
+        (
+          db
+            .query(
+              `SELECT count(*) AS count FROM vyline_stage.staged_messages staged ${messageSelectionJoin}`,
+            )
+            .get() as { count?: number } | null
+        )?.count ?? 0,
+      );
+      const skippedChats = Number(
+        (
+          db
+            .query(`
+              SELECT count(*) AS count
+              FROM vyline_stage.staged_chats staged
+              ${chatSelectionJoin}
+              JOIN main.chats current ON current.mid = staged.mid
+            `)
+            .get() as { count?: number } | null
+        )?.count ?? 0,
+      );
+      const skippedMessages = Number(
+        (
+          db
+            .query(`
+              SELECT count(*) AS count
+              FROM vyline_stage.staged_messages staged
+              ${messageSelectionJoin}
+              JOIN main.messages current
+                ON current.chat_mid = staged.chat_mid AND current.id = staged.id
+            `)
+            .get() as { count?: number } | null
+        )?.count ?? 0,
+      );
+
+      onProgress?.({ phase: "chats", current: 0, total: totalChats });
+      onProgress?.({ phase: "messages", current: 0, total: totalMessages });
+      db.exec("BEGIN IMMEDIATE");
+      transactionOpen = true;
+      assertWithinStorageQuota(db, maxStorageBytes);
+
+      let copiedChats = 0;
+      let chatBatches = 0;
+      let afterChatMid = "";
+      for (;;) {
+        const keys = db
+          .query(`
+            SELECT staged.mid
+            FROM vyline_stage.staged_chats staged
+            ${chatSelectionJoin}
+            WHERE staged.mid > ?
+            ORDER BY staged.mid
+            LIMIT 500
+          `)
+          .all(afterChatMid) as Array<{ mid: string }>;
+        if (keys.length === 0) break;
+        const lastMid = keys[keys.length - 1]!.mid;
+        db.query(`
+          INSERT INTO main.chats (${CHAT_COLUMNS})
+          SELECT
+            staged.mid, staged.name, staged.kind, staged.has_messages,
+            staged.last_message_time, staged.last_message_id, staged.last_message_preview,
+            staged.thumbnail_url, staged.unread_count, staged.is_official,
+            staged.restored_history, staged.updated_at
+          FROM vyline_stage.staged_chats staged
+          ${chatSelectionJoin}
+          WHERE staged.mid > ? AND staged.mid <= ?
+          ON CONFLICT(mid) DO UPDATE SET
+            name = CASE
+              WHEN chats.name = chats.mid AND excluded.name <> '' THEN excluded.name
+              ELSE chats.name
+            END,
+            kind = CASE
+              WHEN excluded.kind <> 'unknown' AND (
+                chats.kind = 'unknown' OR
+                ((chats.mid LIKE 'c%' OR chats.mid LIKE 'r%') AND excluded.kind = 'group')
+              ) THEN excluded.kind
+              ELSE chats.kind
+            END,
+            has_messages = CASE
+              WHEN chats.has_messages <> 0 OR excluded.has_messages <> 0 THEN 1 ELSE 0
+            END,
+            last_message_id = CASE
+              WHEN coalesce(excluded.last_message_time, 0) > coalesce(chats.last_message_time, 0)
+                AND excluded.last_message_id IS NOT NULL
+              THEN excluded.last_message_id ELSE chats.last_message_id
+            END,
+            last_message_preview = CASE
+              WHEN coalesce(excluded.last_message_time, 0) > coalesce(chats.last_message_time, 0)
+                AND excluded.last_message_preview IS NOT NULL
+              THEN excluded.last_message_preview ELSE chats.last_message_preview
+            END,
+            last_message_time = max(
+              coalesce(chats.last_message_time, 0),
+              coalesce(excluded.last_message_time, 0)
+            ),
+            restored_history = CASE
+              WHEN chats.restored_history <> 0 OR excluded.restored_history <> 0 THEN 1
+              ELSE chats.restored_history
+            END
+        `).run(afterChatMid, lastMid);
+        copiedChats += keys.length;
+        chatBatches++;
+        afterChatMid = lastMid;
+        onProgress?.({ phase: "chats", current: copiedChats, total: totalChats });
+        if (chatBatches % STAGING_QUOTA_CHECK_BATCHES === 0) {
+          assertWithinStorageQuota(db, maxStorageBytes);
+        }
+        await yieldToEventLoop();
+      }
+
+      if (!hasSelection && attachedTableExists(db, "staged_meta")) {
+        db.exec(`
+          INSERT INTO main.meta(key, value)
+          SELECT key, value
+          FROM vyline_stage.staged_meta
+          WHERE key IN ('boxOrder', 'chatsSyncedAt')
+          ON CONFLICT(key) DO UPDATE SET value = excluded.value
+        `);
+      }
+
+      if (attachedTableExists(db, "staged_message_sync")) {
+        const syncSelectionJoin = hasSelection
+          ? "JOIN temp.vyline_selected_mids selected ON selected.mid = staged.chat_mid"
+          : "";
+        db.exec(`
+          INSERT INTO main.message_sync(chat_mid, synced_at)
+          SELECT staged.chat_mid, staged.synced_at
+          FROM vyline_stage.staged_message_sync staged
+          ${syncSelectionJoin}
+          WHERE 1
+          ON CONFLICT(chat_mid) DO UPDATE SET synced_at = CASE
+            WHEN excluded.synced_at > message_sync.synced_at
+            THEN excluded.synced_at ELSE message_sync.synced_at
+          END
+        `);
+      }
+
+      if (attachedTableExists(db, "staged_local_read")) {
+        const readSelectionJoin = hasSelection
+          ? "JOIN temp.vyline_selected_mids selected ON selected.mid = staged.chat_mid"
+          : "";
+        db.exec(`
+          INSERT INTO main.local_read(chat_mid, message_id, at)
+          SELECT staged.chat_mid, staged.message_id, staged.at
+          FROM vyline_stage.staged_local_read staged
+          ${readSelectionJoin}
+          WHERE 1
+          ON CONFLICT(chat_mid) DO UPDATE SET
+            message_id = CASE
+              WHEN excluded.message_id NOT GLOB '*[^0-9]*'
+                AND local_read.message_id NOT GLOB '*[^0-9]*'
+                AND (
+                  length(excluded.message_id) > length(local_read.message_id) OR
+                  (length(excluded.message_id) = length(local_read.message_id)
+                    AND excluded.message_id > local_read.message_id)
+                )
+              THEN excluded.message_id
+              WHEN excluded.message_id GLOB '*[^0-9]*' AND excluded.at > local_read.at
+              THEN excluded.message_id
+              ELSE local_read.message_id
+            END,
+            at = CASE
+              WHEN excluded.message_id NOT GLOB '*[^0-9]*'
+                AND local_read.message_id NOT GLOB '*[^0-9]*'
+                AND (
+                  length(excluded.message_id) > length(local_read.message_id) OR
+                  (length(excluded.message_id) = length(local_read.message_id)
+                    AND excluded.message_id > local_read.message_id)
+                )
+              THEN excluded.at
+              WHEN excluded.message_id GLOB '*[^0-9]*' AND excluded.at > local_read.at
+              THEN excluded.at
+              ELSE local_read.at
+            END
+        `);
+      }
+
+      let copiedMessages = 0;
+      let messageBatches = 0;
+      let afterMessageChatMid = "";
+      let afterMessageId = "";
+      for (;;) {
+        const keys = db
+          .query(`
+            SELECT staged.chat_mid, staged.id
+            FROM vyline_stage.staged_messages staged
+            ${messageSelectionJoin}
+            WHERE staged.chat_mid > ?
+               OR (staged.chat_mid = ? AND staged.id > ?)
+            ORDER BY staged.chat_mid, staged.id
+            LIMIT 500
+          `)
+          .all(afterMessageChatMid, afterMessageChatMid, afterMessageId) as Array<{
+          chat_mid: string;
+          id: string;
+        }>;
+        if (keys.length === 0) break;
+        const last = keys[keys.length - 1]!;
+        db.query(`
+          INSERT INTO main.messages (${MESSAGE_COLUMNS})
+          SELECT
+            staged.id,
+            staged.chat_mid,
+            staged.from_mid,
+            CASE
+              WHEN staged.chat_mid LIKE 'c%' OR staged.chat_mid LIKE 'r%'
+              THEN staged.chat_mid ELSE staged.to_mid
+            END,
+            staged.text,
+            staged.content_type,
+            staged.created_time,
+            staged.is_my_message,
+            staged.content_metadata,
+            staged.read_count,
+            staged.read_by,
+            CASE
+              WHEN staged.is_my_message = 0
+                AND staged.id NOT GLOB '*[^0-9]*'
+                AND EXISTS (
+                  SELECT 1 FROM main.local_read local
+                  WHERE local.chat_mid = staged.chat_mid
+                    AND local.message_id NOT GLOB '*[^0-9]*'
+                    AND (
+                      length(staged.id) < length(local.message_id) OR
+                      (length(staged.id) = length(local.message_id)
+                        AND staged.id <= local.message_id)
+                    )
+                )
+              THEN 1 ELSE staged.seen
+            END,
+            staged.related_message_id,
+            staged.sticker_animated,
+            staged.sticker_sticky,
+            staged.reactions,
+            staged.saved_at,
+            staged.message_state,
+            staged.history,
+            staged.revoked_snapshot
+          FROM vyline_stage.staged_messages staged
+          ${messageSelectionJoin}
+          WHERE (
+              staged.chat_mid > ? OR
+              (staged.chat_mid = ? AND staged.id > ?)
+            ) AND (
+              staged.chat_mid < ? OR
+              (staged.chat_mid = ? AND staged.id <= ?)
+            )
+          ON CONFLICT(chat_mid, id) DO UPDATE SET
+            to_mid = CASE
+              WHEN messages.chat_mid LIKE 'c%' OR messages.chat_mid LIKE 'r%'
+              THEN messages.chat_mid ELSE messages.to_mid
+            END,
+            text = coalesce(messages.text, excluded.text),
+            content_type = CASE
+              WHEN messages.content_type <> '' AND messages.content_type <> 'NONE'
+              THEN messages.content_type ELSE excluded.content_type
+            END,
+            content_metadata = CASE
+              WHEN messages.content_metadata IS NULL THEN excluded.content_metadata
+              WHEN excluded.content_metadata IS NULL THEN messages.content_metadata
+              WHEN json_valid(messages.content_metadata) AND json_valid(excluded.content_metadata)
+              THEN json_patch(excluded.content_metadata, messages.content_metadata)
+              ELSE messages.content_metadata
+            END,
+            created_time = CASE
+              WHEN messages.created_time > 0 THEN messages.created_time ELSE excluded.created_time
+            END,
+            read_count = coalesce(messages.read_count, excluded.read_count),
+            read_by = coalesce(messages.read_by, excluded.read_by),
+            seen = CASE
+              WHEN messages.is_my_message = 0
+                AND messages.id NOT GLOB '*[^0-9]*'
+                AND EXISTS (
+                  SELECT 1 FROM main.local_read local
+                  WHERE local.chat_mid = messages.chat_mid
+                    AND local.message_id NOT GLOB '*[^0-9]*'
+                    AND (
+                      length(messages.id) < length(local.message_id) OR
+                      (length(messages.id) = length(local.message_id)
+                        AND messages.id <= local.message_id)
+                    )
+                )
+              THEN 1 ELSE coalesce(messages.seen, excluded.seen)
+            END,
+            related_message_id = coalesce(messages.related_message_id, excluded.related_message_id),
+            sticker_animated = coalesce(messages.sticker_animated, excluded.sticker_animated),
+            sticker_sticky = coalesce(messages.sticker_sticky, excluded.sticker_sticky),
+            reactions = coalesce(messages.reactions, excluded.reactions),
+            saved_at = CASE
+              WHEN messages.saved_at <> '' THEN messages.saved_at ELSE excluded.saved_at
+            END,
+            message_state = coalesce(messages.message_state, excluded.message_state),
+            history = coalesce(messages.history, excluded.history),
+            revoked_snapshot = coalesce(messages.revoked_snapshot, excluded.revoked_snapshot)
+        `).run(
+          afterMessageChatMid,
+          afterMessageChatMid,
+          afterMessageId,
+          last.chat_mid,
+          last.chat_mid,
+          last.id,
+        );
+        copiedMessages += keys.length;
+        messageBatches++;
+        afterMessageChatMid = last.chat_mid;
+        afterMessageId = last.id;
+        onProgress?.({ phase: "messages", current: copiedMessages, total: totalMessages });
+        if (messageBatches % STAGING_QUOTA_CHECK_BATCHES === 0) {
+          assertWithinStorageQuota(db, maxStorageBytes);
+        }
+        await yieldToEventLoop();
+      }
+
+      onProgress?.({ phase: "merge", current: 0, total: 1 });
+      assertWithinStorageQuota(db, maxStorageBytes);
+      onProgress?.({ phase: "merge", current: 1, total: 1 });
+      db.exec("COMMIT");
+      transactionOpen = false;
+      try {
+        db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      } catch (error) {
+        // The data is already committed. A concurrent reader may defer WAL
+        // truncation, so never misreport a successful atomic restore as failed.
+        log.warn({ accountId, error }, "chat restore WAL truncation deferred");
+      }
+      return {
+        importedChats: totalChats - skippedChats,
+        skippedChats,
+        importedMessages: totalMessages - skippedMessages,
+        skippedMessages,
+      };
+    } catch (error) {
+      if (transactionOpen) {
+        db.exec("ROLLBACK");
+        transactionOpen = false;
+      }
+      throw error;
+    } finally {
+      clearSelectedMids(db);
+      if (attached) db.exec("DETACH DATABASE vyline_stage");
+    }
+  });
+}
+
+/** Set-based normalized staging merge used by Android/iOS restore pipelines. */
+export async function mergeImportedChatDbFromStaging(
+  accountId: string,
+  stagingPath: string,
+  maxStorageBytes = Number.POSITIVE_INFINITY,
+  onProgress?: ChatSnapshotProgressCallback,
+): Promise<ChatDbMergeResult> {
+  return mergeNormalizedStagingDb(accountId, stagingPath, undefined, maxStorageBytes, onProgress);
+}
+
+/** Merge a normalized snapshot, optionally restricting it to selected chats. */
+export async function mergeAccountChatSnapshot(
+  accountId: string,
+  snapshotPath: string,
+  selectedMids?: Iterable<string>,
+  maxStorageBytes = Number.POSITIVE_INFINITY,
+  onProgress?: ChatSnapshotProgressCallback,
+): Promise<ChatDbMergeResult> {
+  return mergeNormalizedStagingDb(
+    accountId,
+    snapshotPath,
+    selectedMids,
+    maxStorageBytes,
+    onProgress,
+  );
 }
 
 export async function rebuildAccountChatDb(
@@ -1100,12 +1984,21 @@ export async function rebuildAccountChatDb(
   const stamp = new Date().toISOString().replace(/[:.]/g, "-");
   const backupFile = `chatdb.before-rebuild-${stamp}.sqlite`;
   await copyFile(dbPath(accountId), accountFile(accountId, backupFile));
-  const mids = db.query("SELECT mid FROM chats UNION SELECT chat_mid AS mid FROM messages").all() as Array<{
+  const mids = db
+    .query("SELECT mid FROM chats UNION SELECT chat_mid AS mid FROM messages")
+    .all() as Array<{
     mid: string;
   }>;
-  withTransaction(db, () => rebuildAffectedChats(db, mids.map((row) => row.mid)));
+  withTransaction(db, () =>
+    rebuildAffectedChats(
+      db,
+      mids.map((row) => row.mid),
+    ),
+  );
   const counts = db
-    .query("SELECT (SELECT count(*) FROM chats) AS chats, (SELECT count(*) FROM messages) AS messages")
+    .query(
+      "SELECT (SELECT count(*) FROM chats) AS chats, (SELECT count(*) FROM messages) AS messages",
+    )
     .get() as { chats: number; messages: number };
   return { ...counts, backupFile };
 }
@@ -1116,30 +2009,39 @@ export async function flushAccountChatDb(accountId: string): Promise<void> {
   db.exec("PRAGMA wal_checkpoint(PASSIVE)");
 }
 
+/** Release an account connection after shutdown/account removal and in isolated tests. */
+export async function closeAccountChatDb(accountId: string): Promise<void> {
+  if (!databases.has(accountId) && !databaseOpenInflight.has(accountId)) return;
+  await withExclusiveAccountDb(accountId, async (db) => {
+    db.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+    if (databases.get(accountId) === db) databases.delete(accountId);
+    db.close();
+  });
+}
+
 export async function listChatsWithCounts(
   accountId: string,
 ): Promise<Array<{ mid: string; name: string; messageCount: number }>> {
   const db = await getDb(accountId);
-  const rows = db.query(`
+  const rows = db
+    .query(`
     SELECT c.mid AS mid, c.name AS name, count(m.id) AS message_count
     FROM chats c
     LEFT JOIN messages m ON m.chat_mid = c.mid
     GROUP BY c.mid, c.name
-  `).all() as Array<{ mid: string; name: string; message_count: number }>;
+  `)
+    .all() as Array<{ mid: string; name: string; message_count: number }>;
   return rows.map((row) => ({ mid: row.mid, name: row.name, messageCount: row.message_count }));
 }
 
 /** Exposed for diagnostics/tests without requiring callers to know the file layout. */
 export async function getChatDbLogicalStorageBytes(accountId: string): Promise<number> {
   const db = await getDb(accountId);
-  const counts = db
-    .query("SELECT (SELECT count(*) FROM chats) AS chats, (SELECT count(*) FROM messages) AS messages, (SELECT count(*) FROM meta) AS meta")
-    .get() as { chats: number; messages: number; meta: number };
-  const syncCount = (db.query("SELECT count(*) AS count FROM message_sync").get() as { count: number }).count;
-  const readCount = (db.query("SELECT count(*) AS count FROM local_read").get() as { count: number }).count;
-  if (counts.chats === 0 && counts.messages === 0 && counts.meta === 0 && syncCount === 0 && readCount === 0)
-    return 0;
-  return sqliteLogicalStorageBytes(db);
+  const usedPages = sqliteUsedStorageBytes(db);
+  const walBytes = await stat(`${dbPath(accountId)}-wal`)
+    .then((entry) => entry.size)
+    .catch(() => 0);
+  return usedPages + walBytes;
 }
 
 /** Message-id-only view used by quota/media accounting without hydrating message bodies. */
