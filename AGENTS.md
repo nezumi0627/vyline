@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-29
+最終更新: 2026-08-30
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -34,7 +34,9 @@ README はユーザー向け入口。実装判断の正本にしない。
 
 - `Vyline/packages/protocol`、`Vyline/packages/plugin`、`Vyline/packages/themes`、`tools` は submodule/workspace の境界が見えにくい。まず `bun run vyl:doctor` で状態を確認する。
 - docs整理では既存docsをテンプレートへ機械的に当て直さない。新規docsや大改修だけ `docs/templates/` を使い、既存docsは必要箇所だけ直す。
+- README の正本は日本語が `README.src.md`、英語が `README.en.src.md`。`README.md` / `README.en.md` は生成物なので、原則として直接編集しない。README変更は両方の source に同じ内容を反映し、`bun run docs:readme` で生成して差分を確認する。
 - README は元の構成を守る。新導線を入れる場合も、該当セクションへの追記に留める。
+- 日本語と英語の README は情報量を揃える。機能、注意事項、パートナー、References、導入手順などを片方だけに追加しない。生成後は `README.md` と `README.en.md` の見出し・主要項目に欠落がないか確認する。
 - `vyl doctor` / `vyl init` は軽い入口にする。npm publish、Docker build、Trivy container scan、full security scan は通常CLIに入れない。
 - 重い処理は GitHub Actions の manual workflow、release workflow、schedule に寄せる。PRでは軽量チェックを優先する。
 
@@ -329,16 +331,28 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
 
+### 推奨: 1 task = 1 branch = 1 git worktree
+
+複数のAIエージェント・人間・IDEが並行してVylineを触る場合、repository全体のコピーではなく **タスクごとに独立した Git worktree** を使う。
+
+- 標準作業領域: `E:\projects\Vyline-worktrees\<task-name>`
+- `.codex-worktrees` のような特定エージェント専用名は新規利用しない
+- 本体 `E:\projects\Vyline` を複数タスクの共有編集場所にしない
+- 他worktreeのdirty差分・未追跡ファイルは触らない
+- 作業完了後はPRをmergeしてから `git worktree remove` で片付ける
+- 詳細手順: `docs/development-worktrees.md`
+
 - `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
 
 ```
-1. main から作業ブランチを切る
-   git checkout main && git pull && git checkout -b feature/<名前>
-2. 変更をコミットしてブランチに push
+1. origin/main から作業branch + worktreeを作る
+   git fetch origin
+   git worktree add -b feature/<名前> E:\projects\Vyline-worktrees\<名前> origin/main
+2. worktree内で変更をコミットしてbranchにpush
    git push -u origin feature/<名前>
 3. GitHub で PR を作成（base: main ← head: feature/<名前>）
-4. レビュー・承認後にマージする（repo 所有者以外のマージはブロックされる）
+4. レビュー・承認後にマージし、worktreeを削除する
 ```
 
 - 小さな修正（1 コミットのドキュメント更新など）でも、main への直接 push はせずブランチ経由にする

@@ -7,6 +7,7 @@ import {
   androidContentType,
   extractAndroidZip,
   parseAndroidParameter,
+  startAndroidBackupRestore,
 } from "./androidBackupService.js";
 
 describe("Android LINE backup import", () => {

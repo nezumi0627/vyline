@@ -109,7 +109,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/profile",
+    "/line/{accountId}/getProfile",
     "get",
     {
       op: "getProfile",
@@ -121,6 +121,24 @@ const routes: Array<[string, Method, OpSpec]> = [
         "200": jsonRes("プロフィール"),
         "401": { description: "未ログイン", content: { "application/json": { schema: error } } },
       },
+    },
+  ],
+  [
+    "/line/{accountId}/updateProfileAttributes",
+    "patch",
+    {
+      op: "updateProfileAttributes",
+      summary: "プロフィール属性更新",
+      description: "LINE: TalkService.updateProfileAttributes",
+      tags: ["session"],
+      params: [acc],
+      requestBody: body([], {
+        displayName: { type: "string" },
+        statusMessage: { type: "string" },
+        phoneticName: { type: "string" },
+        musicProfile: { type: "string" },
+      }),
+      responses: { "200": jsonRes("プロフィール") },
     },
   ],
   [
@@ -161,7 +179,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/events/poll",
+    "/line/{accountId}/fetchOperations",
     "get",
     {
       op: "fetchOperations",
@@ -175,7 +193,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── chats ───────────────────────────────────────────────
   [
-    "/line/{accountId}/chats",
+    "/line/{accountId}/getMessageBoxes",
     "get",
     {
       op: "getMessageBoxes",
@@ -187,7 +205,50 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/create-group",
+    "/line/{accountId}/chat-locks",
+    "get",
+    {
+      op: "getChatLocks",
+      summary: "送信保護対象チャット一覧を取得",
+      description: "Vyline 拡張。誤送信防止用のローカル設定",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("{ ok, chatMids }") },
+    },
+  ],
+  [
+    "/line/{accountId}/chat-locks/{chatMid}",
+    "put",
+    {
+      op: "setChatLock",
+      summary: "チャットの送信保護状態を更新",
+      description: "Vyline 拡張。locked は必須 boolean",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["locked"], { locked: { type: "boolean" } }),
+      responses: {
+        "200": jsonRes("{ ok, locked, chatMids }"),
+        "400": {
+          description: "locked が boolean ではない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/chatdb/rebuild",
+    "post",
+    {
+      op: "rebuildChatDatabase",
+      summary: "ローカルチャット DB を再構築",
+      description: "Vyline 拡張。復元・同期混在後の時系列と最新チャット要約を正規化する",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("再構築結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/createChat",
     "post",
     {
       op: "createChat",
@@ -208,7 +269,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/{chatMid}/members",
+    "/line/{accountId}/getChatMembers/{chatMid}",
     "get",
     {
       op: "getChatMembers",
@@ -219,7 +280,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/{chatMid}/invite",
+    "/line/{accountId}/inviteIntoChat/{chatMid}",
     "post",
     {
       op: "inviteIntoChat",
@@ -231,6 +292,22 @@ const routes: Array<[string, Method, OpSpec]> = [
         memberMids: { type: "array", items: { type: "string" } },
       }),
       responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}",
+    "patch",
+    {
+      op: "updateChat",
+      summary: "チャット名を更新",
+      description: "LINE: TalkService.updateChat (NAME)",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["name"], { name: { type: "string", minLength: 1 } }),
+      responses: {
+        "200": okRes(),
+        "400": { description: "name が空", content: { "application/json": { schema: error } } },
+      },
     },
   ],
   [
@@ -273,7 +350,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── messages ────────────────────────────────────────────
   [
-    "/line/{accountId}/messages/{chatMid}",
+    "/line/{accountId}/getPreviousMessagesV2WithRequest/{chatMid}",
     "get",
     {
       op: "getPreviousMessagesV2WithRequest",
@@ -309,7 +386,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/messages/{chatMid}/delta",
+    "/line/{accountId}/getMessageDelta/{chatMid}",
     "get",
     {
       op: "getMessageDelta",
@@ -321,7 +398,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/messages/{chatMid}/{messageId}/history",
+    "/line/{accountId}/getMessageHistory/{chatMid}/{messageId}",
     "get",
     {
       op: "getMessageHistory",
@@ -333,7 +410,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/send",
+    "/line/{accountId}/sendMessage",
     "post",
     {
       op: "sendMessage",
@@ -368,7 +445,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/edit-notice/{chatMid}",
+    "/line/{accountId}/getEditNotice/{chatMid}",
     "get",
     {
       op: "getEditNotice",
@@ -380,7 +457,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/unsend",
+    "/line/{accountId}/unsendMessage",
     "post",
     {
       op: "unsendMessage",
@@ -393,7 +470,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/read",
+    "/line/{accountId}/sendChatChecked",
     "post",
     {
       op: "sendChatChecked",
@@ -409,7 +486,61 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/read-receipts/{chatMid}",
+    "/line/{accountId}/read-batch",
+    "post",
+    {
+      op: "markChatsReadBatch",
+      summary: "複数チャットを一括既読",
+      description: "Vyline 拡張。chatMid と lastMessageId が揃った target のみ処理する",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["targets"], {
+        targets: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["chatMid", "lastMessageId"],
+            properties: {
+              chatMid: { type: "string" },
+              lastMessageId: { type: "string" },
+            },
+          },
+        },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, count }"),
+        "400": {
+          description: "有効な targets がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/read-all",
+    "post",
+    {
+      op: "markAllChatsRead",
+      summary: "全チャットまたは指定チャットを一括既読",
+      description: "Vyline 拡張。body は省略可能",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: { chatMids: { type: "array", items: { type: "string" } } },
+            },
+          },
+        },
+      },
+      responses: { "200": jsonRes("{ ok, count }") },
+    },
+  ],
+  [
+    "/line/{accountId}/getMessageReadRange/{chatMid}",
     "get",
     {
       op: "getMessageReadRange",
@@ -660,7 +791,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers/can-create",
+    "/line/{accountId}/canCreateCombinationSticker",
     "post",
     {
       op: "canCreateCombinationSticker",
@@ -671,10 +802,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers/available",
+    "/line/{accountId}/isStickerAvailableForCombinationSticker",
     "post",
     {
-      op: "getAvailableCombinationStickers",
+      op: "isStickerAvailableForCombinationSticker",
       summary: "利用可能スタンプ一覧",
       tags: ["stickers"],
       params: [acc],
@@ -682,7 +813,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers",
+    "/line/{accountId}/createCombinationSticker",
     "post",
     {
       op: "createCombinationSticker",
@@ -723,7 +854,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── contacts ────────────────────────────────────────────
   [
-    "/line/{accountId}/contact/{targetMid}",
+    "/line/{accountId}/getContact/{targetMid}",
     "get",
     {
       op: "getContact",
@@ -735,7 +866,23 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/common-groups/{targetMid}",
+    "/line/{accountId}/updateContactSetting/{mid}",
+    "patch",
+    {
+      op: "updateContactSetting",
+      summary: "連絡先の表示名 override を更新",
+      description:
+        "LINE: TalkService.updateContactSetting。未指定は null として override を解除する",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象 MID")],
+      requestBody: body([], {
+        displayNameOverride: { type: ["string", "null"] },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/getCommonGroupIds/{targetMid}",
     "get",
     {
       op: "getCommonGroupIds",
@@ -747,7 +894,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/contacts/{mid}/block",
+    "/line/{accountId}/blockContact/{mid}",
     "post",
     {
       op: "blockContact",
@@ -759,7 +906,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/contacts/{mid}/block",
+    "/line/{accountId}/unblockContact/{mid}",
     "delete",
     {
       op: "unblockContact",
@@ -771,10 +918,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/blocked",
+    "/line/{accountId}/getBlockedContactIds",
     "get",
     {
-      op: "getBlockedContacts",
+      op: "getBlockedContactIds",
       summary: "ブロックリスト取得",
       description: "キャッシュ + background キュー付き（504 回避）",
       tags: ["contacts"],
@@ -1336,6 +1483,21 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/schedule/group/{chatMid}",
+    "get",
+    {
+      op: "getScheduleGroup",
+      summary: "特定グループの予定共有情報を取得",
+      description: "Vyline LIFF 拡張。共有先決定用の encId を直接取得する",
+      tags: ["schedule"],
+      params: [acc, chatMid],
+      responses: {
+        "200": jsonRes("グループ予定共有情報"),
+        "502": { description: "LIFF 側エラー", content: { "application/json": { schema: error } } },
+      },
+    },
+  ],
+  [
     "/line/{accountId}/schedule/friends/{chatMid}",
     "get",
     {
@@ -1349,24 +1511,24 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── announcements ───────────────────────────────────────
   [
-    "/line/{accountId}/announcements/{chatMid}",
+    "/line/{accountId}/getChatRoomAnnouncements/{chatMid}",
     "get",
     {
-      op: "getChatAnnouncements",
+      op: "getChatRoomAnnouncements",
       summary: "アナウンス一覧取得",
-      description: "LINE: getChatAnnouncementsV2",
+      description: "LINE: getChatRoomAnnouncements",
       tags: ["announcements"],
       params: [acc, chatMid],
       responses: { "200": jsonRes("アナウンス配列") },
     },
   ],
   [
-    "/line/{accountId}/announcements",
+    "/line/{accountId}/createChatRoomAnnouncement",
     "post",
     {
-      op: "createChatAnnouncement",
+      op: "createChatRoomAnnouncement",
       summary: "アナウンス作成",
-      description: "LINE: createChatAnnouncementV2",
+      description: "LINE: createChatRoomAnnouncement",
       tags: ["announcements"],
       params: [acc],
       requestBody: body(["chatMid", "text"], {
@@ -1378,12 +1540,12 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/announcements/{chatMid}/{seq}",
+    "/line/{accountId}/removeChatRoomAnnouncement/{chatMid}/{seq}",
     "delete",
     {
-      op: "removeChatAnnouncement",
+      op: "removeChatRoomAnnouncement",
       summary: "アナウンス削除",
-      description: "LINE: removeChatAnnouncementV2",
+      description: "LINE: removeChatRoomAnnouncement",
       tags: ["announcements"],
       params: [acc, chatMid, pathParam("seq", "アナウンス連番")],
       responses: { "200": okRes() },
@@ -1402,6 +1564,30 @@ const routes: Array<[string, Method, OpSpec]> = [
       params: [acc],
       requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
       responses: { "200": jsonRes("通話情報") },
+    },
+  ],
+  [
+    "/line/{accountId}/call",
+    "post",
+    {
+      op: "acquireCallRouteLegacy",
+      summary: "通話ルート確保（互換 API）",
+      description: "direct は to、group は kind=group と chatMid を指定する",
+      tags: ["calls"],
+      params: [acc],
+      requestBody: body([], {
+        to: { type: "string" },
+        chatMid: { type: "string" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+        kind: { type: "string", enum: ["direct", "group"] },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, route }"),
+        "400": {
+          description: "to または chatMid が不足",
+          content: { "application/json": { schema: error } },
+        },
+      },
     },
   ],
   [
@@ -1694,10 +1880,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/notifications",
+    "/line/{accountId}/setNotificationsEnabled",
     "post",
     {
-      op: "updateNotificationSettings",
+      op: "setNotificationsEnabled",
       summary: "通知設定更新",
       tags: ["misc"],
       params: [acc],

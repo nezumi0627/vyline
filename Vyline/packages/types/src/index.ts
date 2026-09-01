@@ -273,6 +273,8 @@ export type SavedSession = {
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  hasRefreshToken?: boolean;
+  tokenRefreshAt?: number;
   premium?: {
     active: boolean;
     planType?: string | number;

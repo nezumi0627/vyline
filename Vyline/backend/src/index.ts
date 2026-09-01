@@ -29,6 +29,11 @@ import { getSubdeviceSession } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
+import {
+  appendDiagnosticToKnownAccounts,
+  initializeDiagnostics,
+} from "./service/diagnosticsService.js";
+import { redactError } from "./service/redaction.js";
 import { requestDiagnostics } from "./service/requestDiagnostics.js";
 import { BACKUP_STORAGE_LIMIT_BYTES } from "./storage/backupLimits.js";
 import {
@@ -334,6 +339,19 @@ app.notFound((c) => c.json({ ok: false, error: "not found" }, 404));
 
 app.onError((err, c) => {
   logger.error({ err }, "unhandled error");
+  void appendDiagnosticToKnownAccounts(
+    {
+      appVersion: process.env.npm_package_version ?? "dev",
+      buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+      platform: "desktop",
+      runtime: `Bun ${Bun.version}`,
+      os: process.platform,
+      error: redactError(err),
+      http: { status: 500, method: c.req.method, route: new URL(c.req.url).pathname },
+    },
+    { event: "http_unhandled_error" },
+    "error",
+  ).catch(() => undefined);
   // 内部の MID・パス・プロトコル詳細をクライアントに返さない
   return c.json({ ok: false, error: "internal server error" }, 500);
 });
@@ -372,9 +390,22 @@ process.on("unhandledRejection", (reason) => {
     return;
   }
   logger.error({ reason }, "unhandled rejection");
+  void appendDiagnosticToKnownAccounts(
+    {
+      appVersion: process.env.npm_package_version ?? "dev",
+      buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+      platform: "desktop",
+      runtime: `Bun ${Bun.version}`,
+      os: process.platform,
+      error: redactError(reason),
+    },
+    { event: "unhandled_rejection" },
+    "error",
+  ).catch(() => undefined);
 });
 
 await initVylineProfile();
+await initializeDiagnostics().catch((err) => logger.warn({ err }, "diagnostics startup failed"));
 void ensureCdnCacheDir().catch(() => undefined);
 void ensureMediaStorageDir().catch(() => undefined);
 void import("./tailscale.js").then((m) => m.startTailscaleWatcher(PORT)).catch(() => undefined);

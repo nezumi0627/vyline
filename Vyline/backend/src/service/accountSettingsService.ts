@@ -4,7 +4,7 @@ import { join } from "node:path";
 import type { AccountSettings, LogLevel, SavedThemeSetting } from "@vyline/types";
 import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+const DEFAULT_DATA_DIR = join(import.meta.dir, "..", "..", "data");
 export const SETUP_TOTAL_STEPS = 5;
 const MAX_SAVED_THEMES = 24;
 const MAX_SAVED_THEME_BYTES = 16 * 1024;
@@ -57,11 +57,13 @@ export function defaultAccountSettings(): AccountSettings {
     handoff: {},
     performance: { reducedMotion: false, maxCachedMessages: 120 },
     layout: { initialTab: "home", compact: false },
+    auth: { tokenRefreshLeadSeconds: 7 * 24 * 60 * 60 },
   };
 }
 
 function pathFor(mid: string): string {
-  return join(DATA_DIR, "accounts", safePathComponent(mid), "settings.json");
+  const dataDir = process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
+  return join(dataDir, "accounts", safePathComponent(mid), "settings.json");
 }
 
 function migrate(value: Partial<AccountSettings>): AccountSettings {
@@ -96,6 +98,7 @@ function migrate(value: Partial<AccountSettings>): AccountSettings {
     handoff: { ...base.handoff, ...(value.handoff ?? {}) },
     performance: { ...base.performance, ...(value.performance ?? {}) },
     layout: { ...base.layout, ...(value.layout ?? {}) },
+    auth: { ...base.auth, ...(value.auth ?? {}) },
   };
 }
 

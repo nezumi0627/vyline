@@ -1,6 +1,6 @@
 # Protocol dictionary — LINE.js 名で Desktop を探す
 
-最終更新: 2026-08-24
+最終更新: 2026-08-31
 
 ---
 
@@ -22,7 +22,9 @@ Vyline は **外部 LINE.js に依存しない**。
 
 ---
 
-## Desktop 検証済みハイライト（2026-07-29）
+## Desktop 検証済みハイライト（2026-08-31）
+
+検証対象 Desktop: `26.4.2.3957`
 
 | LINE.js / stack 名        | Desktop で観測                                                             | Path                     |
 | ------------------------- | -------------------------------------------------------------------------- | ------------------------ |
@@ -32,12 +34,20 @@ Vyline は **外部 LINE.js に依存しない**。
 | `updateProfileAttributes` | `TalkService_updateProfileAttributes_pargs` (+ ProfileService 同名)        | `/S4`                    |
 | `updateChat`              | `TalkService_updateChat_pargs`, `ChatMergeTask::updateChat*`               | `/S4`                    |
 | `updateContactSetting`    | `TalkService_updateContactSetting_pargs`                                   | `/S4`                    |
-| `getContactsV3`           | 文字列ヒットあり                                                           | `/S4`                    |
+| `getContactsV3`           | `RelationService_getContactsV3_pargs/presult`                              | `/RE4`                   |
+| `getTargetProfiles`       | `RelationService_getTargetProfiles_pargs/presult`                          | `/RE4`                   |
 | `getRSAKeyInfo`           | ヒットあり                                                                 | `/api/v3/TalkService.do` |
 | `loginV2`                 | ヒットあり                                                                 | `/api/v3p/rs`            |
 | OBS upload                | `obs.line-apps.com`（メソッド名よりホスト）                                | OBS HTTP                 |
 
 生ログ: `source/desktop/recovered/native-search/`
+
+Transport は用途別に分かれる。通常 Talk RPC は `/S4`、RelationService は `/RE4`。Square/OpenChat の protocol stack baseline には `/SQ1` が存在するが、現 worktree では Domain → Backend → BFF → UI の接続を確認できていないため、Square を「利用可能」とは扱わない。
+
+Desktop バイナリの SHA-256 は、インストール実体と解析/unpack 実体を混同しない。
+
+- インストール済み `LINE.exe`: `893d899f3b39d9cef59752067166b7e72c6f7021e1841b24b617ab079cf8f2b1`
+- 解析/unpack バイナリ: `f85053950282da89b91fec090dd2b40aa165a593e249016f000287a939359577`
 
 ---
 
@@ -47,8 +57,8 @@ Vyline は **外部 LINE.js に依存しない**。
 
 | 操作             | domain                             | backend HTTP                        |
 | ---------------- | ---------------------------------- | ----------------------------------- |
-| 取得             | `session.profile.getMine`          | `GET /line/:id/profile`             |
-| 表示名・ステメ等 | `session.profile.update`           | `PATCH /line/:id/profile`           |
+| 取得             | `session.profile.getMine`          | `GET /line/:id/getProfile`          |
+| 表示名・ステメ等 | `session.profile.update`           | `PATCH /line/:id/updateProfileAttributes` |
 | アバター         | `session.profile.uploadAvatar`     | `POST /line/:id/profile/image`      |
 | 背景             | `session.profile.uploadBackground` | `POST /line/:id/profile/background` |
 
@@ -56,8 +66,8 @@ Vyline は **外部 LINE.js に依存しない**。
 
 | 操作            | domain                    | backend HTTP                    |
 | --------------- | ------------------------- | ------------------------------- |
-| 取得            | `session.contacts.get`    | `GET /line/:id/contact/:mid`    |
-| 表示名 override | `session.contacts.rename` | `PATCH /line/:id/contacts/:mid` |
+| 取得            | `session.contacts.get`    | `GET /line/:id/getContact/:targetMid` |
+| 表示名 override | `session.contacts.rename` | `PATCH /line/:id/updateContactSetting/:mid` |
 
 ### グループ
 
@@ -70,10 +80,10 @@ Vyline は **外部 LINE.js に依存しない**。
 
 | 操作 | backend                           |
 | ---- | --------------------------------- |
-| 送信 | `POST /line/:id/send`             |
-| 取消 | `POST /line/:id/unsend`           |
-| 既読 | `POST /line/:id/read`             |
-| 履歴 | `GET /line/:id/messages/:chatMid` |
+| 送信 | `POST /line/:id/sendMessage`                         |
+| 取消 | `POST /line/:id/unsendMessage`                       |
+| 既読 | `POST /line/:id/sendChatChecked`                     |
+| 履歴 | `GET /line/:id/getPreviousMessagesV2WithRequest/:chatMid` |
 
 ---
 

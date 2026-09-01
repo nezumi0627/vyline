@@ -7,12 +7,18 @@ const expect = (condition, message) => {
 };
 
 const compose = read("docker-compose.yml");
-expect(compose.includes("ghcr.io/tqmane/vyline:latest"), "docker-compose.yml must use tqmane GHCR image");
+expect(
+  compose.includes("ghcr.io/nezumi0627/vyline:latest"),
+  "docker-compose.yml must use the upstream GHCR image",
+);
 expect(!/^\s*build:/m.test(compose), "docker-compose.yml must not build locally");
 expect(/pull_policy:\s*always/.test(compose), "docker-compose.yml must always pull the selected image");
 
 const portainer = read("docker-compose.portainer.yml");
-expect(portainer.includes("ghcr.io/tqmane/vyline:latest"), "Portainer stack must use tqmane GHCR image");
+expect(
+  portainer.includes("ghcr.io/nezumi0627/vyline:latest"),
+  "Portainer stack must use the upstream GHCR image",
+);
 expect(/pull_policy:\s*always/.test(portainer), "Portainer stack must allow Pull latest image updates");
 
 const workflow = read(".github/workflows/container.yml");
@@ -24,11 +30,11 @@ expect(workflow.includes("push: true"), "container workflow must push to GHCR");
 const gitmodules = read(".gitmodules");
 for (const repository of ["vyline-search", "vyline-api", "vyline-plugin", "vyline-theme"]) {
   expect(
-    gitmodules.includes(`https://github.com/tqmane/${repository}.git`),
-    `.gitmodules must keep tqmane/${repository}`,
+    gitmodules.includes(`https://github.com/nezumi0627/${repository}`),
+    `.gitmodules must keep nezumi0627/${repository}`,
   );
 }
-expect(!gitmodules.includes("github.com/nezumi0627/"), ".gitmodules must not point at nezumi0627 forks");
+expect(!gitmodules.includes("github.com/tqmane/"), ".gitmodules must not point at fork-specific tqmane repositories");
 
 const chatArea = read("Vyline/apps/desktop/src/components/chat-area.tsx");
 expect(chatArea.includes('aria-label="トークの一番下へ移動"'), "chat UI must contain the jump-to-bottom control");

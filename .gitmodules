@@ -1,12 +1,12 @@
 [submodule "tools"]
 	path = tools
-	url = https://github.com/tqmane/vyline-search.git
+	url = https://github.com/nezumi0627/vyline-search.git
 [submodule "Vyline/packages/protocol"]
 	path = Vyline/packages/protocol
-	url = https://github.com/tqmane/vyline-api.git
+	url = https://github.com/nezumi0627/vyline-api
 [submodule "Vyline/packages/plugin"]
 	path = Vyline/packages/plugin
-	url = https://github.com/tqmane/vyline-plugin.git
+	url = https://github.com/nezumi0627/vyline-plugin.git
 [submodule "Vyline/packages/themes"]
 	path = Vyline/packages/themes
-	url = https://github.com/tqmane/vyline-theme.git
+	url = https://github.com/nezumi0627/vyline-theme.git

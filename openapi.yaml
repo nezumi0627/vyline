@@ -13,7 +13,7 @@ info:
        curl -X POST http://localhost:3001/v1/tokens \
          -H "Authorization: Bearer <secret>" \
          -H "Content-Type: application/json" \
-         -d '{"name":"my-bot"}'
+         -d '{"name":"my-bot","accountIds":["main"]}'
        ```
     3. 取得した `vyl_...` トークンを Bearer として使用
   version: "1.0.0"
@@ -30,7 +30,7 @@ components:
     bearerAuth:
       type: http
       scheme: bearer
-      bearerFormat: "vyl_<hex32>"
+      bearerFormat: "vyl_<base64url>"
     adminSecret:
       type: http
       scheme: bearer
@@ -50,8 +50,8 @@ components:
       properties:
         token:
           type: string
-          description: APIトークン値（vyl_ プレフィックス付き32文字hex）
-          example: "vyl_a1b2c3d4e5f6a1b2c3d4e5f6a1b2c3d4"
+          description: APIトークン値（vyl_ プレフィックス + 32-byteランダム値のbase64url）。作成時のみ返却
+          example: "vyl_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789_-ABCDE"
         name:
           type: string
           description: トークン識別名
@@ -60,6 +60,14 @@ components:
           items:
             type: string
           example: ["read", "write"]
+        accountIds:
+          type: array
+          description: このトークンで操作を許可するVylineアカウントIDのallowlist
+          minItems: 1
+          maxItems: 32
+          items:
+            type: string
+          example: ["main"]
         createdAt:
           type: string
           format: date-time
@@ -396,7 +404,7 @@ paths:
           application/json:
             schema:
               type: object
-              required: [name]
+              required: [name, accountIds]
               properties:
                 name:
                   type: string
@@ -406,6 +414,14 @@ paths:
                   items:
                     type: string
                   default: ["read", "write"]
+                accountIds:
+                  type: array
+                  description: このトークンに許可するVylineアカウントID。最低1件必須
+                  minItems: 1
+                  maxItems: 32
+                  items:
+                    type: string
+                  example: ["main"]
       responses:
         "201":
           description: 作成されたトークン（token 値はこの一度のみ返却）

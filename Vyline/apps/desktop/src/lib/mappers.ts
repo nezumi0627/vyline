@@ -25,6 +25,7 @@ import {
 import { parseSticonReplace } from "../utils/lineSticon.js";
 import { parseMentions } from "../utils/mention.js";
 import type { Chat, Member, Message, MessageKind, MessageStatus } from "./store-types.js";
+import { parseImageMediaGroup } from "./mediaGroup.js";
 
 const COLORS = ["#2aabee", "#06c755", "#f0728f", "#7c5cff", "#f5a623", "#2dd4bf", "#a78bfa"];
 
@@ -70,10 +71,10 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
     }
   })();
   const homeId = String(meta.chatId ?? meta.homeId ?? params?.get("homeId") ?? "") || undefined;
-  const albumId =
-    String(
-      meta.cafeId ?? meta.albumId ?? params?.get("albumIdV2") ?? params?.get("albumId") ?? "",
-    ) || undefined;
+  const rawAlbumId = String(
+    meta.albumId ?? params?.get("albumIdV2") ?? params?.get("albumId") ?? meta.cafeId ?? "",
+  );
+  const albumId = rawAlbumId && rawAlbumId !== "0" ? rawAlbumId : undefined;
   const postId =
     String(meta.postId ?? meta.POST_ID ?? meta.noteId ?? params?.get("postId") ?? "") || undefined;
   const previewMedias = (() => {
@@ -101,6 +102,9 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
       return undefined;
     }
   })();
+  if (serviceType !== "AB" && (postId || serviceType === "NOTE" || serviceType === "NT")) {
+    return { kind: "note" as const, homeId, postId };
+  }
   if (serviceType === "AB" || albumId) {
     return {
       kind: "album" as const,
@@ -110,9 +114,6 @@ function parsePostNotification(meta: Record<string, unknown> | null) {
       mediaCount: Number(meta.mediaCount) || undefined,
       previewMedias,
     };
-  }
-  if (postId || serviceType === "NOTE" || serviceType === "NT") {
-    return { kind: "note" as const, homeId, postId };
   }
   return { kind: "unknown" as const, homeId };
 }
@@ -397,6 +398,7 @@ export function mapMessage(
     text,
     sticker: stickerSrc,
     imageSrc,
+    mediaGroup: kind === "image" ? parseImageMediaGroup(meta) : undefined,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
     altText,

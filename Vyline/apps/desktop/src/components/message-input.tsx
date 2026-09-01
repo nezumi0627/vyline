@@ -193,7 +193,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     if (!mentionPicker || !accountId || chat?.type !== "group" || chat?.members?.length) return;
     let cancelled = false;
     void api.line
-      .chatMembers(accountId, chatId)
+      .getChatMembers(accountId, chatId)
       .then(
         (res: {
           ok: boolean;

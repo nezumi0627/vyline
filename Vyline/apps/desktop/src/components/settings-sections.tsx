@@ -3,7 +3,6 @@ import { api } from "@/api/client";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
-import type { AccountSettings } from "@vyline/types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
@@ -15,6 +14,7 @@ import { AccountBackupStorage } from "@/components/account-backup-storage";
 import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
 import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { QRCodeSVG } from "qrcode.react";
+import type { AccountSettings, SavedSession } from "@vyline/types";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -65,6 +65,7 @@ type Section =
   | "display"
   | "theme"
   | "privacy"
+  | "session"
   | "notifications"
   | "advanced"
   | "subdevices"
@@ -81,6 +82,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
   { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
   { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
+  { key: "session", label: "ログイン・セッション", icon: <IconShield size={18} /> },
   { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
   { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
   { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
@@ -157,7 +159,7 @@ export function SettingsSections() {
         displayName: nameDraft.trim(),
         statusMessage: statusDraft,
       };
-      const res = await api.line.updateProfile(accountId, body);
+      const res = await api.line.updateProfileAttributes(accountId, body);
       if (!res.ok || !res.profile) {
         setProfileMsg(
           res.ok === false ? ((res as { error?: string }).error ?? "更新失敗") : "更新失敗",
@@ -565,6 +567,8 @@ export function SettingsSections() {
 
               {section === "privacy" && <PrivacySection />}
 
+              {section === "session" && <SessionSection />}
+
               {section === "advanced" && <AdvancedSection />}
 
               {section === "subdevices" && <SubdevicesSection />}
@@ -698,6 +702,13 @@ function HandoffSection() {
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
   const [debugSettings, setDebugSettings] = useState<AccountSettings["debug"] | null>(null);
+  const [issuePreview, setIssuePreview] = useState<{
+    title: string;
+    report: string;
+    occurredAt: string;
+    delivery: "github" | "copy";
+    issueUrl?: string;
+  } | null>(null);
   useEffect(() => {
     if (mid) {
       setResolvedMid(mid);
@@ -706,7 +717,7 @@ function HandoffSection() {
     if (!accountId) return;
     let cancelled = false;
     void api.line
-      .profile(accountId)
+      .getProfile(accountId)
       .then((result) => {
         if (cancelled || !result.ok || !result.profile?.mid) return;
         setResolvedMid(result.profile.mid);
@@ -825,22 +836,9 @@ function HandoffSection() {
     if (!diagnosticMid)
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
-      const result = await api.diagnostics.export(diagnosticMid);
-      if (!result.ok) throw new Error(result.error ?? "ログ出力に失敗しました");
-      const body = [
-        "## 問題の概要",
-        "",
-        "（ここに問題を記入してください）",
-        "",
-        "## Vyline診断情報",
-        "",
-        "```json",
-        result.content.slice(0, 12000),
-        "```",
-        "",
-      ].join("\n");
-      const url = `https://github.com/tqmane/vyline/issues/new?title=${encodeURIComponent("Vyline-fork issue")}&body=${encodeURIComponent(body)}`;
-      window.open(url, "_blank", "noopener,noreferrer");
+      const result = await api.diagnostics.issuePreview(diagnosticMid);
+      setIssuePreview(result.preview);
+      setMessage("GitHubへ送る前に、下の内容を確認してください");
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "Issue作成情報の生成に失敗しました");
     }
@@ -903,7 +901,10 @@ function HandoffSection() {
               確認
             </button>
           </Row>
-          <Row title="GitHubで問題を報告" desc="ログを自動添付したIssue作成画面を開きます">
+          <Row
+            title="GitHubで問題を報告"
+            desc="送信内容を先にプレビューしてからIssue作成画面を開きます"
+          >
             <button
               type="button"
               onClick={() => void reportIssue()}
@@ -939,6 +940,53 @@ function HandoffSection() {
           <pre className="mt-3 max-h-56 overflow-auto rounded-xl bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
             {JSON.stringify(entries, null, 2)}
           </pre>
+        )}
+        {issuePreview && (
+          <div className="mt-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="text-xs font-medium">GitHubへ送る内容のプレビュー</p>
+              <button
+                type="button"
+                onClick={() => setIssuePreview(null)}
+                className="text-xs text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
+              >
+                閉じる
+              </button>
+            </div>
+            <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
+              {issuePreview.report}
+            </pre>
+            <div className="mt-3 flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() =>
+                  void navigator.clipboard
+                    .writeText(issuePreview.report)
+                    .then(() => setMessage("Issue本文をコピーしました"))
+                    .catch(() => setMessage("コピーに失敗しました"))
+                }
+                className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
+              >
+                本文をコピー
+              </button>
+              {issuePreview.issueUrl && (
+                <button
+                  type="button"
+                  onClick={() =>
+                    window.open(issuePreview.issueUrl, "_blank", "noopener,noreferrer")
+                  }
+                  className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-medium text-white"
+                >
+                  GitHubを開く
+                </button>
+              )}
+            </div>
+            {issuePreview.delivery === "copy" && (
+              <p className="mt-2 text-[0.65rem] text-[var(--vy-text-dim)]">
+                内容が長いためURLには埋め込まず、本文をコピーしてGitHubへ貼り付けます。
+              </p>
+            )}
+          </div>
         )}
       </Section>
       {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
@@ -1245,7 +1293,142 @@ function ThemeSectionWithPreview() {
   );
 }
 
-type RestoreResult = Awaited<ReturnType<typeof api.line.restoreDesktop>>;
+type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
+
+const TOKEN_REFRESH_PRESETS = [
+  { seconds: 30 * 24 * 60 * 60, label: "30日前" },
+  { seconds: 7 * 24 * 60 * 60, label: "7日前" },
+  { seconds: 3 * 24 * 60 * 60, label: "3日前" },
+  { seconds: 24 * 60 * 60, label: "1日前" },
+  { seconds: 6 * 60 * 60, label: "6時間前" },
+  { seconds: 60 * 60, label: "1時間前" },
+] as const;
+
+function formatTokenSchedule(timestamp: number): string {
+  const date = new Date(timestamp);
+  const absolute = date.toLocaleString("ja-JP", {
+    month: "numeric",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+  const diff = timestamp - Date.now();
+  if (diff <= 0) return `${absolute}（次回の監視・起動時に更新）`;
+  const days = Math.floor(diff / 86_400_000);
+  if (days >= 1) return `${absolute}（約${days}日後）`;
+  const hours = Math.max(1, Math.floor(diff / 3_600_000));
+  return `${absolute}（約${hours}時間後）`;
+}
+
+function SessionSection() {
+  const accountId = useStore((s) => s.accountId);
+  const selfMid = useStore((s) => s.self.mid);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
+  const [session, setSession] = useState<SavedSession | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    void api.auth.sessions().then(async (res) => {
+      if (cancelled || !res.ok) return;
+      const current = res.sessions.find((item) => item.accountId === accountId) ?? null;
+      setSession(current);
+      const mid = current?.mid ?? selfMid;
+      if (!mid) return;
+      const settingsRes = await api.settings.account(mid);
+      if (!cancelled && settingsRes.ok) setAccountSettings(settingsRes.settings);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, selfMid]);
+
+  const saveRefreshLead = async (seconds: number) => {
+    const mid = session?.mid ?? selfMid;
+    if (!mid || !accountSettings || saving) return;
+    setSaving(true);
+    setMessage(null);
+    try {
+      const res = await api.settings.saveAccount(mid, {
+        auth: { ...accountSettings.auth, tokenRefreshLeadSeconds: seconds },
+      });
+      if (!res.ok) throw new Error("設定の保存に失敗しました");
+      setAccountSettings(res.settings);
+      setMessage("自動更新タイミングを保存しました");
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "設定の保存に失敗しました");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const leadSeconds = accountSettings?.auth.tokenRefreshLeadSeconds ?? 7 * 24 * 60 * 60;
+  const plannedRefreshAt = session?.tokenRefreshAt
+    ? session.tokenRefreshAt - leadSeconds * 1000
+    : null;
+
+  return (
+    <Section
+      title="ログイン・セッション"
+      desc="LINE の access token を再ログインなしで安全に更新するタイミングを管理します"
+    >
+      <Card>
+        <div className="py-4">
+          <p className="text-sm font-medium">Access token の自動更新</p>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+            Vyline
+            を常時起動していなくても、起動時に期限を確認します。選んだ余裕幅に入っていれば、保存済み
+            refresh token で先に更新してからセッションを復元します。
+          </p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {TOKEN_REFRESH_PRESETS.map((preset) => (
+              <button
+                key={preset.seconds}
+                type="button"
+                disabled={saving || !accountSettings}
+                onClick={() => void saveRefreshLead(preset.seconds)}
+                className={cn(
+                  "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
+                  leadSeconds === preset.seconds
+                    ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_14%,transparent)] text-[var(--vy-accent)]"
+                    : "border-[var(--vy-border)] hover:bg-[var(--vy-surface-2)]",
+                )}
+              >
+                {preset.label}
+              </button>
+            ))}
+          </div>
+        </div>
+        <Row
+          title="現在の設定"
+          desc={`LINE の更新目安より ${TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? `${Math.round(leadSeconds / 3600)}時間前`} から更新を試します`}
+        >
+          <span className="text-xs font-medium text-[var(--vy-text)]">
+            {TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? "カスタム"}
+          </span>
+        </Row>
+        <Row title="次回の更新目安" desc="LINE が返した更新時刻と現在の設定から算出した目安です">
+          <span className="max-w-[260px] text-right text-xs text-[var(--vy-text-dim)]">
+            {plannedRefreshAt
+              ? formatTokenSchedule(plannedRefreshAt)
+              : "更新時刻をまだ取得できていません"}
+          </span>
+        </Row>
+        <Row
+          title="自動更新の状態"
+          desc="端末認証が LINE 側で解除された場合のみ、再ログインが必要です"
+        >
+          <span className="text-xs font-medium">
+            {session?.hasRefreshToken ? "自動更新できます" : "refresh token 未保存"}
+          </span>
+        </Row>
+      </Card>
+      {message && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{message}</p>}
+    </Section>
+  );
+}
 
 function AdvancedSection() {
   const accountId = useStore((s) => s.accountId);
@@ -1281,7 +1464,7 @@ function AdvancedSection() {
     setRestoring(true);
     setRestoreResult(null);
     try {
-      const res = await api.line.restoreDesktop(accountId);
+      const res = await api.line.restoreFromDesktop(accountId);
       setRestoreResult(res);
     } catch (e) {
       setRestoreResult({
@@ -1803,7 +1986,7 @@ function StorageSection() {
     setLoading(true);
     setMsg(null);
     try {
-      const res = await api.line.vylineStorage(accountId);
+      const res = await api.line.getVylineStorageInfo(accountId);
       if (res.ok) setStorage(res);
       else setMsg(res.error ?? "取得に失敗しました");
     } catch (e) {
@@ -1959,9 +2142,7 @@ function StorageSection() {
           ratio={removableTotal > 0 ? (storage?.cache.cdn ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
-          onDelete={() =>
-            clearType("CDN キャッシュ", () => api.line.clearVylineCdnCache(accountId!))
-          }
+          onDelete={() => clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))}
           disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
         />
@@ -1973,7 +2154,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("アイコンキャッシュ", () => api.line.clearVylineIconCache(accountId!))
+            clearType("アイコンキャッシュ", () => api.line.clearIconCache(accountId!))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="var(--vy-accent)"
@@ -1986,7 +2167,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存画像", () => api.line.clearVylineSavedMediaType(accountId!, "image"))
+            clearType("保存画像", () => api.line.clearSavedMediaByType(accountId!, "image"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#3b82f6"
@@ -1999,7 +2180,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存動画", () => api.line.clearVylineSavedMediaType(accountId!, "video"))
+            clearType("保存動画", () => api.line.clearSavedMediaByType(accountId!, "video"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#a855f7"
@@ -2012,7 +2193,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存音声", () => api.line.clearVylineSavedMediaType(accountId!, "audio"))
+            clearType("保存音声", () => api.line.clearSavedMediaByType(accountId!, "audio"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#22c55e"
@@ -2025,7 +2206,7 @@ function StorageSection() {
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
           onDelete={() =>
-            clearType("保存ファイル", () => api.line.clearVylineSavedMediaType(accountId!, "file"))
+            clearType("保存ファイル", () => api.line.clearSavedMediaByType(accountId!, "file"))
           }
           disabled={loading || (!accountId && !demoMode)}
           accent="#6b7280"
@@ -2163,7 +2344,7 @@ function InfoSection() {
   }, []);
 
   return (
-    <Section title="情報" desc="Vyline-fork について">
+    <Section title="情報" desc="Vyline について">
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <div
@@ -2172,7 +2353,7 @@ function InfoSection() {
           >
             V
           </div>
-          <h2 className="mt-4 text-xl font-bold">Vyline-fork</h2>
+          <h2 className="mt-4 text-xl font-bold">Vyline</h2>
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
             v{UPDATE_NOTES.version}
           </p>
@@ -2188,50 +2369,49 @@ function InfoSection() {
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
           <p className="mt-3 max-w-sm text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            LINE 非公式サードパーティクライアント Vyline を基に、tqmane が機能・UI・Docker
-            運用を拡張したフォークです。
+            LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
           </p>
         </div>
 
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="text-xs font-medium text-[var(--vy-text-dim)]">フォーク作者</p>
-          <p className="mt-1 text-sm font-semibold">tqmane</p>
+          <p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
+          <p className="mt-1 text-sm font-semibold">nezumi0627</p>
         </div>
 
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
           <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">リンク</p>
           <div className="space-y-2">
             <a
-              href="https://github.com/tqmane"
+              href="https://github.com/nezumi0627"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <RemoteLinkIcon
-                src="https://github.com/tqmane.png?size=96"
+                src="https://github.com/nezumi0627.png?size=96"
                 fallback="GH"
-                alt="tqmane の GitHub アイコン"
+                alt="nezumi0627 の GitHub アイコン"
               />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">GitHub</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">tqmane</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
             <a
-              href="https://x.com/t2aman1e"
+              href="https://x.com/nezum1n1um"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <RemoteLinkIcon
-                src="https://unavatar.io/twitter/t2aman1e"
+                src="https://unavatar.io/twitter/nezum1n1um"
                 fallback="𝕏"
-                alt="t2aman1e の X プロフィールアイコン"
+                alt="nezum1n1um の X プロフィールアイコン"
               />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">X (Twitter)</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">@t2aman1e</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
@@ -2239,7 +2419,7 @@ function InfoSection() {
         </div>
       </div>
       <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
-        Vyline-fork · MIT License
+        Vyline · MIT License
       </p>
     </Section>
   );
@@ -2268,7 +2448,7 @@ function NotificationsSection() {
     setSaving(true);
     setMsg(null);
     try {
-      const res = await api.line.setNotification(accountId, next);
+      const res = await api.line.setNotificationsEnabled(accountId, next);
       if (!res.ok) throw new Error(res.error ?? "失敗");
       updateSetting("notificationsEnabled", next);
       // マスタースイッチが無効のままなら通知は鳴らないので明示する
@@ -2323,7 +2503,7 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.setProxy(accountId!, enabled, proxyUrl);
+      const res = await api.line.setProxySettings(accountId!, enabled, proxyUrl);
       setProxyMsg(
         res.ok
           ? enabled
@@ -2346,13 +2526,13 @@ function PrivacySection() {
       return;
     }
     try {
-      const res = await api.line.blockedContacts(accountId!);
+      const res = await api.line.getBlockedContactIds(accountId!);
       const mids = res.ok ? (res.mids ?? []) : [];
       // プロフィール取得
       const withProfiles = await Promise.all(
         mids.map(async (mid) => {
           try {
-            const prof = await api.line.contactProfile(accountId!, mid);
+            const prof = await api.line.getContact(accountId!, mid);
             if (!prof.ok) return { mid };
             return {
               mid,

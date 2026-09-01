@@ -68,6 +68,26 @@ function Modal({
   );
 }
 
+function ModalContainer({
+  title,
+  onClose,
+  embedded,
+  children,
+}: {
+  title: string;
+  onClose: () => void;
+  embedded: boolean;
+  children: React.ReactNode;
+}) {
+  return embedded ? (
+    <div className="px-1 pb-4">{children}</div>
+  ) : (
+    <Modal title={title} onClose={onClose}>
+      {children}
+    </Modal>
+  );
+}
+
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="mb-3 block">
@@ -113,13 +133,21 @@ function collectAlbumPhotos(value: unknown): Array<Record<string, unknown>> {
     : [];
 }
 
-function AlbumModal({
+export function AlbumModal({
   accountId,
   chatId,
   onClose,
-}: { accountId: string; chatId: string; onClose: () => void }) {
+  embedded = false,
+  initialAlbumId,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+  embedded?: boolean;
+  initialAlbumId?: string;
+}) {
   const [albums, setAlbums] = useState<Array<Record<string, unknown>>>([]);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(initialAlbumId ?? "");
   const [photos, setPhotos] = useState<Array<Record<string, unknown>>>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -153,6 +181,10 @@ function AlbumModal({
       setBusy(false);
     }
   };
+
+  useEffect(() => {
+    if (initialAlbumId) void openAlbum(initialAlbumId);
+  }, [accountId, chatId, initialAlbumId]);
 
   const runAlbum = async (task: () => Promise<unknown>, reopen = false) => {
     setBusy(true);
@@ -196,7 +228,7 @@ function AlbumModal({
   };
 
   return (
-    <Modal title="アルバム" onClose={onClose}>
+    <ModalContainer title="アルバム" onClose={onClose} embedded={embedded}>
       <ErrorText error={error} />
       <div className="mb-3 grid grid-cols-2 gap-2">
         <button
@@ -374,7 +406,7 @@ function AlbumModal({
           </div>
         </>
       )}
-    </Modal>
+    </ModalContainer>
   );
 }
 
@@ -404,13 +436,21 @@ function noteSummary(post: Record<string, unknown>): { id: string; text: string 
   };
 }
 
-function NoteModal({
+export function NoteModal({
   accountId,
   chatId,
   onClose,
-}: { accountId: string; chatId: string; onClose: () => void }) {
+  embedded = false,
+  initialPostId,
+}: {
+  accountId: string;
+  chatId: string;
+  onClose: () => void;
+  embedded?: boolean;
+  initialPostId?: string;
+}) {
   const [posts, setPosts] = useState<Array<Record<string, unknown>>>([]);
-  const [selectedId, setSelectedId] = useState("");
+  const [selectedId, setSelectedId] = useState(initialPostId ?? "");
   const [text, setText] = useState("");
   const [stickerId, setStickerId] = useState("");
   const [stickerPackageId, setStickerPackageId] = useState("");
@@ -434,6 +474,13 @@ function NoteModal({
   useEffect(() => {
     void refresh();
   }, [accountId, chatId]);
+
+  useEffect(() => {
+    if (!initialPostId) return;
+    setSelectedId(initialPostId);
+    const selected = posts.find((post) => noteSummary(post).id === initialPostId);
+    if (selected) setText(noteSummary(selected).text);
+  }, [initialPostId, posts]);
 
   const noteInput = () => ({
     homeId: chatId,
@@ -478,7 +525,7 @@ function NoteModal({
   };
 
   return (
-    <Modal title="ノート" onClose={onClose}>
+    <ModalContainer title="ノート" onClose={onClose} embedded={embedded}>
       <ErrorText error={error} />
       <Field label="本文">
         <textarea
@@ -702,7 +749,7 @@ function NoteModal({
       {likeInfo && (
         <p className="mt-2 break-all text-[10px] text-[var(--vy-text-dim)]">{likeInfo}</p>
       )}
-    </Modal>
+    </ModalContainer>
   );
 }
 
@@ -735,7 +782,7 @@ function LadderModal({
     (async () => {
       setMembersLoading(true);
       try {
-        const res = await withTimeout(api.line.chatMembers(accountId, chatId), 10_000);
+        const res = await withTimeout(api.line.getChatMembers(accountId, chatId), 10_000);
         if (cancelled || res === "timeout" || !res.ok || !res.members?.length) return;
         const fetched = res.members.map((m) => mapMember(m.mid, m.displayName, m.thumbnailUrl));
         setMembers(fetched);

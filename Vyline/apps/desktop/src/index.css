@@ -68,6 +68,13 @@
   --vy-message-radius: 14px;
   --vy-sidebar-width: 360px;
   --vy-topbar-height: 0px;
+  --vy-control-height-sm: 2rem;
+  --vy-control-height-md: 2.5rem;
+  --vy-control-height-lg: 2.75rem;
+  --vy-control-radius: min(0.75rem, var(--vy-radius));
+  --vy-motion-fast: 120ms;
+  --vy-motion-ui: 180ms;
+  --vy-ease-ui: cubic-bezier(0.2, 0.8, 0.2, 1);
   --vy-font-family: "IBM Plex Sans JP", "IBM Plex Sans", "Segoe UI", "Hiragino Sans", "Noto Sans JP",
     sans-serif;
 }
@@ -468,6 +475,14 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
 }
 
 @media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
   .vy-pop-in,
   .vy-msg-enter,
   .vy-drawer-in,

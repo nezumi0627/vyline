@@ -3,9 +3,9 @@
 
 [English](README.en.md)
 
-# Vyline — tqmane fork
+# Vyline
 
-LINE 非公式サードパーティクライアント Vyline の tqmane fork です。
+LINE の非公式サードパーティクライアントです。
 
 > [!CAUTION]
 > 非公式・未承認クライアントです。アカウント停止やデータ損失を含むリスクを理解したうえで利用してください。
@@ -15,7 +15,7 @@ LINE 非公式サードパーティクライアント Vyline の tqmane fork で
 ### Portainer
 
 1. **Stacks → Add stack → Web editor** を開き、[`docker-compose.portainer.yml`](docker-compose.portainer.yml) を貼り付けます。
-2. Deploy します。既定イメージは `ghcr.io/tqmane/vyline:latest` です。
+2. Deploy します。既定イメージは `ghcr.io/nezumi0627/vyline:latest` です。
 3. 更新時は **Pull latest image → Update the stack**。ホスト側ビルドは不要です。
 
 `latest` は `linux/amd64` と `linux/arm64` の multi-arch manifest です。通常の Linux PC/サーバー、64-bit Raspberry Pi、arm64 Android Docker 環境で同じタグを使えます。
@@ -24,7 +24,7 @@ LINE 非公式サードパーティクライアント Vyline の tqmane fork で
 
 ```bash
 mkdir -p vyline && cd vyline
-curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+curl -LO https://raw.githubusercontent.com/nezumi0627/vyline/main/docker-compose.yml
 docker compose pull
 docker compose up -d
 ```
@@ -35,7 +35,7 @@ docker compose up -d
 
 LAN公開を止めたい場合は `VYLINE_BIND_ADDRESS=127.0.0.1`、ポート変更は `VYLINE_PORT`、保存先変更は `VYLINE_DATA_PATH` / `VYLINE_STORAGE_PATH` を設定します。
 
-## tqmane fork の主な差分
+## 主な機能と改善
 
 - トーク履歴を必要時だけ追加取得し、バックグラウンドで無限取得しない同期設計。
 - 過去ログ閲覧中のスクロール位置を維持し、右下のボタンから最新位置へ戻れる UI。
@@ -48,7 +48,7 @@ LAN公開を止めたい場合は `VYLINE_BIND_ADDRESS=127.0.0.1`、ポート変
 `.github/workflows/container.yml` が `main` push、`v*` tag、手動実行で Buildx を起動し、次を GHCR に push します。
 
 ```text
-ghcr.io/tqmane/vyline:latest
+ghcr.io/nezumi0627/vyline:latest
 linux/amd64
 linux/arm64
 ```
@@ -58,7 +58,7 @@ branch / tag / `sha-*` タグ、GitHub Actions cache、provenance、SBOM も生�
 ## Development
 
 ```bash
-git clone --recurse-submodules https://github.com/tqmane/vyline.git
+git clone --recurse-submodules https://github.com/nezumi0627/vyline.git
 cd vyline
 bun install --frozen-lockfile
 bun run typecheck
@@ -67,7 +67,7 @@ bun test
 bun run build
 ```
 
-Bun 1.4 以降を使用してください。サブモジュールは tqmane 側リポジトリを参照します。
+Bun 1.4 以降を使用し、サブモジュールも再帰的に取得してください。
 
 ## Security
 
@@ -77,8 +77,6 @@ Vyline を認証なしで直接インターネットへ公開しないでくだ�
 
 長い旧 README は [`docs/README.full.md`](docs/README.full.md) に退避しています。詳細な解析・開発ドキュメントは [`docs/`](docs/) を参照してください。
 
-## Upstream / License
-
-Upstream: [nezumi0627/vyline](https://github.com/nezumi0627/vyline). tqmane fork の意図的な差分を維持しつつ、有用な upstream 変更を選択的に取り込みます。
+## License
 
 ライセンスと attribution は [`LICENSE`](LICENSE) を参照してください。

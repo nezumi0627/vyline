@@ -832,8 +832,10 @@ export async function extractAndroidZip(
 ): Promise<ExtractedAndroidZip> {
   mkdirSync(outputDir, { recursive: true });
   const total = (await stat(sourcePath)).size;
+  const maxArchiveEntries = Number(process.env.VYLINE_ANDROID_BACKUP_MAX_ENTRIES ?? 100_000);
   let current = 0;
   let extractedBytes = 0;
+  let archiveEntries = 0;
   let extractionError: Error | null = null;
   const databaseCandidates: Array<{ path: string; rank: number }> = [];
   const endTasks: Promise<unknown>[] = [];
@@ -855,6 +857,13 @@ export async function extractAndroidZip(
       );
     }
     if (extractionError) return;
+    archiveEntries += 1;
+    if (archiveEntries > maxArchiveEntries) {
+      extractionError = new Error(
+        `AndroidバックアップのZIPエントリ数が上限 ${maxArchiveEntries} を超えます`,
+      );
+      return;
+    }
     const name = file.name.replace(/\\/g, "/").replace(/^\/+/, "");
     const dbRank = androidDatabaseCandidateRank(name);
     const media = includeMedia ? parseAndroidMediaEntry(name) : null;

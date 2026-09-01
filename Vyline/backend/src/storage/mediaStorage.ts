@@ -99,12 +99,23 @@ export class MediaStorageBusyError extends Error {
   }
 }
 
-const TYPE_ROOTS = {
-  image: join(STORAGE_ROOT, "images"),
-  video: join(STORAGE_ROOT, "videos"),
-  audio: join(STORAGE_ROOT, "audio"),
-  file: join(STORAGE_ROOT, "files"),
-} as const;
+function storageRoot(): string {
+  if (process.env.VYLINE_MEDIA_STORAGE_DIR) return process.env.VYLINE_MEDIA_STORAGE_DIR;
+  if (process.env.VYLINE_MEDIA_CACHE_DIR) return process.env.VYLINE_MEDIA_CACHE_DIR;
+  if (process.env.VYLINE_STORAGE_DIR) return join(process.env.VYLINE_STORAGE_DIR, "saved-media");
+  return VYLINE_SAVED_MEDIA_DIR;
+}
+
+function typeRoots(root = storageRoot()) {
+  return {
+    image: join(root, "images"),
+    video: join(root, "videos"),
+    audio: join(root, "audio"),
+    file: join(root, "files"),
+  } as const;
+}
+
+const TYPE_ROOTS = typeRoots(STORAGE_ROOT);
 
 export type MediaStorageType = keyof typeof TYPE_ROOTS;
 
@@ -216,13 +227,14 @@ let indexDbPromise: Promise<Database> | null = null;
 let rebuildPromise: Promise<void> | null = null;
 
 try {
-  if (!existsSync(STORAGE_ROOT) && existsSync(LEGACY_ROOT)) {
-    const { rename } = await import("node:fs/promises");
-    await mkdir(dirname(STORAGE_ROOT), { recursive: true });
-    await rename(LEGACY_ROOT, STORAGE_ROOT);
+  const root = storageRoot();
+  const roots = typeRoots(root);
+  if (!existsSync(root) && existsSync(LEGACY_ROOT)) {
+    await mkdir(dirname(root), { recursive: true });
+    await rename(LEGACY_ROOT, root);
   }
-  await mkdir(STORAGE_ROOT, { recursive: true });
-  for (const dir of Object.values(TYPE_ROOTS)) await mkdir(dir, { recursive: true });
+  await mkdir(root, { recursive: true });
+  for (const dir of Object.values(roots)) await mkdir(dir, { recursive: true });
 } catch {
   /* Startup continues; individual operations report their own I/O failures. */
 }

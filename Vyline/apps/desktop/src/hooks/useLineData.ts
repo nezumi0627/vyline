@@ -127,7 +127,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
       contactFetching.current.add(mid);
       api.line
-        .contactProfile(accountId, mid)
+        .getContact(accountId, mid)
         .then((res) => {
           if (accountIdRef.current !== accountId) return;
           if (!res.ok || !res.profile) return;
@@ -167,7 +167,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     inFlight.current.profile.add(accountId);
     setLoadingProfile(true);
     try {
-      const res = await api.line.profile(accountId);
+      const res = await api.line.getProfile(accountId);
       if (accountIdRef.current !== accountId) return;
       if (res.ok && res.profile) setProfile(res.profile);
     } finally {
@@ -183,7 +183,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
-        const res = await api.line.chats(accountId, opts);
+        const res = await api.line.getMessageBoxes(accountId, opts);
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
           const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
@@ -263,9 +263,14 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         // 再入室時は表示を待たせずキャッシュを出し、その後に最新1ページだけローカルDBから統合する。
         // 3,000件読んだ履歴を3,000件再取得することも、ネットワーク先読みすることもない。
         try {
-          const local = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, {
+          const local = await api.line.getPreviousMessagesV2WithRequest(
+            accountId,
+            chatMid,
+            HISTORY_PAGE_SIZE,
+            {
             local: true,
-          });
+            },
+          );
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const latestAsc = [...local.messages].reverse();
@@ -297,7 +302,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
       try {
         if (!opts?.force) {
-          const local = await api.line.messages(accountId, chatMid, localLimit, { local: true });
+          const local = await api.line.getPreviousMessagesV2WithRequest(
+            accountId,
+            chatMid,
+            localLimit,
+            { local: true },
+          );
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
           if (local.ok && local.messages?.length) {
             const asc = [...local.messages].reverse();
@@ -308,7 +318,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
         // ローカルに1件も無い新規チャットだけ、ユーザーが開いたタイミングで1ページ取得する。
         // これは明示的な foreground fetch で、連続先読みはしない。
-        const res = await api.line.messages(accountId, chatMid, limit, { force: true });
+        const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, limit, {
+          force: true,
+        });
         if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
         if (res.ok && res.messages) {
           const asc = [...res.messages].reverse();
@@ -336,11 +348,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       olderInFlight.current = true;
       setLoadingOlder(true);
       try {
-        const res = await api.line.messages(accountId, chatMid, HISTORY_PAGE_SIZE, {
-          beforeMessageId: oldest.id,
-          beforeDeliveredTime: oldest.createdTime,
-          local: true,
-        });
+        const res = await api.line.getPreviousMessagesV2WithRequest(
+          accountId,
+          chatMid,
+          HISTORY_PAGE_SIZE,
+          {
+            beforeMessageId: oldest.id,
+            beforeDeliveredTime: oldest.createdTime,
+            local: true,
+          },
+        );
         if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
         if (!res.ok || !res.messages) {
           commitHistoryWindow(chatMid, current, false);
@@ -468,7 +485,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     void (async () => {
       // サーバ VylineCache を取り込んでから UI を温める
       try {
-        const cache = await api.line.vylineCache(accountId);
+        const cache = await api.line.getVylineCache(accountId);
         if (accountIdRef.current !== accountId) return;
         if (cache.ok && cache.profiles) {
           const entries = Object.values(cache.profiles).map((p) => ({

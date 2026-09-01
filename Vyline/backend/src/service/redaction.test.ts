@@ -92,8 +92,23 @@ describe("diagnostic redaction", () => {
     });
   });
 
-  test("creates stable anonymous identifiers without exposing the MID", () => {
-    expect(anonymousId("u123")).toBe(anonymousId("u123"));
-    expect(anonymousId("u123")).not.toContain("u123");
+  test("keeps useful error text while sanitizing secrets inside the error", () => {
+    const error = new Error(
+      "upload failed: sessionId=session-secret token=token-secret for u1234567890abcdef1234567890abcdef",
+    );
+    const redacted = redactError(error);
+
+    expect(redacted.message).toContain("upload failed");
+    expect(redacted.message).not.toContain("session-secret");
+    expect(redacted.message).not.toContain("token-secret");
+    expect(redacted.message).not.toContain("u1234567890abcdef1234567890abcdef");
+  });
+
+  test("sanitizes JWT-like credentials embedded in strings", () => {
+    const value = sanitizeStringValue(
+      "authorization=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxMjMifQ.signature",
+    );
+    expect(value).not.toContain("eyJhbGciOiJIUzI1NiJ9");
+    expect(value).toContain("[REDACTED_SECRET]");
   });
 });

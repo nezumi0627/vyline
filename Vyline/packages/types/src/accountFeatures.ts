@@ -29,6 +29,7 @@ export interface AccountSettings {
   handoff: { lastImportedAt?: string; lastExportedAt?: string };
   performance: { reducedMotion: boolean; maxCachedMessages: number };
   layout: { initialTab: "home" | "chat" | "settings"; compact: boolean };
+  auth: { tokenRefreshLeadSeconds: number };
   tosAcceptedAt?: string;
 }
 

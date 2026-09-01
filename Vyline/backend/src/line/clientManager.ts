@@ -23,13 +23,28 @@ import {
   loadTokens,
   deleteToken,
   updateSessionMeta,
+  getProtocolTokenState,
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
+import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { redactForDiagnostics } from "../service/redaction.js";
 import { restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
+const TOKEN_REFRESH_CHECK_INTERVAL_MS = 60 * 1000;
+const TOKEN_REFRESH_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+const DEFAULT_TOKEN_REFRESH_LEAD_SEC = 7 * 24 * 60 * 60;
+const MIN_TOKEN_REFRESH_LEAD_SEC = 5 * 60;
+const MAX_TOKEN_REFRESH_LEAD_SEC = 30 * 24 * 60 * 60;
+
+async function tokenRefreshLeadSeconds(accountId: string): Promise<number> {
+  const entry = await getToken(accountId);
+  if (!entry?.mid) return DEFAULT_TOKEN_REFRESH_LEAD_SEC;
+  const configured = (await loadAccountSettings(entry.mid)).auth.tokenRefreshLeadSeconds;
+  if (!Number.isFinite(configured)) return DEFAULT_TOKEN_REFRESH_LEAD_SEC;
+  return Math.min(MAX_TOKEN_REFRESH_LEAD_SEC, Math.max(MIN_TOKEN_REFRESH_LEAD_SEC, configured));
+}
 
 function deviceLogFields() {
   const device = resolveDeviceMode();
@@ -448,16 +463,36 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   });
 
   let lastToken = String(client.authToken ?? client.base.authToken ?? "");
-  const interval = setInterval(
-    () => {
-      const current = String(client.authToken ?? client.base.authToken ?? "");
-      if (current && current !== lastToken) {
-        lastToken = current;
-        void persist("token-refresh");
+  let refreshRetryAfter = 0;
+  const interval = setInterval(async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const refreshLeadSec = await tokenRefreshLeadSeconds(accountId);
+    const expire = await client.base.storage.get("expire");
+    const refreshToken = await client.base.storage.get("refreshToken");
+    const shouldRefresh =
+      typeof refreshToken === "string" &&
+      refreshToken.length > 0 &&
+      typeof expire === "number" &&
+      expire <= nowSec + refreshLeadSec;
+
+    if (shouldRefresh && Date.now() >= refreshRetryAfter) {
+      try {
+        await client.base.auth.tryRefreshToken();
+        refreshRetryAfter = 0;
+        await persist("proactive-token-refresh");
+        log.info({ accountId }, "access token refreshed before expiry");
+      } catch (err) {
+        refreshRetryAfter = Date.now() + TOKEN_REFRESH_RETRY_BACKOFF_MS;
+        log.warn({ accountId, err }, "proactive token refresh failed; retry scheduled");
       }
-    },
-    5 * 60 * 1000,
-  );
+    }
+
+    const current = String(client.authToken ?? client.base.authToken ?? "");
+    if (current && current !== lastToken) {
+      lastToken = current;
+      void persist("token-refresh");
+    }
+  }, TOKEN_REFRESH_CHECK_INTERVAL_MS);
   tokenWatchIntervals.set(accountId, interval);
 }
 

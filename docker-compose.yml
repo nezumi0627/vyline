@@ -1,6 +1,6 @@
 services:
   vyline:
-    image: ${VYLINE_IMAGE:-ghcr.io/tqmane/vyline:latest}
+    image: ${VYLINE_IMAGE:-ghcr.io/nezumi0627/vyline:latest}
     pull_policy: always
     ports:
       # LAN から使う場合は 0.0.0.0。ローカル専用なら 127.0.0.1 に変更してください。

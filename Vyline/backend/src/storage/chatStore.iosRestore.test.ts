@@ -72,7 +72,6 @@ describe("mergeChatDbRecords", () => {
     expect(target.messages["u-chat"]?.["2"]?.text).toBe("imported");
   });
 
-
   test("repairs legacy restored group recipients and preserves restored-history flag", () => {
     const restoredGroup = chat("c-group", "Restored group", 100);
     restoredGroup.kind = "group";

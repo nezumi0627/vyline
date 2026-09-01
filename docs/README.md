@@ -1,9 +1,11 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-29
+最終更新: 2026-08-30
 
-新規参入者は **[onboarding.md](./onboarding.md)** から始めてください。
-エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読んでください。
+一般ユーザーは **[start-here.md](./start-here.md)**、人間の開発者は **[developers/index.md](./developers/index.md)** から始めてください。
+エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読み、その後 **[developers/for-ai.md](./developers/for-ai.md)** を router として使ってください。
+
+文書の正本と各フォルダの役割は **[DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md)** にまとめています。
 
 ### ベータ機能
 
@@ -38,13 +40,19 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 
 | ドキュメント                         | 内容                                                               |
 | ------------------------------------ | ------------------------------------------------------------------ |
+| [start-here.md](./start-here.md)     | **一般ユーザー向け入口**（Install / Update / Backup / Diagnostics） |
 | [../AGENTS.md](../AGENTS.md)         | **エージェント向け全体ガイド**（検索ツール・linejs参照・最新修正） |
+| [DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md) | 文書分類・ownership・source-of-truth map                         |
 | [onboarding.md](./onboarding.md)     | 初日チェックリスト（環境・コード地図・Desktop ツール）             |
 | [CONTRIBUTING.md](./CONTRIBUTING.md) | 機能追加フロー（辞書 → Desktop → domain → BFF）                    |
 | [development.md](./development.md)   | 開発コマンド・環境変数                                             |
+| [development-worktrees.md](./development-worktrees.md) | **推奨: 1 task = 1 branch = 1 git worktree** の並行開発フロー |
+| [performance.md](./performance.md)   | 起動時間・CPU・メモリ計測と Bun/Vite 最適化                       |
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
 | [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
+| [security/threat-model.md](./security/threat-model.md) | 信頼境界・攻撃面・セキュリティ設計                         |
+| [security/findings-2026-08-31.md](./security/findings-2026-08-31.md) | 2026-08-31 Security / CVE / Threat 監査結果        |
 | [templates/](./templates/)           | 新規ドキュメント作成用の薄いテンプレート                           |
 | [../CHANGELOG.md](../CHANGELOG.md)   | 変更履歴                                                           |
 
@@ -104,7 +112,6 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | パス                                                                                       | 内容                               |
 | ------------------------------------------------------------------------------------------ | ---------------------------------- |
 | [../Vyline/packages/protocol/README.md](../Vyline/packages/protocol/README.md)             | Vyline（identity / E2EE / domain） |
-| [../Vyline/packages/protocol/stack/README.md](../Vyline/packages/protocol/stack/README.md) | 内部 RPC stack                     |
 
 ---
 

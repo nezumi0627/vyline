@@ -3,10 +3,10 @@
 [English](README.en.md)<!--ja-->
 [日本語](README.md)<!--en-->
 
-# Vyline — tqmane fork
+# Vyline
 
-LINE 非公式サードパーティクライアント Vyline の tqmane fork です。<!--ja-->
-This is the tqmane fork of Vyline, an unofficial third-party LINE client.<!--en-->
+LINE の非公式サードパーティクライアントです。<!--ja-->
+Vyline is an unofficial third-party LINE client.<!--en-->
 
 > [!CAUTION]
 > 非公式・未承認クライアントです。アカウント停止やデータ損失を含むリスクを理解したうえで利用してください。<!--ja-->
@@ -18,8 +18,8 @@ This is the tqmane fork of Vyline, an unofficial third-party LINE client.<!--en-
 
 1. **Stacks → Add stack → Web editor** を開き、[`docker-compose.portainer.yml`](docker-compose.portainer.yml) を貼り付けます。<!--ja-->
 1. Open **Stacks → Add stack → Web editor** and paste [`docker-compose.portainer.yml`](docker-compose.portainer.yml).<!--en-->
-2. Deploy します。既定イメージは `ghcr.io/tqmane/vyline:latest` です。<!--ja-->
-2. Deploy it. The default image is `ghcr.io/tqmane/vyline:latest`.<!--en-->
+2. Deploy します。既定イメージは `ghcr.io/nezumi0627/vyline:latest` です。<!--ja-->
+2. Deploy it. The default image is `ghcr.io/nezumi0627/vyline:latest`.<!--en-->
 3. 更新時は **Pull latest image → Update the stack**。ホスト側ビルドは不要です。<!--ja-->
 3. To update, use **Pull latest image → Update the stack**. No host-side build is required.<!--en-->
 
@@ -30,7 +30,7 @@ This is the tqmane fork of Vyline, an unofficial third-party LINE client.<!--en-
 
 ```bash
 mkdir -p vyline && cd vyline
-curl -LO https://raw.githubusercontent.com/tqmane/vyline/main/docker-compose.yml
+curl -LO https://raw.githubusercontent.com/nezumi0627/vyline/main/docker-compose.yml
 docker compose pull
 docker compose up -d
 ```
@@ -44,8 +44,8 @@ By default, persistent state lives in `./data` and `./storage`. Do not delete th
 LAN公開を止めたい場合は `VYLINE_BIND_ADDRESS=127.0.0.1`、ポート変更は `VYLINE_PORT`、保存先変更は `VYLINE_DATA_PATH` / `VYLINE_STORAGE_PATH` を設定します。<!--ja-->
 Use `VYLINE_BIND_ADDRESS=127.0.0.1` for localhost-only access. `VYLINE_PORT`, `VYLINE_DATA_PATH`, and `VYLINE_STORAGE_PATH` change the port and persistent paths.<!--en-->
 
-## tqmane fork の主な差分<!--ja-->
-## Main tqmane-fork changes<!--en-->
+## 主な機能と改善<!--ja-->
+## Main features and improvements<!--en-->
 
 - トーク履歴を必要時だけ追加取得し、バックグラウンドで無限取得しない同期設計。<!--ja-->
 - On-demand history paging without endless background history fetching.<!--en-->
@@ -64,7 +64,7 @@ Use `VYLINE_BIND_ADDRESS=127.0.0.1` for localhost-only access. `VYLINE_PORT`, `V
 `.github/workflows/container.yml` runs Buildx on `main` pushes, `v*` tags, and manual dispatch, then pushes to GHCR.<!--en-->
 
 ```text
-ghcr.io/tqmane/vyline:latest
+ghcr.io/nezumi0627/vyline:latest
 linux/amd64
 linux/arm64
 ```
@@ -75,7 +75,7 @@ It also publishes branch/tag/`sha-*` tags and uses GitHub Actions cache, provena
 ## Development
 
 ```bash
-git clone --recurse-submodules https://github.com/tqmane/vyline.git
+git clone --recurse-submodules https://github.com/nezumi0627/vyline.git
 cd vyline
 bun install --frozen-lockfile
 bun run typecheck
@@ -84,8 +84,8 @@ bun test
 bun run build
 ```
 
-Bun 1.4 以降を使用してください。サブモジュールは tqmane 側リポジトリを参照します。<!--ja-->
-Use Bun 1.4 or newer. Submodules point to the tqmane repositories.<!--en-->
+Bun 1.4 以降を使用し、サブモジュールも再帰的に取得してください。<!--ja-->
+Use Bun 1.4 or newer and clone all submodules recursively.<!--en-->
 
 ## Security
 
@@ -97,10 +97,7 @@ Do not expose Vyline directly to the public Internet without authentication. Use
 長い旧 README は [`docs/README.full.md`](docs/README.full.md) に退避しています。詳細な解析・開発ドキュメントは [`docs/`](docs/) を参照してください。<!--ja-->
 The previous long README is archived at [`docs/README.full.md`](docs/README.full.md). Detailed analysis and developer documentation remains under [`docs/`](docs/).<!--en-->
 
-## Upstream / License
-
-Upstream: [nezumi0627/vyline](https://github.com/nezumi0627/vyline). tqmane fork の意図的な差分を維持しつつ、有用な upstream 変更を選択的に取り込みます。<!--ja-->
-Upstream: [nezumi0627/vyline](https://github.com/nezumi0627/vyline). Useful upstream changes are integrated selectively without overwriting intentional tqmane-fork behavior.<!--en-->
+## License
 
 ライセンスと attribution は [`LICENSE`](LICENSE) を参照してください。<!--ja-->
 See [`LICENSE`](LICENSE) for license terms and attribution.<!--en-->

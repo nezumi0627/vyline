@@ -1,6 +1,6 @@
 services:
   vyline:
-    image: ${VYLINE_IMAGE:-ghcr.io/tqmane/vyline:latest}
+    image: ${VYLINE_IMAGE:-ghcr.io/nezumi0627/vyline:latest}
     pull_policy: always
     ports:
       - "${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000"

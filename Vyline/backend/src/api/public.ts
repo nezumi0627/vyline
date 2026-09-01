@@ -134,8 +134,7 @@ publicRouter.get("/accounts", async (c) => {
 
 // ─── チャット ─────────────────────────────────────
 
-/** GET /v1/accounts/:accountId/chats — チャット一覧 */
-publicRouter.get("/accounts/:accountId/chats", async (c) => {
+async function listPublicChats(c: Context<any>): Promise<Response> {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -143,6 +142,7 @@ publicRouter.get("/accounts/:accountId/chats", async (c) => {
   if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
+  if (!accountId) return c.json({ ok: false, error: "accountId required" }, 400);
   const accountPermission = requireAccount(c, auth.token, accountId);
   if (accountPermission instanceof Response) return accountPermission;
   const light = c.req.query("light") === "1" || c.req.query("light") === "true";
@@ -153,12 +153,18 @@ publicRouter.get("/accounts/:accountId/chats", async (c) => {
   } catch (err) {
     return handlePublicError(err, c);
   }
-});
+}
+
+/** GET /v1/accounts/:accountId/chats — チャット一覧 */
+publicRouter.get("/accounts/:accountId/chats", listPublicChats);
+
+/** GET /v1/accounts/:accountId/getMessageBoxes — 旧クライアント互換 */
+publicRouter.get("/accounts/:accountId/getMessageBoxes", listPublicChats);
 
 // ─── メッセージ ───────────────────────────────────
 
-/** GET /v1/accounts/:accountId/chats/:chatMid/messages — メッセージ履歴 */
-publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
+/** GET /v1/accounts/:accountId/getPreviousMessagesV2WithRequest/:chatMid — メッセージ履歴 */
+publicRouter.get("/accounts/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -189,8 +195,8 @@ publicRouter.get("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
   }
 });
 
-/** POST /v1/accounts/:accountId/chats/:chatMid/messages — メッセージ送信 */
-publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
+/** POST /v1/accounts/:accountId/sendMessage/:chatMid — メッセージ送信 */
+publicRouter.post("/accounts/:accountId/sendMessage/:chatMid", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -223,8 +229,8 @@ publicRouter.post("/accounts/:accountId/chats/:chatMid/messages", async (c) => {
 
 // ─── イベントポーリング ───────────────────────────
 
-/** GET /v1/accounts/:accountId/events/poll — Talk Push バッファから新着取得 */
-publicRouter.get("/accounts/:accountId/events/poll", async (c) => {
+/** GET /v1/accounts/:accountId/fetchOperations — Talk Push バッファから新着取得 */
+publicRouter.get("/accounts/:accountId/fetchOperations", async (c) => {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 

@@ -19,16 +19,26 @@ import { writeJsonAtomic } from "./safeFile.js";
 const log = childLogger("tokenStore");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
-const TOKENS_FILE = join(DATA_DIR, "tokens.json");
-const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
+const DEFAULT_DATA_DIR = join(_dir, "..", "..", "data");
 const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
+function dataDir(): string {
+  return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
+}
+
+function accountsDir(): string {
+  return join(dataDir(), "accounts");
+}
+
+function tokensFile(): string {
+  return join(dataDir(), "tokens.json");
+}
+
 function accountDir(accountId: string): string {
-  return join(ACCOUNTS_DIR, encodeURIComponent(accountId));
+  return join(accountsDir(), encodeURIComponent(accountId));
 }
 
 function accountTokenFile(accountId: string): string {
@@ -37,6 +47,27 @@ function accountTokenFile(accountId: string): string {
 
 export function storagePathForAccount(accountId: string): string {
   return join(accountDir(accountId), "protocol.json");
+}
+
+export async function getProtocolTokenState(accountId: string): Promise<{
+  hasRefreshToken: boolean;
+  expire?: number;
+}> {
+  const path = storagePathForAccount(accountId);
+  if (!existsSync(path)) return { hasRefreshToken: false };
+  try {
+    await hardenCredentialFile(path);
+    const protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    const refreshToken = protocol.refreshToken;
+    const expire = protocol.expire;
+    return {
+      hasRefreshToken: typeof refreshToken === "string" && refreshToken.length > 0,
+      ...(typeof expire === "number" && Number.isFinite(expire) ? { expire } : {}),
+    };
+  } catch (err) {
+    log.warn({ accountId, err }, "failed to inspect protocol token state");
+    return { hasRefreshToken: false };
+  }
 }
 
 export interface TokenEntry {
@@ -110,12 +141,14 @@ async function hardenCredentialFile(path: string, required = false): Promise<voi
 }
 
 async function ensureDataDir(): Promise<void> {
-  const created = !existsSync(DATA_DIR);
-  await ensurePrivateDirectory(DATA_DIR);
+  const root = dataDir();
+  const accounts = accountsDir();
+  const created = !existsSync(root);
+  await ensurePrivateDirectory(root);
   if (created) {
-    log.debug({ dir: DATA_DIR }, "created data dir");
+    log.debug({ dir: root }, "created data dir");
   }
-  await ensurePrivateDirectory(ACCOUNTS_DIR);
+  await ensurePrivateDirectory(accounts);
 }
 
 async function decodePersistedEntry(
@@ -159,8 +192,10 @@ async function persistAccount(accountId: string, entry: TokenEntry): Promise<voi
 export async function loadTokens(): Promise<TokenMap> {
   await ensureDataDir();
   const cleaned: TokenMap = {};
+  const accounts = accountsDir();
+  const legacyTokens = tokensFile();
   try {
-    for (const dir of await readdir(ACCOUNTS_DIR, { withFileTypes: true })) {
+    for (const dir of await readdir(accounts, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
       const id = decodeURIComponent(dir.name);
       const path = accountTokenFile(id);
@@ -177,10 +212,10 @@ export async function loadTokens(): Promise<TokenMap> {
 
   // Legacy shared tokens.json remains readable. Account files win, and a legacy
   // entry is migrated lazily without deleting the recoverable source file.
-  if (existsSync(TOKENS_FILE)) {
+  if (existsSync(legacyTokens)) {
     try {
-      await hardenCredentialFile(TOKENS_FILE);
-      const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+      await hardenCredentialFile(legacyTokens);
+      const parsed = JSON.parse(await readFile(legacyTokens, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
         if (cleaned[id]) continue;
         const decoded = await decodePersistedEntry(id, entry);
@@ -270,6 +305,31 @@ export async function updateSessionMeta(accountId: string, meta: SessionMeta): P
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
   await persistAccount(accountId, existing);
+}
+
+export async function saveRefreshToken(
+  accountId: string,
+  refreshToken: string,
+  expire?: number,
+): Promise<void> {
+  const token = refreshToken.trim();
+  if (!token) throw new Error("refresh token is empty");
+  await ensureDataDir();
+  await ensurePrivateDirectory(accountDir(accountId));
+  const path = storagePathForAccount(accountId);
+  let protocol: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      await hardenCredentialFile(path);
+      protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    } catch {
+      protocol = {};
+    }
+  }
+  protocol.refreshToken = token;
+  if (typeof expire === "number" && Number.isFinite(expire)) protocol.expire = expire;
+  await writeJsonAtomic(path, protocol);
+  await hardenCredentialFile(path, true);
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
@@ -383,13 +443,17 @@ export async function listSavedSessions(): Promise<
     picturePath?: string;
     statusMessage?: string;
     reauthRequired?: boolean;
+    hasRefreshToken?: boolean;
+    tokenRefreshAt?: number;
     hasToken: boolean;
   }>
 > {
   const tokens = await loadTokens();
-  return Object.entries(tokens)
-    .filter(([accountId]) => !accountId.endsWith(":content"))
-    .map(([accountId, entry]) => {
+  const sessions = await Promise.all(
+    Object.entries(tokens)
+      .filter(([accountId]) => !accountId.endsWith(":content"))
+      .map(async ([accountId, entry]) => {
+        const protocolState = await getProtocolTokenState(accountId);
       const row: {
         accountId: string;
         savedAt: string;
@@ -398,6 +462,8 @@ export async function listSavedSessions(): Promise<
         picturePath?: string;
         statusMessage?: string;
         reauthRequired?: boolean;
+        hasRefreshToken?: boolean;
+        tokenRefreshAt?: number;
         premium?: TokenEntry["premium"];
         hasToken: boolean;
       } = {
@@ -410,8 +476,11 @@ export async function listSavedSessions(): Promise<
       if (entry.picturePath) row.picturePath = entry.picturePath;
       if (entry.statusMessage) row.statusMessage = entry.statusMessage;
       if (entry.reauthRequired) row.reauthRequired = true;
+      row.hasRefreshToken = protocolState.hasRefreshToken;
+      if (typeof protocolState.expire === "number") row.tokenRefreshAt = protocolState.expire;
       if (entry.premium) row.premium = entry.premium;
       return row;
-    })
-    .sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
+      }),
+  );
+  return sessions.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }
