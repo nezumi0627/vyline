@@ -133,6 +133,7 @@ function SidebarBase() {
   const openChat = useStore((s) => s.openChat);
   const openChatInSplit = useStore((s) => s.openChatInSplit);
   const setScreen = useStore((s) => s.setScreen);
+  const showNotice = useStore((s) => s.showNotice);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const sort = useStore((s) => s.settings.chatSort);
   const updateSetting = useStore((s) => s.updateSetting);
@@ -157,6 +158,7 @@ function SidebarBase() {
   const [splitAvailable, setSplitAvailable] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
   );
+  const [splitPickMode, setSplitPickMode] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
   const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
   const [blockBusy, setBlockBusy] = useState(false);
@@ -175,6 +177,11 @@ function SidebarBase() {
     previewMapRef.current = previewMap;
   }, [previewMap]);
 
+  const displayedPaneIds = useMemo(
+    () => (chatPaneIds.length > 0 ? chatPaneIds : activeChatId ? [activeChatId] : []),
+    [activeChatId, chatPaneIds],
+  );
+
   // Split availability is a layout concern, so it follows viewport width rather than UA.
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
@@ -183,6 +190,10 @@ function SidebarBase() {
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
+
+  useEffect(() => {
+    if (!splitAvailable) setSplitPickMode(false);
+  }, [splitAvailable]);
 
   const filtered = useMemo(() => {
     let list = chats;
@@ -308,8 +319,26 @@ function SidebarBase() {
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  const handleChatClick = useCallback(
+    (chat: Chat) => {
+      if (!splitPickMode) {
+        openChat(chat.id);
+        return;
+      }
+      if (displayedPaneIds.includes(chat.id)) {
+        showNotice("すでに表示中です。別のトークを選択してください");
+        return;
+      }
+      openChatInSplit(chat.id);
+      setSplitPickMode(false);
+      showNotice(`「${displayName(chat, false)}」を分割表示しました`);
+    },
+    [displayedPaneIds, openChat, openChatInSplit, showNotice, splitPickMode],
+  );
+
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
   const isChatLocked = menu ? lockedChatMids.includes(menu.chat.id) : false;
+  const menuChatAlreadyDisplayed = menu ? displayedPaneIds.includes(menu.chat.id) : false;
 
   const menuItems: MenuItem[] = menu
     ? [
@@ -332,9 +361,17 @@ function SidebarBase() {
         ...(splitAvailable
           ? [
               {
-                label: "チャット分割",
+                label: menuChatAlreadyDisplayed ? "分割するトークを選ぶ" : "チャット分割",
                 icon: <IconPanelLeft size={16} />,
-                onClick: () => openChatInSplit(menu.chat.id),
+                onClick: () => {
+                  if (menuChatAlreadyDisplayed) {
+                    setSplitPickMode(true);
+                    showNotice("分割表示する別のトークをタップしてください");
+                    return;
+                  }
+                  openChatInSplit(menu.chat.id);
+                  showNotice(`「${displayName(menu.chat, false)}」を分割表示しました`);
+                },
               },
             ]
           : []),
@@ -589,6 +626,20 @@ function SidebarBase() {
         </p>
       )}
 
+      {splitPickMode && (
+        <div className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-[var(--vy-surface-2)] px-3 py-2 text-xs">
+          <IconPanelLeft size={15} className="shrink-0 text-[var(--vy-accent)]" />
+          <span className="min-w-0 flex-1">分割表示するトークを選択</span>
+          <button
+            type="button"
+            onClick={() => setSplitPickMode(false)}
+            className="shrink-0 rounded-lg px-2 py-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface)] hover:text-[var(--vy-text)]"
+          >
+            キャンセル
+          </button>
+        </div>
+      )}
+
       <div
         ref={listRef}
         onScroll={recomputeWin}
@@ -615,7 +666,7 @@ function SidebarBase() {
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
                 locked={lockedChatMids.includes(chat.id)}
-                onClick={() => openChat(chat.id)}
+                onClick={() => handleChatClick(chat)}
                 onContextMenu={(e) => openRowMenu(e, chat)}
                 onDragStart={() => onDragStart(chat.id)}
                 onDragEnd={finishDrag}
@@ -702,6 +753,7 @@ const ChatRow = memo(function ChatRow({
       longPressRef.current.fired = false;
       longPressRef.current.timer = setTimeout(() => {
         longPressRef.current.fired = true;
+        window.getSelection()?.removeAllRanges();
         if (navigator.vibrate) navigator.vibrate(12);
         onContextMenu({
           preventDefault() {},
@@ -869,7 +921,11 @@ const ChatRow = memo(function ChatRow({
   );
 });
 
-function AccountSwitcher() {
+export function AccountSwitcher({
+  context = "sidebar",
+}: {
+  context?: "sidebar" | "settings";
+}) {
   const navigate = useNavigate();
   const accountId = useStore((s) => s.accountId);
   const accounts = useAuthStore((s) => s.accounts);
@@ -907,7 +963,7 @@ function AccountSwitcher() {
       navigate("/login");
       return;
     }
-    setScreen("chat");
+    setScreen(context === "settings" ? "settings" : "chat");
     navigate("/");
   };
 
@@ -918,7 +974,7 @@ function AccountSwitcher() {
     setBusy(false);
     setOpen(false);
     if (useAuthStore.getState().activeAccountId) {
-      setScreen("chat");
+      setScreen(context === "settings" ? "settings" : "chat");
       navigate("/");
       return;
     }
@@ -928,7 +984,16 @@ function AccountSwitcher() {
   };
 
   return (
-    <div className="border-t border-[var(--vy-border)] px-3 py-2">
+    <div
+      className={cn(
+        context === "sidebar" ? "border-t border-[var(--vy-border)] px-3 py-2" : "px-1 py-2",
+      )}
+    >
+      {context === "settings" && (
+        <p className="px-2 pb-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)]">
+          ログイン中のアカウント
+        </p>
+      )}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}

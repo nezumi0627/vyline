@@ -25,6 +25,9 @@ export function MessageContextMenu({
   const [pos, setPos] = useState({ x, y });
 
   useLayoutEffect(() => {
+    if (document.documentElement.dataset.vyInteraction === "mobile") {
+      window.getSelection()?.removeAllRanges();
+    }
     const el = ref.current;
     if (!el) return;
     const rect = el.getBoundingClientRect();
@@ -76,12 +79,12 @@ export function MessageContextMenu({
   }, [items]);
 
   return createPortal(
-    <div className="fixed inset-0 z-[100]" role="presentation">
+    <div className="fixed inset-0 z-[100] select-none" role="presentation">
       <div
         ref={ref}
         role="menu"
         aria-label="操作メニュー"
-        className="vy-scale-in absolute min-w-52 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
+        className="vy-context-menu vy-scale-in absolute min-w-52 select-none overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
         style={{ left: pos.x, top: pos.y, transformOrigin: "top left" }}
         onContextMenu={(e) => e.preventDefault()}
       >

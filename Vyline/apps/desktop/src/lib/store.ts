@@ -737,17 +737,32 @@ export const useStore = create<State>()(
       openChatInSplit: (id) => {
         sessionOpenedChats.add(id);
         const state = get();
-        if (state.chatPaneIds.length >= MAX_CHAT_PANES && !state.chatPaneIds.includes(id)) {
+        // Older persisted stores can have activeChatId while chatPaneIds is
+        // still empty. Seed the visible pane first or "split" only replaces it.
+        const currentIds =
+          state.chatPaneIds.length > 0
+            ? state.chatPaneIds
+            : state.activeChatId
+              ? [state.activeChatId]
+              : [];
+        const currentSizes =
+          state.chatPaneIds.length > 0
+            ? state.chatPaneSizes
+            : equalChatPaneSizes(currentIds.length);
+        if (currentIds.length >= MAX_CHAT_PANES && !currentIds.includes(id)) {
           get().showNotice(`同時に開けるトークは最大${MAX_CHAT_PANES}画面です`);
           return;
         }
-        const panes = addChatPane(state.chatPaneIds, state.chatPaneSizes, id);
+        const panes = addChatPane(currentIds, currentSizes, id);
         set({
           chatPaneIds: panes.ids,
           chatPaneSizes: panes.sizes,
           focusedChatPane: panes.focusedIndex,
         });
         get()._activateChat(id, { history: false });
+        if (!panes.added && currentIds.includes(id)) {
+          get().showNotice("このトークはすでに表示中です");
+        }
       },
 
       focusChatPane: (index) => {

@@ -8,6 +8,7 @@ import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { AccountSwitcher } from "@/components/sidebar";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { AccountBackupStorage } from "@/components/account-backup-storage";
@@ -275,6 +276,9 @@ export function SettingsSections() {
               {n.label}
             </button>
           ))}
+          <div className="mt-3 border-t border-[var(--vy-border)] pt-2">
+            <AccountSwitcher context="settings" />
+          </div>
         </nav>
 
         {/* mobile section chips */}
@@ -296,6 +300,9 @@ export function SettingsSections() {
                 {n.label}
               </button>
             ))}
+          </div>
+          <div className="border-b border-[var(--vy-border)] px-3 md:hidden">
+            <AccountSwitcher context="settings" />
           </div>
 
           <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">

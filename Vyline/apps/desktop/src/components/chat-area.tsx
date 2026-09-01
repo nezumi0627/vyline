@@ -253,14 +253,8 @@ function ChatAreaBase({
     rowRef,
     scrollToMessagePosition,
     scrollToBottom,
-    releaseAutoPosition,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
   const messageListRef = useRef<HTMLDivElement>(null);
-  const announcementScrollAnchorRef = useRef<{
-    chatMid: string;
-    scrollTop: number;
-    overflowAnchor: string;
-  } | null>(null);
 
   const syncBottomButton = useCallback(
     (element: HTMLDivElement | null = containerRef.current) => {
@@ -281,70 +275,11 @@ function ChatAreaBase({
 
   const toggleAnnouncementExpanded = useCallback(() => {
     if (!activeChatId) return;
-
-    const container = containerRef.current;
-    if (container) {
-      const previous = announcementScrollAnchorRef.current;
-      announcementScrollAnchorRef.current = {
-        chatMid: activeChatId,
-        scrollTop: container.scrollTop,
-        // Chromium's scroll anchoring can move the conversation when the
-        // announcement panel changes the flex viewport height. Temporarily
-        // disable it and restore the exact pre-toggle scrollTop after layout.
-        overflowAnchor:
-          previous?.chatMid === activeChatId
-            ? previous.overflowAnchor
-            : container.style.getPropertyValue("overflow-anchor"),
-      };
-      container.style.setProperty("overflow-anchor", "none");
-      // The virtual list keeps its own initial/bottom anchor. An announcement
-      // toggle is an explicit UI action, so release that anchor as well or a
-      // later ResizeObserver measurement can undo the scrollTop restoration.
-      releaseAutoPosition();
-    }
-
     setAnnouncementExpandedByChat((current) => ({
       ...current,
       [activeChatId]: !(current[activeChatId] ?? false),
     }));
-  }, [activeChatId, containerRef, releaseAutoPosition]);
-
-  useLayoutEffect(() => {
-    const anchor = announcementScrollAnchorRef.current;
-    if (!anchor) return;
-    const container = containerRef.current;
-    if (!container) {
-      announcementScrollAnchorRef.current = null;
-      return;
-    }
-    if (anchor.chatMid !== activeChatId) {
-      if (anchor.overflowAnchor) {
-        container.style.setProperty("overflow-anchor", anchor.overflowAnchor);
-      } else {
-        container.style.removeProperty("overflow-anchor");
-      }
-      announcementScrollAnchorRef.current = null;
-      return;
-    }
-
-    const restore = () => {
-      if (announcementScrollAnchorRef.current !== anchor) return;
-      container.scrollTop = anchor.scrollTop;
-      syncBottomButton(container);
-    };
-    restore();
-    const frame = requestAnimationFrame(() => {
-      restore();
-      if (announcementScrollAnchorRef.current !== anchor) return;
-      if (anchor.overflowAnchor) {
-        container.style.setProperty("overflow-anchor", anchor.overflowAnchor);
-      } else {
-        container.style.removeProperty("overflow-anchor");
-      }
-      announcementScrollAnchorRef.current = null;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [activeChatId, announcementExpanded, containerRef, syncBottomButton]);
+  }, [activeChatId]);
 
   const olderBoundaryArmedRef = useRef(true);
   const lastUserScrollIntentAtRef = useRef(0);
@@ -730,11 +665,8 @@ function ChatAreaBase({
           };
           const first = list[0]!;
           return (
-            <div className="mx-auto w-full max-w-3xl px-1">
-              <div
-                className="mb-2 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] text-xs text-[var(--vy-text)]"
-                data-pattern={theme.pattern}
-              >
+            <div className="relative z-30 mx-auto mb-2 w-full max-w-3xl px-1">
+              <div className="rounded-xl bg-[var(--vy-surface)] text-xs text-[var(--vy-text)] shadow-sm">
                 <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
                   <IconPin size={14} className="shrink-0 text-[var(--vy-accent)]" />
                   <span className="font-semibold">アナウンス</span>
@@ -760,37 +692,37 @@ function ChatAreaBase({
                     <span aria-hidden>{announcementExpanded ? "∧" : "∨"}</span>
                   </button>
                 </div>
-                {announcementExpanded && (
-                  <div
-                    id={panelId}
-                    className="vy-scroll max-h-[min(18rem,38vh)] overflow-y-auto border-t border-[var(--vy-border)]"
-                  >
-                    {list.map((announcement) => (
-                      <div
-                        key={announcement.announcementSeq}
-                        className="flex items-center gap-2 px-3 py-2 last:border-b-0 hover:bg-[var(--vy-surface-2)]"
-                      >
-                        <button
-                          type="button"
-                          onClick={() => jumpToAnnouncement(announcement.link)}
-                          className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:underline"
-                          title={announcement.text}
-                        >
-                          {announcement.text}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => removePinnedAnnouncement(announcement.announcementSeq)}
-                          className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-surface)]"
-                          aria-label={`「${announcement.text}」のアナウンスを解除`}
-                        >
-                          <IconClose size={14} />
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
               </div>
+              {announcementExpanded && (
+                <div
+                  id={panelId}
+                  className="vy-scroll absolute left-1 right-1 top-full z-40 mt-1 max-h-[min(18rem,38vh)] overflow-y-auto rounded-xl bg-[var(--vy-surface)] p-1 shadow-2xl"
+                >
+                  {list.map((announcement) => (
+                    <div
+                      key={announcement.announcementSeq}
+                      className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--vy-surface-2)]"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => jumpToAnnouncement(announcement.link)}
+                        className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:underline"
+                        title={announcement.text}
+                      >
+                        {announcement.text}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => removePinnedAnnouncement(announcement.announcementSeq)}
+                        className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-bg)]"
+                        aria-label={`「${announcement.text}」のアナウンスを解除`}
+                      >
+                        <IconClose size={14} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
           );
         })()}

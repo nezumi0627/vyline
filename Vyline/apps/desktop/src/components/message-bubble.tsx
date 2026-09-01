@@ -754,6 +754,7 @@ export const MessageBubble = memo(
       startY: number;
       lastX: number;
       lastY: number;
+      axis: "pending" | "horizontal" | "vertical";
     } | null>(null);
     const isRevoked =
       message.messageState.startsWith("revoked") ||
@@ -833,31 +834,47 @@ export const MessageBubble = memo(
           );
 
     function openMenu(e: React.MouseEvent) {
+      // Portal events bubble through the React tree even though the menu is not
+      // inside this message row in the DOM. Ignore those events here.
+      if (!e.currentTarget.contains(e.target as Node)) return;
       e.preventDefault();
       e.stopPropagation();
+      // Touch long-press is handled by the row gesture. Ignore the synthetic
+      // contextmenu event emitted afterwards so it cannot restart selection.
+      if (isMobileInteraction()) return;
       setMenu({ x: e.clientX, y: e.clientY });
     }
 
     function onTouchStart(e: React.TouchEvent) {
       if (isRevoked || !isMobileInteraction()) return;
       const target = e.target as HTMLElement;
-      const nestedButton = target.closest("button");
+      // MessageContextMenu is rendered through a portal. React still bubbles
+      // its touch events through this component, so require real DOM ancestry.
+      if (!e.currentTarget.contains(target)) return;
       if (
-        target.closest("a, input, textarea, select, video, [contenteditable='true'], [data-vy-native-touch='true']") ||
-        (nestedButton && nestedButton !== e.currentTarget)
+        target.closest(
+          "a, input, textarea, select, video, [contenteditable='true'], [data-vy-native-touch='true']",
+        )
       )
         return;
       const t = e.touches[0];
       if (!t) return;
       const x = t.clientX;
       const y = t.clientY;
-      touchGesture.current = { startX: x, startY: y, lastX: x, lastY: y };
+      touchGesture.current = {
+        startX: x,
+        startY: y,
+        lastX: x,
+        lastY: y,
+        axis: "pending",
+      };
       longPressFired.current = false;
       setSwipeOffset(0);
       longPressTimer.current = setTimeout(() => {
         longPressFired.current = true;
         touchGesture.current = null;
         setSwipeOffset(0);
+        window.getSelection()?.removeAllRanges();
         if (navigator.vibrate) navigator.vibrate(12);
         setMenu({ x, y });
       }, 480);
@@ -868,6 +885,13 @@ export const MessageBubble = memo(
       longPressTimer.current = null;
     }
 
+    function resetTouchGesture() {
+      cancelLongPress();
+      touchGesture.current = null;
+      setSwipeOffset(0);
+      longPressFired.current = false;
+    }
+
     function onTouchMove(e: React.TouchEvent) {
       const gesture = touchGesture.current;
       const t = e.touches[0];
@@ -876,30 +900,42 @@ export const MessageBubble = memo(
       gesture.lastY = t.clientY;
       const dx = gesture.lastX - gesture.startX;
       const dy = gesture.lastY - gesture.startY;
-      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelLongPress();
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      if (absX > 8 || absY > 8) cancelLongPress();
 
-      if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 1.15) {
-        setSwipeOffset(-Math.min(68, -dx));
-      } else {
-        setSwipeOffset(0);
+      // Do not claim the gesture until the user has moved horizontally far
+      // enough. Vertical scrolling therefore keeps winning for ordinary drags.
+      if (gesture.axis === "pending") {
+        if (absX < 18 && absY < 18) return;
+        if (dx < 0 && -dx >= 18 && -dx > absY * 1.25) {
+          gesture.axis = "horizontal";
+        } else {
+          gesture.axis = "vertical";
+          setSwipeOffset(0);
+          return;
+        }
       }
+
+      if (gesture.axis !== "horizontal") return;
+      const progress = Math.max(0, -dx - 18);
+      setSwipeOffset(-Math.min(72, progress));
     }
 
-    function finishTouch(e?: React.TouchEvent) {
+    function finishTouch(e: React.TouchEvent) {
       const gesture = touchGesture.current;
-      const changed = e?.changedTouches[0];
+      const changed = e.changedTouches[0];
       const endX = changed?.clientX ?? gesture?.lastX ?? 0;
       const endY = changed?.clientY ?? gesture?.lastY ?? 0;
+      const horizontalDistance = gesture ? gesture.startX - endX : 0;
+      const verticalDistance = gesture ? Math.abs(gesture.startY - endY) : 0;
       const shouldReply =
         !longPressFired.current &&
-        gesture != null &&
-        gesture.startX - endX >= 56 &&
-        Math.abs(gesture.startX - endX) > Math.abs(gesture.startY - endY) * 1.15;
+        gesture?.axis === "horizontal" &&
+        horizontalDistance >= 52 &&
+        horizontalDistance > verticalDistance * 1.25;
 
-      cancelLongPress();
-      touchGesture.current = null;
-      setSwipeOffset(0);
-      longPressFired.current = false;
+      resetTouchGesture();
 
       if (shouldReply) {
         if (navigator.vibrate) navigator.vibrate(8);
@@ -909,10 +945,6 @@ export const MessageBubble = memo(
 
     const pressHandlers = {
       onContextMenu: openMenu,
-      onTouchStart,
-      onTouchEnd: finishTouch,
-      onTouchMove,
-      onTouchCancel: () => finishTouch(),
     };
 
     const react = (type: number, mine: boolean) => {
@@ -1579,6 +1611,11 @@ export const MessageBubble = memo(
     return (
       <div
         data-vy-message="true"
+        onContextMenu={openMenu}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={finishTouch}
+        onTouchCancel={resetTouchGesture}
         className={cn(
           "vy-message-interaction relative flex w-full gap-2 px-1",
           isMe ? "flex-row-reverse" : "flex-row",

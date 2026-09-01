@@ -100,7 +100,9 @@
  * Selection remains available in explicit selection surfaces such as partial-copy.
  */
 html[data-vy-interaction="mobile"] .vy-message-interaction,
-html[data-vy-interaction="mobile"] [data-vy-chat-row] {
+html[data-vy-interaction="mobile"] [data-vy-chat-row],
+html[data-vy-interaction="mobile"] .vy-context-menu,
+html[data-vy-interaction="mobile"] .vy-context-menu * {
   -webkit-user-select: none;
   user-select: none;
   -webkit-touch-callout: none;
@@ -108,6 +110,10 @@ html[data-vy-interaction="mobile"] [data-vy-chat-row] {
 
 html[data-vy-interaction="mobile"] .vy-message-interaction {
   touch-action: pan-y;
+}
+
+html[data-vy-interaction="mobile"] .vy-context-menu {
+  touch-action: manipulation;
 }
 
 html[data-vy-interaction="mobile"] .vy-message-interaction .vy-partial-copy-text {
