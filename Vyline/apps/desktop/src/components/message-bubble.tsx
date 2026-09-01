@@ -2041,7 +2041,6 @@ export const MessageBubble = memo(
               </p>
               <textarea
                 ref={partialCopyRef}
-                autoFocus
                 readOnly
                 value={message.text ?? message.altText ?? ""}
                 onFocus={(e) => e.currentTarget.select()}
