@@ -1,6 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/api/client";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { cn } from "@/lib/utils";
 import { copyText } from "@/utils/clipboard";
 import { PremiumBadge } from "@/components/premium-badge";
@@ -42,13 +43,21 @@ type DragPayload = {
   name?: string;
 };
 type ComboItem = CombinationStickerPlacement & { uid: string };
-type MenuState = { x: number; y: number; fav: StickerFavorite } | null;
+type MenuState = {
+  x: number;
+  y: number;
+  fav: StickerFavorite;
+  comboPayload?: DragPayload;
+} | null;
 
 const COMBO_LIMIT = 6;
 // 正規座標空間 240x240 (backend の scale=512/240 前提と同期。表示枠も同サイズで固定)
 const COMBO_SIZE = COMBO_EDITOR_SIZE;
 const COMBO_ITEM_SIZE = 80;
-const LONG_PRESS_MS = 300;
+const LONG_PRESS_MS = 480;
+const MENU_MARGIN = 8;
+const MENU_ESTIMATED_WIDTH = 192;
+const MENU_ESTIMATED_HEIGHT = 208;
 const DEMO_STICKER_CATALOG: Catalog = {
   premium: { active: false },
   stickerPacks: [
@@ -120,6 +129,7 @@ export function StickerEmojiPanel({
   ) => Promise<void> | void;
 }) {
   const demoMode = typeof window !== "undefined" && window.location.pathname === "/pr-demo";
+  const desktopInteraction = isDesktopInteraction();
   const [tab, setTab] = useState<Tab>("sticker");
   const [favorites, setFavorites] = useState<StickerFavorite[]>(() =>
     accountId && !demoMode ? loadStickerFavorites(accountId) : [],
@@ -147,7 +157,15 @@ export function StickerEmojiPanel({
   const comboCanvasRef = useRef<HTMLDivElement>(null);
   const dragOffsetRef = useRef({ x: 0, y: 0 });
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const longPressTriggeredRef = useRef(false);
+  const longPressOriginRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickUntilRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
+    },
+    [],
+  );
 
   useEffect(() => {
     if (demoMode || !accountId) return;
@@ -265,7 +283,7 @@ export function StickerEmojiPanel({
     }
   }, [packs, packId]);
 
-  function canDragSticker(type: "sticker" | "emoji", packageId: string): boolean {
+  function canCombineSticker(type: "sticker" | "emoji", packageId: string): boolean {
     if (type !== "sticker") return false;
     if (availability == null) return false;
     return Boolean(availability[packageId]);
@@ -279,7 +297,10 @@ export function StickerEmojiPanel({
   }
 
   function addComboItem(payload: DragPayload, at?: { x: number; y: number }): void {
-    if (payload.type !== "sticker") return;
+    if (!canCombineSticker(payload.type, payload.packageId)) {
+      setComboError("このスタンプは組み合わせに対応していません");
+      return;
+    }
     setComboMode(true);
     setComboError(null);
     setComboItems((prev) => {
@@ -336,6 +357,7 @@ export function StickerEmojiPanel({
   }
 
   function handleComboDrop(ev: DragEvent<HTMLDivElement>): void {
+    if (!desktopInteraction) return;
     ev.preventDefault();
     ev.stopPropagation();
     const payload = readDragPayload(ev);
@@ -348,6 +370,7 @@ export function StickerEmojiPanel({
   }
 
   function handleComboDragOver(ev: DragEvent<HTMLDivElement>): void {
+    if (!desktopInteraction) return;
     ev.preventDefault();
     ev.dataTransfer.dropEffect = "copy";
   }
@@ -411,24 +434,94 @@ export function StickerEmojiPanel({
     setResizingComboId(uidValue);
   }
 
-  function startLongPress(payload: DragPayload): void {
-    if (!canDragSticker(payload.type, payload.packageId)) return;
+  function favoriteFromPayload(payload: DragPayload): StickerFavorite {
+    return {
+      type: payload.type,
+      packageId: payload.packageId,
+      id: payload.stickerId,
+      url: payload.url,
+      name: payload.name,
+    };
+  }
+
+  function openItemMenu(payload: DragPayload, x: number, y: number): void {
+    const left =
+      typeof window === "undefined"
+        ? x
+        : Math.max(
+            MENU_MARGIN,
+            Math.min(x, window.innerWidth - MENU_ESTIMATED_WIDTH - MENU_MARGIN),
+          );
+    const top =
+      typeof window === "undefined"
+        ? y
+        : Math.max(
+            MENU_MARGIN,
+            Math.min(y, window.innerHeight - MENU_ESTIMATED_HEIGHT - MENU_MARGIN),
+          );
+    setMenu({
+      x: left,
+      y: top,
+      fav: favoriteFromPayload(payload),
+      comboPayload: canCombineSticker(payload.type, payload.packageId) ? payload : undefined,
+    });
+  }
+
+  function closeItemMenu(): void {
     stopLongPress();
-    longPressTriggeredRef.current = false;
+    suppressClickUntilRef.current = 0;
+    setMenu(null);
+  }
+
+  function toggleFavoriteFromMenu(favorite: StickerFavorite): boolean {
+    if (accountId) {
+      const result = toggleStickerFavorite(accountId, favorite);
+      setFavorites(result.favorites);
+      return result.added;
+    }
+
+    const exists = favorites.some((item) => item.type === favorite.type && item.id === favorite.id);
+    setFavorites((current) =>
+      exists
+        ? current.filter((item) => !(item.type === favorite.type && item.id === favorite.id))
+        : [...current, favorite],
+    );
+    return !exists;
+  }
+
+  function startLongPress(payload: DragPayload, ev: ReactPointerEvent<HTMLButtonElement>): void {
+    if (desktopInteraction) return;
+    stopLongPress();
+    const x = ev.clientX;
+    const y = ev.clientY;
+    longPressOriginRef.current = { x, y };
     longPressTimerRef.current = setTimeout(() => {
-      longPressTriggeredRef.current = true;
-      addComboItem(payload);
+      longPressTimerRef.current = null;
+      longPressOriginRef.current = null;
+      suppressClickUntilRef.current = Date.now() + 750;
+      window.getSelection()?.removeAllRanges();
+      if (navigator.vibrate) navigator.vibrate(12);
+      openItemMenu(payload, x, y);
     }, LONG_PRESS_MS);
   }
 
   function stopLongPress(): void {
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current);
     longPressTimerRef.current = null;
+    longPressOriginRef.current = null;
+  }
+
+  function moveLongPress(ev: ReactPointerEvent<HTMLButtonElement>): void {
+    const origin = longPressOriginRef.current;
+    if (!origin) return;
+    if (Math.abs(ev.clientX - origin.x) > 8 || Math.abs(ev.clientY - origin.y) > 8) {
+      stopLongPress();
+    }
   }
 
   function handleStickerClick(payload: DragPayload, action: () => void): void {
-    if (longPressTriggeredRef.current) {
-      longPressTriggeredRef.current = false;
+    if (Date.now() < suppressClickUntilRef.current) {
+      suppressClickUntilRef.current = 0;
       return;
     }
     if (comboMode && payload.type === "sticker") {
@@ -446,20 +539,21 @@ export function StickerEmojiPanel({
       url: item.url,
       name: item.alt || pack.name,
     };
-    const draggable = canDragSticker(pack.type, pack.packageId);
+    const canCombine = canCombineSticker(pack.type, pack.packageId);
+    const draggable = desktopInteraction && canCombine;
     return (
       <button
         key={item.id}
         type="button"
         title={item.alt || item.id}
         draggable={draggable}
-        onPointerDown={() => startLongPress(payload)}
-        onPointerMove={stopLongPress}
+        onPointerDown={(ev) => startLongPress(payload, ev)}
+        onPointerMove={moveLongPress}
         onPointerUp={stopLongPress}
         onPointerCancel={stopLongPress}
         onPointerLeave={stopLongPress}
         onDragStart={(ev) => {
-          if (!draggable) {
+          if (!desktopInteraction || !canCombine) {
             ev.preventDefault();
             return;
           }
@@ -477,21 +571,13 @@ export function StickerEmojiPanel({
         }
         onContextMenu={(e) => {
           e.preventDefault();
-          setMenu({
-            x: e.clientX,
-            y: e.clientY,
-            fav: {
-              type: pack.type,
-              packageId: pack.packageId,
-              id: item.id,
-              url: item.url,
-              name: item.alt || pack.name,
-            },
-          });
+          if (!desktopInteraction) return;
+          openItemMenu(payload, e.clientX, e.clientY);
         }}
         className={cn(
-          "flex aspect-square items-center justify-center rounded-xl p-1 transition-colors active:scale-95",
-          draggable ? "hover:bg-[var(--vy-surface-2)]" : "cursor-not-allowed opacity-55",
+          "flex aspect-square w-full touch-manipulation items-center justify-center rounded-xl p-1 transition-colors hover:bg-[var(--vy-surface-2)] active:scale-95",
+          desktopInteraction && canCombine && "cursor-grab active:cursor-grabbing",
+          comboMode && pack.type === "sticker" && !canCombine && "opacity-55",
         )}
       >
         <img
@@ -507,7 +593,7 @@ export function StickerEmojiPanel({
   }
 
   return (
-    <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[min(500px,72vh)] w-[min(460px,90vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
+    <div className="vy-scale-in absolute bottom-full left-3 z-50 mb-2 flex h-[min(500px,72vh)] w-[min(460px,calc(100%_-_1.5rem))] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5 md:w-[min(460px,calc(100%_-_2.5rem))]">
       <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
         {(
           [
@@ -576,10 +662,12 @@ export function StickerEmojiPanel({
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
                 <p className="text-[0.72rem] font-semibold text-[var(--vy-text)]">
-                  ドラッグで組み合わせ
+                  {desktopInteraction ? "ドラッグで組み合わせ" : "タップで組み合わせ"}
                 </p>
                 <p className="mt-0.5 text-[0.62rem] text-[var(--vy-text-dim)]">
-                  長押しで開き、ここにスタンプを落として自由に配置できます。
+                  {desktopInteraction
+                    ? "対応スタンプをここへドラッグし、自由に配置できます。"
+                    : "対応スタンプをタップして追加し、指で自由に配置できます。"}
                 </p>
               </div>
               <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-2 py-0.5 text-[0.6rem] text-[var(--vy-text-dim)]">
@@ -609,17 +697,19 @@ export function StickerEmojiPanel({
               onPointerMove={handleComboPointerMove}
               onPointerUp={handleComboPointerUp}
               onPointerLeave={handleComboPointerUp}
-              onDragOver={handleComboDragOver}
-              onDrop={handleComboDrop}
+              onDragOver={desktopInteraction ? handleComboDragOver : undefined}
+              onDrop={desktopInteraction ? handleComboDrop : undefined}
             >
               <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,color-mix(in_oklab,var(--vy-accent)_12%,transparent),transparent_38%),radial-gradient(circle_at_bottom_right,color-mix(in_oklab,var(--vy-text)_8%,transparent),transparent_42%)]" />
               {comboItems.length === 0 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
                   <div className="rounded-full border border-dashed border-[var(--vy-border)] px-3 py-1.5 text-[0.68rem] text-[var(--vy-text-dim)]">
-                    スタンプをここへドラッグ
+                    {desktopInteraction ? "スタンプをここへドラッグ" : "下のスタンプをタップ"}
                   </div>
                   <p className="max-w-[16rem] text-[0.62rem] text-[var(--vy-text-dim)]">
-                    対応しているスタンプだけが入ります。置いたあとも掴んで動かせます。
+                    {desktopInteraction
+                      ? "対応しているスタンプだけが入ります。置いたあとも掴んで動かせます。"
+                      : "対応しているスタンプだけが入ります。置いたあとは指で動かせます。"}
                   </p>
                 </div>
               ) : null}
@@ -638,7 +728,7 @@ export function StickerEmojiPanel({
                   >
                     <button
                       type="button"
-                      className="absolute inset-0 rounded-2xl"
+                      className="absolute inset-0 touch-none rounded-2xl"
                       onPointerDown={(ev) => handleComboPointerDown(item.uid, ev)}
                     >
                       <img
@@ -653,15 +743,23 @@ export function StickerEmojiPanel({
                     <button
                       type="button"
                       aria-label="サイズを変更"
-                      title="ドラッグでサイズ変更"
-                      className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface)] opacity-80 shadow-md transition-opacity hover:opacity-100"
+                      title={desktopInteraction ? "ドラッグでサイズ変更" : "指でサイズ変更"}
+                      className={cn(
+                        "absolute touch-none cursor-nwse-resize rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface)] opacity-80 shadow-md transition-opacity hover:opacity-100",
+                        desktopInteraction
+                          ? "-bottom-1.5 -right-1.5 h-4 w-4"
+                          : "-bottom-3 -right-3 h-7 w-7",
+                      )}
                       onPointerDown={(ev) => handleComboResizeDown(item.uid, ev)}
                     >
                       <span className="pointer-events-none absolute inset-[3px] rounded-full bg-[var(--vy-text-dim)]" />
                     </button>
                     <button
                       type="button"
-                      className="absolute -right-2 -top-2 flex h-5 w-5 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[0.6rem] text-[var(--vy-text-dim)] shadow-lg"
+                      className={cn(
+                        "absolute flex items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[0.7rem] text-[var(--vy-text-dim)] shadow-lg",
+                        desktopInteraction ? "-right-2 -top-2 h-5 w-5" : "-right-3 -top-3 h-7 w-7",
+                      )}
                       onClick={() => {
                         setComboItems((prev) => prev.filter((x) => x.uid !== item.uid));
                         if (comboItems.length <= 1) setComboMode(false);
@@ -689,7 +787,9 @@ export function StickerEmojiPanel({
           <div className="grid grid-cols-4 gap-1">
             {favorites.length === 0 && (
               <p className="col-span-4 px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
-                右クリックでスタンプ / 絵文字をお気に入りに追加できます
+                {desktopInteraction
+                  ? "右クリックでスタンプ / 絵文字をお気に入りに追加できます"
+                  : "長押しメニューからスタンプ / 絵文字をお気に入りに追加できます"}
               </p>
             )}
             {favorites.map((f) => {
@@ -700,20 +800,21 @@ export function StickerEmojiPanel({
                 url: f.url,
                 name: f.name || f.id,
               };
-              const draggable = canDragSticker(f.type, f.packageId);
+              const canCombine = canCombineSticker(f.type, f.packageId);
+              const draggable = desktopInteraction && canCombine;
               return (
                 <button
                   key={`${f.type}-${f.id}`}
                   type="button"
                   title={f.name || f.id}
                   draggable={draggable}
-                  onPointerDown={() => startLongPress(payload)}
-                  onPointerMove={stopLongPress}
+                  onPointerDown={(ev) => startLongPress(payload, ev)}
+                  onPointerMove={moveLongPress}
                   onPointerUp={stopLongPress}
                   onPointerCancel={stopLongPress}
                   onPointerLeave={stopLongPress}
                   onDragStart={(ev) => {
-                    if (!draggable) {
+                    if (!desktopInteraction || !canCombine) {
                       ev.preventDefault();
                       return;
                     }
@@ -734,11 +835,13 @@ export function StickerEmojiPanel({
                   }
                   onContextMenu={(e) => {
                     e.preventDefault();
-                    setMenu({ x: e.clientX, y: e.clientY, fav: f });
+                    if (!desktopInteraction) return;
+                    openItemMenu(payload, e.clientX, e.clientY);
                   }}
                   className={cn(
-                    "flex aspect-square items-center justify-center rounded-xl p-0.5 transition-colors active:scale-95",
-                    draggable ? "hover:bg-[var(--vy-surface-2)]" : "cursor-not-allowed opacity-55",
+                    "flex aspect-square w-full touch-manipulation items-center justify-center rounded-xl p-0.5 transition-colors hover:bg-[var(--vy-surface-2)] active:scale-95",
+                    desktopInteraction && canCombine && "cursor-grab active:cursor-grabbing",
+                    comboMode && f.type === "sticker" && !canCombine && "opacity-55",
                   )}
                 >
                   <img
@@ -782,28 +885,43 @@ export function StickerEmojiPanel({
         )}
       </div>
 
-      {menu && accountId && (
+      {menu && (accountId || demoMode) && (
         <>
           <div
             className="fixed inset-0 z-[119]"
-            onClick={() => setMenu(null)}
+            onClick={closeItemMenu}
             onContextMenu={(e) => {
               e.preventDefault();
-              setMenu(null);
+              closeItemMenu();
             }}
           />
           <div
-            className="fixed z-[120] flex min-w-44 flex-col overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl"
+            role="menu"
+            aria-label="スタンプ操作"
+            className="vy-context-menu fixed z-[120] flex min-w-44 flex-col overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl"
             style={{ left: menu.x, top: menu.y }}
             onContextMenu={(e) => e.preventDefault()}
           >
+            {menu.comboPayload && (
+              <button
+                type="button"
+                role="menuitem"
+                className="vy-touch-target flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+                onClick={() => {
+                  if (menu.comboPayload) addComboItem(menu.comboPayload);
+                  closeItemMenu();
+                }}
+              >
+                ＋ 組み合わせに追加
+              </button>
+            )}
             <button
               type="button"
-              className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+              role="menuitem"
+              className="vy-touch-target flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
               onClick={() => {
-                const { favorites: next, added } = toggleStickerFavorite(accountId, menu.fav);
-                setFavorites(next);
-                setMenu(null);
+                const added = toggleFavoriteFromMenu(menu.fav);
+                closeItemMenu();
                 void copyText(added ? "お気に入りに追加しました" : "お気に入りから外しました");
               }}
             >
@@ -813,20 +931,22 @@ export function StickerEmojiPanel({
             </button>
             <button
               type="button"
-              className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+              role="menuitem"
+              className="vy-touch-target flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
               onClick={() => {
                 void copyText(lineStoreUrl(menu.fav.type, menu.fav.packageId));
-                setMenu(null);
+                closeItemMenu();
               }}
             >
               Store URL をコピー
             </button>
             <button
               type="button"
-              className="flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+              role="menuitem"
+              className="vy-touch-target flex items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
               onClick={() => {
                 window.open(lineStoreUrl(menu.fav.type, menu.fav.packageId), "_blank", "noopener");
-                setMenu(null);
+                closeItemMenu();
               }}
             >
               Store で開く

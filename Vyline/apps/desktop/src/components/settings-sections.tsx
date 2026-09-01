@@ -13,6 +13,7 @@ import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { AccountBackupStorage } from "@/components/account-backup-storage";
 import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { QRCodeSVG } from "qrcode.react";
 
 function formatRelativeTime(ts: number): string {
@@ -118,6 +119,7 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 export function SettingsSections() {
+  const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
   const animationMode = settings.animationMode ?? "vyline";
@@ -242,7 +244,7 @@ export function SettingsSections() {
   };
 
   return (
-      <div className="vy-viewport-root flex flex-col bg-[var(--vy-bg)]">
+    <div className="vy-viewport-root flex flex-col bg-[var(--vy-bg)]">
       {/* header */}
       <header className="flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
         <button
@@ -530,7 +532,9 @@ export function SettingsSections() {
                         ))}
                       </div>
                       <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                        カスタム順ではトークをドラッグして並べ替えできます。
+                        {desktopInteraction
+                          ? "カスタム順ではトークをドラッグして並べ替えできます。"
+                          : "カスタム順ではトークを長押しし、メニューから順序を変更できます。"}
                       </p>
                     </div>
                     <div className="py-3.5">

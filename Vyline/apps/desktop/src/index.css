@@ -76,6 +76,10 @@
   * {
     border-color: var(--vy-border);
   }
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     font-family: var(--vy-font-family);
     background-color: var(--vy-bg);
@@ -112,8 +116,29 @@ html[data-vy-interaction="mobile"] .vy-message-interaction {
   touch-action: pan-y;
 }
 
+html[data-vy-interaction="mobile"] [data-vy-chat-row] {
+  touch-action: pan-y;
+}
+
 html[data-vy-interaction="mobile"] .vy-context-menu {
   touch-action: manipulation;
+}
+
+/*
+ * Layout follows viewport width, but mouse/keyboard manipulation follows the UA.
+ * These selectors are a CSS safety net in addition to the React-side guards.
+ */
+html[data-vy-interaction="mobile"] .vy-desktop-manipulator {
+  display: none !important;
+}
+
+html[data-vy-interaction="mobile"] .vy-touch-target {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+}
+
+html[data-vy-interaction="mobile"] button {
+  -webkit-tap-highlight-color: transparent;
 }
 
 html[data-vy-interaction="mobile"] .vy-message-interaction .vy-partial-copy-text {
@@ -529,8 +554,8 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
 }
 
 /* --- Responsive chat layouts ---
-   Mobile is intentionally list-first. Tablet keeps the two-pane desktop model,
-   but trims chrome so the conversation has room for touch interaction. */
+   Columns and density follow viewport width. Pointer/keyboard affordances are
+   independently selected by data-vy-interaction from the operating-system UA. */
 @media (max-width: 767px) {
   .vy-sidebar-tabs,
   .vy-sidebar-create-group,

@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 import { IconClose } from "@/components/icons";
 import { hideBrokenMedia } from "@/utils/lineMedia";
 
@@ -31,7 +32,9 @@ export function MediaLightbox({
     };
   }, [onClose]);
 
-  return (
+  if (typeof document === "undefined") return null;
+
+  return createPortal(
     <div
       className="vy-fade-in fixed inset-0 z-[80] flex items-center justify-center bg-black/85 p-4 backdrop-blur-sm"
       role="dialog"
@@ -62,6 +65,7 @@ export function MediaLightbox({
           />
         )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

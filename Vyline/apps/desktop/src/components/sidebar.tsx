@@ -38,7 +38,7 @@ import {
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { CHAT_PANE_DRAG_TYPE } from "@/lib/chatPanes";
-import { isMobileInteraction } from "@/lib/interactionEnvironment";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -140,6 +140,7 @@ function SidebarBase() {
   const customOrder = useStore((s) => s.customOrder);
   const setCustomOrder = useStore((s) => s.setCustomOrder);
   const self = useStore((s) => s.self);
+  const desktopInteraction = isDesktopInteraction();
 
   const togglePin = useStore((s) => s.togglePin);
   const toggleHide = useStore((s) => s.toggleHide);
@@ -155,7 +156,7 @@ function SidebarBase() {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
-  const [splitAvailable, setSplitAvailable] = useState(() =>
+  const [wideLayoutAvailable, setWideLayoutAvailable] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
   );
   const [splitPickMode, setSplitPickMode] = useState(false);
@@ -185,23 +186,21 @@ function SidebarBase() {
   // Split availability is a layout concern, so it follows viewport width rather than UA.
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
-    const update = () => setSplitAvailable(media.matches);
+    const update = () => setWideLayoutAvailable(media.matches);
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
 
   useEffect(() => {
-    if (!splitAvailable) setSplitPickMode(false);
-  }, [splitAvailable]);
+    if (!wideLayoutAvailable) setSplitPickMode(false);
+  }, [wideLayoutAvailable]);
 
   const filtered = useMemo(() => {
     let list = chats;
     if (tab === "friend") list = chats.filter((c) => c.type === "friend" && !c.hidden && !c.left);
     else if (tab === "group")
-      list = chats.filter(
-        (c) => c.type === "group" && !c.hidden && (!c.left || c.restoredHistory),
-      );
+      list = chats.filter((c) => c.type === "group" && !c.hidden && (!c.left || c.restoredHistory));
     else if (tab === "hidden") list = chats.filter((c) => c.hidden);
     else if (tab === "official") list = chats.filter((c) => c.isOfficial && !c.hidden && !c.left);
     else
@@ -292,6 +291,22 @@ function SidebarBase() {
     setLiveOrder(null);
   }, [setCustomOrder]);
 
+  const moveCustomChatBy = useCallback(
+    (chatId: string, offset: -1 | 1) => {
+      const order = customOrder.length ? [...customOrder] : chats.map((chat) => chat.id);
+      const currentIndex = order.indexOf(chatId);
+      const nextIndex = currentIndex + offset;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+      const targetId = order[nextIndex];
+      if (!targetId) return;
+      order[currentIndex] = targetId;
+      order[nextIndex] = chatId;
+      setCustomOrder(order);
+      showNotice(offset < 0 ? "トークを1つ上へ移動しました" : "トークを1つ下へ移動しました");
+    },
+    [chats, customOrder, setCustomOrder, showNotice],
+  );
+
   // ブロック状態のキャッシュ（メニュー表示・確認用）
   useEffect(() => {
     if (!accountId) return;
@@ -339,6 +354,9 @@ function SidebarBase() {
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
   const isChatLocked = menu ? lockedChatMids.includes(menu.chat.id) : false;
   const menuChatAlreadyDisplayed = menu ? displayedPaneIds.includes(menu.chat.id) : false;
+  const menuCustomOrder =
+    sort === "custom" ? (customOrder.length ? customOrder : chats.map((chat) => chat.id)) : [];
+  const menuCustomIndex = menu ? menuCustomOrder.indexOf(menu.chat.id) : -1;
 
   const menuItems: MenuItem[] = menu
     ? [
@@ -358,7 +376,7 @@ function SidebarBase() {
             });
           },
         },
-        ...(splitAvailable
+        ...(wideLayoutAvailable
           ? [
               {
                 label: menuChatAlreadyDisplayed ? "分割するトークを選ぶ" : "チャット分割",
@@ -372,6 +390,27 @@ function SidebarBase() {
                   openChatInSplit(menu.chat.id);
                   showNotice(`「${displayName(menu.chat, false)}」を分割表示しました`);
                 },
+              },
+            ]
+          : []),
+        ...(!desktopInteraction && sort === "custom" && menuCustomIndex > 0
+          ? [
+              {
+                label: "1つ上へ移動",
+                icon: <IconChevron size={16} className="-rotate-90" />,
+                onClick: () => moveCustomChatBy(menu.chat.id, -1),
+              },
+            ]
+          : []),
+        ...(!desktopInteraction &&
+        sort === "custom" &&
+        menuCustomIndex >= 0 &&
+        menuCustomIndex < menuCustomOrder.length - 1
+          ? [
+              {
+                label: "1つ下へ移動",
+                icon: <IconChevron size={16} className="rotate-90" />,
+                onClick: () => moveCustomChatBy(menu.chat.id, 1),
               },
             ]
           : []),
@@ -472,7 +511,7 @@ function SidebarBase() {
         <button
           type="button"
           onClick={() => setScreen("settings")}
-          className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+          className="vy-touch-target rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           aria-label="プロフィール設定"
         >
           <Avatar
@@ -497,7 +536,7 @@ function SidebarBase() {
           type="button"
           onClick={() => setScreen("chat")}
           aria-label="チャット"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
           <IconChat size={19} />
         </button>
@@ -505,7 +544,7 @@ function SidebarBase() {
           type="button"
           onClick={() => setScreen("settings")}
           aria-label="設定"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
           <IconSettings size={19} />
         </button>
@@ -539,7 +578,7 @@ function SidebarBase() {
             aria-label="並び順"
             aria-expanded={sortOpen}
             className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+              "vy-touch-target flex h-9 w-9 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
               sortOpen
                 ? "text-[var(--vy-accent)]"
                 : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
@@ -622,7 +661,7 @@ function SidebarBase() {
 
       {sort === "custom" && (
         <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
-          ドラッグして並び替え
+          {desktopInteraction ? "ドラッグして並び替え" : "長押しメニューから順序を変更"}
         </p>
       )}
 
@@ -633,7 +672,7 @@ function SidebarBase() {
           <button
             type="button"
             onClick={() => setSplitPickMode(false)}
-            className="shrink-0 rounded-lg px-2 py-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface)] hover:text-[var(--vy-text)]"
+            className="vy-touch-target shrink-0 rounded-lg px-2 py-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface)] hover:text-[var(--vy-text)]"
           >
             キャンセル
           </button>
@@ -662,7 +701,8 @@ function SidebarBase() {
                 key={chat.id}
                 chat={chat}
                 active={chat.id === activeChatId || chatPaneIds.includes(chat.id)}
-                reorderable={sort === "custom"}
+                reorderable={sort === "custom" && desktopInteraction}
+                desktopInteraction={desktopInteraction}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
                 locked={lockedChatMids.includes(chat.id)}
@@ -710,6 +750,7 @@ const ChatRow = memo(function ChatRow({
   chat,
   active,
   reorderable,
+  desktopInteraction,
   dragging,
   blocked,
   locked,
@@ -725,6 +766,7 @@ const ChatRow = memo(function ChatRow({
   chat: Chat;
   active: boolean;
   reorderable: boolean;
+  desktopInteraction: boolean;
   dragging: boolean;
   blocked?: boolean;
   locked?: boolean;
@@ -738,21 +780,43 @@ const ChatRow = memo(function ChatRow({
   preview: { text: string; time: number } | null;
 }) {
   const name = displayName(chat, streamerMode);
-  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
+  const longPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    fired: boolean;
+    startX: number | null;
+    startY: number | null;
+  }>({
     timer: null,
     fired: false,
+    startX: null,
+    startY: null,
   });
+  const suppressClickUntilRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
+    },
+    [],
+  );
 
   const onTouchStart = useCallback(
     (e: React.TouchEvent) => {
-      if (!isMobileInteraction()) return;
+      if (desktopInteraction) return;
       const t = e.touches[0];
       if (!t) return;
       const cx = t.clientX;
       const cy = t.clientY;
+      if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
       longPressRef.current.fired = false;
+      longPressRef.current.startX = cx;
+      longPressRef.current.startY = cy;
       longPressRef.current.timer = setTimeout(() => {
+        longPressRef.current.timer = null;
         longPressRef.current.fired = true;
+        longPressRef.current.startX = null;
+        longPressRef.current.startY = null;
+        suppressClickUntilRef.current = Date.now() + 750;
         window.getSelection()?.removeAllRanges();
         if (navigator.vibrate) navigator.vibrate(12);
         onContextMenu({
@@ -763,27 +827,46 @@ const ChatRow = memo(function ChatRow({
         } as React.MouseEvent);
       }, 480);
     },
-    [onContextMenu],
+    [desktopInteraction, onContextMenu],
   );
 
-  const onTouchMove = useCallback(() => {
+  const onTouchMove = useCallback((event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    const startX = longPressRef.current.startX;
+    const startY = longPressRef.current.startY;
+    if (!touch || startX == null || startY == null) return;
+    if (Math.abs(touch.clientX - startX) <= 8 && Math.abs(touch.clientY - startY) <= 8) return;
     if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
     longPressRef.current.timer = null;
+    longPressRef.current.startX = null;
+    longPressRef.current.startY = null;
   }, []);
 
-  const onTouchEnd = useCallback(() => {
+  const onTouchEnd = useCallback((event: React.TouchEvent) => {
     if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
     longPressRef.current.timer = null;
+    longPressRef.current.startX = null;
+    longPressRef.current.startY = null;
     if (longPressRef.current.fired) {
+      event.preventDefault();
       longPressRef.current.fired = false;
     }
+  }, []);
+
+  const onTouchCancel = useCallback(() => {
+    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
+    longPressRef.current.timer = null;
+    longPressRef.current.fired = false;
+    longPressRef.current.startX = null;
+    longPressRef.current.startY = null;
   }, []);
 
   return (
     <div
       data-vy-chat-row
-      draggable={!isMobileInteraction()}
+      draggable={desktopInteraction}
       onDragStart={(event) => {
+        if (!desktopInteraction) return;
         // 一覧の並べ替えは move、トーク領域への分割追加は copy。
         // source 側で copy のみにすると target が move を選んだ瞬間に drop 自体が拒否される。
         event.dataTransfer.effectAllowed = "copyMove";
@@ -803,15 +886,30 @@ const ChatRow = memo(function ChatRow({
     >
       <button
         type="button"
-        onClick={onClick}
-        onContextMenu={onContextMenu}
+        onClick={(event) => {
+          if (Date.now() < suppressClickUntilRef.current) {
+            event.preventDefault();
+            suppressClickUntilRef.current = 0;
+            return;
+          }
+          onClick();
+        }}
+        onContextMenu={(event) => {
+          if (!desktopInteraction) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          onContextMenu(event);
+        }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
         className={cn(
           "vy-sidebar-row relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
           active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
-          "md:cursor-grab md:active:cursor-grabbing",
+          desktopInteraction && "md:cursor-grab md:active:cursor-grabbing",
         )}
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >

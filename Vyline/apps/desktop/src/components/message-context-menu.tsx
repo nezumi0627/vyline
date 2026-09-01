@@ -30,11 +30,12 @@ export function MessageContextMenu({
     }
     const el = ref.current;
     if (!el) return;
-    const rect = el.getBoundingClientRect();
+    const width = el.offsetWidth;
+    const height = el.offsetHeight;
     let nx = x;
     let ny = y;
-    if (x + rect.width > window.innerWidth - 8) nx = window.innerWidth - rect.width - 8;
-    if (y + rect.height > window.innerHeight - 8) ny = window.innerHeight - rect.height - 8;
+    if (x + width > window.innerWidth - 8) nx = window.innerWidth - width - 8;
+    if (y + height > window.innerHeight - 8) ny = window.innerHeight - height - 8;
     if (nx < 8) nx = 8;
     if (ny < 8) ny = 8;
     setPos({ x: nx, y: ny });
@@ -84,7 +85,7 @@ export function MessageContextMenu({
         ref={ref}
         role="menu"
         aria-label="操作メニュー"
-        className="vy-context-menu vy-scale-in absolute min-w-52 select-none overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
+        className="vy-context-menu vy-scale-in absolute max-h-[calc(100dvh-1rem)] min-w-52 max-w-[calc(100vw-1rem)] select-none overflow-x-hidden overflow-y-auto rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
         style={{ left: pos.x, top: pos.y, transformOrigin: "top left" }}
         onContextMenu={(e) => e.preventDefault()}
       >
@@ -97,7 +98,7 @@ export function MessageContextMenu({
               e.stopPropagation();
               setStack((s) => s.slice(0, -1));
             }}
-            className="flex w-full items-center gap-3 px-4 py-2 text-left text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
+            className="vy-touch-target flex w-full items-center gap-3 px-4 py-2 text-left text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
           >
             <span>←</span>
             戻る
@@ -118,7 +119,7 @@ export function MessageContextMenu({
                 onClose();
               }
             }}
-            className={`flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:outline-none ${
+            className={`vy-touch-target flex w-full items-center gap-3 px-4 py-2.5 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] focus-visible:outline-none ${
               it.danger ? "text-[var(--vy-danger)]" : "text-[var(--vy-text)]"
             }`}
           >

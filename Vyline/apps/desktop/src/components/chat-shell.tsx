@@ -19,21 +19,22 @@ import {
   type ChatPaneRect,
 } from "@/lib/chatPanes";
 import { startSerialPoll } from "@/lib/serialPoll";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 
-function useDesktopChatLayout(): boolean {
-  const [desktop, setDesktop] = useState(() =>
+function useWideChatLayout(): boolean {
+  const [wide, setWide] = useState(() =>
     typeof window === "undefined" ? true : window.matchMedia("(min-width: 768px)").matches,
   );
 
   useEffect(() => {
     const media = window.matchMedia("(min-width: 768px)");
-    const update = () => setDesktop(media.matches);
+    const update = () => setWide(media.matches);
     update();
     media.addEventListener("change", update);
     return () => media.removeEventListener("change", update);
   }, []);
 
-  return desktop;
+  return wide;
 }
 
 function layoutStorageKey(accountId: string | null): string {
@@ -45,7 +46,8 @@ function readLayout(accountId: string | null): {
   mainRatio: number;
   crossRatio: number;
 } {
-  if (typeof localStorage === "undefined") return { mode: "columns", mainRatio: 50, crossRatio: 50 };
+  if (typeof localStorage === "undefined")
+    return { mode: "columns", mainRatio: 50, crossRatio: 50 };
   try {
     const parsed = JSON.parse(localStorage.getItem(layoutStorageKey(accountId)) ?? "{}") as {
       mode?: ChatPaneLayoutMode;
@@ -54,7 +56,9 @@ function readLayout(accountId: string | null): {
     };
     return {
       mode: parsed.mode ?? "columns",
-      mainRatio: Number.isFinite(parsed.mainRatio) ? Math.max(22, Math.min(78, parsed.mainRatio!)) : 50,
+      mainRatio: Number.isFinite(parsed.mainRatio)
+        ? Math.max(22, Math.min(78, parsed.mainRatio!))
+        : 50,
       crossRatio: Number.isFinite(parsed.crossRatio)
         ? Math.max(22, Math.min(78, parsed.crossRatio!))
         : 50,
@@ -81,6 +85,7 @@ function ChatPaneRuntime({
   rect,
   focused,
   reserveSidebarToggle,
+  desktopManipulationEnabled,
 }: {
   chatId: string;
   index: number;
@@ -88,6 +93,7 @@ function ChatPaneRuntime({
   rect: ChatPaneRect;
   focused: boolean;
   reserveSidebarToggle: boolean;
+  desktopManipulationEnabled: boolean;
 }) {
   const focusChatPane = useStore((state) => state.focusChatPane);
   const closeChatPane = useStore((state) => state.closeChatPane);
@@ -142,11 +148,15 @@ function ChatPaneRuntime({
         onFocus={() => focusChatPane(index)}
         onClosePane={() => closeChatPane(index)}
         reserveSidebarToggle={reserveSidebarToggle}
-        onPaneDragStart={(event) => {
-          event.dataTransfer.effectAllowed = "move";
-          event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chatId);
-          event.dataTransfer.setData(CHAT_PANE_SOURCE_TYPE, String(index));
-        }}
+        onPaneDragStart={
+          desktopManipulationEnabled
+            ? (event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chatId);
+                event.dataTransfer.setData(CHAT_PANE_SOURCE_TYPE, String(index));
+              }
+            : undefined
+        }
       />
     </section>
   );
@@ -178,7 +188,8 @@ function ChatShellBase() {
   const collapsed = useStore((state) => state.sidebarCollapsed);
   const toggleSidebar = useStore((state) => state.toggleSidebar);
 
-  const isDesktop = useDesktopChatLayout();
+  const isWideLayout = useWideChatLayout();
+  const desktopInteraction = isDesktopInteraction();
   const initialLayout = useMemo(() => readLayout(accountId), [accountId]);
   const [layoutMode, setLayoutMode] = useState<ChatPaneLayoutMode>(initialLayout.mode);
   const [mainRatio, setMainRatio] = useState(initialLayout.mainRatio);
@@ -238,33 +249,27 @@ function ChatShellBase() {
   );
 
   useEffect(() => {
-    if (!sidebarDragging) return;
-    const handleMouse = (event: MouseEvent) => moveSidebar(event.clientX);
-    const handleTouch = (event: TouchEvent) => {
-      const touch = event.touches[0];
-      if (touch) moveSidebar(touch.clientX);
-    };
+    if (!sidebarDragging || !desktopInteraction) return;
+    const handlePointer = (event: PointerEvent) => moveSidebar(event.clientX);
     const stop = () => setSidebarDragging(false);
     const previousCursor = document.body.style.cursor;
     const previousSelection = document.body.style.userSelect;
     document.body.style.cursor = "col-resize";
     document.body.style.userSelect = "none";
-    window.addEventListener("mousemove", handleMouse);
-    window.addEventListener("touchmove", handleTouch, { passive: true });
-    window.addEventListener("mouseup", stop);
-    window.addEventListener("touchend", stop);
+    window.addEventListener("pointermove", handlePointer);
+    window.addEventListener("pointerup", stop, { once: true });
+    window.addEventListener("pointercancel", stop, { once: true });
     return () => {
       document.body.style.cursor = previousCursor;
       document.body.style.userSelect = previousSelection;
-      window.removeEventListener("mousemove", handleMouse);
-      window.removeEventListener("touchmove", handleTouch);
-      window.removeEventListener("mouseup", stop);
-      window.removeEventListener("touchend", stop);
+      window.removeEventListener("pointermove", handlePointer);
+      window.removeEventListener("pointerup", stop);
+      window.removeEventListener("pointercancel", stop);
     };
-  }, [moveSidebar, sidebarDragging]);
+  }, [desktopInteraction, moveSidebar, sidebarDragging]);
 
   useEffect(() => {
-    if (!paneResize) return;
+    if (!paneResize || !desktopInteraction) return;
     const previousCursor = document.body.style.cursor;
     const previousSelection = document.body.style.userSelect;
     document.body.style.cursor = paneResize.kind === "cross" ? "row-resize" : "col-resize";
@@ -303,13 +308,20 @@ function ChatShellBase() {
       window.removeEventListener("pointerup", stop);
       window.removeEventListener("pointercancel", stop);
     };
-  }, [paneResize, setChatPaneSizes]);
+  }, [desktopInteraction, paneResize, setChatPaneSizes]);
+
+  useEffect(() => {
+    if (isWideLayout && desktopInteraction) return;
+    setSidebarDragging(false);
+    setPaneResize(null);
+    setDropPreview(null);
+  }, [desktopInteraction, isWideLayout]);
 
   const hasChatDrag = (event: React.DragEvent) =>
     Array.from(event.dataTransfer.types).includes(CHAT_PANE_DRAG_TYPE);
 
   const computeDropPreview = (event: React.DragEvent<HTMLDivElement>): DropPreview | null => {
-    if (!isDesktop || !hasChatDrag(event)) return null;
+    if (!isWideLayout || !desktopInteraction || !hasChatDrag(event)) return null;
     const chatId = event.dataTransfer.getData(CHAT_PANE_DRAG_TYPE);
     const existing = paneIds.includes(chatId);
     const count = Math.min(4, Math.max(1, paneIds.length + (existing ? 0 : 1)));
@@ -332,7 +344,7 @@ function ChatShellBase() {
   };
 
   const handleChatDrop = (event: React.DragEvent<HTMLDivElement>) => {
-    if (!isDesktop || !hasChatDrag(event)) return;
+    if (!isWideLayout || !desktopInteraction || !hasChatDrag(event)) return;
     // drop を受理することを最初に確定する。validation 後の preventDefault では
     // Chromium が「禁止された drop」として先に破棄するケースがある。
     event.preventDefault();
@@ -381,16 +393,18 @@ function ChatShellBase() {
         <Sidebar />
       </div>
 
-      {!collapsed && (
+      {!collapsed && isWideLayout && desktopInteraction && (
         <div
           role="separator"
           aria-orientation="vertical"
           aria-label="サイドバーの幅を調整（ダブルクリックでリセット）"
-          onMouseDown={() => setSidebarDragging(true)}
-          onTouchStart={() => setSidebarDragging(true)}
+          onPointerDown={(event) => {
+            event.preventDefault();
+            setSidebarDragging(true);
+          }}
           onDoubleClick={() => setSidebarWidth(360)}
           className={cn(
-            "group hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[var(--vy-border)] transition-colors hover:bg-[var(--vy-accent)] md:flex",
+            "vy-desktop-manipulator group hidden w-1.5 shrink-0 cursor-col-resize items-center justify-center bg-[var(--vy-border)] transition-colors hover:bg-[var(--vy-accent)] md:flex",
             sidebarDragging && "bg-[var(--vy-accent)]",
           )}
         >
@@ -408,19 +422,20 @@ function ChatShellBase() {
           type="button"
           onClick={toggleSidebar}
           aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
-          className="absolute left-2 top-3 z-40 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] shadow-sm transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
+          className="vy-touch-target absolute left-2 top-3 z-40 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] shadow-sm transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
         >
           <IconPanelLeft size={17} />
         </button>
 
-        {isDesktop ? (
+        {isWideLayout ? (
           <div
             ref={paneContainerRef}
             className="relative h-full min-w-0 flex-1 overflow-hidden"
             onDragEnter={handleChatDragOver}
             onDragOver={handleChatDragOver}
             onDragLeave={(event) => {
-              if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDropPreview(null);
+              if (!event.currentTarget.contains(event.relatedTarget as Node | null))
+                setDropPreview(null);
             }}
             onDrop={handleChatDrop}
           >
@@ -436,11 +451,13 @@ function ChatShellBase() {
                   rect={paneRects[index] ?? { x: 0, y: 0, width: 100, height: 100 }}
                   focused={index === effectiveFocusedPane}
                   reserveSidebarToggle={index === 0}
+                  desktopManipulationEnabled={desktopInteraction}
                 />
               ))
             )}
 
-            {effectiveLayout === "columns" &&
+            {desktopInteraction &&
+              effectiveLayout === "columns" &&
               paneRects.slice(0, -1).map((rect, index) => (
                 <div
                   key={`column-divider-${index}`}
@@ -459,59 +476,65 @@ function ChatShellBase() {
                     });
                   }}
                   onDoubleClick={() => setChatPaneSizes(equalChatPaneSizes(paneIds.length))}
-                  className="absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                  className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
                   style={{ left: `${rect.x + rect.width}%` }}
                 />
               ))}
 
-            {(effectiveLayout === "split-left" || effectiveLayout === "split-right" || effectiveLayout === "grid") && (
-              <div
-                role="separator"
-                aria-orientation="vertical"
-                aria-label="左右のトーク領域の幅を調整"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  setPaneResize({
-                    kind: "main",
-                    startX: event.clientX,
-                    startRatio: mainRatio,
-                    width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
-                  });
-                }}
-                onDoubleClick={() => setMainRatio(50)}
-                className="absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                style={{ left: `${mainRatio}%` }}
-              />
-            )}
+            {desktopInteraction &&
+              (effectiveLayout === "split-left" ||
+                effectiveLayout === "split-right" ||
+                effectiveLayout === "grid") && (
+                <div
+                  role="separator"
+                  aria-orientation="vertical"
+                  aria-label="左右のトーク領域の幅を調整"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    setPaneResize({
+                      kind: "main",
+                      startX: event.clientX,
+                      startRatio: mainRatio,
+                      width: paneContainerRef.current?.getBoundingClientRect().width ?? 1,
+                    });
+                  }}
+                  onDoubleClick={() => setMainRatio(50)}
+                  className="vy-desktop-manipulator absolute top-0 z-30 h-full w-1.5 -translate-x-1/2 cursor-col-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                  style={{ left: `${mainRatio}%` }}
+                />
+              )}
 
-            {(effectiveLayout === "split-left" || effectiveLayout === "split-right" || effectiveLayout === "grid") && (
-              <div
-                role="separator"
-                aria-orientation="horizontal"
-                aria-label="上下のトーク領域の高さを調整"
-                onPointerDown={(event) => {
-                  event.preventDefault();
-                  setPaneResize({
-                    kind: "cross",
-                    startY: event.clientY,
-                    startRatio: crossRatio,
-                    height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
-                  });
-                }}
-                onDoubleClick={() => setCrossRatio(50)}
-                className="absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
-                style={{
-                  top: `${crossRatio}%`,
-                  left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
-                  width:
-                    effectiveLayout === "grid"
-                      ? "100%"
-                      : effectiveLayout === "split-left"
-                        ? `${mainRatio}%`
-                        : `${100 - mainRatio}%`,
-                }}
-              />
-            )}
+            {desktopInteraction &&
+              (effectiveLayout === "split-left" ||
+                effectiveLayout === "split-right" ||
+                effectiveLayout === "grid") && (
+                <div
+                  role="separator"
+                  aria-orientation="horizontal"
+                  aria-label="上下のトーク領域の高さを調整"
+                  onPointerDown={(event) => {
+                    event.preventDefault();
+                    setPaneResize({
+                      kind: "cross",
+                      startY: event.clientY,
+                      startRatio: crossRatio,
+                      height: paneContainerRef.current?.getBoundingClientRect().height ?? 1,
+                    });
+                  }}
+                  onDoubleClick={() => setCrossRatio(50)}
+                  className="vy-desktop-manipulator absolute z-30 h-1.5 -translate-y-1/2 cursor-row-resize bg-[var(--vy-border)] hover:bg-[var(--vy-accent)]"
+                  style={{
+                    top: `${crossRatio}%`,
+                    left: effectiveLayout === "split-right" ? `${mainRatio}%` : "0%",
+                    width:
+                      effectiveLayout === "grid"
+                        ? "100%"
+                        : effectiveLayout === "split-left"
+                          ? `${mainRatio}%`
+                          : `${100 - mainRatio}%`,
+                  }}
+                />
+              )}
 
             {dropPreview && (
               <div className="pointer-events-none absolute inset-2 z-50 rounded-2xl bg-black/20 backdrop-blur-[2px]">
@@ -535,7 +558,9 @@ function ChatShellBase() {
                       <div className="flex h-full items-center justify-center">
                         <div className="rounded-xl border border-dashed border-[var(--vy-accent)] bg-[var(--vy-surface)]/90 px-4 py-3 text-center shadow-xl">
                           <div className="text-2xl font-light text-[var(--vy-accent)]">＋</div>
-                          <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">{dropPreview.label}</p>
+                          <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
+                            {dropPreview.label}
+                          </p>
                         </div>
                       </div>
                     )}

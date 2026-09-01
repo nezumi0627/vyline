@@ -110,6 +110,7 @@ function ChatAreaBase({
   reserveSidebarToggle = true,
   onPaneDragStart,
 }: ChatAreaProps) {
+  const desktopInteraction = isDesktopInteraction();
   const storeActiveChatId = useStore((s) => s.activeChatId);
   const activeChatId = chatId ?? storeActiveChatId;
   const isFocusedPane = !chatId || storeActiveChatId === activeChatId;
@@ -521,7 +522,7 @@ function ChatAreaBase({
             type="button"
             onClick={() => closeChat()}
             aria-label="チャット一覧に戻る"
-            className="vy-mobile-back flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:hidden"
+            className="vy-mobile-back vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:hidden"
           >
             <IconArrowLeft size={20} />
           </button>
@@ -554,7 +555,7 @@ function ChatAreaBase({
               </span>
             </span>
           </button>
-          {paneCount > 1 && onPaneDragStart && (
+          {desktopInteraction && paneCount > 1 && onPaneDragStart && (
             <div
               data-vy-pane-drag-handle
               draggable
@@ -562,7 +563,7 @@ function ChatAreaBase({
               onPointerDown={(event) => event.stopPropagation()}
               title="ドラッグしてトーク画面を移動"
               aria-label="トーク画面をドラッグして再配置"
-              className="absolute left-1/2 top-1/2 z-20 hidden h-7 w-14 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)]/95 shadow-sm active:cursor-grabbing md:flex"
+              className="vy-desktop-manipulator absolute left-1/2 top-1/2 z-20 hidden h-7 w-14 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)]/95 shadow-sm active:cursor-grabbing md:flex"
             >
               <span className="grid grid-cols-3 gap-1" aria-hidden>
                 {Array.from({ length: 6 }, (_, index) => (
@@ -615,7 +616,7 @@ function ChatAreaBase({
                 setSearch((s) => ({ ...s, index: (s.index - 1 + matches.length) % matches.length }))
               }
               aria-label="前の一致"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
+              className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
               <IconChevron size={16} className="-rotate-90" />
             </button>
@@ -624,7 +625,7 @@ function ChatAreaBase({
               disabled={!matches.length}
               onClick={() => setSearch((s) => ({ ...s, index: (s.index + 1) % matches.length }))}
               aria-label="次の一致"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
+              className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
               <IconChevron size={16} className="rotate-90" />
             </button>
@@ -632,7 +633,7 @@ function ChatAreaBase({
               type="button"
               onClick={() => setSearch({ open: false, q: "", index: 0 })}
               aria-label="検索を閉じる"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+              className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
               <IconClose size={16} />
             </button>
@@ -658,9 +659,11 @@ function ChatAreaBase({
                 removeAnnouncement(activeChatId, announcementSeq);
               })
               .catch((error) => {
-                useStore.getState().showNotice(
-                  error instanceof Error ? error.message : "アナウンスの解除に失敗しました",
-                );
+                useStore
+                  .getState()
+                  .showNotice(
+                    error instanceof Error ? error.message : "アナウンスの解除に失敗しました",
+                  );
               });
           };
           const first = list[0]!;
@@ -687,7 +690,7 @@ function ChatAreaBase({
                     aria-expanded={announcementExpanded}
                     aria-controls={panelId}
                     aria-label={announcementExpanded ? "アナウンスをたたむ" : "アナウンスを広げる"}
-                    className="ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base font-semibold text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+                    className="vy-touch-target ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base font-semibold text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
                   >
                     <span aria-hidden>{announcementExpanded ? "∧" : "∨"}</span>
                   </button>
@@ -892,7 +895,7 @@ function HeaderButton({
       aria-label={label}
       aria-pressed={active}
       className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+        "vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
         active
           ? "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
           : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
