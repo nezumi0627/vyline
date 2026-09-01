@@ -19,6 +19,7 @@ import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { PlusMenu } from "@/components/plus-menu";
 import type { MessageState } from "@/lib/store-types";
 
@@ -106,7 +107,6 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const sendCombinationSticker = useStore((s) => s.sendCombinationSticker);
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
-  const enterToSend = useStore((s) => s.settings.enterToSend);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
@@ -476,13 +476,19 @@ export function MessageInput({ chatId }: { chatId: string }) {
         setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
         return;
       }
-      if ((e.key === "Enter" || e.key === "Tab") && !composing) {
+      if (
+        (e.key === "Tab" || (e.key === "Enter" && isDesktopInteraction())) &&
+        !composing
+      ) {
         e.preventDefault();
         insertMention(mentionOptions[mentionIndex % mentionOptions.length]!);
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey && enterToSend && !composing) {
+    // Operation semantics are UA-driven. Layout continues to be width/media-query driven.
+    // Mobile (Android/iPhone/iPad): Enter is always a newline.
+    // Desktop (Windows/macOS/Linux): Enter sends, Shift+Enter inserts a newline.
+    if (e.key === "Enter" && !e.shiftKey && isDesktopInteraction() && !composing) {
       e.preventDefault();
       if (!draft.trim() && pendingMedia.length > 0) {
         void sendPendingMedia();

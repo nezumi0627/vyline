@@ -1,5 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import type { AccountSettings, SavedThemeSetting } from "@vyline/types";
 import { useStore, THEME_PRESETS, serializeTheme, type VyTheme } from "@/lib/store";
+import { api } from "@/api/client";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconCopyCode, IconDice } from "@/components/icons";
 
@@ -82,16 +84,152 @@ function randomTheme(base: VyTheme): VyTheme {
   };
 }
 
+function parseSavedTheme(entry: SavedThemeSetting): VyTheme | null {
+  try {
+    const parsed = JSON.parse(entry.theme) as VyTheme;
+    if (!parsed.accent || !parsed.bg || !parsed.msgIn || !parsed.msgOut) return null;
+    return { ...parsed, id: "custom", name: entry.name };
+  } catch {
+    return null;
+  }
+}
+
+function sameThemeVisuals(left: VyTheme, right: VyTheme): boolean {
+  return (
+    left.accent === right.accent &&
+    left.bg === right.bg &&
+    left.chatBg === right.chatBg &&
+    left.msgIn === right.msgIn &&
+    left.msgOut === right.msgOut
+  );
+}
+
 export function VyThemePanel() {
   const theme = useStore((s) => s.theme);
   const setTheme = useStore((s) => s.setTheme);
   const updateThemeField = useStore((s) => s.updateThemeField);
+  const mid = useStore((s) => s.self.mid);
 
   const [expanded, setExpanded] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [copied, setCopied] = useState(false);
   const [importError, setImportError] = useState(false);
+  const [accountSettings, setAccountSettings] = useState<AccountSettings | null>(null);
+  const [savedName, setSavedName] = useState("");
+  const [syncLoading, setSyncLoading] = useState(false);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncMessage, setSyncMessage] = useState<string | null>(null);
+
+  const savedThemes = accountSettings?.theme.savedThemes ?? [];
+
+  useEffect(() => {
+    if (!mid) {
+      setAccountSettings(null);
+      return;
+    }
+    let cancelled = false;
+    setSyncLoading(true);
+    setSyncMessage(null);
+    void api.settings
+      .account(mid)
+      .then((result) => {
+        if (cancelled) return;
+        if (!result.ok) throw new Error("保存テーマを読み込めませんでした");
+        setAccountSettings(result.settings);
+      })
+      .catch((error) => {
+        if (!cancelled)
+          setSyncMessage(error instanceof Error ? error.message : "保存テーマを読み込めませんでした");
+      })
+      .finally(() => {
+        if (!cancelled) setSyncLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mid]);
+
+  async function persistThemeSettings(nextTheme: AccountSettings["theme"]): Promise<boolean> {
+    if (!mid || !accountSettings) return false;
+    setSyncBusy(true);
+    setSyncMessage(null);
+    try {
+      const result = await api.settings.saveAccount(mid, { theme: nextTheme });
+      if (!result.ok) throw new Error("テーマを保存できませんでした");
+      setAccountSettings(result.settings);
+      return true;
+    } catch (error) {
+      setSyncMessage(error instanceof Error ? error.message : "テーマを保存できませんでした");
+      return false;
+    } finally {
+      setSyncBusy(false);
+    }
+  }
+
+  async function saveCurrentTheme() {
+    if (!mid || !accountSettings) {
+      setSyncMessage("LINEアカウント情報の読み込み後に保存できます");
+      return;
+    }
+    const name = (savedName.trim() || theme.name || "マイテーマ").slice(0, 64);
+    const existing = savedThemes.find((entry) => entry.name === name);
+    const id =
+      existing?.id ??
+      (typeof crypto.randomUUID === "function"
+        ? crypto.randomUUID()
+        : `theme_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`);
+    const entry: SavedThemeSetting = {
+      id,
+      name,
+      theme: serializeTheme({ ...theme, id: "custom", name }),
+      updatedAt: new Date().toISOString(),
+    };
+    const nextSaved = [
+      entry,
+      ...savedThemes.filter((item) => item.id !== id && item.name !== name),
+    ].slice(0, 24);
+    const ok = await persistThemeSettings({
+      ...accountSettings.theme,
+      savedThemes: nextSaved,
+      activeSavedThemeId: id,
+    });
+    if (ok) {
+      setSavedName("");
+      setSyncMessage(`「${name}」をアカウントに保存しました`);
+    }
+  }
+
+  async function applySavedTheme(entry: SavedThemeSetting) {
+    const parsed = parseSavedTheme(entry);
+    if (!parsed) {
+      setSyncMessage("保存テーマのデータが壊れています");
+      return;
+    }
+    setTheme(parsed);
+    if (accountSettings) {
+      await persistThemeSettings({
+        ...accountSettings.theme,
+        savedThemes,
+        activeSavedThemeId: entry.id,
+      });
+    }
+  }
+
+  async function deleteSavedTheme(entry: SavedThemeSetting) {
+    if (!accountSettings) return;
+    const nextSaved = savedThemes.filter((item) => item.id !== entry.id);
+    const { activeSavedThemeId: _active, ...baseThemeSettings } = accountSettings.theme;
+    const ok = await persistThemeSettings({
+      ...baseThemeSettings,
+      savedThemes: nextSaved,
+      ...(accountSettings.theme.activeSavedThemeId &&
+      accountSettings.theme.activeSavedThemeId !== entry.id
+        ? { activeSavedThemeId: accountSettings.theme.activeSavedThemeId }
+        : {}),
+    });
+    if (ok) setSyncMessage(`「${entry.name}」を削除しました`);
+  }
 
   function copyCode() {
     const code = serializeTheme(theme);
@@ -135,6 +273,72 @@ export function VyThemePanel() {
             );
           })}
         </div>
+      </div>
+
+      {/* server-synced saved themes */}
+      <div>
+        <div className="mb-3 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium text-[var(--vy-text-dim)]">保存済みテーマ</p>
+            <p className="mt-1 text-[0.7rem] text-[var(--vy-text-dim)]">
+              LINEアカウントに保存されるため、別ブラウザからも選べます
+            </p>
+          </div>
+          {syncLoading && (
+            <span className="text-[0.7rem] text-[var(--vy-text-dim)]">同期中…</span>
+          )}
+        </div>
+        {savedThemes.length > 0 ? (
+          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+            {savedThemes.map((entry) => {
+              const saved = parseSavedTheme(entry);
+              if (!saved) return null;
+              return (
+                <div key={entry.id} className="relative">
+                  <PresetCard
+                    preset={saved}
+                    active={sameThemeVisuals(theme, saved)}
+                    onClick={() => void applySavedTheme(entry)}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => void deleteSavedTheme(entry)}
+                    disabled={syncBusy}
+                    className="absolute bottom-2 right-2 rounded-md bg-black/45 px-1.5 py-0.5 text-[0.6rem] text-white backdrop-blur hover:bg-black/65 disabled:opacity-50"
+                    aria-label={`${entry.name}を削除`}
+                  >
+                    削除
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        ) : (
+          <p className="rounded-xl border border-dashed border-[var(--vy-border)] px-3 py-3 text-xs text-[var(--vy-text-dim)]">
+            保存済みテーマはありません
+          </p>
+        )}
+        <div className="mt-3 flex flex-col gap-2 sm:flex-row">
+          <input
+            value={savedName}
+            onChange={(e) => setSavedName(e.target.value)}
+            maxLength={64}
+            placeholder={theme.name || "テーマ名"}
+            aria-label="保存するテーマ名"
+            className="min-w-0 flex-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none placeholder:text-[var(--vy-text-dim)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+          />
+          <button
+            type="button"
+            onClick={() => void saveCurrentTheme()}
+            disabled={!mid || !accountSettings || syncLoading || syncBusy}
+            className="rounded-xl bg-[var(--vy-accent)] px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-45"
+          >
+            現在のテーマを保存
+          </button>
+        </div>
+        {syncMessage && (
+          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{syncMessage}</p>
+        )}
       </div>
 
       {/* actions */}

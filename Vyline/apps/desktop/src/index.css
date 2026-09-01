@@ -42,6 +42,8 @@
   --vy-radius: 0.9rem;
   --vy-chat-bg: #0e1621;
   --vy-chat-pattern: 1;
+  --vy-app-height: 100dvh;
+  --vy-app-top: 0px;
 
   /* Legacy aliases (tailwind.config / 既存コンポーネント互換) */
   --vy-accent-primary: var(--vy-accent);
@@ -84,6 +86,35 @@
   ::selection {
     background: color-mix(in oklab, var(--vy-accent) 40%, transparent);
   }
+}
+
+.vy-viewport-root {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--vy-app-top, 0px);
+  height: var(--vy-app-height, 100dvh);
+}
+
+/*
+ * Mobile long-press belongs to Vyline's gesture layer, not browser text selection.
+ * Selection remains available in explicit selection surfaces such as partial-copy.
+ */
+html[data-vy-interaction="mobile"] .vy-message-interaction,
+html[data-vy-interaction="mobile"] [data-vy-chat-row] {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+html[data-vy-interaction="mobile"] .vy-message-interaction {
+  touch-action: pan-y;
+}
+
+html[data-vy-interaction="mobile"] .vy-message-interaction .vy-partial-copy-text {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: auto;
 }
 
 /* --- Scrollbars --- */

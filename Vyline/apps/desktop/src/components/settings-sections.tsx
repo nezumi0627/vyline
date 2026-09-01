@@ -241,7 +241,7 @@ export function SettingsSections() {
   };
 
   return (
-    <div className="flex h-dvh flex-col bg-[var(--vy-bg)]">
+      <div className="vy-viewport-root flex flex-col bg-[var(--vy-bg)]">
       {/* header */}
       <header className="flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
         <button
@@ -465,16 +465,6 @@ export function SettingsSections() {
                         checked={settings.compactDensity}
                         onChange={(v) => updateSetting("compactDensity", v)}
                         label="コンパクト表示"
-                      />
-                    </Row>
-                    <Row
-                      title="Enter で送信"
-                      desc="OFF の場合は Shift+Enter ではなく Enter で改行します"
-                    >
-                      <Toggle
-                        checked={settings.enterToSend}
-                        onChange={(v) => updateSetting("enterToSend", v)}
-                        label="Enter で送信"
                       />
                     </Row>
                     <Row

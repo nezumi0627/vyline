@@ -369,7 +369,7 @@ function ChatShellBase() {
   return (
     <div
       ref={shellRef}
-      className="vy-chat-shell flex h-dvh overflow-hidden bg-[var(--vy-bg)]"
+      className="vy-chat-shell vy-viewport-root flex overflow-hidden bg-[var(--vy-bg)]"
       style={{ ["--sb-w" as string]: `${sidebarWidth}px` }}
     >
       <div

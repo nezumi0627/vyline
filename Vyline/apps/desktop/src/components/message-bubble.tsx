@@ -40,6 +40,7 @@ import {
 import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 import { splitTextLinks } from "@/lib/linkifyText";
+import { isMobileInteraction } from "@/lib/interactionEnvironment";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -722,6 +723,8 @@ export const MessageBubble = memo(
     const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
+    const markChatRead = useStore((s) => s.markChatRead);
+    const readDisabled = useStore((s) => Boolean(s.readDisabledMids[chat.id]));
     const setReplyTo = useStore((s) => s.setReplyTo);
     const scrollToMessage = useStore((s) => s.scrollToMessage);
     const openMemberProfile = useStore((s) => s.openMemberProfile);
@@ -741,8 +744,17 @@ export const MessageBubble = memo(
     const [lightbox, setLightbox] = useState(false);
     const [revokedFallbackText, setRevokedFallbackText] = useState<string | null>(null);
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
+    const [partialCopyOpen, setPartialCopyOpen] = useState(false);
+    const [swipeOffset, setSwipeOffset] = useState(0);
+    const partialCopyRef = useRef<HTMLTextAreaElement>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
+    const touchGesture = useRef<{
+      startX: number;
+      startY: number;
+      lastX: number;
+      lastY: number;
+    } | null>(null);
     const isRevoked =
       message.messageState.startsWith("revoked") ||
       Boolean(message.revokedSnapshot) ||
@@ -827,24 +839,80 @@ export const MessageBubble = memo(
     }
 
     function onTouchStart(e: React.TouchEvent) {
-      if (isRevoked) return;
+      if (isRevoked || !isMobileInteraction()) return;
+      const target = e.target as HTMLElement;
+      const nestedButton = target.closest("button");
+      if (
+        target.closest("a, input, textarea, select, video, [contenteditable='true'], [data-vy-native-touch='true']") ||
+        (nestedButton && nestedButton !== e.currentTarget)
+      )
+        return;
       const t = e.touches[0];
+      if (!t) return;
+      const x = t.clientX;
+      const y = t.clientY;
+      touchGesture.current = { startX: x, startY: y, lastX: x, lastY: y };
       longPressFired.current = false;
+      setSwipeOffset(0);
       longPressTimer.current = setTimeout(() => {
         longPressFired.current = true;
+        touchGesture.current = null;
+        setSwipeOffset(0);
         if (navigator.vibrate) navigator.vibrate(12);
-        setMenu({ x: t.clientX, y: t.clientY });
+        setMenu({ x, y });
       }, 480);
     }
+
     function cancelLongPress() {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
+
+    function onTouchMove(e: React.TouchEvent) {
+      const gesture = touchGesture.current;
+      const t = e.touches[0];
+      if (!gesture || !t) return;
+      gesture.lastX = t.clientX;
+      gesture.lastY = t.clientY;
+      const dx = gesture.lastX - gesture.startX;
+      const dy = gesture.lastY - gesture.startY;
+      if (Math.abs(dx) > 8 || Math.abs(dy) > 8) cancelLongPress();
+
+      if (dx < 0 && Math.abs(dx) > Math.abs(dy) * 1.15) {
+        setSwipeOffset(-Math.min(68, -dx));
+      } else {
+        setSwipeOffset(0);
+      }
+    }
+
+    function finishTouch(e?: React.TouchEvent) {
+      const gesture = touchGesture.current;
+      const changed = e?.changedTouches[0];
+      const endX = changed?.clientX ?? gesture?.lastX ?? 0;
+      const endY = changed?.clientY ?? gesture?.lastY ?? 0;
+      const shouldReply =
+        !longPressFired.current &&
+        gesture != null &&
+        gesture.startX - endX >= 56 &&
+        Math.abs(gesture.startX - endX) > Math.abs(gesture.startY - endY) * 1.15;
+
+      cancelLongPress();
+      touchGesture.current = null;
+      setSwipeOffset(0);
+      longPressFired.current = false;
+
+      if (shouldReply) {
+        if (navigator.vibrate) navigator.vibrate(8);
+        setReplyTo(message.id);
+      }
+    }
+
     const pressHandlers = {
       onContextMenu: openMenu,
       onTouchStart,
-      onTouchEnd: cancelLongPress,
-      onTouchMove: cancelLongPress,
+      onTouchEnd: finishTouch,
+      onTouchMove,
+      onTouchCancel: () => finishTouch(),
     };
 
     const react = (type: number, mine: boolean) => {
@@ -986,6 +1054,11 @@ export const MessageBubble = memo(
               icon: <IconCopy size={16} />,
               onClick: () => void copyText(message.text ?? message.altText ?? ""),
             },
+            {
+              label: "部分コピー",
+              icon: <IconCopy size={16} />,
+              onClick: () => setPartialCopyOpen(true),
+            },
           ]
         : []),
       ...(message.kind === "sticker" && isStickerImageSrc(message.sticker)
@@ -1031,15 +1104,26 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(!isMe && !message.read
+      ...(!isMe && (!settings.readReceipts || readDisabled)
         ? [
             {
-              label: "既読にする",
+              label: "このメッセージまで既読",
               icon: <IconCheck size={16} />,
-              onClick: () => markRead(message.id),
+              onClick: () =>
+                void markChatRead(chat.id, message.id, {
+                  forceReceipt: true,
+                }),
             },
           ]
-        : []),
+        : !isMe && !message.read
+          ? [
+              {
+                label: "既読にする",
+                icon: <IconCheck size={16} />,
+                onClick: () => markRead(message.id),
+              },
+            ]
+          : []),
       ...(isMe &&
       !isRevoked &&
       message.kind === "text" &&
@@ -1493,7 +1577,21 @@ export const MessageBubble = memo(
     };
 
     return (
-      <div className={cn("flex w-full gap-2 px-1", isMe ? "flex-row-reverse" : "flex-row")}>
+      <div
+        data-vy-message="true"
+        className={cn(
+          "vy-message-interaction relative flex w-full gap-2 px-1",
+          isMe ? "flex-row-reverse" : "flex-row",
+        )}
+      >
+        {swipeOffset < -10 && (
+          <span
+            className="pointer-events-none absolute right-2 top-1/2 z-0 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)]"
+            aria-hidden
+          >
+            <IconReply size={17} />
+          </span>
+        )}
         {!isMe && chat.type === "group" && (
           <div className="w-8 shrink-0 self-end">
             {showAvatar && author && (
@@ -1516,12 +1614,16 @@ export const MessageBubble = memo(
 
         <div
           className={cn(
-            "min-w-0 flex flex-col",
+            "relative z-[1] min-w-0 flex flex-col",
             message.kind === "flex" || message.kind === "rich"
               ? "max-w-[min(100%,360px)]"
               : "max-w-[74%]",
             isMe ? "items-end" : "items-start",
           )}
+          style={{
+            transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
+            transition: swipeOffset === 0 ? "transform 160ms ease-out" : "none",
+          }}
         >
           {showName && !isMe && chat.type === "group" && author && (
             <button
@@ -1911,6 +2013,57 @@ export const MessageBubble = memo(
             }}
             onClose={() => setEditing(false)}
           />
+        )}
+        {partialCopyOpen && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="メッセージを部分コピー"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setPartialCopyOpen(false);
+            }}
+          >
+            <div className="w-full max-w-md rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-2xl">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">部分コピー</p>
+                <button
+                  type="button"
+                  onClick={() => setPartialCopyOpen(false)}
+                  className="rounded-lg p-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
+                  aria-label="閉じる"
+                >
+                  <IconClose size={17} />
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-[var(--vy-text-dim)]">
+                コピーしたい範囲を選択してください
+              </p>
+              <textarea
+                ref={partialCopyRef}
+                autoFocus
+                readOnly
+                value={message.text ?? message.altText ?? ""}
+                onFocus={(e) => e.currentTarget.select()}
+                className="vy-partial-copy-text vy-scroll h-40 w-full resize-none rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const textarea = partialCopyRef.current;
+                  const full = message.text ?? message.altText ?? "";
+                  const start = textarea?.selectionStart ?? 0;
+                  const end = textarea?.selectionEnd ?? 0;
+                  const selected = end > start ? full.slice(start, end) : full;
+                  void copyText(selected);
+                  setPartialCopyOpen(false);
+                }}
+                className="mt-3 w-full rounded-xl bg-[var(--vy-accent)] px-3 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)]"
+              >
+                選択範囲をコピー
+              </button>
+            </div>
+          </div>
         )}
         {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
           <MediaLightbox

@@ -36,6 +36,7 @@ import {
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { findFirstUnreadMessage, isNearScrollBottom } from "@/lib/chatScroll";
 import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -252,8 +253,14 @@ function ChatAreaBase({
     rowRef,
     scrollToMessagePosition,
     scrollToBottom,
+    releaseAutoPosition,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
   const messageListRef = useRef<HTMLDivElement>(null);
+  const announcementScrollAnchorRef = useRef<{
+    chatMid: string;
+    scrollTop: number;
+    overflowAnchor: string;
+  } | null>(null);
 
   const syncBottomButton = useCallback(
     (element: HTMLDivElement | null = containerRef.current) => {
@@ -271,6 +278,73 @@ function ChatAreaBase({
     },
     [containerRef],
   );
+
+  const toggleAnnouncementExpanded = useCallback(() => {
+    if (!activeChatId) return;
+
+    const container = containerRef.current;
+    if (container) {
+      const previous = announcementScrollAnchorRef.current;
+      announcementScrollAnchorRef.current = {
+        chatMid: activeChatId,
+        scrollTop: container.scrollTop,
+        // Chromium's scroll anchoring can move the conversation when the
+        // announcement panel changes the flex viewport height. Temporarily
+        // disable it and restore the exact pre-toggle scrollTop after layout.
+        overflowAnchor:
+          previous?.chatMid === activeChatId
+            ? previous.overflowAnchor
+            : container.style.getPropertyValue("overflow-anchor"),
+      };
+      container.style.setProperty("overflow-anchor", "none");
+      // The virtual list keeps its own initial/bottom anchor. An announcement
+      // toggle is an explicit UI action, so release that anchor as well or a
+      // later ResizeObserver measurement can undo the scrollTop restoration.
+      releaseAutoPosition();
+    }
+
+    setAnnouncementExpandedByChat((current) => ({
+      ...current,
+      [activeChatId]: !(current[activeChatId] ?? false),
+    }));
+  }, [activeChatId, containerRef, releaseAutoPosition]);
+
+  useLayoutEffect(() => {
+    const anchor = announcementScrollAnchorRef.current;
+    if (!anchor) return;
+    const container = containerRef.current;
+    if (!container) {
+      announcementScrollAnchorRef.current = null;
+      return;
+    }
+    if (anchor.chatMid !== activeChatId) {
+      if (anchor.overflowAnchor) {
+        container.style.setProperty("overflow-anchor", anchor.overflowAnchor);
+      } else {
+        container.style.removeProperty("overflow-anchor");
+      }
+      announcementScrollAnchorRef.current = null;
+      return;
+    }
+
+    const restore = () => {
+      if (announcementScrollAnchorRef.current !== anchor) return;
+      container.scrollTop = anchor.scrollTop;
+      syncBottomButton(container);
+    };
+    restore();
+    const frame = requestAnimationFrame(() => {
+      restore();
+      if (announcementScrollAnchorRef.current !== anchor) return;
+      if (anchor.overflowAnchor) {
+        container.style.setProperty("overflow-anchor", anchor.overflowAnchor);
+      } else {
+        container.style.removeProperty("overflow-anchor");
+      }
+      announcementScrollAnchorRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeChatId, announcementExpanded, containerRef, syncBottomButton]);
 
   const olderBoundaryArmedRef = useRef(true);
   const lastUserScrollIntentAtRef = useRef(0);
@@ -658,7 +732,7 @@ function ChatAreaBase({
           return (
             <div className="mx-auto w-full max-w-3xl px-1">
               <div
-                className="mb-2 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-accent)_10%,var(--vy-surface))] text-xs text-[var(--vy-text)]"
+                className="mb-2 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] text-xs text-[var(--vy-text)]"
                 data-pattern={theme.pattern}
               >
                 <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
@@ -677,13 +751,7 @@ function ChatAreaBase({
                   )}
                   <button
                     type="button"
-                    onClick={() => {
-                      if (!activeChatId) return;
-                      setAnnouncementExpandedByChat((current) => ({
-                        ...current,
-                        [activeChatId]: !announcementExpanded,
-                      }));
-                    }}
+                    onClick={toggleAnnouncementExpanded}
                     aria-expanded={announcementExpanded}
                     aria-controls={panelId}
                     aria-label={announcementExpanded ? "アナウンスをたたむ" : "アナウンスを広げる"}
@@ -742,6 +810,16 @@ function ChatAreaBase({
               lastUserScrollIntentAtRef.current = performance.now();
             }}
             onContextMenu={(e) => {
+              // Mobile long-press is reserved for message actions. Do not let the
+              // generic chat menu race the message gesture/native context event.
+              if (!isDesktopInteraction()) return;
+              const target = e.target as HTMLElement;
+              if (
+                target.closest("[data-vy-message='true']") ||
+                target.closest("button, input, textarea, a, [data-message-actionable='true']")
+              ) {
+                return;
+              }
               e.preventDefault();
               setPanel({ x: e.clientX, y: e.clientY });
             }}

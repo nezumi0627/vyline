@@ -34,9 +34,11 @@ import {
   IconLogout,
   IconChevron,
   IconShield,
+  IconPanelLeft,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { CHAT_PANE_DRAG_TYPE } from "@/lib/chatPanes";
+import { isMobileInteraction } from "@/lib/interactionEnvironment";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -129,6 +131,7 @@ function SidebarBase() {
   const activeChatId = useStore((s) => s.activeChatId);
   const chatPaneIds = useStore((s) => s.chatPaneIds);
   const openChat = useStore((s) => s.openChat);
+  const openChatInSplit = useStore((s) => s.openChatInSplit);
   const setScreen = useStore((s) => s.setScreen);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const sort = useStore((s) => s.settings.chatSort);
@@ -151,6 +154,9 @@ function SidebarBase() {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
+  const [splitAvailable, setSplitAvailable] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
+  );
   const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
   const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
   const [blockBusy, setBlockBusy] = useState(false);
@@ -168,6 +174,15 @@ function SidebarBase() {
   useEffect(() => {
     previewMapRef.current = previewMap;
   }, [previewMap]);
+
+  // Split availability is a layout concern, so it follows viewport width rather than UA.
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setSplitAvailable(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
 
   const filtered = useMemo(() => {
     let list = chats;
@@ -314,6 +329,15 @@ function SidebarBase() {
             });
           },
         },
+        ...(splitAvailable
+          ? [
+              {
+                label: "チャット分割",
+                icon: <IconPanelLeft size={16} />,
+                onClick: () => openChatInSplit(menu.chat.id),
+              },
+            ]
+          : []),
         {
           label: menu.chat.pinned ? "ピン留めを解除" : "ピン留め",
           icon: <IconPin size={16} />,
@@ -670,6 +694,7 @@ const ChatRow = memo(function ChatRow({
 
   const onTouchStart = useCallback(
     (e: React.TouchEvent) => {
+      if (!isMobileInteraction()) return;
       const t = e.touches[0];
       if (!t) return;
       const cx = t.clientX;
@@ -705,7 +730,7 @@ const ChatRow = memo(function ChatRow({
   return (
     <div
       data-vy-chat-row
-      draggable
+      draggable={!isMobileInteraction()}
       onDragStart={(event) => {
         // 一覧の並べ替えは move、トーク領域への分割追加は copy。
         // source 側で copy のみにすると target が move を選んだ瞬間に drop 自体が拒否される。

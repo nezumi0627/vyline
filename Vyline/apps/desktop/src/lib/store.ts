@@ -465,7 +465,11 @@ type State = {
   toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
-  markChatRead: (id: string, lastMessageId?: string) => Promise<void>;
+  markChatRead: (
+    id: string,
+    lastMessageId?: string,
+    options?: { forceReceipt?: boolean },
+  ) => Promise<void>;
   markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
@@ -1926,8 +1930,9 @@ export const useStore = create<State>()(
         await get().markChatRead(activeChatId, messageId);
       },
 
-      markChatRead: async (id, requestedMessageId) => {
+      markChatRead: async (id, requestedMessageId, options) => {
         const { accountId, messages, settings, readDisabledMids, demoMode } = get();
+        const forceReceipt = options?.forceReceipt === true;
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
           .sort((a, b) => {
@@ -1962,8 +1967,13 @@ export const useStore = create<State>()(
           }),
         }));
         if (demoMode) return;
-        // 全体無効（設定）または個別無効（右クリック）なら送信しない
-        if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
+        // 通常の自動既読は全体/個別の無効化を尊重する。
+        // 「このメッセージまで既読」は明示操作なので forceReceipt で一度だけ送れる。
+        if (
+          !accountId ||
+          (!forceReceipt && (!settings.readReceipts || readDisabledMids[id]))
+        )
+          return;
         const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);

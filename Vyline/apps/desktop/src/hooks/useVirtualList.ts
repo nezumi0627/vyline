@@ -78,6 +78,11 @@ export function useVirtualList<T>({
     setScrollTop(el.scrollTop);
   }, []);
 
+  const releaseAutoPosition = useCallback(() => {
+    anchorRef.current = null;
+    keepBottomRef.current = false;
+  }, []);
+
   // 可視ウィンドウを二分探索で算出
   const visible = useMemo(() => {
     const el = containerRef.current;
@@ -160,19 +165,15 @@ export function useVirtualList<T>({
   useEffect(() => {
     const el = containerRef.current;
     if (!el) return;
-    const cancelAutoPosition = () => {
-      anchorRef.current = null;
-      keepBottomRef.current = false;
-    };
-    el.addEventListener("wheel", cancelAutoPosition, { passive: true });
-    el.addEventListener("touchstart", cancelAutoPosition, { passive: true });
-    el.addEventListener("pointerdown", cancelAutoPosition, { passive: true });
+    el.addEventListener("wheel", releaseAutoPosition, { passive: true });
+    el.addEventListener("touchstart", releaseAutoPosition, { passive: true });
+    el.addEventListener("pointerdown", releaseAutoPosition, { passive: true });
     return () => {
-      el.removeEventListener("wheel", cancelAutoPosition);
-      el.removeEventListener("touchstart", cancelAutoPosition);
-      el.removeEventListener("pointerdown", cancelAutoPosition);
+      el.removeEventListener("wheel", releaseAutoPosition);
+      el.removeEventListener("touchstart", releaseAutoPosition);
+      el.removeEventListener("pointerdown", releaseAutoPosition);
     };
-  }, []);
+  }, [releaseAutoPosition]);
 
   useEffect(() => {
     return () => {
@@ -270,5 +271,6 @@ export function useVirtualList<T>({
     scrollToKey,
     scrollToMessagePosition,
     scrollToBottom,
+    releaseAutoPosition,
   };
 }
