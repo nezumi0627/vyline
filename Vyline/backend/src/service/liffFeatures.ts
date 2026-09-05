@@ -45,22 +45,33 @@ interface LiffCreds {
 }
 
 // LIFF token は 1 時間有効。issueLiffView が間欠的に遅いためキャッシュを長めに持ち、取得はリトライ
-const credsCache = new Map<string, { creds: LiffCreds; at: number }>();
+const credsCache = new WeakMap<VylineClient, Map<string, { creds: LiffCreds; at: number }>>();
 const CREDS_TTL_MS = 600_000;
 // issueLiffView が遅いため、同一キーの取得が重ならないよう in-flight を統合する
-const credsInflight = new Map<string, Promise<LiffCreds>>();
+const credsInflight = new WeakMap<VylineClient, Map<string, Promise<LiffCreds>>>();
+
+function clientMap<T>(maps: WeakMap<VylineClient, Map<string, T>>, client: VylineClient) {
+  let map = maps.get(client);
+  if (!map) {
+    map = new Map();
+    maps.set(client, map);
+  }
+  return map;
+}
 
 async function getCreds(
   client: VylineClient,
   liffId: string,
   chatMid?: string,
 ): Promise<LiffCreds> {
+  const cache = clientMap(credsCache, client);
+  const inflights = clientMap(credsInflight, client);
   const key = `${liffId}:${chatMid ?? ""}`;
-  const cached = credsCache.get(key);
+  const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CREDS_TTL_MS) {
     return cached.creds;
   }
-  const inflight = credsInflight.get(key);
+  const inflight = inflights.get(key);
   if (inflight) {
     return inflight;
   }
@@ -74,7 +85,7 @@ async function getCreds(
         );
         log.info({ liffId, ms: Date.now() - t0, attempt }, "issueLiffView");
         const creds = { accessToken: view.accessToken, idToken: view.idToken };
-        credsCache.set(key, { creds, at: Date.now() });
+        cache.set(key, { creds, at: Date.now() });
         return creds;
       } catch (err) {
         lastErr = err;
@@ -83,11 +94,11 @@ async function getCreds(
     }
     throw lastErr;
   })();
-  credsInflight.set(key, job);
+  inflights.set(key, job);
   try {
     return await job;
   } finally {
-    credsInflight.delete(key);
+    if (inflights.get(key) === job) inflights.delete(key);
   }
 }
 
@@ -95,10 +106,12 @@ async function getCredsWithoutUserContext(
   client: VylineClient,
   liffId: string,
 ): Promise<LiffCreds> {
+  const cache = clientMap(credsCache, client);
+  const inflights = clientMap(credsInflight, client);
   const key = `sticker-shop-user-context:${liffId}`;
-  const cached = credsCache.get(key);
+  const cached = cache.get(key);
   if (cached && Date.now() - cached.at < CREDS_TTL_MS) return cached.creds;
-  const inflight = credsInflight.get(key);
+  const inflight = inflights.get(key);
   if (inflight) return inflight;
   const job = (async (): Promise<LiffCreds> => {
     try {
@@ -110,7 +123,7 @@ async function getCredsWithoutUserContext(
         lang: "ja_JP",
       });
       const creds = { accessToken: view.accessToken, idToken: view.idToken };
-      credsCache.set(key, { creds, at: Date.now() });
+      cache.set(key, { creds, at: Date.now() });
       return creds;
     } catch (error) {
       log.warn(
@@ -119,15 +132,15 @@ async function getCredsWithoutUserContext(
       );
       const view = await client.base.liff.getLiffViewWithoutUserContext({ request: { liffId } });
       const creds = { accessToken: view.accessToken, idToken: view.idToken };
-      credsCache.set(key, { creds, at: Date.now() });
+      cache.set(key, { creds, at: Date.now() });
       return creds;
     }
   })();
-  credsInflight.set(key, job);
+  inflights.set(key, job);
   try {
     return await job;
   } finally {
-    credsInflight.delete(key);
+    if (inflights.get(key) === job) inflights.delete(key);
   }
 }
 
