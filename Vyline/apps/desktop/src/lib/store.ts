@@ -42,6 +42,14 @@ import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
 import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
 import { findFirstUnreadMessage } from "./chatScroll.js";
+import {
+  addChatPane,
+  closeChatPaneAt,
+  equalChatPaneSizes,
+  MAX_CHAT_PANES,
+  normalizeChatPaneSizes,
+  replaceFocusedChatPane,
+} from "./chatPanes.js";
 
 export type {
   Chat,
@@ -104,6 +112,10 @@ function rememberLastOpenedChat(accountId: string, chatId: string): void {
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
+
+function emptySelfProfile(): SelfProfile {
+  return { name: "Vyline", avatar: "V", status: "" };
+}
 
 function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
   const contactCache = new Map<string, ContactInfo>();
@@ -264,7 +276,7 @@ function applyReadWatermarkLocal(
   return changed ? patches : null;
 }
 
-function messagePreview(m: Message): string {
+export function messagePreview(m: Message): string {
   if (m.messageState.startsWith("revoked")) {
     if (m.revokedSnapshot) return `取り消し済み: ${messagePreview(m.revokedSnapshot)}`;
     const last = m.history
@@ -331,6 +343,11 @@ type State = {
   demoMode: boolean;
   accountId: string | null;
   activeChatId: string | null;
+  /** Desktop multi-pane chat IDs, ordered from left to right. */
+  chatPaneIds: string[];
+  /** Relative widths for chatPaneIds; normalized to 100. */
+  chatPaneSizes: number[];
+  focusedChatPane: number;
   theme: VyTheme;
   settings: Settings;
   chats: Chat[];
@@ -384,6 +401,10 @@ type State = {
   syncChatLocks: () => Promise<void>;
   setChatLocked: (chatMid: string, locked: boolean) => Promise<boolean>;
   openChat: (id: string) => void;
+  openChatInSplit: (id: string) => void;
+  focusChatPane: (index: number) => void;
+  closeChatPane: (index: number) => void;
+  setChatPaneSizes: (sizes: number[]) => void;
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
   dismissUpdateNote: () => void;
@@ -444,7 +465,11 @@ type State = {
   toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
-  markChatRead: (id: string, lastMessageId?: string) => Promise<void>;
+  markChatRead: (
+    id: string,
+    lastMessageId?: string,
+    options?: { forceReceipt?: boolean },
+  ) => Promise<void>;
   markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
@@ -508,6 +533,9 @@ export const useStore = create<State>()(
       demoMode: false,
       accountId: null,
       activeChatId: null,
+      chatPaneIds: [],
+      chatPaneSizes: [],
+      focusedChatPane: 0,
       theme: THEME_PRESETS[0]!,
       settings: {
         animationMode: "vyline",
@@ -543,7 +571,7 @@ export const useStore = create<State>()(
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
-      self: { name: "Vyline", avatar: "V", status: "" },
+      self: emptySelfProfile(),
       sidebarWidth: 360,
       sidebarCollapsed: false,
       customOrder: [],
@@ -566,6 +594,7 @@ export const useStore = create<State>()(
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
         const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
+        const initialPaneIds = lastOpenedChatId ? [lastOpenedChatId] : [];
         if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
@@ -573,7 +602,7 @@ export const useStore = create<State>()(
           myMessageIdsByChat.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
-          eventPollCursor.delete(String(id));
+          eventPollCursor.delete(String(currentAccountId));
         }
         if (accountChanged && currentAccountId !== null) {
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
@@ -583,9 +612,14 @@ export const useStore = create<State>()(
             chats: [],
             messages: [],
             activeChatId: lastOpenedChatId,
+            chatPaneIds: initialPaneIds,
+            chatPaneSizes: equalChatPaneSizes(initialPaneIds.length),
+            focusedChatPane: 0,
             initialChatScrollMessageId: null,
             initialChatScrollMode: null,
             memberProfile: null,
+            profileDrawerOpen: false,
+            self: emptySelfProfile(),
             readWatermarks: {},
             announcements: {},
             readDisabledMids: {},
@@ -595,7 +629,14 @@ export const useStore = create<State>()(
         } else {
           set({
             accountId: id,
-            ...(accountChanged && lastOpenedChatId ? { activeChatId: lastOpenedChatId } : {}),
+            ...(accountChanged
+              ? {
+                  activeChatId: lastOpenedChatId,
+                  chatPaneIds: initialPaneIds,
+                  chatPaneSizes: equalChatPaneSizes(initialPaneIds.length),
+                  focusedChatPane: 0,
+                }
+              : {}),
           });
         }
         if (id) void get().syncChatLocks();
@@ -605,6 +646,7 @@ export const useStore = create<State>()(
         set({
           chats: [],
           messages: [],
+          self: emptySelfProfile(),
           profileDrawerOpen: false,
           announcements: {},
           drafts: {},
@@ -678,10 +720,100 @@ export const useStore = create<State>()(
 
       openChat: (id) => {
         sessionOpenedChats.add(id);
+        const state = get();
+        const panes = replaceFocusedChatPane(
+          state.chatPaneIds,
+          state.chatPaneSizes,
+          state.focusedChatPane,
+          id,
+        );
+        set({
+          chatPaneIds: panes.ids,
+          chatPaneSizes: panes.sizes,
+          focusedChatPane: panes.focusedIndex,
+        });
         get()._activateChat(id, { history: true });
       },
 
+      openChatInSplit: (id) => {
+        sessionOpenedChats.add(id);
+        const state = get();
+        // Older persisted stores can have activeChatId while chatPaneIds is
+        // still empty. Seed the visible pane first or "split" only replaces it.
+        const currentIds =
+          state.chatPaneIds.length > 0
+            ? state.chatPaneIds
+            : state.activeChatId
+              ? [state.activeChatId]
+              : [];
+        const currentSizes =
+          state.chatPaneIds.length > 0
+            ? state.chatPaneSizes
+            : equalChatPaneSizes(currentIds.length);
+        if (currentIds.length >= MAX_CHAT_PANES && !currentIds.includes(id)) {
+          get().showNotice(`同時に開けるトークは最大${MAX_CHAT_PANES}画面です`);
+          return;
+        }
+        const panes = addChatPane(currentIds, currentSizes, id);
+        set({
+          chatPaneIds: panes.ids,
+          chatPaneSizes: panes.sizes,
+          focusedChatPane: panes.focusedIndex,
+        });
+        get()._activateChat(id, { history: false });
+        if (!panes.added && currentIds.includes(id)) {
+          get().showNotice("このトークはすでに表示中です");
+        }
+      },
+
+      focusChatPane: (index) => {
+        const state = get();
+        const id = state.chatPaneIds[index];
+        if (!id || (state.focusedChatPane === index && state.activeChatId === id)) return;
+        sessionOpenedChats.add(id);
+        set({ focusedChatPane: index });
+        get()._activateChat(id, { history: false });
+      },
+
+      closeChatPane: (index) => {
+        const state = get();
+        const panes = closeChatPaneAt(
+          state.chatPaneIds,
+          state.chatPaneSizes,
+          state.focusedChatPane,
+          index,
+        );
+        const nextActive = panes.ids[panes.focusedIndex] ?? null;
+        set({
+          chatPaneIds: panes.ids,
+          chatPaneSizes: panes.sizes,
+          focusedChatPane: panes.focusedIndex,
+          activeChatId: nextActive,
+          initialChatScrollMessageId: null,
+          initialChatScrollMode: nextActive ? "bottom" : null,
+          profileDrawerOpen: false,
+        });
+        if (nextActive && state.accountId) rememberLastOpenedChat(state.accountId, nextActive);
+      },
+
+      setChatPaneSizes: (sizes) =>
+        set((state) => ({
+          chatPaneSizes: normalizeChatPaneSizes(state.chatPaneIds.length, sizes),
+        })),
+
       _activateChat: (id, opts) => {
+        if (!id) {
+          set({
+            activeChatId: null,
+            chatPaneIds: [],
+            chatPaneSizes: [],
+            focusedChatPane: 0,
+            initialChatScrollMessageId: null,
+            initialChatScrollMode: null,
+            profileDrawerOpen: false,
+          });
+          return;
+        }
         const opts2 = opts ?? {};
         const state = get();
         if (state.accountId) rememberLastOpenedChat(state.accountId, id);
@@ -690,9 +822,18 @@ export const useStore = create<State>()(
           state.messages.filter((message) => message.chatId === id),
         );
         const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread);
+        const paneState = replaceFocusedChatPane(
+          state.chatPaneIds,
+          state.chatPaneSizes,
+          state.focusedChatPane,
+          id,
+        );
         set((st) => ({
           screen: "chat",
           activeChatId: id,
+          chatPaneIds: paneState.ids,
+          chatPaneSizes: paneState.sizes,
+          focusedChatPane: paneState.focusedIndex,
           initialChatScrollMessageId: firstUnread?.id ?? null,
           initialChatScrollMode: hasUnread ? "unread" : "bottom",
           profileDrawerOpen: false,
@@ -705,29 +846,46 @@ export const useStore = create<State>()(
         }
         if (accountId) {
           void api.line.getContact(accountId, id).catch(() => undefined);
-          const chat = chats.find((c) => c.id === id);
+          const activeChat = chats.find((c) => c.id === id);
           const mids =
-            chat?.type === "group" ? (chat.members?.slice(0, 6).map((m) => m.id) ?? []) : [];
+            activeChat?.type === "group"
+              ? (activeChat.members?.slice(0, 6).map((member) => member.id) ?? [])
+              : [];
           for (const mid of mids) {
             void api.line.getContact(accountId, mid).catch(() => undefined);
           }
           void get().loadAnnouncements(id);
         }
         if (opts2.history && typeof window !== "undefined" && window.history) {
-          const current = window.history.state as { chatId?: string } | null;
-          if ((current?.chatId ?? null) !== id) {
-            window.history.pushState({ chatId: id }, "");
+          const current = (window.history.state ?? {}) as Record<string, unknown> & {
+            chatId?: string | null;
+          };
+          if ((current.chatId ?? null) !== id) {
+            const next = { ...current, chatId: id };
+            const desktop = window.matchMedia?.("(min-width: 768px)").matches ?? true;
+            if (desktop) window.history.pushState(next, "");
+            else window.history.replaceState(next, "");
           }
         }
       },
 
-      closeChat: () =>
+      closeChat: () => {
         set({
           activeChatId: null,
+          chatPaneIds: [],
+          chatPaneSizes: [],
+          focusedChatPane: 0,
           initialChatScrollMessageId: null,
           initialChatScrollMode: null,
           profileDrawerOpen: false,
-        }),
+        });
+        if (typeof window !== "undefined" && window.history) {
+          const current = (window.history.state ?? {}) as Record<string, unknown> & {
+            chatId?: string | null;
+          };
+          if (current.chatId) window.history.replaceState({ ...current, chatId: null }, "");
+        }
+      },
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
@@ -854,16 +1012,21 @@ export const useStore = create<State>()(
 
         // hide flag: always preserve prev.hidden when chat already exists,
         // taking precedence over the newly mapped hidden from hiddenMids
+        const previousChatsById = new Map(get().chats.map((chat) => [chat.id, chat]));
         const hiddenByPrev = new Map<string, boolean>();
         mappedChats.forEach((c) => {
-          const prev = useStore.getState().chats.find((p) => p.id === c.id);
+          const prev = previousChatsById.get(c.id);
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
+        // Never auto-open the first chat during a background hydrate. On mobile,
+        // closeChat() intentionally leaves activeChatId null so the list stays visible.
+        // Re-selecting mappedChats[0] here caused every periodic sync to pull the user
+        // back into a conversation while they were navigating the sidebar/settings.
         const chatId =
           activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
             ? activeChatId
-            : (mappedChats[0]?.id ?? null);
+            : null;
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
         const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
         const mappedMessages =
@@ -879,7 +1042,7 @@ export const useStore = create<State>()(
           chats: mappedChats
             .filter((c) => !dismissed.has(c.id) || restored.has(c.id))
             .map((c) => {
-              const prev = st.chats.find((p) => p.id === c.id);
+              const prev = previousChatsById.get(c.id);
               const mergedName =
                 c.name && !looksLikeMid(c.name)
                   ? c.name
@@ -902,13 +1065,17 @@ export const useStore = create<State>()(
                 : c;
             }),
           messages: (() => {
-            if (!chatId) return [];
+            if (!chatId) return st.messages;
 
-            // hydrate は「現在のチャットの最新スナップショットを重ねる」だけにする。
-            // 既に表示済みの古い履歴を捨てると、送受信や contact 解決のたびに
-            // 数千件の履歴ウィンドウが初期ページへ巻き戻るため、同一チャット分は保持する。
+            // hydrate は「現在フォーカス中のチャットの最新スナップショットを重ねる」だけにする。
+            // 他ペインのメッセージを捨てない。これにより2〜4画面を同時表示しても、
+            // フォーカス移動や contact 解決のたびに別ペインが空にならない。
+            const retainedPaneIds = new Set(st.chatPaneIds);
+            const otherChats = st.messages.filter(
+              (message) => message.chatId !== chatId && retainedPaneIds.has(message.chatId),
+            );
             const existingChat = st.messages.filter((m) => m.chatId === chatId);
-            if (mappedMessages.length === 0) return existingChat;
+            if (mappedMessages.length === 0) return st.messages;
 
             mappedMessages.forEach((m) => {
               if (m.id) {
@@ -925,12 +1092,13 @@ export const useStore = create<State>()(
             // API / local DB 側の値を新しい正本として上書きする。
             for (const m of mappedMessages) merged.set(m.id, m);
 
-            return [...merged.values()].sort((a, b) => {
+            const currentChat = [...merged.values()].sort((a, b) => {
               if (a.createdAt !== b.createdAt) return a.createdAt - b.createdAt;
               return a.id.localeCompare(b.id);
             });
+            return [...otherChats, ...currentChat];
           })(),
-          activeChatId: st.activeChatId ?? chatId,
+          activeChatId: st.activeChatId,
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
           self: profile
             ? {
@@ -1459,19 +1627,11 @@ export const useStore = create<State>()(
             set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
             return;
           }
-          const buf = await blob.arrayBuffer();
-          const bytes = new Uint8Array(buf);
-          let binary = "";
-          const chunk = 0x8000;
-          for (let i = 0; i < bytes.length; i += chunk) {
-            binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-          }
-          const dataBase64 = btoa(binary);
           const filename =
             !isVideo && mime === "image/jpeg" && blob !== file
               ? `${(file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
               : file.name || (isVideo ? "video.mp4" : "image.jpg");
-          const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+          const res = await api.line.sendMedia(accountId!, chatId, blob, {
             mimeType: mime,
             filename,
             mediaType: isVideo ? "video" : "image",
@@ -1526,17 +1686,9 @@ export const useStore = create<State>()(
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         void (async () => {
           try {
-            const buf = await blob.arrayBuffer();
-            const bytes = new Uint8Array(buf);
-            let binary = "";
-            const chunk = 0x8000;
-            for (let i = 0; i < bytes.length; i += chunk) {
-              binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-            }
-            const dataBase64 = btoa(binary);
             const mime = blob.type || "audio/webm";
             const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
-            const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
+            const res = await api.line.sendMedia(accountId!, chatId, blob, {
               mimeType: mime,
               filename: `voice-${seconds}s.${ext}`,
               mediaType: "audio",
@@ -1795,8 +1947,9 @@ export const useStore = create<State>()(
         await get().markChatRead(activeChatId, messageId);
       },
 
-      markChatRead: async (id, requestedMessageId) => {
+      markChatRead: async (id, requestedMessageId, options) => {
         const { accountId, messages, settings, readDisabledMids, demoMode } = get();
+        const forceReceipt = options?.forceReceipt === true;
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
           .sort((a, b) => {
@@ -1831,8 +1984,13 @@ export const useStore = create<State>()(
           }),
         }));
         if (demoMode) return;
-        // 全体無効（設定）または個別無効（右クリック）なら送信しない
-        if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
+        // 通常の自動既読は全体/個別の無効化を尊重する。
+        // 「このメッセージまで既読」は明示操作なので forceReceipt で一度だけ送れる。
+        if (
+          !accountId ||
+          (!forceReceipt && (!settings.readReceipts || readDisabledMids[id]))
+        )
+          return;
         const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
@@ -1898,17 +2056,8 @@ export const useStore = create<State>()(
 
       openDirectChatWith: (memberMid) => {
         if (!memberMid.startsWith("u")) return;
-        sessionOpenedChats.add(memberMid);
-        set({
-          memberProfile: null,
-          profileDrawerOpen: false,
-          screen: "chat",
-          activeChatId: memberMid,
-        });
-        const { accountId, settings } = get();
-        if (accountId && settings.readReceipts) {
-          void get().markChatRead(memberMid);
-        }
+        set({ memberProfile: null, profileDrawerOpen: false });
+        get().openChat(memberMid);
       },
 
       togglePin: (id) =>
@@ -2812,6 +2961,9 @@ export const useStore = create<State>()(
         blockedMids: s.blockedMids,
         lockedChatMids: s.lockedChatMids,
         activeChatId: s.activeChatId,
+        chatPaneIds: s.chatPaneIds,
+        chatPaneSizes: s.chatPaneSizes,
+        focusedChatPane: s.focusedChatPane,
         readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({
           id: c.id,
@@ -2826,6 +2978,22 @@ export const useStore = create<State>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         state.settings.animationMode ??= "vyline";
+        const restoredPaneIds = Array.isArray(state.chatPaneIds)
+          ? state.chatPaneIds.filter(Boolean).slice(0, 4)
+          : [];
+        if (state.activeChatId && !restoredPaneIds.includes(state.activeChatId)) {
+          restoredPaneIds.unshift(state.activeChatId);
+          restoredPaneIds.splice(4);
+        }
+        state.chatPaneIds = restoredPaneIds;
+        state.chatPaneSizes = normalizeChatPaneSizes(
+          restoredPaneIds.length,
+          Array.isArray(state.chatPaneSizes) ? state.chatPaneSizes : [],
+        );
+        state.focusedChatPane = Math.max(
+          0,
+          Math.min(restoredPaneIds.length - 1, state.focusedChatPane ?? 0),
+        );
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
         if (state.theme) {
@@ -2855,9 +3023,22 @@ if (
   !(window as unknown as { __vyPopstateBound?: boolean }).__vyPopstateBound
 ) {
   (window as unknown as { __vyPopstateBound?: boolean }).__vyPopstateBound = true;
-  window.addEventListener("popstate", (e) => {
-    const id = (e.state as { chatId?: string } | null)?.chatId ?? null;
-    useStore.getState()._activateChat(id ?? "", { history: false });
+  window.addEventListener("popstate", (event) => {
+    const id = (event.state as { chatId?: string | null } | null)?.chatId ?? null;
+    const state = useStore.getState();
+    if (!id || !state.chats.some((chat) => chat.id === id)) {
+      useStore.setState({
+        activeChatId: null,
+        chatPaneIds: [],
+        chatPaneSizes: [],
+        focusedChatPane: 0,
+        initialChatScrollMessageId: null,
+        initialChatScrollMode: null,
+        profileDrawerOpen: false,
+      });
+      return;
+    }
+    state._activateChat(id, { history: false });
   });
 }
 

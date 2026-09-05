@@ -7,12 +7,13 @@ import {
   useRef,
   useState,
   type UIEvent,
+  type DragEvent,
 } from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
-import { MessageBubble, type PostNotificationTarget } from "@/components/message-bubble";
+import { MessageBubble } from "@/components/message-bubble";
 import { MessageInput } from "@/components/message-input";
 import { ProfileDrawer } from "@/components/profile-drawer";
 import { MemberProfilePopover } from "@/components/member-profile";
@@ -33,8 +34,10 @@ import {
   IconPin,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
-import { findFirstUnreadMessage } from "@/lib/chatScroll";
+import { findFirstUnreadMessage, isNearScrollBottom } from "@/lib/chatScroll";
 import { shareImageMediaGroup } from "@/lib/mediaGroup";
+import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -76,13 +79,33 @@ function compareMessagesOldestFirst(left: Message, right: Message): number {
   }
 }
 
-function ChatAreaBase() {
-  const activeChatId = useStore((s) => s.activeChatId);
+type ChatAreaProps = {
+  chatId?: string;
+  paneCount?: number;
+  onFocus?: () => void;
+  onClosePane?: () => void;
+  reserveSidebarToggle?: boolean;
+  onPaneDragStart?: (event: DragEvent<HTMLDivElement>) => void;
+};
+
+function ChatAreaBase({
+  chatId,
+  paneCount = 1,
+  onFocus,
+  onClosePane,
+  reserveSidebarToggle = true,
+  onPaneDragStart,
+}: ChatAreaProps) {
+  const desktopInteraction = isDesktopInteraction();
+  const storeActiveChatId = useStore((s) => s.activeChatId);
+  const activeChatId = chatId ?? storeActiveChatId;
+  const isFocusedPane = !chatId || storeActiveChatId === activeChatId;
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
   const setScreen = useStore((s) => s.setScreen);
   const closeChat = useStore((s) => s.closeChat);
-  const profileOpen = useStore((s) => s.profileDrawerOpen);
+  const storedProfileOpen = useStore((s) => s.profileDrawerOpen);
+  const profileOpen = storedProfileOpen && isFocusedPane;
   const setProfileDrawer = useStore((s) => s.setProfileDrawer);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
@@ -90,9 +113,12 @@ function ChatAreaBase() {
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
-  const initialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
-  const loadingMessages = useStore((s) => s.loadingMessages);
-  const initialChatScrollMode = useStore((s) => s.initialChatScrollMode);
+  const storedInitialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
+  const storedLoadingMessages = useStore((s) => s.loadingMessages);
+  const storedInitialChatScrollMode = useStore((s) => s.initialChatScrollMode);
+  const initialChatScrollMessageId = isFocusedPane ? storedInitialChatScrollMessageId : null;
+  const loadingMessages = isFocusedPane ? storedLoadingMessages : false;
+  const initialChatScrollMode = isFocusedPane ? storedInitialChatScrollMode : "bottom";
   const accountId = useStore((s) => s.accountId);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
@@ -106,21 +132,21 @@ function ChatAreaBase() {
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [olderState, setOlderState] = useState({ hasMore: true, loading: false });
-  const [postNotificationTarget, setPostNotificationTarget] =
-    useState<PostNotificationTarget | null>(null);
+  const [showScrollToBottom, setShowScrollToBottom] = useState(false);
+  const [announcementExpandedByChat, setAnnouncementExpandedByChat] = useState<
+    Record<string, boolean>
+  >({});
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null;
-
-  useEffect(() => {
-    if (!profileOpen) setPostNotificationTarget(null);
-  }, [profileOpen]);
-
-  const openPostNotification = useCallback(
-    (target: PostNotificationTarget) => {
-      setPostNotificationTarget(target);
-      setProfileDrawer(true);
+  const announcementExpanded = activeChatId
+    ? (announcementExpandedByChat[activeChatId] ?? false)
+    : false;
+  const updateProfileDrawer = useCallback(
+    (open: boolean) => {
+      onFocus?.();
+      setProfileDrawer(open);
     },
-    [setProfileDrawer],
+    [onFocus, setProfileDrawer],
   );
 
   const chatMessages = useMemo(
@@ -221,6 +247,32 @@ function ChatAreaBase() {
     scrollToMessagePosition,
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
+  const messageListRef = useRef<HTMLDivElement>(null);
+
+  const syncBottomButton = useCallback(
+    (element: HTMLDivElement | null = containerRef.current) => {
+      if (!element) {
+        setShowScrollToBottom(false);
+        return;
+      }
+      setShowScrollToBottom(
+        !isNearScrollBottom({
+          scrollTop: element.scrollTop,
+          scrollHeight: element.scrollHeight,
+          clientHeight: element.clientHeight,
+        }),
+      );
+    },
+    [containerRef],
+  );
+
+  const toggleAnnouncementExpanded = useCallback(() => {
+    if (!activeChatId) return;
+    setAnnouncementExpandedByChat((current) => ({
+      ...current,
+      [activeChatId]: !(current[activeChatId] ?? false),
+    }));
+  }, [activeChatId]);
 
   const olderBoundaryArmedRef = useRef(true);
   const lastUserScrollIntentAtRef = useRef(0);
@@ -244,14 +296,13 @@ function ChatAreaBase() {
         scrollTop: container.scrollTop,
       };
     }
-    window.dispatchEvent(
-      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-    );
+    emitAppEvent("history:load-older", { chatMid: activeChatId });
   }, [activeChatId, chatMessages.length, containerRef, olderState]);
 
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       onScroll(event);
+      syncBottomButton(event.currentTarget);
       const top = event.currentTarget.scrollTop;
       if (top > 240) {
         olderBoundaryArmedRef.current = true;
@@ -271,7 +322,7 @@ function ChatAreaBase() {
         requestOlderMessages();
       }
     },
-    [olderState.hasMore, olderState.loading, onScroll, requestOlderMessages],
+    [olderState.hasMore, olderState.loading, onScroll, requestOlderMessages, syncBottomButton],
   );
 
   // prepend 後も、読み込み前に見ていた位置を維持する。
@@ -291,27 +342,33 @@ function ChatAreaBase() {
     return () => cancelAnimationFrame(frame);
   }, [activeChatId, chatMessages.length, containerRef]);
 
+  useLayoutEffect(() => {
+    const frame = requestAnimationFrame(() => syncBottomButton());
+    return () => cancelAnimationFrame(frame);
+  }, [activeChatId, bottomSpacer, chatMessages.length, hasMeasured, syncBottomButton, topSpacer]);
+
+  useEffect(() => {
+    const viewport = containerRef.current;
+    const content = messageListRef.current;
+    if (!viewport || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(() => syncBottomButton(viewport));
+    observer.observe(viewport);
+    if (content) observer.observe(content);
+    return () => observer.disconnect();
+  }, [activeChatId, containerRef, syncBottomButton]);
+
   useEffect(() => {
     olderBoundaryArmedRef.current = true;
     prependAnchorRef.current = null;
     setOlderState({ hasMore: true, loading: false });
-    const onOlderState = (event: Event) => {
-      const detail = (
-        event as CustomEvent<{
-          chatMid?: string;
-          hasMore?: boolean;
-          loading?: boolean;
-        }>
-      ).detail;
-      if (detail?.chatMid !== activeChatId) return;
-      const next = { hasMore: detail.hasMore ?? false, loading: detail.loading ?? false };
+    return onAppEvent("history:state", (detail) => {
+      if (detail.chatMid !== activeChatId) return;
+      const next = { hasMore: detail.hasMore, loading: detail.loading };
       if (!next.loading && !next.hasMore && prependAnchorRef.current?.chatMid === activeChatId) {
         prependAnchorRef.current = null;
       }
       setOlderState(next);
-    };
-    window.addEventListener("vyline:older-messages-state", onOlderState);
-    return () => window.removeEventListener("vyline:older-messages-state", onOlderState);
+    });
   }, [activeChatId]);
 
   const openedChatRef = useRef<string | null>(null);
@@ -439,7 +496,7 @@ function ChatAreaBase() {
     {
       label: "プロフィールを表示",
       icon: <IconMore size={16} />,
-      onClick: () => setProfileDrawer(true),
+      onClick: () => updateProfileDrawer(true),
     },
   ];
 
@@ -447,18 +504,23 @@ function ChatAreaBase() {
     <div className="flex h-full min-w-0 flex-1">
       <div className="flex min-w-0 flex-1 flex-col">
         {/* header */}
-        <header className="flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pl-12 md:pr-4">
+        <header
+          className={cn(
+            "relative flex items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pr-4",
+            reserveSidebarToggle ? "md:pl-12" : "md:pl-4",
+          )}
+        >
           <button
             type="button"
             onClick={() => closeChat()}
             aria-label="チャット一覧に戻る"
-            className="vy-mobile-back flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:hidden"
+            className="vy-mobile-back vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:hidden"
           >
             <IconArrowLeft size={20} />
           </button>
           <button
             type="button"
-            onClick={() => setProfileDrawer(true)}
+            onClick={() => updateProfileDrawer(true)}
             className="flex min-w-0 flex-1 items-center gap-3 rounded-lg py-1 text-left outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           >
             <Avatar
@@ -485,6 +547,23 @@ function ChatAreaBase() {
               </span>
             </span>
           </button>
+          {desktopInteraction && paneCount > 1 && onPaneDragStart && (
+            <div
+              data-vy-pane-drag-handle
+              draggable
+              onDragStart={onPaneDragStart}
+              onPointerDown={(event) => event.stopPropagation()}
+              title="ドラッグしてトーク画面を移動"
+              aria-label="トーク画面をドラッグして再配置"
+              className="vy-desktop-manipulator absolute left-1/2 top-1/2 z-20 hidden h-7 w-14 -translate-x-1/2 -translate-y-1/2 cursor-grab items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)]/95 shadow-sm active:cursor-grabbing md:flex"
+            >
+              <span className="grid grid-cols-3 gap-1" aria-hidden>
+                {Array.from({ length: 6 }, (_, index) => (
+                  <span key={index} className="h-1 w-1 rounded-full bg-[var(--vy-text-dim)]" />
+                ))}
+              </span>
+            </div>
+          )}
           <HeaderButton
             label="検索"
             active={search.open}
@@ -492,9 +571,16 @@ function ChatAreaBase() {
           >
             <IconSearch size={19} />
           </HeaderButton>
-          <HeaderButton label="メニュー" onClick={() => setProfileDrawer(!profileOpen)}>
+          <HeaderButton label="メニュー" onClick={() => updateProfileDrawer(!profileOpen)}>
             <IconMore size={19} />
           </HeaderButton>
+          {paneCount > 1 && onClosePane && (
+            <span className="hidden md:inline-flex">
+              <HeaderButton label="このトーク画面を閉じる" onClick={onClosePane}>
+                <IconClose size={18} />
+              </HeaderButton>
+            </span>
+          )}
         </header>
 
         {/* in-chat search bar */}
@@ -522,7 +608,7 @@ function ChatAreaBase() {
                 setSearch((s) => ({ ...s, index: (s.index - 1 + matches.length) % matches.length }))
               }
               aria-label="前の一致"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
+              className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
               <IconChevron size={16} className="-rotate-90" />
             </button>
@@ -531,7 +617,7 @@ function ChatAreaBase() {
               disabled={!matches.length}
               onClick={() => setSearch((s) => ({ ...s, index: (s.index + 1) % matches.length }))}
               aria-label="次の一致"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
+              className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
               <IconChevron size={16} className="rotate-90" />
             </button>
@@ -539,7 +625,7 @@ function ChatAreaBase() {
               type="button"
               onClick={() => setSearch({ open: false, q: "", index: 0 })}
               aria-label="検索を閉じる"
-              className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+              className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
               <IconClose size={16} />
             </button>
@@ -550,152 +636,201 @@ function ChatAreaBase() {
         {(() => {
           const list = activeChatId ? (announcements[activeChatId] ?? []) : [];
           if (!list.length) return null;
+          const panelId = `vy-announcements-${encodeURIComponent(activeChatId ?? "chat")}`;
+          const jumpToAnnouncement = (link: string) => {
+            const match = link.match(/[?&]messageId=([^&]+)/);
+            const messageId = match ? decodeURIComponent(match[1]) : null;
+            if (messageId) scrollToMessage(messageId);
+          };
+          const removePinnedAnnouncement = (announcementSeq: string) => {
+            if (!activeChatId || !accountId) return;
+            void api.line.announce
+              .removeChatRoomAnnouncement(accountId, activeChatId, announcementSeq)
+              .then((res) => {
+                if (!res.ok) throw new Error("アナウンスの解除に失敗しました");
+                removeAnnouncement(activeChatId, announcementSeq);
+              })
+              .catch((error) => {
+                useStore
+                  .getState()
+                  .showNotice(
+                    error instanceof Error ? error.message : "アナウンスの解除に失敗しました",
+                  );
+              });
+          };
+          const first = list[0]!;
           return (
-            <div className="mx-auto w-full max-w-3xl px-1">
-              <div
-                className="mb-3 rounded-xl border border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-accent)_10%,var(--vy-surface))] text-xs text-[var(--vy-text)]"
-                data-pattern={theme.pattern}
-              >
-                <div className="flex items-center gap-2 px-3 py-2">
+            <div className="relative z-30 mx-auto mb-2 w-full max-w-3xl px-1">
+              <div className="rounded-xl bg-[var(--vy-surface)] text-xs text-[var(--vy-text)] shadow-sm">
+                <div className="flex min-h-10 items-center gap-2 px-3 py-1.5">
                   <IconPin size={14} className="shrink-0 text-[var(--vy-accent)]" />
                   <span className="font-semibold">アナウンス</span>
                   <span className="text-[var(--vy-text-dim)]">({list.length}件)</span>
+                  {!announcementExpanded && (
+                    <button
+                      type="button"
+                      onClick={() => jumpToAnnouncement(first.link)}
+                      className="ml-1 min-w-0 flex-1 truncate text-left text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
+                      title={first.text}
+                    >
+                      {first.text}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={toggleAnnouncementExpanded}
+                    aria-expanded={announcementExpanded}
+                    aria-controls={panelId}
+                    aria-label={announcementExpanded ? "アナウンスをたたむ" : "アナウンスを広げる"}
+                    className="vy-touch-target ml-auto flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-base font-semibold text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+                  >
+                    <span aria-hidden>{announcementExpanded ? "∧" : "∨"}</span>
+                  </button>
                 </div>
-                <div className="max-h-40 overflow-y-auto border-t border-[var(--vy-border)]">
-                  {list.map((a) => (
+              </div>
+              {announcementExpanded && (
+                <div
+                  id={panelId}
+                  className="vy-scroll absolute left-1 right-1 top-full z-40 mt-1 max-h-[min(18rem,38vh)] overflow-y-auto rounded-xl bg-[var(--vy-surface)] p-1 shadow-2xl"
+                >
+                  {list.map((announcement) => (
                     <div
-                      key={a.announcementSeq}
-                      className="flex items-center gap-2 px-3 py-2 last:border-b-0 hover:bg-[var(--vy-surface-2)]"
+                      key={announcement.announcementSeq}
+                      className="flex items-center gap-2 rounded-lg px-2 py-2 hover:bg-[var(--vy-surface-2)]"
                     >
                       <button
                         type="button"
-                        onClick={() => {
-                          const m = a.link.match(/[?&]messageId=([^&]+)/);
-                          const messageId = m ? decodeURIComponent(m[1]) : null;
-                          if (messageId) {
-                            scrollToMessage(messageId);
-                          }
-                        }}
+                        onClick={() => jumpToAnnouncement(announcement.link)}
                         className="min-w-0 flex-1 truncate text-left underline-offset-2 hover:underline"
-                        title={a.text}
+                        title={announcement.text}
                       >
-                        {a.text}
+                        {announcement.text}
                       </button>
                       <button
                         type="button"
-                        onClick={() => {
-                          if (a.announcementSeq && activeChatId && accountId) {
-                            void api.line.announce
-                              .removeChatRoomAnnouncement(
-                                accountId,
-                                activeChatId,
-                                a.announcementSeq,
-                              )
-                              .then((res) => {
-                                if (res.ok && activeChatId) {
-                                  removeAnnouncement(activeChatId, a.announcementSeq);
-                                }
-                              });
-                          }
-                        }}
-                        className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-surface)]"
-                        aria-label="アナウンスを解除"
+                        onClick={() => removePinnedAnnouncement(announcement.announcementSeq)}
+                        className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-bg)]"
+                        aria-label={`「${announcement.text}」のアナウンスを解除`}
                       >
                         <IconClose size={14} />
                       </button>
                     </div>
                   ))}
                 </div>
-              </div>
+              )}
             </div>
           );
         })()}
 
         {/* messages */}
-        <div
-          ref={containerRef}
-          onScroll={handleMessageScroll}
-          onWheel={() => {
-            lastUserScrollIntentAtRef.current = performance.now();
-          }}
-          onTouchStart={() => {
-            lastUserScrollIntentAtRef.current = performance.now();
-          }}
-          onPointerDown={() => {
-            lastUserScrollIntentAtRef.current = performance.now();
-          }}
-          onContextMenu={(e) => {
-            e.preventDefault();
-            setPanel({ x: e.clientX, y: e.clientY });
-          }}
-          className="vy-scroll vy-chat-surface vy-chat-messages flex-1 overflow-y-auto px-3 py-4 md:px-6"
-          data-pattern={theme.pattern}
-          data-image={theme.chatImage ? "" : undefined}
-        >
-          <div className="mx-auto flex w-full max-w-3xl flex-col">
-            <div className="mb-4 flex justify-center">
-              {olderState.hasMore ? (
-                <button
-                  type="button"
-                  onClick={requestOlderMessages}
-                  disabled={olderState.loading}
-                  className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] disabled:cursor-wait disabled:opacity-70"
-                >
-                  {olderState.loading
-                    ? "過去のメッセージを読み込み中…"
-                    : "↑ 過去のメッセージを読み込む"}
-                </button>
-              ) : (
-                <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                  {chat.type === "group"
-                    ? "▲ ここがトークの一番上です"
-                    : "▲ ここから会話が始まります"}
-                </span>
-              )}
-            </div>
-            {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
-            {visibleRows.map(({ key, item }) =>
-              item.kind === "day" ? (
-                <div key={key} ref={rowRef(key)} className="my-3 flex justify-center">
-                  <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
-                    {item.label}
+        <div className="relative min-h-0 flex-1">
+          <div
+            ref={containerRef}
+            onScroll={handleMessageScroll}
+            onWheel={() => {
+              lastUserScrollIntentAtRef.current = performance.now();
+            }}
+            onTouchStart={() => {
+              lastUserScrollIntentAtRef.current = performance.now();
+            }}
+            onPointerDown={() => {
+              lastUserScrollIntentAtRef.current = performance.now();
+            }}
+            onContextMenu={(e) => {
+              // Mobile long-press is reserved for message actions. Do not let the
+              // generic chat menu race the message gesture/native context event.
+              if (!isDesktopInteraction()) return;
+              const target = e.target as HTMLElement;
+              if (
+                target.closest("[data-vy-message='true']") ||
+                target.closest("button, input, textarea, a, [data-message-actionable='true']")
+              ) {
+                return;
+              }
+              e.preventDefault();
+              setPanel({ x: e.clientX, y: e.clientY });
+            }}
+            className="vy-scroll vy-chat-surface vy-chat-messages h-full w-full overflow-y-auto px-3 py-4 md:px-6"
+            data-pattern={theme.pattern}
+            data-image={theme.chatImage ? "" : undefined}
+          >
+            <div ref={messageListRef} className="mx-auto flex w-full max-w-3xl flex-col">
+              <div className="mb-4 flex justify-center">
+                {olderState.hasMore ? (
+                  <button
+                    type="button"
+                    onClick={requestOlderMessages}
+                    disabled={olderState.loading}
+                    className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] disabled:cursor-wait disabled:opacity-70"
+                  >
+                    {olderState.loading
+                      ? "過去のメッセージを読み込み中…"
+                      : "↑ 過去のメッセージを読み込む"}
+                  </button>
+                ) : (
+                  <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                    {chat.type === "group"
+                      ? "▲ ここがトークの一番上です"
+                      : "▲ ここから会話が始まります"}
                   </span>
-                </div>
-              ) : (
-                <div
-                  key={key}
-                  id={key}
-                  ref={rowRef(key)}
-                  className={cnRow(
-                    item.searching,
-                    item.isMatch,
-                    item.isActive,
-                    item.sameAuthorAsPrev,
-                    item.flash,
-                  )}
-                >
-                  <MessageBubble
-                    message={item.message}
-                    mediaGroup={item.mediaGroup}
-                    chat={chat}
-                    showAvatar={!item.sameAuthorAsNext}
-                    showName={!item.sameAuthorAsPrev}
-                    highlight={item.searching ? (item.highlight as string) : undefined}
-                    onOpenPostNotification={openPostNotification}
-                  />
-                </div>
-              ),
-            )}
-            {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}
+                )}
+              </div>
+              {topSpacer > 0 && <div style={{ height: topSpacer }} aria-hidden />}
+              {visibleRows.map(({ key, item }) =>
+                item.kind === "day" ? (
+                  <div key={key} ref={rowRef(key)} className="my-3 flex justify-center">
+                    <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
+                      {item.label}
+                    </span>
+                  </div>
+                ) : (
+                  <div
+                    key={key}
+                    id={key}
+                    ref={rowRef(key)}
+                    className={cnRow(
+                      item.searching,
+                      item.isMatch,
+                      item.isActive,
+                      item.sameAuthorAsPrev,
+                      item.flash,
+                    )}
+                  >
+                    <MessageBubble
+                      message={item.message}
+                      mediaGroup={item.mediaGroup}
+                      chat={chat}
+                      showAvatar={!item.sameAuthorAsNext}
+                      showName={!item.sameAuthorAsPrev}
+                      highlight={item.searching ? (item.highlight as string) : undefined}
+                    />
+                  </div>
+                ),
+              )}
+              {bottomSpacer > 0 && <div style={{ height: bottomSpacer }} aria-hidden />}
+            </div>
           </div>
+          {showScrollToBottom && (
+            <button
+              type="button"
+              onClick={() => scrollToBottom("smooth")}
+              aria-label="トークの一番下へ移動"
+              title="トークの一番下へ"
+              className="absolute bottom-4 right-4 z-20 flex h-11 w-11 items-center justify-center rounded-full border border-[var(--vy-border)] bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)] shadow-lg transition-[transform,opacity,background-color] hover:scale-105 active:scale-95 md:right-5"
+            >
+              <IconArrowDown size={22} />
+            </button>
+          )}
         </div>
 
         {/* input */}
         <MessageInput chatId={chat.id} />
       </div>
 
-      {profileOpen && <ProfileDrawer chat={chat} postNotificationTarget={postNotificationTarget} />}
-      {memberProfile && memberProfile.chatId === chat.id && <MemberProfilePopover chat={chat} />}
+      {profileOpen && <ProfileDrawer chat={chat} />}
+      {isFocusedPane && memberProfile && memberProfile.chatId === chat.id && (
+        <MemberProfilePopover chat={chat} />
+      )}
       {panel && (
         <MessageContextMenu
           x={panel.x}
@@ -752,7 +887,7 @@ function HeaderButton({
       aria-label={label}
       aria-pressed={active}
       className={cn(
-        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+        "vy-touch-target flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
         active
           ? "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
           : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",

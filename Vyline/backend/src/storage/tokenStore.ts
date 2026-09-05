@@ -8,12 +8,13 @@
  */
 
 import { join, dirname } from "node:path";
-import { copyFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
+import { chmod, copyFile, mkdir, readFile, readdir, unlink } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
+import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes } from "node:crypto";
 import { childLogger } from "../logger.js";
 import { protectSecret, unprotectSecret } from "./secureStore.js";
+import { writeJsonAtomic } from "./safeFile.js";
 
 const log = childLogger("tokenStore");
 
@@ -21,17 +22,19 @@ const _dir = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_DATA_DIR = join(_dir, "..", "..", "data");
 const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
+const PRIVATE_DIRECTORY_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
 
 function dataDir(): string {
   return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
 }
 
-function tokensFile(): string {
-  return join(dataDir(), "tokens.json");
-}
-
 function accountsDir(): string {
   return join(dataDir(), "accounts");
+}
+
+function tokensFile(): string {
+  return join(dataDir(), "tokens.json");
 }
 
 function accountDir(accountId: string): string {
@@ -53,6 +56,7 @@ export async function getProtocolTokenState(accountId: string): Promise<{
   const path = storagePathForAccount(accountId);
   if (!existsSync(path)) return { hasRefreshToken: false };
   try {
+    await hardenCredentialFile(path);
     const protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
     const refreshToken = protocol.refreshToken;
     const expire = protocol.expire;
@@ -78,7 +82,7 @@ export interface TokenEntry {
   statusMessage?: string;
   /** セッション発行時のデバイス種別。復元時に別端末種別へ化けるのを防ぐ。 */
   deviceMode?: string;
-  /** access token が失効し、同じ accountId で再認証が必要な状態。 */
+  /** access tokenが期限切れで、同じaccountIdの再認証が必要。 */
   reauthRequired?: boolean;
   premium?: {
     active: boolean;
@@ -108,14 +112,43 @@ export type SessionMeta = {
   };
 };
 
+async function correctPrivateMode(
+  path: string,
+  mode: number,
+  kind: "directory" | "credential file",
+  required: boolean,
+): Promise<void> {
+  // POSIX modes are not an ACL boundary on Windows. Preserve the existing
+  // DPAPI + user-profile ACL behavior instead of pretending chmod secures it.
+  if (process.platform === "win32") return;
+  try {
+    await chmod(path, mode);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (required) throw error;
+    log.warn({ error, path }, `could not tighten existing ${kind} permissions`);
+  }
+}
+
+async function ensurePrivateDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  await correctPrivateMode(path, PRIVATE_DIRECTORY_MODE, "directory", true);
+}
+
+async function hardenCredentialFile(path: string, required = false): Promise<void> {
+  if (!existsSync(path)) return;
+  await correctPrivateMode(path, PRIVATE_FILE_MODE, "credential file", required);
+}
+
 async function ensureDataDir(): Promise<void> {
   const root = dataDir();
   const accounts = accountsDir();
-  if (!existsSync(root)) {
-    await mkdir(root, { recursive: true });
+  const created = !existsSync(root);
+  await ensurePrivateDirectory(root);
+  if (created) {
     log.debug({ dir: root }, "created data dir");
   }
-  await mkdir(accounts, { recursive: true });
+  await ensurePrivateDirectory(accounts);
 }
 
 async function decodePersistedEntry(
@@ -123,14 +156,18 @@ async function decodePersistedEntry(
   entry: TokenEntry,
 ): Promise<TokenEntry | undefined> {
   const targetStorage = storagePathForAccount(accountId);
+  await ensurePrivateDirectory(accountDir(accountId));
+  await hardenCredentialFile(accountTokenFile(accountId));
+  await hardenCredentialFile(targetStorage);
   if (
     entry?.storageFile &&
     entry.storageFile !== targetStorage &&
     existsSync(entry.storageFile) &&
     !existsSync(targetStorage)
   ) {
-    await mkdir(accountDir(accountId), { recursive: true });
+    await hardenCredentialFile(entry.storageFile);
     await copyFile(entry.storageFile, targetStorage);
+    await hardenCredentialFile(targetStorage, true);
     log.info({ accountId }, "migrated protocol storage into account directory");
   }
   if (entry?.authTokenProtected && typeof entry.authTokenProtected === "string") {
@@ -144,10 +181,12 @@ async function decodePersistedEntry(
 }
 
 async function persistAccount(accountId: string, entry: TokenEntry): Promise<void> {
-  await mkdir(accountDir(accountId), { recursive: true });
+  await ensurePrivateDirectory(accountDir(accountId));
   const { authToken: _plain, ...safeEntry } = entry;
   const persisted = entry.authTokenProtected ? safeEntry : entry;
-  await writeFile(accountTokenFile(accountId), JSON.stringify(persisted, null, 2), "utf8");
+  const path = accountTokenFile(accountId);
+  await writeJsonAtomic(path, persisted);
+  await hardenCredentialFile(path, true);
 }
 
 export async function loadTokens(): Promise<TokenMap> {
@@ -161,6 +200,8 @@ export async function loadTokens(): Promise<TokenMap> {
       const id = decodeURIComponent(dir.name);
       const path = accountTokenFile(id);
       if (!existsSync(path)) continue;
+      await ensurePrivateDirectory(accountDir(id));
+      await hardenCredentialFile(path);
       const entry = JSON.parse(await readFile(path, "utf8")) as TokenEntry;
       const decoded = await decodePersistedEntry(id, entry);
       if (decoded) cleaned[id] = decoded;
@@ -173,6 +214,7 @@ export async function loadTokens(): Promise<TokenMap> {
   // entry is migrated lazily without deleting the recoverable source file.
   if (existsSync(legacyTokens)) {
     try {
+      await hardenCredentialFile(legacyTokens);
       const parsed = JSON.parse(await readFile(legacyTokens, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
         if (cleaned[id]) continue;
@@ -239,7 +281,7 @@ export async function saveToken(
   if (picturePath) entry.picturePath = picturePath;
   if (statusMessage) entry.statusMessage = statusMessage;
   if (deviceMode) entry.deviceMode = deviceMode;
-  // saveToken は認証成功後にだけ呼ばれるため、期限切れ状態はここで解除する。
+  // saveTokenは認証成功後だけ呼ばれるため、期限切れ状態を解除する。
   entry.reauthRequired = meta?.reauthRequired ?? false;
   if (premium) entry.premium = premium;
   tokens[accountId] = entry;
@@ -270,23 +312,24 @@ export async function saveRefreshToken(
   refreshToken: string,
   expire?: number,
 ): Promise<void> {
-  if (!refreshToken.trim()) throw new Error("refresh token is empty");
+  const token = refreshToken.trim();
+  if (!token) throw new Error("refresh token is empty");
   await ensureDataDir();
+  await ensurePrivateDirectory(accountDir(accountId));
   const path = storagePathForAccount(accountId);
   let protocol: Record<string, unknown> = {};
   if (existsSync(path)) {
     try {
+      await hardenCredentialFile(path);
       protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
     } catch {
       protocol = {};
     }
   }
-  protocol.refreshToken = refreshToken.trim();
+  protocol.refreshToken = token;
   if (typeof expire === "number" && Number.isFinite(expire)) protocol.expire = expire;
-  await mkdir(accountDir(accountId), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(protocol), "utf8");
-  await rename(temporary, path);
+  await writeJsonAtomic(path, protocol);
+  await hardenCredentialFile(path, true);
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
@@ -323,6 +366,7 @@ export async function exportCredentialHandoff(
   if (!entry) throw new Error("保存済みセッションがありません");
   let protocol: Record<string, unknown> = {};
   if (existsSync(entry.storageFile)) {
+    await hardenCredentialFile(entry.storageFile);
     protocol = JSON.parse(await readFile(entry.storageFile, "utf8")) as Record<string, unknown>;
   }
   const payload = JSON.stringify({
@@ -379,8 +423,9 @@ export async function importCredentialHandoff(
   };
   await saveToken(targetAccountId, payload.authToken, payload.meta);
   const target = storagePathForAccount(targetAccountId);
-  await mkdir(accountDir(targetAccountId), { recursive: true });
-  await writeFile(target, JSON.stringify(payload.protocol ?? {}), "utf8");
+  await ensurePrivateDirectory(accountDir(targetAccountId));
+  await writeJsonAtomic(target, payload.protocol ?? {});
+  await hardenCredentialFile(target, true);
 }
 
 export async function getToken(accountId: string): Promise<TokenEntry | undefined> {
@@ -404,38 +449,38 @@ export async function listSavedSessions(): Promise<
   }>
 > {
   const tokens = await loadTokens();
-  return Promise.all(
+  const sessions = await Promise.all(
     Object.entries(tokens)
       .filter(([accountId]) => !accountId.endsWith(":content"))
       .map(async ([accountId, entry]) => {
         const protocolState = await getProtocolTokenState(accountId);
-        const row: {
-          accountId: string;
-          savedAt: string;
-          mid?: string;
-          displayName?: string;
-          picturePath?: string;
-          statusMessage?: string;
-          reauthRequired?: boolean;
-          hasRefreshToken?: boolean;
-          tokenRefreshAt?: number;
-          premium?: TokenEntry["premium"];
-          hasToken: boolean;
-        } = {
-          accountId,
-          savedAt: entry.savedAt,
-          hasToken: Boolean(entry.authToken || entry.authTokenProtected),
-        };
-        if (entry.mid) row.mid = entry.mid;
-        if (entry.displayName) row.displayName = entry.displayName;
-        if (entry.picturePath) row.picturePath = entry.picturePath;
-        if (entry.statusMessage) row.statusMessage = entry.statusMessage;
-        if (entry.reauthRequired) row.reauthRequired = true;
-        row.hasRefreshToken = protocolState.hasRefreshToken;
-        if (typeof protocolState.expire === "number")
-          row.tokenRefreshAt = protocolState.expire * 1000;
-        if (entry.premium) row.premium = entry.premium;
-        return row;
+      const row: {
+        accountId: string;
+        savedAt: string;
+        mid?: string;
+        displayName?: string;
+        picturePath?: string;
+        statusMessage?: string;
+        reauthRequired?: boolean;
+        hasRefreshToken?: boolean;
+        tokenRefreshAt?: number;
+        premium?: TokenEntry["premium"];
+        hasToken: boolean;
+      } = {
+        accountId,
+        savedAt: entry.savedAt,
+        hasToken: Boolean(entry.authToken || entry.authTokenProtected),
+      };
+      if (entry.mid) row.mid = entry.mid;
+      if (entry.displayName) row.displayName = entry.displayName;
+      if (entry.picturePath) row.picturePath = entry.picturePath;
+      if (entry.statusMessage) row.statusMessage = entry.statusMessage;
+      if (entry.reauthRequired) row.reauthRequired = true;
+      row.hasRefreshToken = protocolState.hasRefreshToken;
+      if (typeof protocolState.expire === "number") row.tokenRefreshAt = protocolState.expire;
+      if (entry.premium) row.premium = entry.premium;
+      return row;
       }),
-  ).then((rows) => rows.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1)));
+  );
+  return sessions.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }

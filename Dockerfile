@@ -33,15 +33,18 @@ COPY . .
 RUN bun run build
 
 ARG BUN_VERSION=1.4.0
-ARG VYLINE_VERSION=dev
 FROM oven/bun:${BUN_VERSION} AS runtime
+ARG VYLINE_VERSION
 WORKDIR /app
 ENV NODE_ENV=production \
     VYLINE_VERSION=${VYLINE_VERSION} \
     VYLINE_HOST=0.0.0.0 \
     PORT=3000 \
     VYLINE_DATA_DIR=/app/data \
-    VYLINE_STORAGE_DIR=/app/storage
+    VYLINE_STORAGE_DIR=/app/storage \
+    VYLINE_CDN_CACHE_DIR=/app/storage/cache/cdn-cache \
+    VYLINE_ICON_CACHE_DIR=/app/storage/cache/icons \
+    VYLINE_MEDIA_STORAGE_DIR=/app/storage/saved-media
 LABEL org.opencontainers.image.title="Vyline" \
       org.opencontainers.image.source="https://github.com/nezumi0627/vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"

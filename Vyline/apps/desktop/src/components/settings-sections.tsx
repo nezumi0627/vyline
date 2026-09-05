@@ -1,13 +1,18 @@
 import { useState, useEffect } from "react";
 import { api } from "@/api/client";
+import { startSerialPoll } from "@/lib/serialPoll";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
+import { AccountSwitcher } from "@/components/sidebar";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
+import { AccountBackupStorage } from "@/components/account-backup-storage";
+import { emitAppEvent, onAppEvent } from "@/lib/appEvents";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { QRCodeSVG } from "qrcode.react";
 import type { AccountSettings, SavedSession } from "@vyline/types";
 
@@ -116,6 +121,7 @@ function Card({ children }: { children: React.ReactNode }) {
 }
 
 export function SettingsSections() {
+  const desktopInteraction = isDesktopInteraction();
   const setScreen = useStore((s) => s.setScreen);
   const settings = useStore((s) => s.settings);
   const animationMode = settings.animationMode ?? "vyline";
@@ -190,8 +196,7 @@ export function SettingsSections() {
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      const buf = await file.arrayBuffer();
-      const res = await api.line.updateProfileImage(accountId!, buf, file.type || "image/jpeg");
+      const res = await api.line.updateProfileImage(accountId!, file, file.type || "image/jpeg");
       if (res.ok && res.profile?.thumbnailUrl) {
         updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
         setProfileMsg("アイコンを更新しました");
@@ -215,10 +220,9 @@ export function SettingsSections() {
     setProfileSaving(true);
     setProfileMsg(null);
     try {
-      const buf = await file.arrayBuffer();
       const res = await api.line.updateProfileBackground(
         accountId!,
-        buf,
+        file,
         file.type || "image/jpeg",
       );
       if (res.ok) {
@@ -242,7 +246,7 @@ export function SettingsSections() {
   };
 
   return (
-    <div className="flex h-dvh flex-col bg-[var(--vy-bg)]">
+    <div className="vy-viewport-root flex flex-col bg-[var(--vy-bg)]">
       {/* header */}
       <header className="flex items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-3">
         <button
@@ -276,6 +280,9 @@ export function SettingsSections() {
               {n.label}
             </button>
           ))}
+          <div className="mt-3 border-t border-[var(--vy-border)] pt-2">
+            <AccountSwitcher context="settings" />
+          </div>
         </nav>
 
         {/* mobile section chips */}
@@ -297,6 +304,9 @@ export function SettingsSections() {
                 {n.label}
               </button>
             ))}
+          </div>
+          <div className="border-b border-[var(--vy-border)] px-3 md:hidden">
+            <AccountSwitcher context="settings" />
           </div>
 
           <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
@@ -469,16 +479,6 @@ export function SettingsSections() {
                       />
                     </Row>
                     <Row
-                      title="Enter で送信"
-                      desc="OFF の場合は Shift+Enter ではなく Enter で改行します"
-                    >
-                      <Toggle
-                        checked={settings.enterToSend}
-                        onChange={(v) => updateSetting("enterToSend", v)}
-                        label="Enter で送信"
-                      />
-                    </Row>
-                    <Row
                       title="ステータスメッセージ表示"
                       desc="トークヘッダーに相手のステータスメッセージを表示します"
                     >
@@ -534,7 +534,9 @@ export function SettingsSections() {
                         ))}
                       </div>
                       <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                        カスタム順ではトークをドラッグして並べ替えできます。
+                        {desktopInteraction
+                          ? "カスタム順ではトークをドラッグして並べ替えできます。"
+                          : "カスタム順ではトークを長押しし、メニューから順序を変更できます。"}
                       </p>
                     </div>
                     <div className="py-3.5">
@@ -699,15 +701,7 @@ function HandoffSection() {
   const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
-  const [diagnosticStatus, setDiagnosticStatus] = useState<{
-    enabled: boolean;
-    retentionDays: number;
-    level: "error" | "warn" | "info" | "debug";
-    allowAutoShare: boolean;
-    sizeBytes: number;
-    entryCount: number;
-  } | null>(null);
-  const [diagnosticSaving, setDiagnosticSaving] = useState(false);
+  const [debugSettings, setDebugSettings] = useState<AccountSettings["debug"] | null>(null);
   const [issuePreview, setIssuePreview] = useState<{
     title: string;
     report: string;
@@ -736,39 +730,34 @@ function HandoffSection() {
   }, [accountId, mid, updateSelf]);
   const diagnosticMid = resolvedMid ?? mid;
   useEffect(() => {
+    setDebugSettings(null);
     if (!diagnosticMid) return;
     let cancelled = false;
-    void api.diagnostics
-      .status(diagnosticMid)
+    void api.settings
+      .account(diagnosticMid)
       .then((result) => {
-        if (!cancelled) setDiagnosticStatus(result.status);
+        if (!cancelled && result.ok) setDebugSettings(result.settings.debug);
       })
       .catch(() => undefined);
     return () => {
       cancelled = true;
     };
   }, [diagnosticMid]);
-
-  const updateDiagnostics = async (
-    patch: Partial<{
-      enabled: boolean;
-      retentionDays: number;
-      level: "error" | "warn" | "info" | "debug";
-    }>,
-  ) => {
-    if (!diagnosticMid)
-      return setMessage("MIDを取得できていません。同期完了後に再試行してください");
-    setDiagnosticSaving(true);
+  const toggleLogs = async (enabled: boolean) => {
+    if (!diagnosticMid || !debugSettings) return;
     try {
-      const result = await api.diagnostics.configure(diagnosticMid, patch);
-      setDiagnosticStatus(result.status);
+      const result = await api.settings.saveAccount(diagnosticMid, {
+        debug: { ...debugSettings, enabled },
+      });
+      if (!result.ok) throw new Error("ログ収集設定を保存できませんでした");
+      setDebugSettings(result.settings.debug);
       setMessage(
-        result.status.enabled ? "診断ログ設定を更新しました" : "診断ログの記録を停止しました",
+        enabled
+          ? "これからの通信結果を記録します。問題の操作を再実行してください"
+          : "ログ収集を停止しました",
       );
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "診断ログ設定の更新に失敗しました");
-    } finally {
-      setDiagnosticSaving(false);
+      setMessage(error instanceof Error ? error.message : "ログ収集設定を保存できませんでした");
     }
   };
   const download = (name: string, content: BlobPart, type: string) => {
@@ -818,6 +807,7 @@ function HandoffSection() {
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
       const result = await api.diagnostics.export(diagnosticMid);
+      if (!result.ok) throw new Error(result.error ?? "ログ出力に失敗しました");
       download("vyline-diagnostics.json", result.content, "application/json");
       setMessage("サニタイズ済みログを出力しました");
     } catch (error) {
@@ -829,8 +819,15 @@ function HandoffSection() {
       return setMessage("MIDを取得できていません。同期完了後に再試行してください");
     try {
       const result = await api.diagnostics.list(diagnosticMid);
+      if (!result.ok) throw new Error(result.error ?? "ログ一覧の取得に失敗しました");
       setEntries(result.entries);
-      setMessage(`${result.entries.length}件のログを読み込みました`);
+      setMessage(
+        result.entries.length > 0
+          ? `${result.entries.length}件のログを読み込みました`
+          : debugSettings?.enabled === false
+            ? "ログ収集が無効です。有効にしてから問題の操作を再実行してください"
+            : "記録されたログはまだありません。問題の操作後にもう一度確認してください",
+      );
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "ログ一覧の取得に失敗しました");
     }
@@ -876,58 +873,17 @@ function HandoffSection() {
       <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
         <Card>
           <Row
-            title="診断ログを記録"
-            desc="OFFにすると新しい診断ログを書きません。保存済みログは削除操作まで残ります"
+            title="診断ログを収集"
+            desc="通信結果と所要時間を記録します。メッセージ本文・認証情報は含みません"
           >
             <Toggle
-              checked={diagnosticStatus?.enabled ?? false}
-              onChange={(enabled) => void updateDiagnostics({ enabled })}
-              label="診断ログを記録"
-              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
+              checked={debugSettings?.enabled ?? false}
+              disabled={!debugSettings}
+              onChange={(enabled) => void toggleLogs(enabled)}
+              label="診断ログを収集"
             />
           </Row>
-          <Row title="ログレベル" desc="通常は info。調査時だけ debug を使ってください">
-            <select
-              value={diagnosticStatus?.level ?? "info"}
-              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
-              onChange={(event) =>
-                void updateDiagnostics({
-                  level: event.target.value as "error" | "warn" | "info" | "debug",
-                })
-              }
-              className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-2 py-1.5 text-xs"
-              aria-label="診断ログレベル"
-            >
-              <option value="error">error</option>
-              <option value="warn">warn</option>
-              <option value="info">info</option>
-              <option value="debug">debug</option>
-            </select>
-          </Row>
-          <Row title="保持期間" desc="期限を過ぎた診断ログは自動削除します">
-            <select
-              value={diagnosticStatus?.retentionDays ?? 14}
-              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
-              onChange={(event) =>
-                void updateDiagnostics({ retentionDays: Number(event.target.value) })
-              }
-              className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-2 py-1.5 text-xs"
-              aria-label="診断ログ保持期間"
-            >
-              <option value={1}>1日</option>
-              <option value={7}>7日</option>
-              <option value={14}>14日</option>
-              <option value={30}>30日</option>
-            </select>
-          </Row>
-          <Row
-            title="ログをエクスポート"
-            desc={
-              diagnosticStatus
-                ? `${diagnosticStatus.entryCount}件 · ${formatBytes(diagnosticStatus.sizeBytes)}。共有用にサニタイズ済みです`
-                : "共有用にサニタイズされたJSONを出力します"
-            }
-          >
+          <Row title="ログをエクスポート" desc="GitHub Issue作成画面へ貼り付けられるJSONです">
             <button
               type="button"
               onClick={() => void exportLogs()}
@@ -965,10 +921,9 @@ function HandoffSection() {
                 window.confirm("保存済みの診断ログをすべて削除しますか？") &&
                 void api.diagnostics
                   .clear(diagnosticMid)
-                  .then(async () => {
+                  .then((result) => {
+                    if (!result.ok) throw new Error(result.error ?? "ログ削除に失敗しました");
                     setEntries([]);
-                    const result = await api.diagnostics.status(diagnosticMid);
-                    setDiagnosticStatus(result.status);
                     setMessage("ログを削除しました");
                   })
                   .catch((error) =>
@@ -1073,23 +1028,19 @@ function SubdevicesSection() {
 
   useEffect(() => {
     if (!pairingUrl || demoMode) return;
-    const timer = window.setInterval(() => {
-      void api.subdevices.list().then((res) => {
+    return startSerialPoll(
+      async () => {
+        const res = await api.subdevices.list();
         if (res.ok) setDevices(res.devices ?? []);
-      });
-    }, 1500);
-    return () => window.clearInterval(timer);
+        return true;
+      },
+      {
+        intervalMs: 1500,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, [pairingUrl, demoMode]);
-
-  useEffect(() => {
-    if (!pairingUrl) return;
-    const timer = window.setInterval(() => {
-      void api.subdevices.list().then((res) => {
-        if (res.ok) setDevices(res.devices ?? []);
-      });
-    }, 1500);
-    return () => window.clearInterval(timer);
-  }, [pairingUrl]);
 
   const startPairing = async () => {
     if (demoMode) {
@@ -1736,7 +1687,8 @@ function AdvancedSection() {
       </Card>
 
       <div className="mt-4">
-        <VylineBackupPanel accountId={accountId} />
+        <AccountBackupStorage accountId={accountId} />
+        <VylineBackupPanel key={accountId ?? "no-account"} accountId={accountId} />
       </div>
 
       {restoreResult && (
@@ -1780,7 +1732,7 @@ function AdvancedSection() {
         </p>
       )}
       <div className="mt-4">
-        <AndroidBackupPanel accountId={accountId} />
+        <AndroidBackupPanel key={accountId ?? "no-account"} accountId={accountId} />
         <IosBackupBetaPanel accountId={accountId} />
       </div>
     </Section>
@@ -1791,16 +1743,28 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   const [backups, setBackups] = useState<
     NonNullable<Awaited<ReturnType<typeof api.line.backupList>>["data"]>
   >([]);
+  const [storage, setStorage] =
+    useState<Awaited<ReturnType<typeof api.line.backupList>>["storage"]>();
   const [includeMedia, setIncludeMedia] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const load = async () => {
     if (!accountId) return;
     const result = await api.line.backupList(accountId);
-    if (result.ok) setBackups(result.data ?? []);
+    if (!result.ok) throw new Error(result.error ?? "バックアップ一覧を取得できませんでした");
+    setBackups(result.data ?? []);
+    setStorage(result.storage);
   };
   useEffect(() => {
-    void load();
+    void load().catch((error) =>
+      setMessage(error instanceof Error ? error.message : "バックアップ一覧を取得できませんでした"),
+    );
+    return onAppEvent("backup:restored", (event) => {
+      if (event.accountId === accountId)
+        void load().catch((error) =>
+          setMessage(error instanceof Error ? error.message : "保存容量を取得できませんでした"),
+        );
+    });
   }, [accountId]);
   const create = async () => {
     if (!accountId) return;
@@ -1810,6 +1774,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       const result = await api.line.backupCreate(accountId, { includeMedia });
       if (!result.ok) throw new Error(result.error ?? "バックアップを作成できませんでした");
       setMessage(`${result.summary?.messageCount ?? 0}件のメッセージを保存しました`);
+      emitAppEvent("backup:changed", { accountId });
       await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "バックアップを作成できませんでした");
@@ -1826,8 +1791,29 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
       const result = await api.line.backupRestore(accountId, { backupId: id, includeMedia: media });
       if (!result.ok) throw new Error(result.error ?? "復元できませんでした");
       setMessage(`復元完了: ${result.restoredMessages ?? 0}件のメッセージ`);
+      emitAppEvent("backup:changed", { accountId });
+      await load();
     } catch (error) {
       setMessage(error instanceof Error ? error.message : "復元できませんでした");
+    } finally {
+      setBusy(false);
+    }
+  };
+  const remove = async (id: string) => {
+    if (
+      !accountId ||
+      !window.confirm("このバックアップを削除しますか？現在のトーク履歴は削除されません。")
+    )
+      return;
+    setBusy(true);
+    try {
+      const result = await api.line.backupDelete(accountId, id);
+      if (!result.ok) throw new Error(result.error ?? "バックアップを削除できませんでした");
+      await load();
+      setMessage("バックアップを削除しました");
+      emitAppEvent("backup:changed", { accountId });
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : "バックアップを削除できませんでした");
     } finally {
       setBusy(false);
     }
@@ -1835,19 +1821,25 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   return (
     <Section
       title="VylineBackup"
-      desc="この端末のトーク履歴をスナップショットとして保存・復元します。認証情報は含みません。"
+      desc="このアカウントのトーク履歴を保存・復元します。履歴・保存メディア・バックアップを合わせて1アカウント10GBです。認証情報は含みません。"
     >
       <Card>
         <Row title="新しいバックアップを作成" desc="履歴をいつでも戻せるよう、このPC内へ保存します">
           <button
             type="button"
-            disabled={busy || !accountId}
+            disabled={busy || !accountId || storage?.remainingBytes === 0}
             onClick={() => void create()}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
           >
             {busy ? "処理中…" : "作成"}
           </button>
         </Row>
+        <p className="py-2 text-xs text-[var(--vy-text-dim)]">
+          {storage
+            ? `このアカウントの使用量: ${formatBytes(storage.usedBytes)} / ${formatBytes(storage.limitBytes)}`
+            : "保存上限: このアカウントで10GB"}
+          {" · 上限を超える新規作成は停止します。既存バックアップは自動削除しません。"}
+        </p>
         <label className="flex items-center justify-between py-3 text-xs text-[var(--vy-text-dim)]">
           <span>画像・動画などの保存済みメディアも含める</span>
           <input
@@ -1859,7 +1851,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
         {backups.length === 0 ? (
           <p className="py-3 text-sm text-[var(--vy-text-dim)]">まだバックアップはありません。</p>
         ) : (
-          backups.slice(0, 5).map((backup) => (
+          backups.map((backup) => (
             <div
               key={backup.id}
               className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
@@ -1879,6 +1871,14 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
                 className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
               >
                 復元
+              </button>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void remove(backup.id)}
+                className="shrink-0 rounded-lg border border-red-400/50 px-3 py-1.5 text-xs text-red-300 disabled:opacity-50"
+              >
+                削除
               </button>
             </div>
           ))
@@ -1944,6 +1944,8 @@ function StorageSection() {
   const [storage, setStorage] = useState<{
     ok: boolean;
     driveLetter?: string;
+    dataPath?: string;
+    storagePath?: string;
     disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
     vylineTotal: number;
     cacheSize: number;
@@ -1960,6 +1962,8 @@ function StorageSection() {
       setStorage({
         ok: true,
         driveLetter: "DEMO",
+        dataPath: "/app/data",
+        storagePath: "/app/storage",
         disk: {
           totalBytes: 512 * 1024 ** 3,
           freeBytes: 338 * 1024 ** 3,
@@ -2023,8 +2027,21 @@ function StorageSection() {
     void load();
   }, [accountId, demoMode]);
 
+  const removableTotal = storage ? storage.cacheSize + storage.savedMediaSize : 0;
+  const appDataSize = storage ? Math.max(0, storage.vylineTotal - removableTotal) : 0;
+  const persistentPathLabel =
+    storage?.dataPath && storage?.storagePath && storage.dataPath !== storage.storagePath
+      ? `${storage.dataPath} + ${storage.storagePath}`
+      : (storage?.storagePath ?? storage?.dataPath ?? storage?.driveLetter ?? "---");
+
   const segments = storage
     ? [
+        {
+          key: "app-data",
+          label: "トーク履歴・設定",
+          size: appDataSize,
+          color: "#f59e0b",
+        },
         { key: "cdn", label: "CDN", size: storage.cache.cdn, color: "var(--vy-accent)" },
         { key: "icons", label: "アイコン", size: storage.cache.icons, color: "var(--vy-accent)" },
         { key: "image", label: "画像", size: storage.savedMedia.image, color: "#3b82f6" },
@@ -2040,24 +2057,23 @@ function StorageSection() {
 
   return (
     <Section title="ストレージ" desc="アプリが使用している容量を管理します">
+      <AccountBackupStorage accountId={accountId} />
       {storage && (
         <div className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
           <div className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <p className="text-xs text-[var(--vy-text-dim)]">
-                  ドライブ {storage.driveLetter ?? "---"}
-                </p>
+                <p className="text-xs text-[var(--vy-text-dim)]">保存先 {persistentPathLabel}</p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
                 </p>
                 <p className="mt-2 max-w-md text-sm text-[var(--vy-text-dim)]">
-                  CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。
+                  トーク履歴・設定・バックアップ・キャッシュ・保存メディアを含むVyline全体の使用量です。
                 </p>
               </div>
 
               <div className="shrink-0 sm:text-right">
-                <p className="text-xs text-[var(--vy-text-dim)]">ドライブ使用率</p>
+                <p className="text-xs text-[var(--vy-text-dim)]">保存先の使用率</p>
                 <p className="mt-1 text-xl font-semibold tracking-tight">
                   {formatPercent(diskUsedPct)}
                 </p>
@@ -2069,10 +2085,10 @@ function StorageSection() {
 
             <div className="mt-5">
               <div className="mb-2 flex items-center justify-between text-xs text-[var(--vy-text-dim)]">
-                <span>保存データの内訳</span>
+                <span>Vyline使用量の内訳</span>
                 <span>{formatBytes(storage.vylineTotal)} 合計</span>
               </div>
-              <div className="h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
+              <div className="flex h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
                 {segments.map((s) => {
                   const pct = storage.vylineTotal > 0 ? (s.size / storage.vylineTotal) * 100 : 0;
                   return (
@@ -2106,14 +2122,14 @@ function StorageSection() {
 
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <p className="text-base font-semibold">保存データ</p>
+          <p className="text-base font-semibold">削除可能なデータ</p>
           <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-            不要なデータを種類ごとに削除できます。
+            キャッシュと保存済みメディアだけを削除できます。トーク履歴・設定・バックアップは保持されます。
           </p>
         </div>
         {storage && (
           <span className="shrink-0 rounded-full bg-[var(--vy-surface-2)] px-2.5 py-1 text-xs text-[var(--vy-text-dim)]">
-            {formatBytes(storage.cacheSize + storage.savedMediaSize)}
+            {formatBytes(removableTotal)}
           </span>
         )}
       </div>
@@ -2123,7 +2139,7 @@ function StorageSection() {
           title="CDN キャッシュ"
           desc="スタンプ・LINE絵文字など"
           size={storage?.cache.cdn ?? 0}
-          ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
+          ratio={removableTotal > 0 ? (storage?.cache.cdn ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() => clearType("CDN キャッシュ", () => api.line.clearCdnCache(accountId!))}
@@ -2134,7 +2150,7 @@ function StorageSection() {
           title="アイコンキャッシュ"
           desc="プロフィール画像など"
           size={storage?.cache.icons ?? 0}
-          ratio={storage && storage.vylineTotal > 0 ? storage.cache.icons / storage.vylineTotal : 0}
+          ratio={removableTotal > 0 ? (storage?.cache.icons ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
           iconBg="bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2147,9 +2163,7 @@ function StorageSection() {
           title="画像"
           desc="チャット画像"
           size={storage?.savedMedia.image ?? 0}
-          ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.image / storage.vylineTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.image ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#3b82f6]" />}
           iconBg="bg-[color-mix(in_oklab,#3b82f6_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2162,9 +2176,7 @@ function StorageSection() {
           title="動画"
           desc="チャット動画"
           size={storage?.savedMedia.video ?? 0}
-          ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.video / storage.vylineTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.video ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#a855f7]" />}
           iconBg="bg-[color-mix(in_oklab,#a855f7_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2177,9 +2189,7 @@ function StorageSection() {
           title="音声"
           desc="ボイスメッセージなど"
           size={storage?.savedMedia.audio ?? 0}
-          ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.audio / storage.vylineTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.audio ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#22c55e]" />}
           iconBg="bg-[color-mix(in_oklab,#22c55e_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2192,9 +2202,7 @@ function StorageSection() {
           title="ファイル"
           desc="PDF など"
           size={storage?.savedMedia.file ?? 0}
-          ratio={
-            storage && storage.vylineTotal > 0 ? storage.savedMedia.file / storage.vylineTotal : 0
-          }
+          ratio={removableTotal > 0 ? (storage?.savedMedia.file ?? 0) / removableTotal : 0}
           icon={<IconDownload size={20} className="text-[#6b7280]" />}
           iconBg="bg-[color-mix(in_oklab,#6b7280_18%,var(--vy-surface-2))]"
           onDelete={() =>
@@ -2288,6 +2296,35 @@ function TypeCard({
   );
 }
 
+function RemoteLinkIcon({
+  src,
+  fallback,
+  alt,
+}: {
+  src: string;
+  fallback: string;
+  alt: string;
+}) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return (
+    <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-lg bg-[var(--vy-surface-2)] text-xs font-bold">
+      {failed ? (
+        fallback
+      ) : (
+        <img
+          src={src}
+          alt={alt}
+          loading="lazy"
+          referrerPolicy="no-referrer"
+          className="h-full w-full object-cover"
+          onError={() => setFailed(true)}
+        />
+      )}
+    </span>
+  );
+}
+
 function InfoSection() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
@@ -2309,7 +2346,6 @@ function InfoSection() {
   return (
     <Section title="情報" desc="Vyline について">
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
-        {/* Logo & version */}
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <div
             className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
@@ -2332,18 +2368,16 @@ function InfoSection() {
             </a>
           )}
           {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
-          <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
+          <p className="mt-3 max-w-sm text-xs leading-relaxed text-[var(--vy-text-dim)]">
             LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
           </p>
         </div>
 
-        {/* author */}
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
           <p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
           <p className="mt-1 text-sm font-semibold">nezumi0627</p>
         </div>
 
-        {/* links */}
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
           <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">リンク</p>
           <div className="space-y-2">
@@ -2353,9 +2387,11 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">
-                GH
-              </span>
+              <RemoteLinkIcon
+                src="https://github.com/nezumi0627.png?size=96"
+                fallback="GH"
+                alt="nezumi0627 の GitHub アイコン"
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">GitHub</p>
                 <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
@@ -2368,44 +2404,14 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">
-                𝕏
-              </span>
+              <RemoteLinkIcon
+                src="https://unavatar.io/twitter/nezum1n1um"
+                fallback="𝕏"
+                alt="nezum1n1um の X プロフィールアイコン"
+              />
               <div className="min-w-0 flex-1">
                 <p className="font-medium">X (Twitter)</p>
                 <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://discord.com/users/879525928261255199"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">
-                DC
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">Discord</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
-              </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
-            </a>
-            <a
-              href="https://opencode.ai/go?ref=ZE16GS43YJ"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
-            >
-              <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">
-                OC
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="font-medium">OpenCode Go</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">
-                  AI coding agent · opencode.ai/go
-                </p>
               </div>
               <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
             </a>
@@ -2413,7 +2419,7 @@ function InfoSection() {
         </div>
       </div>
       <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
-        Made with 💙 · MIT License
+        Vyline · MIT License
       </p>
     </Section>
   );

@@ -1,21 +1,21 @@
 services:
   vyline:
     image: ${VYLINE_IMAGE:-ghcr.io/nezumi0627/vyline:latest}
-    build: .
-    pull_policy: missing
+    pull_policy: always
     ports:
-      # Secure default: do not publish Vyline to the LAN unless explicitly opted in.
-      - "${VYLINE_BIND_ADDRESS:-127.0.0.1}:3000:3000"
+      # LAN から使う場合は 0.0.0.0。ローカル専用なら 127.0.0.1 に変更してください。
+      - "${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000"
     volumes:
-      - ./data:/app/data
-      - ./storage:/app/storage
+      - ${VYLINE_DATA_PATH:-./data}:/app/data
+      - ${VYLINE_STORAGE_PATH:-./storage}:/app/storage
     environment:
-      - VYLINE_HOST=0.0.0.0
-      - VYLINE_LAN_ACCESS=${VYLINE_LAN_ACCESS:-false}
-      - PORT=3000
-      - VYLINE_DATA_DIR=/app/data
-      - VYLINE_STORAGE_DIR=/app/storage
-      # 必要に応じて設定
-      # - VYLINE_CORS_ORIGIN=https://your-domain.example
-      # - VYLINE_API_ADMIN_SECRET=change-me
+      VYLINE_HOST: 0.0.0.0
+      VYLINE_LAN_ACCESS: ${VYLINE_LAN_ACCESS:-false}
+      VYLINE_TRUST_REMOTE_OWNER: ${VYLINE_TRUST_REMOTE_OWNER:-false}
+      PORT: 3000
+      VYLINE_DATA_DIR: /app/data
+      VYLINE_STORAGE_DIR: /app/storage
+      TZ: ${TZ:-Asia/Tokyo}
+    init: true
+    stop_grace_period: 30s
     restart: unless-stopped

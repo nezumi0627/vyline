@@ -28,7 +28,7 @@ import {
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
-import { appendDiagnostic } from "../service/diagnosticsService.js";
+import { redactForDiagnostics } from "../service/redaction.js";
 import { restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
@@ -54,6 +54,32 @@ function deviceLogFields() {
   };
 }
 
+const RPC_TRACE_METADATA_FIELDS = new Set([
+  "methodName",
+  "protocolType",
+  "path",
+  "method",
+  "timeout",
+  "status",
+  "requestBytes",
+  "responseBytes",
+  "hasError",
+  "received",
+  "verified",
+]);
+const RPC_TRACE_TYPES = new Set(["writeThrift", "request", "response", "readThrift"]);
+
+function safeStackLogData(type: string, data: unknown): unknown {
+  if (!RPC_TRACE_TYPES.has(type) || !data || typeof data !== "object") {
+    return redactForDiagnostics(data);
+  }
+  return Object.fromEntries(
+    Object.entries(data as Record<string, unknown>).filter(([key]) =>
+      RPC_TRACE_METADATA_FIELDS.has(key),
+    ),
+  );
+}
+
 interface ManagedClient {
   client: VylineClient;
   accountId: string;
@@ -64,8 +90,19 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
-const tokenRestoreInflight = new Map<string, Promise<VylineClient>>();
+/** Deduplicate startup restore and frontend /auth/restore for the same account. */
+const sessionRestoreInflight = new Map<string, Promise<VylineClient>>();
+/** The process-wide startup restore is sequential and may only run once. */
 let initialSessionRestore: Promise<void> | null = null;
+type QrLoginState = {
+  url: string | null;
+  expired: boolean;
+  pincode: string | null;
+  inProgress: boolean;
+  error: string | null;
+};
+const qrLoginState = new Map<string, QrLoginState>();
+const qrLoginInflight = new Map<string, Promise<VylineClient>>();
 const contentClients = new Map<string, Promise<VylineClient>>();
 const contentQrState = new Map<
   string,
@@ -145,25 +182,48 @@ function withSendTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
 
 export function runSendRpc<T>(
   accountId: string,
-  work: () => Promise<T>,
-  opts?: { timeoutMs?: number },
+  work: (signal?: AbortSignal) => Promise<T>,
+  opts?: { timeoutMs?: number; abortOnTimeout?: boolean },
 ): Promise<T> {
   const timeoutMs = opts?.timeoutMs ?? SEND_TIMEOUT_MS;
   const prev = sendQueue.get(accountId) ?? Promise.resolve();
+  const abort = opts?.abortOnTimeout ? new AbortController() : undefined;
   // キューは「タイムアウト race」ではなく work そのもので保持する。
   // タイムアウトで reject されても work は H2 セッションを使い続けるため、
   // 次の送信が並行すると ECONNRESET 等で連続失敗するのを防ぐ。
-  const started = prev.catch(() => undefined).then(() => work());
+  const started = prev.catch(() => undefined).then(() => work(abort?.signal));
   sendQueue.set(accountId, started);
-  const raced = Promise.race([
-    started,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`send timed out after ${timeoutMs}ms`)), timeoutMs);
-    }),
-  ]);
-  return raced.finally(() => {
-    if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
-  });
+  if (abort) {
+    let timedOut = false;
+    const timeoutError = new Error(`send timed out after ${timeoutMs}ms`);
+    const timeoutId = setTimeout(() => {
+      timedOut = true;
+      abort.abort(timeoutError);
+    }, timeoutMs);
+    // Media staging must stay alive until the aborted upload has actually
+    // unwound; callers may safely remove its files only after this settles.
+    return started
+      .then(
+        (value) => {
+          if (timedOut) throw timeoutError;
+          return value;
+        },
+        (error) => {
+          if (timedOut) throw timeoutError;
+          throw error;
+        },
+      )
+      .finally(() => {
+        clearTimeout(timeoutId);
+        if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+      });
+  }
+  void started
+    .finally(() => {
+      if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+    })
+    .catch(() => undefined);
+  return withSendTimeout(started, timeoutMs);
 }
 
 /**
@@ -326,6 +386,9 @@ export function stopFetchOpsLoop(accountId: string): void {
 }
 
 function watchAuthToken(client: VylineClient, accountId: string): void {
+  const previousWatch = tokenWatchIntervals.get(accountId);
+  if (previousWatch) clearInterval(previousWatch);
+  tokenWatchIntervals.delete(accountId);
   try {
     patchGroupKeyLookup(client);
   } catch (err) {
@@ -340,17 +403,11 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
   client.base.on("log", ({ type, data }) => {
     const t = type as string;
     if (t === "update:authtoken" || t.startsWith("vyline:e2ee") || t.startsWith("vyline:init")) {
-      log.debug(
-        { vylineType: t, ...(data as Record<string, unknown> | undefined) },
-        "vyline stack event",
-      );
+      log.debug({ vylineType: t, stackData: safeStackLogData(t, data) }, "vyline stack event");
       return;
     }
     // RPC request/response など高頻度ログ → trace のみ
-    log.trace(
-      { vylineType: t, ...(data as Record<string, unknown> | undefined) },
-      "vyline stack log",
-    );
+    log.trace({ vylineType: t, stackData: safeStackLogData(t, data) }, "vyline stack log");
   });
 
   const persist = async (reason: string) => {
@@ -381,30 +438,29 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
 
   void persist("initial");
 
-  // プロフィール取得後に表示名などを追記
-  void client.base.talk
-    .getProfile()
-    .then(async (profile) => {
-      client.base.profile = profile;
-      const meta: {
-        mid?: string;
-        displayName?: string;
-        picturePath?: string;
-        statusMessage?: string;
-      } = {};
-      if (profile.mid) meta.mid = String(profile.mid);
-      if (profile.displayName) meta.displayName = String(profile.displayName);
-      const pic =
-        (profile as { picturePath?: string }).picturePath ??
-        (profile as { pictureStatus?: string }).pictureStatus;
-      if (pic) meta.picturePath = String(pic);
-      if (profile.statusMessage) meta.statusMessage = String(profile.statusMessage);
-      await updateSessionMeta(accountId, meta);
-      await persist("profile");
-    })
-    .catch((err) => {
-      log.debug({ accountId, err }, "profile enrich for session skipped");
-    });
+  // activateClient() が取得済みの profile を再利用する。未取得時だけ RPC する。
+  // ログイン直後に同じ getProfile を重ねると複数 account の H2 初期化と競合しやすい。
+  void (async () => {
+    const profile = client.base.profile ?? (await client.base.talk.getProfile());
+    client.base.profile = profile;
+    const meta: {
+      mid?: string;
+      displayName?: string;
+      picturePath?: string;
+      statusMessage?: string;
+    } = {};
+    if (profile.mid) meta.mid = String(profile.mid);
+    if (profile.displayName) meta.displayName = String(profile.displayName);
+    const pic =
+      (profile as { picturePath?: string }).picturePath ??
+      (profile as { pictureStatus?: string }).pictureStatus;
+    if (pic) meta.picturePath = String(pic);
+    if (profile.statusMessage) meta.statusMessage = String(profile.statusMessage);
+    await updateSessionMeta(accountId, meta);
+    await persist("profile");
+  })().catch((err) => {
+    log.debug({ accountId, err }, "profile enrich for session skipped");
+  });
 
   let lastToken = String(client.authToken ?? client.base.authToken ?? "");
   let refreshRetryAfter = 0;
@@ -442,6 +498,108 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
 
 const tokenWatchIntervals = new Map<string, ReturnType<typeof setInterval>>();
 
+const SESSION_READY_GRACE_MS = 1_500;
+const SESSION_READY_RETRY_DELAYS_MS = [0, 250, 750] as const;
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * protocol は authToken 発行直後に client を返すため、特に 2 アカウント目以降では
+ * loginProcess.ready()（getProfile）がまだ完了していないことがある。
+ * その状態で fetchOps / Talk RPC を開始すると「active だが送受信不能」な半端な
+ * セッションになるので、バックエンドに登録する前に Talk が使える状態まで待つ。
+ *
+ * E2EE の後処理は protocol 側で best-effort のまま継続する。ここでは profile 取得だけを
+ * readiness 条件にして、既に発行済みの token を E2EE enrichment の失敗で捨てない。
+ */
+async function ensureOperationalSession(client: VylineClient, accountId: string): Promise<void> {
+  if (client.base.profile?.mid) return;
+
+  // protocol の post-auth finalize が先に完了するなら、その結果をそのまま使う。
+  const deadline = Date.now() + SESSION_READY_GRACE_MS;
+  while (!client.base.profile?.mid && Date.now() < deadline) {
+    await sleep(50);
+  }
+  if (client.base.profile?.mid) return;
+
+  let lastError: unknown;
+  for (let attempt = 0; attempt < SESSION_READY_RETRY_DELAYS_MS.length; attempt += 1) {
+    const delayMs = SESSION_READY_RETRY_DELAYS_MS[attempt]!;
+    if (delayMs > 0) await sleep(delayMs);
+    try {
+      await client.base.loginProcess.ready();
+      if (client.base.profile?.mid) {
+        log.debug({ accountId, attempt: attempt + 1 }, "authenticated session is ready");
+        return;
+      }
+      lastError = new Error("profile unavailable after login readiness check");
+    } catch (error) {
+      lastError = error;
+      log.warn(
+        { accountId, attempt: attempt + 1, error },
+        "authenticated session not ready yet; retrying",
+      );
+    }
+  }
+
+  throw lastError instanceof Error
+    ? lastError
+    : new Error(`authenticated session not ready: ${accountId}`);
+}
+
+async function persistIssuedToken(client: VylineClient, accountId: string): Promise<void> {
+  const token = client.authToken ?? client.base.authToken;
+  if (!token) throw new Error(`login returned without auth token: ${accountId}`);
+
+  const profile = client.base.profile;
+  const meta: {
+    mid?: string;
+    displayName?: string;
+    picturePath?: string;
+    statusMessage?: string;
+    deviceMode?: string;
+  } = { deviceMode: String(client.base.device) };
+  if (profile?.mid) meta.mid = String(profile.mid);
+  if (profile?.displayName) meta.displayName = String(profile.displayName);
+  const picturePath =
+    (profile as { picturePath?: string } | undefined)?.picturePath ??
+    (profile as { pictureStatus?: string } | undefined)?.pictureStatus;
+  if (picturePath) meta.picturePath = String(picturePath);
+  if (profile?.statusMessage) meta.statusMessage = String(profile.statusMessage);
+
+  try {
+    // ready() が失敗しても LINE が発行した token 自体は失わない。次回 restore で再試行できる。
+    await saveToken(accountId, token, meta);
+  } catch (error) {
+    log.warn({ accountId, error }, "issued auth token could not be persisted immediately");
+  }
+}
+
+async function activateClient(accountId: string, client: VylineClient): Promise<VylineClient> {
+  // Persist once as soon as LINE issues the token, then again after ready() so
+  // account metadata (MID/name/avatar) is guaranteed to be available to the UI.
+  await persistIssuedToken(client, accountId);
+  await ensureOperationalSession(client, accountId);
+  await persistIssuedToken(client, accountId);
+
+  clients.set(accountId, {
+    client,
+    accountId,
+    qrUrl: null,
+    qrExpired: false,
+    pincode: null,
+    loggedInAt: Date.now(),
+  });
+  watchAuthToken(client, accountId);
+  void warmLineCache(accountId).catch((error) =>
+    log.warn({ accountId, error }, "post-login cache warm skipped"),
+  );
+  restorePluginsForSession(accountId);
+  return client;
+}
+
 export async function loginWithEmail(
   accountId: string,
   email: string,
@@ -473,17 +631,7 @@ export async function loginWithEmail(
     loginInit(accountId),
   );
 
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
-  clients.set(accountId, {
-    client,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
-    pincode: null,
-    loggedInAt: Date.now(),
-  });
-  restorePluginsForSession(accountId);
+  await activateClient(accountId, client);
   log.info({ accountId }, "email login success");
   return client;
 }
@@ -492,6 +640,11 @@ export async function loginWithQRCode(
   accountId: string,
   onQrUrl: (url: string) => void,
 ): Promise<VylineClient> {
+  const active = clients.get(accountId);
+  if (active?.loggedInAt != null && active.client) return active.client;
+  const existing = qrLoginInflight.get(accountId);
+  if (existing) return existing;
+
   const profile = getVylineProfile();
   log.info(
     {
@@ -503,15 +656,14 @@ export async function loginWithQRCode(
     "starting QR login via Vyline",
   );
 
-  const managed: ManagedClient = {
-    client: null as unknown as VylineClient,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
+  const state: QrLoginState = {
+    url: null,
+    expired: false,
     pincode: null,
-    loggedInAt: null,
+    inProgress: true,
+    error: null,
   };
-  clients.set(accountId, managed);
+  qrLoginState.set(accountId, state);
 
   const isExpiredError = (err: unknown): boolean => {
     if (!(err instanceof Error)) return false;
@@ -525,101 +677,90 @@ export async function loginWithQRCode(
     );
   };
 
-  try {
-    const client = await vylineLoginQR(
-      {
-        onReceiveQRUrl(url: string) {
-          log.info({ accountId }, "QR URL received");
-          managed.qrUrl = url;
-          managed.qrExpired = false;
-          onQrUrl(url);
+  const login = (async () => {
+    let authenticated = false;
+    try {
+      const client = await vylineLoginQR(
+        {
+          onReceiveQRUrl(url: string) {
+            log.info({ accountId }, "QR URL received");
+            state.url = url;
+            state.expired = false;
+            state.error = null;
+            onQrUrl(url);
+          },
+          onPincodeRequest(pin: string) {
+            log.info({ accountId }, "QR pincode requested");
+            state.pincode = pin;
+          },
         },
-        onPincodeRequest(pin: string) {
-          log.info({ accountId }, "QR pincode requested");
-          managed.pincode = pin;
-        },
-      },
-      loginInit(accountId),
-    );
+        loginInit(accountId),
+      );
 
-    managed.client = client;
-    managed.qrUrl = null;
-    managed.qrExpired = false;
-    managed.pincode = null;
-    managed.loggedInAt = Date.now();
-    watchAuthToken(client, accountId);
-    void warmLineCache(accountId).catch(() => undefined);
-    restorePluginsForSession(accountId);
-    log.info({ accountId }, "QR login success");
-    return client;
-  } catch (err) {
-    if (isExpiredError(err)) {
-      log.info({ accountId }, "QR expired — waiting for user to regenerate");
-      managed.qrExpired = true;
-      managed.qrUrl = null;
-      managed.pincode = null;
+      authenticated = true;
+      await activateClient(accountId, client);
+      state.url = null;
+      state.expired = false;
+      state.pincode = null;
+      state.inProgress = false;
+      state.error = null;
+
+      log.info({ accountId }, "QR login success");
+      return client;
+    } catch (err) {
+      state.inProgress = false;
+      state.error = err instanceof Error ? err.message : String(err);
+      state.url = null;
+      state.pincode = null;
+      if (!authenticated && isExpiredError(err)) {
+        log.info({ accountId }, "QR expired — waiting for user to regenerate");
+        state.expired = true;
+      } else {
+        log.warn({ accountId, err }, "QR login failed before client registration");
+      }
       throw err;
     }
-    clients.delete(accountId);
-    throw err;
+  })();
+
+  qrLoginInflight.set(accountId, login);
+  try {
+    return await login;
+  } finally {
+    if (qrLoginInflight.get(accountId) === login) qrLoginInflight.delete(accountId);
   }
 }
 
-async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
-  const entry = await getToken(accountId);
-  if (!entry) throw new Error(`no token for accountId: ${accountId}`);
+export async function loginWithToken(accountId: string): Promise<VylineClient> {
+  const active = clients.get(accountId);
+  if (active?.loggedInAt != null && active.client) return active.client;
+  const existingRestore = sessionRestoreInflight.get(accountId);
+  if (existingRestore) return existingRestore;
 
-  const tokenState = await getProtocolTokenState(accountId);
-  const nowSec = Math.floor(Date.now() / 1000);
-  const refreshLeadSec = await tokenRefreshLeadSeconds(accountId);
-  const shouldRefreshBeforeRestore =
-    tokenState.hasRefreshToken &&
-    typeof tokenState.expire === "number" &&
-    tokenState.expire <= nowSec + refreshLeadSec;
+  const restore = (async () => {
+    const entry = await getToken(accountId);
+    if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
-  log.info(
-    { accountId, refreshBeforeRestore: shouldRefreshBeforeRestore },
-    "restoring saved LINE session via Vyline",
-  );
+    log.info({ accountId }, "restoring session with authToken via Vyline");
 
-  const init = {
-    profile: getVylineProfile(),
-    storagePath: entry.storageFile,
-    ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
-  };
-  const client = shouldRefreshBeforeRestore
-    ? await vylineLoginStoredRefreshToken(init)
-    : await vylineLoginToken(entry.authToken, init);
+    const client = await vylineLoginToken(entry.authToken, {
+      profile: getVylineProfile(),
+      storagePath: entry.storageFile,
+      ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
+    });
 
-  watchAuthToken(client, accountId);
-  clients.set(accountId, {
-    client,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
-    pincode: null,
-    loggedInAt: Date.now(),
-  });
-  void warmLineCache(accountId).catch(() => undefined);
-  restorePluginsForSession(accountId);
-  log.info({ accountId }, "token login success");
-  return client;
-}
+    await activateClient(accountId, client);
+    log.info({ accountId }, "token login success");
+    return client;
+  })();
 
-export function loginWithToken(accountId: string): Promise<VylineClient> {
-  const existing = clients.get(accountId);
-  if (existing?.loggedInAt !== null && existing?.client) {
-    return Promise.resolve(existing.client);
+  sessionRestoreInflight.set(accountId, restore);
+  try {
+    return await restore;
+  } finally {
+    if (sessionRestoreInflight.get(accountId) === restore) {
+      sessionRestoreInflight.delete(accountId);
+    }
   }
-
-  const inflight = tokenRestoreInflight.get(accountId);
-  if (inflight) return inflight;
-
-  const restore = loginWithTokenImpl(accountId).finally(() => {
-    tokenRestoreInflight.delete(accountId);
-  });
-  tokenRestoreInflight.set(accountId, restore);
-  return restore;
 }
 
 export async function loginWithAuthToken(
@@ -637,17 +778,7 @@ export async function loginWithAuthToken(
     ...(deviceMode ? { deviceMode } : {}),
   });
 
-  watchAuthToken(client, accountId);
-  clients.set(accountId, {
-    client,
-    accountId,
-    qrUrl: null,
-    qrExpired: false,
-    pincode: null,
-    loggedInAt: Date.now(),
-  });
-  void warmLineCache(accountId).catch(() => undefined);
-  restorePluginsForSession(accountId);
+  await activateClient(accountId, client);
   log.info({ accountId }, "authToken login success");
   return client;
 }
@@ -660,92 +791,41 @@ async function restoreAllSessionsImpl(): Promise<void> {
     return;
   }
   log.info({ count: ids.length }, "restoring sessions");
-  await Promise.allSettled(
-    ids.map(async (id) => {
-      const mid = tokens[id]?.mid;
-      if (mid) {
-        await appendDiagnostic(
-          mid,
-          {
-            appVersion: process.env.npm_package_version ?? "dev",
-            buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
-            platform: "desktop",
-            runtime: `bun ${Bun.version}`,
-            os: process.platform,
-            connection: { state: "session-restore-start" },
-            screen: "startup",
-          },
-          { event: "backend-startup", accountId: id },
-        ).catch(() => undefined);
+  // The protocol stack and its file-storage initialization are not safe to
+  // stampede at process start. Sequential restore is fast enough and prevents
+  // the third/fourth account from losing its client while earlier logins settle.
+  for (const id of ids) {
+    try {
+      await loginWithToken(id);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
+      if (expiredDevice) {
+        removeClient(id);
+        await updateSessionMeta(id, { reauthRequired: true });
+        log.warn({ accountId: id }, "saved session expired; reauthentication required");
+        continue;
       }
-      try {
-        await loginWithToken(id);
-        if (mid) {
-          await appendDiagnostic(
-            mid,
-            {
-              appVersion: process.env.npm_package_version ?? "dev",
-              buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
-              platform: "desktop",
-              runtime: `bun ${Bun.version}`,
-              os: process.platform,
-              connection: { state: "session-restored" },
-              screen: "startup",
-            },
-            { event: "session-restore-success", accountId: id },
-          ).catch(() => undefined);
-        }
-      } catch (err) {
-        const msg = err instanceof Error ? err.message : String(err);
-        if (mid) {
-          await appendDiagnostic(
-            mid,
-            {
-              appVersion: process.env.npm_package_version ?? "dev",
-              buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
-              platform: "desktop",
-              runtime: `bun ${Bun.version}`,
-              os: process.platform,
-              error: {
-                name: err instanceof Error ? err.name : "Error",
-                message: msg,
-                ...(err instanceof Error && err.stack ? { stack: err.stack } : {}),
-              },
-              connection: { state: "session-restore-failed" },
-              screen: "startup",
-            },
-            { event: "session-restore-failed", accountId: id },
-          ).catch(() => undefined);
-        }
-        const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
-        if (expiredDevice) {
-          removeClient(id);
-          await updateSessionMeta(id, { reauthRequired: true });
-          log.warn({ accountId: id }, "saved session expired; reauthentication required");
-          return;
-        }
-        const authFailed =
-          msg.includes("AUTHENTICATION_FAILED") ||
-          msg.includes("Authentication Failed") ||
-          msg.includes("status=403") ||
-          msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
-          msg.includes("logged out");
-        if (authFailed) {
-          await deleteToken(id);
-          removeClient(id);
-          log.warn({ accountId: id }, "cleared invalid saved token");
-        } else {
-          log.warn({ accountId: id, err }, "failed to restore session");
-        }
+      const authFailed =
+        msg.includes("AUTHENTICATION_FAILED") ||
+        msg.includes("Authentication Failed") ||
+        msg.includes("status=403") ||
+        msg.includes("NOT_AUTHORIZED_DEVICE") ||
+        msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
+        msg.includes("logged out");
+      if (authFailed) {
+        await deleteToken(id);
+        removeClient(id);
+        log.warn({ accountId: id }, "cleared invalid saved token");
+      } else {
+        log.warn({ accountId: id, err }, "failed to restore session");
       }
-    }),
-  );
+    }
+  }
 }
 
 export function restoreAllSessions(): Promise<void> {
-  if (!initialSessionRestore) {
-    initialSessionRestore = restoreAllSessionsImpl();
-  }
+  if (!initialSessionRestore) initialSessionRestore = restoreAllSessionsImpl();
   return initialSessionRestore;
 }
 
@@ -838,7 +918,9 @@ export function getContentQrState(accountId: string): {
 }
 
 export function listAccounts(): string[] {
-  return [...clients.keys()];
+  return [...clients.entries()]
+    .filter(([, managed]) => managed.loggedInAt !== null && Boolean(managed.client))
+    .map(([accountId]) => accountId);
 }
 
 export function getQrState(accountId: string): {
@@ -847,15 +929,19 @@ export function getQrState(accountId: string): {
   pincode: string | null;
   /** QR ログイン処理がメモリ上で進行中か */
   inProgress: boolean;
+  error?: string | null;
 } {
-  const m = clients.get(accountId);
-  if (!m) return { url: null, expired: false, pincode: null, inProgress: false };
-  const inProgress = m.loggedInAt === null && !m.qrExpired;
+  const active = clients.get(accountId);
+  if (active?.loggedInAt != null && active.client) {
+    return { url: null, expired: false, pincode: null, inProgress: false, error: null };
+  }
+  const state = qrLoginState.get(accountId);
   return {
-    url: m.qrUrl,
-    expired: m.qrExpired,
-    pincode: m.pincode,
-    inProgress,
+    url: state?.url ?? null,
+    expired: state?.expired ?? false,
+    pincode: state?.pincode ?? null,
+    inProgress: state?.inProgress ?? false,
+    error: state?.error ?? null,
   };
 }
 
@@ -882,6 +968,7 @@ export function removeClient(accountId: string): void {
     tokenWatchIntervals.delete(accountId);
   }
   clients.delete(accountId);
+  sessionRestoreInflight.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
   log.info({ accountId }, "client removed");

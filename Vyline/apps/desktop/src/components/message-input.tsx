@@ -19,6 +19,7 @@ import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 import { PlusMenu } from "@/components/plus-menu";
 import type { MessageState } from "@/lib/store-types";
 
@@ -98,16 +99,6 @@ function detectMentionTrigger(
   return null;
 }
 
-async function blobToBase64(blob: Blob): Promise<string> {
-  const bytes = new Uint8Array(await blob.arrayBuffer());
-  let binary = "";
-  const chunk = 0x8000;
-  for (let i = 0; i < bytes.length; i += chunk) {
-    binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
-  }
-  return btoa(binary);
-}
-
 export function MessageInput({ chatId }: { chatId: string }) {
   const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
@@ -116,7 +107,6 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const sendCombinationSticker = useStore((s) => s.sendCombinationSticker);
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
-  const enterToSend = useStore((s) => s.settings.enterToSend);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
@@ -362,8 +352,9 @@ export function MessageInput({ chatId }: { chatId: string }) {
     setSendingMediaBatch(true);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
-      const items = await Promise.all(
-        pendingMedia.map(async (item) => {
+      const selected = [...pendingMedia];
+      async function* prepareItems() {
+        for (const item of selected) {
           const prepared =
             item.kind === "video"
               ? { blob: item.file, mime: item.file.type || "application/octet-stream" }
@@ -377,20 +368,19 @@ export function MessageInput({ chatId }: { chatId: string }) {
                 : `画像が大きすぎます（圧縮後も 11MB 超）: ${item.file.name}`,
             );
           }
-          const dataBase64 = await blobToBase64(prepared.blob);
           const filename =
             item.kind === "image" && prepared.mime === "image/jpeg" && prepared.blob !== item.file
               ? `${(item.file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
               : item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg");
-          return {
-            dataBase64,
+          yield {
+            body: prepared.blob,
             mimeType: prepared.mime,
             filename,
             mediaType: item.kind,
           };
-        }),
-      );
-      const res = await api.line.sendMediaBatch(accountId, chatId, items);
+        }
+      }
+      const res = await api.line.sendMediaBatch(accountId, chatId, prepareItems(), selected.length);
       if (!res.ok) {
         window.alert(res.error ?? "まとめて送信に失敗しました");
         return;
@@ -486,13 +476,19 @@ export function MessageInput({ chatId }: { chatId: string }) {
         setMentionIndex((i) => (i - 1 + mentionOptions.length) % mentionOptions.length);
         return;
       }
-      if ((e.key === "Enter" || e.key === "Tab") && !composing) {
+      if (
+        (e.key === "Tab" || (e.key === "Enter" && isDesktopInteraction())) &&
+        !composing
+      ) {
         e.preventDefault();
         insertMention(mentionOptions[mentionIndex % mentionOptions.length]!);
         return;
       }
     }
-    if (e.key === "Enter" && !e.shiftKey && enterToSend && !composing) {
+    // Operation semantics are UA-driven. Layout continues to be width/media-query driven.
+    // Mobile (Android/iPhone/iPad): Enter is always a newline.
+    // Desktop (Windows/macOS/Linux): Enter sends, Shift+Enter inserts a newline.
+    if (e.key === "Enter" && !e.shiftKey && isDesktopInteraction() && !composing) {
       e.preventDefault();
       if (!draft.trim() && pendingMedia.length > 0) {
         void sendPendingMedia();

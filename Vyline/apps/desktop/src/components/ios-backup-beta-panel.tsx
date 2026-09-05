@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
+import { emitAppEvent } from "@/lib/appEvents";
+import { startSerialPoll } from "@/lib/serialPoll";
 
 type Device = NonNullable<Awaited<ReturnType<typeof api.line.listIosBackups>>["devices"]>[number];
 type Session = NonNullable<Awaited<ReturnType<typeof api.line.getIosBackupSession>>["session"]>;
@@ -45,21 +47,31 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       (session.status !== "pending" && session.status !== "running")
     )
       return;
-    const timer = window.setInterval(async () => {
-      const response = await api.line.getIosBackupSession(accountId, session.id);
-      if (response.session) setSession(response.session);
-    }, 1000);
-    return () => window.clearInterval(timer);
+    return startSerialPoll(
+      async () => {
+        const response = await api.line.getIosBackupSession(accountId, session.id);
+        if (!response.session) return true;
+        setSession(response.session);
+        return response.session.status === "pending" || response.session.status === "running";
+      },
+      {
+        intervalMs: 1000,
+        runImmediately: false,
+        pauseWhenHidden: true,
+        onError: (error) =>
+          setMessage(error instanceof Error ? error.message : "復元状態の取得に失敗しました"),
+      },
+    );
   }, [accountId, session]);
 
   useEffect(() => {
     if (session?.status !== "completed" || !accountId) return;
     markRestoredChatMids(accountId, session.result?.restoredChatMids ?? []);
-    window.dispatchEvent(
-      new CustomEvent("vyline:ios-backup-restored", {
-        detail: { accountId, chatMids: session.result?.restoredChatMids ?? [] },
-      }),
-    );
+    emitAppEvent("backup:restored", {
+      accountId,
+      chatMids: session.result?.restoredChatMids ?? [],
+      source: "ios",
+    });
   }, [accountId, session?.status]);
 
   const start = async () => {

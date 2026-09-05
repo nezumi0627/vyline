@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield } from "@/components/icons";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
+import { emitAppEvent } from "@/lib/appEvents";
+import { startSerialPoll } from "@/lib/serialPoll";
 
 type Session = NonNullable<Awaited<ReturnType<typeof api.line.getAndroidBackupSession>>["session"]>;
 
@@ -21,6 +23,29 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(
     null,
   );
+  const [capacity, setCapacity] = useState<Awaited<
+    ReturnType<typeof api.line.backupStorage>
+  > | null>(null);
+
+  useEffect(() => {
+    let active = true;
+    if (!accountId) return;
+    void api.line
+      .backupStorage(accountId)
+      .then((result) => {
+        if (!active) return;
+        if (!result.ok || result.storage?.accountId !== accountId)
+          throw new Error(result.error ?? "保存容量を取得できませんでした");
+        setCapacity(result);
+      })
+      .catch((error) => {
+        if (active)
+          setMessage(error instanceof Error ? error.message : "保存容量を取得できませんでした");
+      });
+    return () => {
+      active = false;
+    };
+  }, [accountId, session?.status]);
 
   useEffect(() => {
     setFile(null);
@@ -37,30 +62,38 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
     ) {
       return;
     }
-    const timer = window.setInterval(async () => {
-      try {
+    return startSerialPoll(
+      async () => {
         const response = await api.line.getAndroidBackupSession(accountId, session.id);
-        if (response.session) setSession(response.session);
-      } catch (error) {
-        setMessage(error instanceof Error ? error.message : "復元状態の取得に失敗しました");
-      }
-    }, 1000);
-    return () => window.clearInterval(timer);
+        if (!response.session) return true;
+        setSession(response.session);
+        return response.session.status === "pending" || response.session.status === "running";
+      },
+      {
+        intervalMs: 1000,
+        runImmediately: false,
+        pauseWhenHidden: true,
+        onError: (error) =>
+          setMessage(error instanceof Error ? error.message : "復元状態の取得に失敗しました"),
+      },
+    );
   }, [accountId, session?.id, session?.status]);
 
   useEffect(() => {
     if (session?.status !== "completed" || !accountId) return;
     const chatMids = session.result?.restoredChatMids ?? [];
     markRestoredChatMids(accountId, chatMids);
-    window.dispatchEvent(
-      new CustomEvent("vyline:android-backup-restored", {
-        detail: { accountId, chatMids },
-      }),
-    );
+    emitAppEvent("backup:restored", { accountId, chatMids, source: "android" });
   }, [accountId, session?.status]);
 
   const start = async () => {
     if (!accountId || !file || loading) return;
+    if (capacity?.android && file.size > capacity.android.maxUploadBytes) {
+      setMessage(
+        `Androidバックアップが大きすぎます（上限 ${formatBytes(capacity.android.maxUploadBytes)}）`,
+      );
+      return;
+    }
     setLoading(true);
     setMessage(null);
     setSession(null);
@@ -115,6 +148,26 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
             アカウントへ統合します。既存履歴と元ファイルは変更しません。
           </p>
         </div>
+      </div>
+
+      <div className="mt-3 space-y-1 text-xs text-[var(--vy-text-dim)]">
+        <p>
+          読み込み上限:{" "}
+          {capacity?.android ? formatBytes(capacity.android.maxUploadBytes) : "確認中…"}
+          {capacity?.android
+            ? `（ZIP展開後も ${formatBytes(capacity.android.maxExtractBytes)} まで）`
+            : ""}
+        </p>
+        {capacity?.storage && (
+          <p>
+            このアカウントの使用量: {formatBytes(capacity.storage.usedBytes)} /{" "}
+            {formatBytes(capacity.storage.limitBytes)}
+            {` · 残り ${formatBytes(capacity.storage.remainingBytes)}`}
+          </p>
+        )}
+        <p>
+          復元後の履歴・メディアを含めて1アカウント10GBまで。重複データは追加容量に数えません。サーバー上の一時ファイルは処理後に削除します。選択した元ファイルは変更しません。
+        </p>
       </div>
 
       <div className="mt-4 space-y-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">

@@ -3,8 +3,7 @@ services:
     image: ${VYLINE_IMAGE:-ghcr.io/nezumi0627/vyline:latest}
     pull_policy: always
     ports:
-      # Secure default: keep Portainer deployments local-only unless LAN access is explicitly enabled.
-      - "${VYLINE_BIND_ADDRESS:-127.0.0.1}:${VYLINE_PORT:-3000}:3000"
+      - "${VYLINE_BIND_ADDRESS:-0.0.0.0}:${VYLINE_PORT:-3000}:3000"
     volumes:
       - ${VYLINE_DATA_PATH:-./data}:/app/data
       - ${VYLINE_STORAGE_PATH:-./storage}:/app/storage

@@ -1,0 +1,5 @@
+# The entrypoint starts as root only long enough to repair bind-mount ownership,
+# verifies the persistent directories, then execs Vyline as the unprivileged
+# `bun` user via gosu. AVD-DS-0002 is an absence-only static Dockerfile check
+# and cannot model this intentional runtime privilege drop.
+AVD-DS-0002

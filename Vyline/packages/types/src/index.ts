@@ -7,6 +7,16 @@
 
 // ─── Account ──────────────────────────────────
 
+export interface BackupStorageUsage {
+  accountId: string;
+  usedBytes: number;
+  limitBytes: number;
+  remainingBytes: number;
+  historyBytes: number;
+  mediaBytes: number;
+  backupBytes: number;
+}
+
 export interface LineBirthday {
   /** "YYYY" or empty when year hidden */
   year?: string;
@@ -257,7 +267,7 @@ export type SavedSession = {
   savedAt: string;
   hasToken: boolean;
   active?: boolean;
-  /** access token の期限切れ等で、同じ accountId の再認証が必要。 */
+  /** 同じaccountIdで再認証すれば履歴・鍵・設定を継続利用できる。 */
   reauthRequired?: boolean;
   mid?: string;
   displayName?: string;
@@ -327,9 +337,10 @@ export type CallResponse = ApiResult<Record<string, never>>;
 export type LoginResult = ApiResult<{ message?: string; accountId?: string }>;
 
 export type QrPollResponse = ApiResult<{
-  status: "idle" | "waiting" | "pending" | "expired" | "completed";
+  status: "idle" | "waiting" | "pending" | "expired" | "completed" | "failed";
   qrUrl: string | null;
   pincode: string | null;
+  error?: string | null;
 }>;
 
 export type EmailPollResponse = ApiResult<{

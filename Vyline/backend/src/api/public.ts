@@ -30,7 +30,7 @@ import {
 const log = childLogger("public-api");
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 300;
-const rateWindows = new Map<string, { startedAt: number; count: number }>();
+const rateWindows = new WeakMap<ApiToken, { startedAt: number; count: number }>();
 
 export const publicRouter = new Hono();
 
@@ -47,11 +47,10 @@ async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Resp
   if (!apiToken) {
     return c.json({ ok: false, error: "Invalid or revoked token" }, 401);
   }
-  const rateKey = apiToken.tokenHash ?? apiToken.name;
   const now = Date.now();
-  const current = rateWindows.get(rateKey);
+  const current = rateWindows.get(apiToken);
   if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
-    rateWindows.set(rateKey, { startedAt: now, count: 1 });
+    rateWindows.set(apiToken, { startedAt: now, count: 1 });
   } else {
     current.count += 1;
     if (current.count > RATE_LIMIT_MAX_REQUESTS) {
@@ -135,8 +134,7 @@ publicRouter.get("/accounts", async (c) => {
 
 // ─── チャット ─────────────────────────────────────
 
-/** GET /v1/accounts/:accountId/getMessageBoxes — チャット一覧 */
-publicRouter.get("/accounts/:accountId/getMessageBoxes", async (c) => {
+async function listPublicChats(c: Context<any>): Promise<Response> {
   const auth = await requireToken(c);
   if (auth instanceof Response) return auth;
 
@@ -144,6 +142,7 @@ publicRouter.get("/accounts/:accountId/getMessageBoxes", async (c) => {
   if (permission instanceof Response) return permission;
 
   const accountId = c.req.param("accountId");
+  if (!accountId) return c.json({ ok: false, error: "accountId required" }, 400);
   const accountPermission = requireAccount(c, auth.token, accountId);
   if (accountPermission instanceof Response) return accountPermission;
   const light = c.req.query("light") === "1" || c.req.query("light") === "true";
@@ -154,7 +153,13 @@ publicRouter.get("/accounts/:accountId/getMessageBoxes", async (c) => {
   } catch (err) {
     return handlePublicError(err, c);
   }
-});
+}
+
+/** GET /v1/accounts/:accountId/chats — チャット一覧 */
+publicRouter.get("/accounts/:accountId/chats", listPublicChats);
+
+/** GET /v1/accounts/:accountId/getMessageBoxes — 旧クライアント互換 */
+publicRouter.get("/accounts/:accountId/getMessageBoxes", listPublicChats);
 
 // ─── メッセージ ───────────────────────────────────
 
@@ -279,12 +284,15 @@ publicRouter.post("/tokens", async (c) => {
   if (!body.name) {
     return c.json({ ok: false, error: "name required" }, 400);
   }
-  if (!Array.isArray(body.accountIds) || body.accountIds.length === 0) {
-    return c.json({ ok: false, error: "accountIds must contain at least one account" }, 400);
+  const accountIds = body.accountIds === undefined ? listLineAccounts() : body.accountIds;
+  if (!Array.isArray(accountIds) || accountIds.length === 0) {
+    return c.json({ ok: false, error: "accountIds must contain at least one active account" }, 400);
   }
 
   try {
-    const token = await createToken(body.name, body.accountIds, body.scopes);
+    // Keep the documented legacy request shape useful without creating an
+    // unscoped token: omission means exactly the accounts active at creation.
+    const token = await createToken(body.name, accountIds, body.scopes);
     return c.json({ ok: true, data: token }, 201);
   } catch (err) {
     log.error({ err }, "failed to create token");

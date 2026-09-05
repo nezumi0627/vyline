@@ -13,13 +13,15 @@
 import { useCallback, useMemo, useEffect, useRef, useState } from "react";
 import { api } from "../api/client.js";
 import type { Chat, LineProfile, Message } from "../types/index.js";
-import { looksLikeMid, type ContactInfo } from "../lib/mappers.js";
+import { looksLikeMid, mapMessage, type ContactInfo } from "../lib/mappers.js";
 import {
   vylineClientPut,
   vylineClientPutMany,
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
-import { resolveChatToOpen, useStore } from "../lib/store.js";
+import { messagePreview, useStore } from "../lib/store.js";
+import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
+import { hydrateBootstrapChatPreviews, mergeResolvedChatPreviews } from "../lib/chatPreview.js";
 import {
   HISTORY_PAGE_SIZE,
   MAX_LOCAL_HISTORY_LIMIT,
@@ -35,8 +37,14 @@ interface UseLineDataOptions {
 }
 
 export function useLineData({ accountId }: UseLineDataOptions) {
+  // State below is reset in an effect, so during the first render after an account
+  // switch it still belongs to the previous account. Keep that ownership explicit
+  // so useVylineSync never hydrates stale account data into the new store.
+  const [dataAccountId, setDataAccountId] = useState<string | null>(accountId);
   const [profile, setProfile] = useState<LineProfile | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
+  const chatsRef = useRef(chats);
+  chatsRef.current = chats;
   const [selectedChatMid, setSelectedChatMid] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
@@ -51,10 +59,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const contactCacheRef = useRef(contactCache);
   contactCacheRef.current = contactCache;
   const contactFetching = useRef<Set<string>>(new Set());
+  // account 切替前の Promise が残っていても、新アカウントの初期ロードを止めない。
+  // boolean だけだと account-1 の finally が account-2 の in-flight 状態まで解除してしまう。
   const inFlight = useRef({
-    profile: false,
-    chats: false,
-    bootstrap: false,
+    profile: new Set<string>(),
+    chats: new Set<string>(),
+    bootstrap: new Set<string>(),
   });
   const bootstrapMessages = useRef<Map<string, Message[]>>(new Map());
   const historyWindows = useRef<Map<string, ChatHistoryWindow>>(new Map());
@@ -119,6 +129,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       api.line
         .getContact(accountId, mid)
         .then((res) => {
+          if (accountIdRef.current !== accountId) return;
           if (!res.ok || !res.profile) return;
           mergeContact(mid, {
             name: res.profile.displayName || undefined,
@@ -152,39 +163,40 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   );
 
   const loadProfile = useCallback(async () => {
-    if (!accountId || inFlight.current.profile) return;
-    inFlight.current.profile = true;
+    if (!accountId || inFlight.current.profile.has(accountId)) return;
+    inFlight.current.profile.add(accountId);
     setLoadingProfile(true);
     try {
       const res = await api.line.getProfile(accountId);
       if (accountIdRef.current !== accountId) return;
       if (res.ok && res.profile) setProfile(res.profile);
     } finally {
-      setLoadingProfile(false);
-      inFlight.current.profile = false;
+      inFlight.current.profile.delete(accountId);
+      if (accountIdRef.current === accountId) setLoadingProfile(false);
     }
   }, [accountId]);
 
   const loadChats = useCallback(
     async (opts?: { light?: boolean; refresh?: boolean; force?: boolean }) => {
-      if (!accountId || inFlight.current.chats) return;
-      inFlight.current.chats = true;
+      if (!accountId || inFlight.current.chats.has(accountId)) return;
+      inFlight.current.chats.add(accountId);
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
         const res = await api.line.getMessageBoxes(accountId, opts);
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
-          setChats(res.chats);
-          const initialChatMid = resolveChatToOpen(
-            accountId,
-            useStore.getState().activeChatId,
-            res.chats.map((chat) => chat.mid),
-          );
-          setSelectedChatMid((prev) => prev || initialChatMid || "");
-          applyChatsToContactCache(res.chats);
+          const nextChats = mergeResolvedChatPreviews(chatsRef.current, res.chats);
+          setChats(nextChats);
+          const requestedChatMid = useStore.getState().activeChatId;
+          const initialChatMid =
+            requestedChatMid && nextChats.some((chat) => chat.mid === requestedChatMid)
+              ? requestedChatMid
+              : "";
+          setSelectedChatMid((previous) => previous || initialChatMid);
+          applyChatsToContactCache(nextChats);
           setFromLocalCache(Boolean(res.fromCache));
-          const warmTargets = res.chats
+          const warmTargets = nextChats
             .slice(0, 80)
             .filter(
               (c) => !c.thumbnailUrl || !c.name || looksLikeMid(c.name) || c.name === "(No Name)",
@@ -193,8 +205,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           prefetchContacts(warmTargets, 10);
         }
       } finally {
-        setLoadingChats(false);
-        inFlight.current.chats = false;
+        inFlight.current.chats.delete(accountId);
+        if (accountIdRef.current === accountId) setLoadingChats(false);
       }
     },
     [accountId, applyChatsToContactCache, prefetchContacts],
@@ -256,7 +268,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
             chatMid,
             HISTORY_PAGE_SIZE,
             {
-              local: true,
+            local: true,
             },
           );
           if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
@@ -371,29 +383,27 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   );
 
   // ChatArea が明示的に1ページ要求した時だけ、古いローカル履歴を追加取得する。
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    const onLoadOlder = (event: Event) => {
-      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
-      if (chatMid) void loadOlderMessages(chatMid);
-    };
-    window.addEventListener("vyline:load-older-messages", onLoadOlder);
-    return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
-  }, [loadOlderMessages]);
+  useEffect(
+    () =>
+      onAppEvent("history:load-older", ({ chatMid }) => {
+        if (chatMid) void loadOlderMessages(chatMid);
+      }),
+    [loadOlderMessages],
+  );
 
   // 先頭のUIは残件・読み込み中を正しく表示する。
   useEffect(() => {
-    if (!selectedChatMid || typeof window === "undefined") return;
-    window.dispatchEvent(
-      new CustomEvent("vyline:older-messages-state", {
-        detail: { chatMid: selectedChatMid, hasMore: hasMoreMessages, loading: loadingOlder },
-      }),
-    );
+    if (!selectedChatMid) return;
+    emitAppEvent("history:state", {
+      chatMid: selectedChatMid,
+      hasMore: hasMoreMessages,
+      loading: loadingOlder,
+    });
   }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
-    if (!accountId || inFlight.current.bootstrap) return;
-    inFlight.current.bootstrap = true;
+    if (!accountId || inFlight.current.bootstrap.has(accountId)) return;
+    inFlight.current.bootstrap.add(accountId);
     try {
       const res = await api.line.bootstrap(accountId);
       if (accountIdRef.current !== accountId) return;
@@ -405,33 +415,40 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       }
 
       if (res.chats?.length) {
-        setChats(res.chats);
-        setFromLocalCache(true);
-        applyChatsToContactCache(res.chats);
-        const initialChatMid = resolveChatToOpen(
-          accountId,
-          useStore.getState().activeChatId,
-          res.chats.map((chat) => chat.mid),
+        const hydratedChats = hydrateBootstrapChatPreviews(
+          res.chats,
+          res.messagesByChat ?? {},
+          (message, chat) => {
+            const mapped = mapMessage(message, chat.mid, accountId, contactCacheRef.current);
+            const preview = messagePreview(mapped);
+            return mapped.authorId === "me" && preview ? `あなた: ${preview}` : preview;
+          },
         );
-        setSelectedChatMid((prev) => prev || initialChatMid || "");
+        const nextChats = mergeResolvedChatPreviews(chatsRef.current, hydratedChats);
+        setChats(nextChats);
+        setFromLocalCache(true);
+        applyChatsToContactCache(nextChats);
+        const requestedChatMid = useStore.getState().activeChatId;
+        const initialChatMid =
+          requestedChatMid && nextChats.some((chat) => chat.mid === requestedChatMid)
+            ? requestedChatMid
+            : "";
+        setSelectedChatMid((previous) => previous || initialChatMid);
       }
     } catch {
       /* bootstrap optional */
     } finally {
-      inFlight.current.bootstrap = false;
+      inFlight.current.bootstrap.delete(accountId);
     }
   }, [accountId, applyChatsToContactCache]);
 
   // 外部バックアップ復元完了後は、ネットワーク同期で上書きせず、書き込み済みのローカルDBを即表示する。
   useEffect(() => {
-    if (!accountId || typeof window === "undefined") return;
-    const onRestore = (event: Event) => {
-      const restoredAccountId = (event as CustomEvent<{ accountId?: string }>).detail?.accountId;
+    if (!accountId) return;
+    return onAppEvent("backup:restored", ({ accountId: restoredAccountId, chatMids }) => {
       if (restoredAccountId !== accountId) return;
-      const restoredChatMids =
-        (event as CustomEvent<{ chatMids?: string[] }>).detail?.chatMids ?? [];
-      for (const chatMid of restoredChatMids) historyWindows.current.delete(chatMid);
-      const restoreTarget = restoredChatMids[0];
+      for (const chatMid of chatMids) historyWindows.current.delete(chatMid);
+      const restoreTarget = chatMids[0];
       if (restoreTarget) {
         setSelectedChatMid(restoreTarget);
         useStore.getState()._activateChat(restoreTarget);
@@ -441,18 +458,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         const chatMid = restoreTarget ?? selectedChatMidRef.current;
         if (chatMid) await loadMessages(chatMid);
       })();
-    };
-    window.addEventListener("vyline:ios-backup-restored", onRestore);
-    window.addEventListener("vyline:android-backup-restored", onRestore);
-    return () => {
-      window.removeEventListener("vyline:ios-backup-restored", onRestore);
-      window.removeEventListener("vyline:android-backup-restored", onRestore);
-    };
+    });
   }, [accountId, loadBootstrap, loadMessages]);
 
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
     messagesGen.current += 1;
+    setDataAccountId(accountId);
     setProfile(null);
     setChats([]);
     setSelectedChatMid("");
@@ -495,13 +507,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
       void loadProfile();
-      // 通常起動は backend の TTL/freshness 判定に任せ、remote refresh を強制しない。
+      // 通常起動は backend のSQLite freshness判定に任せ、毎回remote RPCを強制しない。
       await loadChats({ light: true });
       if (accountIdRef.current !== accountId) return;
 
-      window.setTimeout(() => {
-        if (accountIdRef.current === accountId) void loadChats({ light: true });
-      }, 4_000);
+      // E2EE 一覧プレビューの有限 background warm を拾う。常時 prefetch はしない。
+      for (const delay of [4_000, 12_000]) {
+        window.setTimeout(() => {
+          if (accountIdRef.current === accountId) void loadChats({ light: true });
+        }, delay);
+      }
     })();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accountId のみ
   }, [accountId]);
@@ -520,6 +535,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }, [contactCache]);
 
   return {
+    dataAccountId,
     profile,
     chats,
     selectedChatMid,

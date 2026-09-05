@@ -12,6 +12,7 @@ const _dir = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const TOKEN_FILE = join(DATA_DIR, "api-tokens.json");
 const VALID_SCOPES = new Set(["read", "write"]);
+const LAST_USED_PERSIST_INTERVAL_MS = 60_000;
 
 type StoredApiToken = {
   tokenHash?: string;
@@ -112,7 +113,6 @@ async function save(tokens: StoredApiToken[]): Promise<void> {
   mkdirSync(DATA_DIR, { recursive: true });
   const payload = JSON.stringify(tokens, null, 2);
   const tempFile = `${TOKEN_FILE}.${randomBytes(8).toString("hex")}.tmp`;
-
   const queuedSave = saveQueue.then(async () => {
     try {
       await writeFile(tempFile, payload, "utf8");
@@ -175,8 +175,17 @@ export async function validateToken(token: string): Promise<ApiToken | null> {
 
   if (!found) return null;
 
-  found.lastUsedAt = new Date().toISOString();
-  void save(tokens).catch(() => undefined);
+  const now = Date.now();
+  const previousLastUsed = found.lastUsedAt ? Date.parse(found.lastUsedAt) : Number.NaN;
+  if (
+    !Number.isFinite(previousLastUsed) ||
+    now - previousLastUsed >= LAST_USED_PERSIST_INTERVAL_MS
+  ) {
+    found.lastUsedAt = new Date(now).toISOString();
+    // Usage timestamps are best-effort and rate-limited so authenticated request
+    // floods cannot build an unbounded disk-write queue on small devices.
+    void save(tokens).catch(() => undefined);
+  }
   return found;
 }
 

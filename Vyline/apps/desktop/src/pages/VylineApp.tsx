@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
@@ -7,8 +7,8 @@ import { ThemeApplier } from "../components/theme-applier.js";
 import { ChatShell } from "../components/chat-shell.js";
 import { FloatNotice } from "../components/float-notice.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
-import { api } from "../api/client.js";
 import { VylineSetup } from "../components/vyline-setup.js";
+import { startSerialPoll } from "../lib/serialPoll.js";
 
 const HubHome = lazy(() =>
   import("../components/hub-home.js").then((module) => ({ default: module.HubHome })),
@@ -19,11 +19,14 @@ const SettingsSections = lazy(() =>
   })),
 );
 
+const ACCOUNT_MID = /^u[0-9a-f]{32}$/i;
+
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const accounts = useAuthStore((s) => s.accounts);
+  const activeAccountId = useAuthStore((s) => s.activeAccountId);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const screen = useStore((s) => s.screen);
   const showUpdateNote = useStore((s) => s.showUpdateNote);
@@ -33,7 +36,11 @@ export function VylineApp() {
   const profileName = useStore((s) => s.self.name);
   const accountId = useStore((s) => s.accountId);
   const [consented, setConsented] = useState(() => hasTosConsent());
-  const [setupDone, setSetupDone] = useState(false);
+  const [setupDoneAccounts, setSetupDoneAccounts] = useState<Set<string>>(() => new Set());
+  const setupBypassedAccounts = useRef<Set<string>>(new Set());
+
+  const currentAccountId = accountId ?? activeAccountId ?? accounts[0] ?? null;
+  const hasValidMid = Boolean(mid && ACCOUNT_MID.test(mid));
 
   useEffect(() => {
     void bootstrap();
@@ -42,11 +49,35 @@ export function VylineApp() {
   useEffect(() => {
     const token = localStorage.getItem("vyline:subdevice-session");
     if (!token) return;
-    const beat = () => void api.subdevices.heartbeat(token).catch(() => undefined);
-    beat();
-    const timer = window.setInterval(beat, 30_000);
-    return () => window.clearInterval(timer);
+    return startSerialPoll(
+      async () => {
+        await useAuthStore.getState().refreshAccounts();
+        return true;
+      },
+      {
+        intervalMs: 30_000,
+        pauseWhenHidden: true,
+        onError: () => undefined,
+      },
+    );
   }, []);
+
+  // Some restored/legacy sessions reach the main UI before self.mid has been
+  // hydrated. Mark that account as setup-bypassed during the render that first
+  // enters the app, before child effects (for example HandoffSection's profile
+  // lookup) can populate self.mid. Doing this in a passive effect races with
+  // those child effects and can make clicking "引継ぎ・診断" suddenly replace
+  // the settings screen with the first-run setup wizard.
+  if (
+    initialized &&
+    !loading &&
+    accounts.length > 0 &&
+    consented &&
+    currentAccountId &&
+    !hasValidMid
+  ) {
+    setupBypassedAccounts.current.add(currentAccountId);
+  }
 
   // 同意前は同期・通信を開始しない
   useVylineSync(initialized && accounts.length > 0 && consented);
@@ -71,7 +102,12 @@ export function VylineApp() {
   }
 
   if (accounts.length === 0) {
-    return <Navigate to="/login" replace />;
+    return (
+      <Navigate
+        to={localStorage.getItem("vyline:subdevice-session") ? "/subdevice" : "/login"}
+        replace
+      />
+    );
   }
 
   // ログイン後・同意前は利用規約画面のみ（同意しない限りアプリは動作しない）
@@ -84,13 +120,26 @@ export function VylineApp() {
     );
   }
 
-  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
+  if (
+    currentAccountId &&
+    !setupDoneAccounts.has(currentAccountId) &&
+    !setupBypassedAccounts.current.has(currentAccountId) &&
+    mid &&
+    ACCOUNT_MID.test(mid)
+  ) {
     return (
       <VylineSetup
         mid={mid}
-        accountId={accountId}
+        accountId={currentAccountId}
         profileName={profileName}
-        onComplete={() => setSetupDone(true)}
+        onComplete={() =>
+          setSetupDoneAccounts((previous) => {
+            if (previous.has(currentAccountId)) return previous;
+            const next = new Set(previous);
+            next.add(currentAccountId);
+            return next;
+          })
+        }
       />
     );
   }

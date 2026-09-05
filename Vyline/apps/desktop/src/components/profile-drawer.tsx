@@ -599,7 +599,7 @@ export function ProfileDrawer({
                     if (!accountId) return;
                     setActionMsg("保存中…");
                     void api.line
-                      .exportChat(accountId, chat.id, "txt")
+                      .exportMessages(accountId, chat.id, "txt")
                       .then(() => setActionMsg("トークを保存しました"))
                       .catch((err) =>
                         setActionMsg(err instanceof Error ? err.message : "保存に失敗しました"),

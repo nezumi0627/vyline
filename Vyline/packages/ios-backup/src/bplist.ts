@@ -5,6 +5,8 @@ export interface BplistValue {
   [key: string]: unknown;
 }
 
+const MAX_BPLIST_OBJECTS = 100_000;
+
 export function parseBplist(data: Uint8Array): unknown {
   if (data.length < 40) throw new Error("Invalid bplist: too short");
   const header = new TextDecoder().decode(data.slice(0, 8));
@@ -17,15 +19,39 @@ export function parseBplist(data: Uint8Array): unknown {
   const topObject = readUIntBE(data, trailerOffset + 16, 8);
   const offsetTableOffset = readUIntBE(data, trailerOffset + 24, 8);
 
-  if (!offsetSize || !objectRefSize || !numObjects) throw new Error("Invalid bplist trailer");
-  if (numObjects > Number.MAX_SAFE_INTEGER || topObject >= numObjects) {
+  if (
+    offsetSize < 1 ||
+    offsetSize > 8 ||
+    objectRefSize < 1 ||
+    objectRefSize > 8 ||
+    !Number.isSafeInteger(numObjects) ||
+    numObjects < 1
+  ) {
+    throw new Error("Invalid bplist trailer");
+  }
+  if (numObjects > MAX_BPLIST_OBJECTS) {
+    throw new Error(`Invalid bplist object count: ${numObjects}`);
+  }
+  if (!Number.isSafeInteger(topObject) || topObject < 0 || topObject >= numObjects) {
     throw new Error("Invalid bplist object table");
+  }
+  if (
+    !Number.isSafeInteger(offsetTableOffset) ||
+    offsetTableOffset < 8 ||
+    offsetTableOffset >= trailerOffset ||
+    numObjects > Math.floor((trailerOffset - offsetTableOffset) / offsetSize)
+  ) {
+    throw new Error("Invalid bplist offset table bounds");
   }
 
   const offsets = new Array<number>(numObjects);
   for (let i = 0; i < numObjects; i++) {
     const off = offsetTableOffset + i * offsetSize;
-    offsets[i] = readUIntBE(data, off, offsetSize);
+    const objectOffset = readUIntBE(data, off, offsetSize);
+    if (objectOffset < 8 || objectOffset >= offsetTableOffset) {
+      throw new Error(`Invalid bplist object offset: ${objectOffset}`);
+    }
+    offsets[i] = objectOffset;
   }
 
   const objects: unknown[] = new Array(numObjects);

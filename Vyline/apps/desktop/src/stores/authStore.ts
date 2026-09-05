@@ -27,6 +27,7 @@ interface AuthState {
   loginMode: "auto" | "manual";
 
   setActiveAccount: (id: string) => void;
+  activateSubdevice: (accountId: string) => void;
   setPendingLogin: (id: string | null) => void;
   /** ログイン画面を開く。manual の場合は戻るボタンを表示する */
   openLogin: (mode: "auto" | "manual", accountId?: string | null) => void;
@@ -88,12 +89,32 @@ export const useAuthStore = create<AuthState>()(
 
       setActiveAccount: (id) => set({ activeAccountId: normalizeAccountId(id) }),
 
+      activateSubdevice: (accountId) =>
+        set({
+          activeAccountId: accountId,
+          accounts: [accountId],
+          saved: [],
+          sessions: [],
+          initialized: true,
+          loading: false,
+          error: null,
+          pendingLoginAccountId: null,
+          loginMode: "auto",
+        }),
+
       setPendingLogin: (id) => set({ pendingLoginAccountId: id }),
 
       openLogin: (mode, accountId = null) =>
         set({ loginMode: mode, pendingLoginAccountId: accountId }),
 
       refreshSessions: async () => {
+        if (
+          typeof localStorage !== "undefined" &&
+          localStorage.getItem("vyline:subdevice-session")
+        ) {
+          await get().refreshAccounts();
+          return;
+        }
         const res = await api.auth.sessions();
         if (!res.ok) return;
         const accountsRes = await api.auth.accounts();
@@ -105,9 +126,28 @@ export const useAuthStore = create<AuthState>()(
       },
 
       refreshAccounts: async () => {
+        const subdeviceToken =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("vyline:subdevice-session")
+            : null;
+        if (subdeviceToken) {
+          // A paired browser may only use its assigned account. The owner's
+          // /auth/accounts and /auth/restore APIs are deliberately inaccessible.
+          const result = await api.subdevices.heartbeat(subdeviceToken);
+          if (!result.ok || !result.device) {
+            set({ activeAccountId: null, accounts: [], saved: [], sessions: [] });
+            throw new Error(
+              "サブデバイスの認証が無効です。PC側でQRコードを作成して再接続してください",
+            );
+          }
+          get().activateSubdevice(result.device.accountId);
+          return;
+        }
         const res = await api.auth.accounts();
         if (!res.ok) return;
 
+        // Backend startup owns the single sequential restore. Calling /restore
+        // again here duplicated protocol/storage initialization for every tab.
         const active = res.active;
         const saved = res.saved;
         const sessions = res.sessions ?? [];

@@ -4,11 +4,24 @@ export const HANDOFF_VERSION = 1 as const;
 export type Platform = "desktop" | "web";
 export type LogLevel = "error" | "warn" | "info" | "debug";
 
+export interface SavedThemeSetting {
+  id: string;
+  name: string;
+  /** Serialized VyTheme JSON. Kept opaque here to avoid coupling @vyline/types to @vyline/themes. */
+  theme: string;
+  updatedAt: string;
+}
+
 export interface AccountSettings {
   schemaVersion: typeof ACCOUNT_SCHEMA_VERSION;
   setup: { completed: boolean; step: number; completedAt?: string };
   displayName: string;
-  theme: { preset: string; mode: "system" | "light" | "dark" };
+  theme: {
+    preset: string;
+    mode: "system" | "light" | "dark";
+    savedThemes?: SavedThemeSetting[];
+    activeSavedThemeId?: string;
+  };
   notifications: { enabled: boolean; sounds: boolean };
   storage: { mediaPath?: string; cachePath?: string; autoDownload: boolean };
   privacy: { showReadReceipts: boolean; includeMessageTextInLogs: false };

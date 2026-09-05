@@ -5,9 +5,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { emitAppEvent, onAppEvent } from "../lib/appEvents.js";
 
 const STORAGE_KEY = "vyline:hiddenChatsByAccount";
-const CHANGE_EVENT = "vyline:hidden-chats-changed";
 
 export function loadHiddenChats(): Record<string, string[]> {
   try {
@@ -20,7 +20,7 @@ export function loadHiddenChats(): Record<string, string[]> {
 
 export function saveHiddenChats(data: Record<string, string[]>): void {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
-  window.dispatchEvent(new Event(CHANGE_EVENT));
+  emitAppEvent("hidden-chats:changed", { data });
 }
 
 export function setHiddenForAccount(accountId: string, chatMid: string, hidden: boolean): void {
@@ -39,12 +39,13 @@ export function useHiddenChats(accountId: string | null) {
     const handler = (e: StorageEvent) => {
       if (e.key === STORAGE_KEY) setHiddenByAccount(loadHiddenChats());
     };
-    const localHandler = () => setHiddenByAccount(loadHiddenChats());
+    const unsubscribeLocal = onAppEvent("hidden-chats:changed", ({ data }) => {
+      setHiddenByAccount(data);
+    });
     window.addEventListener("storage", handler);
-    window.addEventListener(CHANGE_EVENT, localHandler);
     return () => {
       window.removeEventListener("storage", handler);
-      window.removeEventListener(CHANGE_EVENT, localHandler);
+      unsubscribeLocal();
     };
   }, []);
 

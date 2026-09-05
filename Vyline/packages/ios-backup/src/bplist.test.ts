@@ -75,4 +75,17 @@ describe("parseBplist", () => {
     expect(parsed.Flag).toBe(false);
     expect(parsed.Long).toBe("0123456789abcdef");
   });
+
+  test("rejects a tiny plist with a forged huge object count before allocation", () => {
+    const data = new Uint8Array(40);
+    data.set(new TextEncoder().encode("bplist00"));
+    const trailerOffset = data.length - 32;
+    data[trailerOffset + 6] = 1;
+    data[trailerOffset + 7] = 1;
+    writeUInt64(data, trailerOffset + 8, 10_000_000);
+    writeUInt64(data, trailerOffset + 16, 0);
+    writeUInt64(data, trailerOffset + 24, 8);
+
+    expect(() => parseBplist(data)).toThrow("Invalid bplist object count: 10000000");
+  });
 });

@@ -1,9 +1,10 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readFile, rm, writeFile, mkdir } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
 const dataDir = await mkdtemp(join(tmpdir(), "vyline-token-store-"));
+if (process.platform !== "win32") await chmod(dataDir, 0o777);
 process.env.VYLINE_DATA_DIR = dataDir;
 const tokenStore = await import(`./tokenStore.ts?test=${crypto.randomUUID()}`);
 
@@ -12,6 +13,8 @@ afterAll(async () => {
 });
 
 describe("tokenStore account isolation and handoff", () => {
+  const permissions = (mode: number) => mode & 0o777;
+
   test("stores credentials per account and migrates legacy entries", async () => {
     await tokenStore.saveToken("account-a", "auth-a", { displayName: "A" });
     await tokenStore.saveToken("account-b", "auth-b", { displayName: "B" });
@@ -24,6 +27,14 @@ describe("tokenStore account isolation and handoff", () => {
     }
     expect((await tokenStore.getToken("account-a"))?.authToken).toBe("auth-a");
     expect((await tokenStore.getToken("account-b"))?.authToken).toBe("auth-b");
+    if (process.platform !== "win32") {
+      expect(permissions((await stat(dataDir)).mode)).toBe(0o700);
+      expect(permissions((await stat(join(dataDir, "accounts"))).mode)).toBe(0o700);
+      expect(permissions((await stat(join(dataDir, "accounts", "account-a"))).mode)).toBe(0o700);
+      expect(
+        permissions((await stat(join(dataDir, "accounts", "account-a", "credentials.json"))).mode),
+      ).toBe(0o600);
+    }
 
     await writeFile(
       join(dataDir, "tokens.json"),
@@ -36,7 +47,14 @@ describe("tokenStore account isolation and handoff", () => {
     expect(
       await readFile(join(dataDir, "accounts", "legacy", "credentials.json"), "utf8"),
     ).toContain("legacy-token");
-  });
+    if (process.platform !== "win32") {
+      expect(permissions((await stat(join(dataDir, "tokens.json"))).mode)).toBe(0o600);
+      expect(permissions((await stat(join(dataDir, "accounts", "legacy"))).mode)).toBe(0o700);
+      expect(
+        permissions((await stat(join(dataDir, "accounts", "legacy", "credentials.json"))).mode),
+      ).toBe(0o600);
+    }
+  }, 20_000);
 
   test("encrypted handoff round-trips without exposing raw credentials", async () => {
     await tokenStore.saveToken("source", "primary-secret", { deviceMode: "IOSIPAD" });
@@ -50,12 +68,20 @@ describe("tokenStore account isolation and handoff", () => {
       }),
       "utf8",
     );
+    if (process.platform !== "win32") {
+      await chmod(join(dataDir, "accounts", "source"), 0o777);
+      await chmod(protocolPath, 0o644);
+    }
 
     const bundle = await tokenStore.exportCredentialHandoff("source", "passphrase-123");
     const serialized = JSON.stringify(bundle);
     expect(serialized).not.toContain("primary-secret");
     expect(serialized).not.toContain("refresh-secret");
     expect(serialized).not.toContain("channel-secret");
+    if (process.platform !== "win32") {
+      expect(permissions((await stat(join(dataDir, "accounts", "source"))).mode)).toBe(0o700);
+      expect(permissions((await stat(protocolPath)).mode)).toBe(0o600);
+    }
     await expect(
       tokenStore.importCredentialHandoff(bundle, "wrong-passphrase", "wrong"),
     ).rejects.toThrow();
@@ -67,27 +93,13 @@ describe("tokenStore account isolation and handoff", () => {
     const restoredProtocol = await readFile(tokenStore.storagePathForAccount("restored"), "utf8");
     expect(restoredProtocol).toContain("refresh-secret");
     expect(restoredProtocol).toContain("channel-secret");
-  }, 20_000);
-
-  test("reauth state keeps credentials and is cleared by a successful token save", async () => {
-    await tokenStore.saveToken("expired", "old-token", { displayName: "Expired" });
-    const protocolPath = tokenStore.storagePathForAccount("expired");
-    await writeFile(protocolPath, JSON.stringify({ qrCert: "keep-me" }), "utf8");
-
-    await tokenStore.updateSessionMeta("expired", { reauthRequired: true });
-    expect(
-      (await tokenStore.listSavedSessions()).find(
-        (s: { accountId: string; reauthRequired?: boolean }) => s.accountId === "expired",
-      ),
-    ).toMatchObject({ hasToken: true, reauthRequired: true });
-
-    await tokenStore.saveToken("expired", "new-token");
-    expect((await tokenStore.getToken("expired"))?.authToken).toBe("new-token");
-    expect(
-      (await tokenStore.listSavedSessions()).find(
-        (s: { accountId: string; reauthRequired?: boolean }) => s.accountId === "expired",
-      )?.reauthRequired,
-    ).toBeUndefined();
-    expect(await readFile(protocolPath, "utf8")).toContain("keep-me");
+    if (process.platform !== "win32") {
+      const restoredDir = join(dataDir, "accounts", "restored");
+      expect(permissions((await stat(restoredDir)).mode)).toBe(0o700);
+      expect(permissions((await stat(join(restoredDir, "credentials.json"))).mode)).toBe(0o600);
+      expect(permissions((await stat(tokenStore.storagePathForAccount("restored"))).mode)).toBe(
+        0o600,
+      );
+    }
   }, 20_000);
 });

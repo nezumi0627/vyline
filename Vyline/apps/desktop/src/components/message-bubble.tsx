@@ -32,9 +32,15 @@ import {
   IconEdit,
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
-import { segmentUnicodeEmoji } from "@/utils/lineSticon";
-import { lineCdnProxy, hideBrokenMedia } from "@/utils/lineMedia";
+import {
+  segmentTextWithSticon,
+  segmentUnicodeEmoji,
+  type SticonResource,
+} from "@/utils/lineSticon";
+import { lineCdnProxy, hideBrokenMedia, lineStickerUrl } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
+import { splitTextLinks } from "@/lib/linkifyText";
+import { isMobileInteraction } from "@/lib/interactionEnvironment";
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
@@ -88,31 +94,128 @@ function LinkPreviewCard({ preview }: { preview: NonNullable<Message["linkPrevie
   );
 }
 
+function objectRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function findPostRecord(value: unknown): Record<string, unknown> | null {
+  const root = objectRecord(value);
+  if (!root) return null;
+  const result = objectRecord(root.result) ?? root;
+  const post = objectRecord(result.post) ?? objectRecord(result.item) ?? result;
+  return objectRecord(post.contents) ?? post;
+}
+
+function findAlbumRecord(value: unknown, albumId: string): Record<string, unknown> | null {
+  const root = objectRecord(value);
+  const result = objectRecord(root?.result) ?? root;
+  const albums = result?.albums;
+  if (!Array.isArray(albums)) return null;
+  return (
+    (albums.find((album) => {
+      const record = objectRecord(album);
+      return String(record?.albumId ?? record?.id ?? "") === albumId;
+    }) as Record<string, unknown> | undefined) ?? null
+  );
+}
+
+function noteSticons(post: Record<string, unknown> | null): SticonResource[] {
+  const raw = post?.sticonMetas;
+  if (!Array.isArray(raw)) return [];
+  return raw.flatMap((item) => {
+    const record = objectRecord(item);
+    const productId = String(record?.productId ?? record?.product_id ?? "");
+    const sticonId = String(record?.sticonId ?? record?.sticon_id ?? record?.id ?? "");
+    if (!productId || !sticonId) return [];
+    const S = Number(record?.S ?? record?.start);
+    const E = Number(record?.E ?? record?.end);
+    return [
+      {
+        productId,
+        sticonId,
+        ...(Number.isFinite(S) ? { S } : {}),
+        ...(Number.isFinite(E) ? { E } : {}),
+        ...(typeof record?.alt === "string" ? { alt: record.alt } : {}),
+      },
+    ];
+  });
+}
+
+function NoteText({ text, sticons }: { text: string; sticons: SticonResource[] }) {
+  if (!sticons.length) return <Highlighted text={text} />;
+  return (
+    <>
+      {segmentTextWithSticon(text, sticons).map((segment, index) =>
+        segment.type === "sticon" ? (
+          <img
+            key={`${segment.url}-${index}`}
+            src={segment.url}
+            alt={segment.alt}
+            className="mx-0.5 inline-block h-6 w-6 align-text-bottom object-contain"
+            onError={hideBrokenMedia}
+          />
+        ) : (
+          <span key={index}>{segment.value}</span>
+        ),
+      )}
+    </>
+  );
+}
+
 export type PostNotificationTarget =
   | { kind: "note"; postId?: string; homeId?: string }
   | { kind: "album"; albumId?: string; homeId?: string };
 
 function PostNotificationCard({
   message,
-  onOpen,
+  accountId,
 }: {
   message: Message;
-  onOpen: (target: PostNotificationTarget) => void;
+  accountId?: string;
 }) {
   const notification = message.postNotification;
+  const [detail, setDetail] = useState<Record<string, unknown> | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   if (!notification || notification.kind === "unknown") return null;
+
+  const load = async () => {
+    if (!accountId || loading || detail) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const raw =
+        notification.kind === "note" && notification.homeId && notification.postId
+          ? await api.line.notes.get(accountId, notification.homeId, notification.postId)
+          : notification.kind === "album" && notification.albumId
+            ? await api.line.albums.list(accountId)
+            : null;
+      setDetail(
+        notification.kind === "album" && notification.albumId
+          ? findAlbumRecord(raw, notification.albumId)
+          : objectRecord(raw),
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const post = notification.kind === "note" ? findPostRecord(detail) : null;
+  const text = typeof post?.text === "string" ? post.text : undefined;
+  const stickers = Array.isArray(post?.stickers) ? post.stickers : [];
+  const media = Array.isArray(post?.media) ? post.media : [];
+  const sticons = noteSticons(post);
+  const sharedPostId = typeof post?.sharedPostId === "string" ? post.sharedPostId : undefined;
 
   return (
     <div className="my-1 flex w-full justify-center px-2">
       <button
         type="button"
-        onClick={() =>
-          onOpen(
-            notification.kind === "note"
-              ? { kind: "note", postId: notification.postId, homeId: notification.homeId }
-              : { kind: "album", albumId: notification.albumId, homeId: notification.homeId },
-          )
-        }
+        onClick={() => void load()}
         className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] text-left shadow-sm transition-colors hover:bg-[var(--vy-surface-2)]"
       >
         <div className="px-4 py-3">
@@ -129,9 +232,68 @@ function PostNotificationCard({
               {notification.mediaCount}件のメディア
             </p>
           )}
-          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            クリックして{notification.kind === "album" ? "アルバム" : "ノート"}を開く
-          </p>
+          {loading && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">読み込み中…</p>}
+          {error && <p className="mt-2 text-xs text-[var(--vy-danger)]">{error}</p>}
+          {text && (
+            <p className="mt-2 whitespace-pre-wrap break-words text-sm text-[var(--vy-text)]">
+              <NoteText text={text} sticons={sticons} />
+            </p>
+          )}
+          {stickers.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-2">
+              {stickers.slice(0, 6).map((value, index) => {
+                const sticker = objectRecord(value);
+                const id = String(sticker?.id ?? sticker?.stickerId ?? "");
+                return id ? (
+                  <img
+                    key={`${id}-${index}`}
+                    src={lineStickerUrl(id)}
+                    alt="スタンプ"
+                    className="h-20 w-20 object-contain"
+                    onError={hideBrokenMedia}
+                  />
+                ) : null;
+              })}
+            </div>
+          )}
+          {media.length > 0 && (
+            <div className="mt-2 grid grid-cols-2 gap-1 overflow-hidden rounded-xl">
+              {media.slice(0, 6).map((value, index) => {
+                const item = objectRecord(value);
+                const objectId = String(item?.objectId ?? "");
+                const type = String(item?.type ?? "PHOTO").toUpperCase();
+                if (!objectId) return null;
+                const src = lineCdnProxy(
+                  `https://obs.line-apps.com/r/myhome/h/${encodeURIComponent(objectId)}`,
+                );
+                return type === "VIDEO" ? (
+                  <video
+                    key={`${objectId}-${index}`}
+                    src={src}
+                    controls
+                    preload="metadata"
+                    className="max-h-48 w-full bg-black object-contain"
+                  />
+                ) : (
+                  <img
+                    key={`${objectId}-${index}`}
+                    src={src}
+                    alt="ノート画像"
+                    className="max-h-48 w-full object-cover"
+                    onError={hideBrokenMedia}
+                  />
+                );
+              })}
+            </div>
+          )}
+          {sharedPostId && (
+            <p className="mt-2 rounded-lg bg-[var(--vy-surface-2)] px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+              共有ノート: {sharedPostId}
+            </p>
+          )}
+          {!detail && !loading && (
+            <p className="mt-2 text-xs text-[var(--vy-text-dim)]">クリックして内容を表示</p>
+          )}
         </div>
       </button>
     </div>
@@ -283,6 +445,60 @@ function TextRuns({ value }: { value: string }) {
   );
 }
 
+function HighlightedTextRuns({ value, query }: { value: string; query?: string }) {
+  const needle = query?.trim();
+  if (!needle) return <TextRuns value={value} />;
+  const lower = value.toLowerCase();
+  const lowerNeedle = needle.toLowerCase();
+  const pieces: React.ReactNode[] = [];
+  let offset = 0;
+  let matchIndex = lower.indexOf(lowerNeedle);
+  while (matchIndex >= 0) {
+    if (matchIndex > offset) {
+      pieces.push(<TextRuns key={`plain-${offset}`} value={value.slice(offset, matchIndex)} />);
+    }
+    pieces.push(
+      <mark
+        key={`match-${matchIndex}`}
+        className="rounded bg-[var(--vy-accent)] px-0.5 text-[var(--vy-accent-contrast)]"
+      >
+        {value.slice(matchIndex, matchIndex + needle.length)}
+      </mark>,
+    );
+    offset = matchIndex + needle.length;
+    matchIndex = lower.indexOf(lowerNeedle, offset);
+  }
+  if (offset < value.length) {
+    pieces.push(<TextRuns key={`plain-${offset}`} value={value.slice(offset)} />);
+  }
+  return <>{pieces}</>;
+}
+
+function LinkedTextRuns({ value, query }: { value: string; query?: string }) {
+  return (
+    <>
+      {splitTextLinks(value).map((segment, index) =>
+        segment.type === "link" ? (
+          <a
+            key={`${segment.href}-${index}`}
+            href={segment.href}
+            target="_blank"
+            rel="noopener noreferrer"
+            referrerPolicy="no-referrer"
+            draggable={false}
+            className="break-all underline decoration-current/50 underline-offset-2 hover:decoration-current"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <HighlightedTextRuns value={segment.value} query={query} />
+          </a>
+        ) : (
+          <HighlightedTextRuns key={index} value={segment.value} query={query} />
+        ),
+      )}
+    </>
+  );
+}
+
 /** LINE 準拠のメンション色（青 #457ed7 / @ALL は橙 #f5a623） */
 const MENTION_COLOR = "#457ed7";
 const MENTION_ALL_COLOR = "#e07b00";
@@ -331,32 +547,12 @@ function Highlighted({
       ? segmentTextWithMentions(text, sticons ?? [], mentions ?? [])
       : [{ type: "text", value: text }];
 
-  const renderSegment = (seg: DraftSegment, i: number) => {
-    if (seg.type === "sticon") return <MentionImage key={i} seg={seg} />;
-    if (seg.type === "mention") return <MentionSpan key={i} seg={seg} />;
-    return <TextRuns key={i} value={seg.value} />;
-  };
-
-  if (!query) {
-    return <>{segments.map(renderSegment)}</>;
-  }
-
   return (
     <>
-      {segments.map((seg, i) => {
-        if (seg.type === "sticon") return <MentionImage key={i} seg={seg} />;
-        if (seg.type === "mention") return <MentionSpan key={i} seg={seg} />;
-        const idx = seg.value.toLowerCase().indexOf(query.toLowerCase());
-        if (idx < 0) return <TextRuns key={i} value={seg.value} />;
-        return (
-          <span key={i}>
-            <TextRuns value={seg.value.slice(0, idx)} />
-            <mark className="rounded bg-[var(--vy-accent)] px-0.5 text-[var(--vy-accent-contrast)]">
-              {seg.value.slice(idx, idx + query.length)}
-            </mark>
-            <TextRuns value={seg.value.slice(idx + query.length)} />
-          </span>
-        );
+      {segments.map((segment, index) => {
+        if (segment.type === "sticon") return <MentionImage key={index} seg={segment} />;
+        if (segment.type === "mention") return <MentionSpan key={index} seg={segment} />;
+        return <LinkedTextRuns key={index} value={segment.value} query={query} />;
       })}
     </>
   );
@@ -513,7 +709,6 @@ export const MessageBubble = memo(
     showName,
     highlight,
     mediaGroup,
-    onOpenPostNotification,
   }: {
     message: Message;
     chat: Chat;
@@ -521,9 +716,9 @@ export const MessageBubble = memo(
     showName: boolean;
     highlight?: string;
     mediaGroup?: Message[];
-    onOpenPostNotification: (target: PostNotificationTarget) => void;
   }) {
     const isMe = message.authorId === "me";
+    const accountId = useStore((s) => s.accountId);
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
     const revokeMessage = useStore((s) => s.revokeMessage);
@@ -532,6 +727,8 @@ export const MessageBubble = memo(
     const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
     const markRead = useStore((s) => s.markRead);
+    const markChatRead = useStore((s) => s.markChatRead);
+    const readDisabled = useStore((s) => Boolean(s.readDisabledMids[chat.id]));
     const setReplyTo = useStore((s) => s.setReplyTo);
     const scrollToMessage = useStore((s) => s.scrollToMessage);
     const openMemberProfile = useStore((s) => s.openMemberProfile);
@@ -551,8 +748,18 @@ export const MessageBubble = memo(
     const [lightbox, setLightbox] = useState(false);
     const [revokedFallbackText, setRevokedFallbackText] = useState<string | null>(null);
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
+    const [partialCopyOpen, setPartialCopyOpen] = useState(false);
+    const [swipeOffset, setSwipeOffset] = useState(0);
+    const partialCopyRef = useRef<HTMLTextAreaElement>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
+    const touchGesture = useRef<{
+      startX: number;
+      startY: number;
+      lastX: number;
+      lastY: number;
+      axis: "pending" | "horizontal" | "vertical";
+    } | null>(null);
     const isRevoked =
       message.messageState.startsWith("revoked") ||
       Boolean(message.revokedSnapshot) ||
@@ -631,30 +838,117 @@ export const MessageBubble = memo(
           );
 
     function openMenu(e: React.MouseEvent) {
+      // Portal events bubble through the React tree even though the menu is not
+      // inside this message row in the DOM. Ignore those events here.
+      if (!e.currentTarget.contains(e.target as Node)) return;
       e.preventDefault();
       e.stopPropagation();
+      // Touch long-press is handled by the row gesture. Ignore the synthetic
+      // contextmenu event emitted afterwards so it cannot restart selection.
+      if (isMobileInteraction()) return;
       setMenu({ x: e.clientX, y: e.clientY });
     }
 
     function onTouchStart(e: React.TouchEvent) {
-      if (isRevoked) return;
+      if (isRevoked || !isMobileInteraction()) return;
+      const target = e.target as HTMLElement;
+      // MessageContextMenu is rendered through a portal. React still bubbles
+      // its touch events through this component, so require real DOM ancestry.
+      if (!e.currentTarget.contains(target)) return;
+      if (
+        target.closest(
+          "a, input, textarea, select, video, [contenteditable='true'], [data-vy-native-touch='true']",
+        )
+      )
+        return;
       const t = e.touches[0];
+      if (!t) return;
+      const x = t.clientX;
+      const y = t.clientY;
+      touchGesture.current = {
+        startX: x,
+        startY: y,
+        lastX: x,
+        lastY: y,
+        axis: "pending",
+      };
       longPressFired.current = false;
+      setSwipeOffset(0);
       longPressTimer.current = setTimeout(() => {
         longPressFired.current = true;
+        touchGesture.current = null;
+        setSwipeOffset(0);
+        window.getSelection()?.removeAllRanges();
         if (navigator.vibrate) navigator.vibrate(12);
-        setMenu({ x: t.clientX, y: t.clientY });
+        setMenu({ x, y });
       }, 480);
     }
+
     function cancelLongPress() {
       if (longPressTimer.current) clearTimeout(longPressTimer.current);
       longPressTimer.current = null;
     }
+
+    function resetTouchGesture() {
+      cancelLongPress();
+      touchGesture.current = null;
+      setSwipeOffset(0);
+      longPressFired.current = false;
+    }
+
+    function onTouchMove(e: React.TouchEvent) {
+      const gesture = touchGesture.current;
+      const t = e.touches[0];
+      if (!gesture || !t) return;
+      gesture.lastX = t.clientX;
+      gesture.lastY = t.clientY;
+      const dx = gesture.lastX - gesture.startX;
+      const dy = gesture.lastY - gesture.startY;
+      const absX = Math.abs(dx);
+      const absY = Math.abs(dy);
+      if (absX > 8 || absY > 8) cancelLongPress();
+
+      // Do not claim the gesture until the user has moved horizontally far
+      // enough. Vertical scrolling therefore keeps winning for ordinary drags.
+      if (gesture.axis === "pending") {
+        if (absX < 18 && absY < 18) return;
+        if (dx < 0 && -dx >= 18 && -dx > absY * 1.25) {
+          gesture.axis = "horizontal";
+        } else {
+          gesture.axis = "vertical";
+          setSwipeOffset(0);
+          return;
+        }
+      }
+
+      if (gesture.axis !== "horizontal") return;
+      const progress = Math.max(0, -dx - 18);
+      setSwipeOffset(-Math.min(72, progress));
+    }
+
+    function finishTouch(e: React.TouchEvent) {
+      const gesture = touchGesture.current;
+      const changed = e.changedTouches[0];
+      const endX = changed?.clientX ?? gesture?.lastX ?? 0;
+      const endY = changed?.clientY ?? gesture?.lastY ?? 0;
+      const horizontalDistance = gesture ? gesture.startX - endX : 0;
+      const verticalDistance = gesture ? Math.abs(gesture.startY - endY) : 0;
+      const shouldReply =
+        !longPressFired.current &&
+        gesture?.axis === "horizontal" &&
+        horizontalDistance >= 52 &&
+        horizontalDistance > verticalDistance * 1.25;
+
+      resetTouchGesture();
+
+      if (shouldReply) {
+        if (navigator.vibrate) navigator.vibrate(8);
+        setReplyTo(message.id);
+      }
+    }
+
     const pressHandlers = {
       onContextMenu: openMenu,
-      onTouchStart,
-      onTouchEnd: cancelLongPress,
-      onTouchMove: cancelLongPress,
     };
 
     const react = (type: number, mine: boolean) => {
@@ -800,6 +1094,11 @@ export const MessageBubble = memo(
               icon: <IconCopy size={16} />,
               onClick: () => void copyText(message.text ?? message.altText ?? ""),
             },
+            {
+              label: "部分コピー",
+              icon: <IconCopy size={16} />,
+              onClick: () => setPartialCopyOpen(true),
+            },
           ]
         : []),
       ...(message.kind === "sticker" && isStickerImageSrc(message.sticker)
@@ -845,15 +1144,26 @@ export const MessageBubble = memo(
             },
           ]
         : []),
-      ...(!isMe && !message.read
+      ...(!isMe && (!settings.readReceipts || readDisabled)
         ? [
             {
-              label: "既読にする",
+              label: "このメッセージまで既読",
               icon: <IconCheck size={16} />,
-              onClick: () => markRead(message.id),
+              onClick: () =>
+                void markChatRead(chat.id, message.id, {
+                  forceReceipt: true,
+                }),
             },
           ]
-        : []),
+        : !isMe && !message.read
+          ? [
+              {
+                label: "既読にする",
+                icon: <IconCheck size={16} />,
+                onClick: () => markRead(message.id),
+              },
+            ]
+          : []),
       ...(isMe &&
       !isRevoked &&
       message.kind === "text" &&
@@ -979,7 +1289,7 @@ export const MessageBubble = memo(
     }
 
     if (message.postNotification && message.postNotification.kind !== "unknown" && !isRevoked) {
-      return <PostNotificationCard message={message} onOpen={onOpenPostNotification} />;
+      return <PostNotificationCard message={message} accountId={accountId ?? undefined} />;
     }
 
     if (message.kind === "system" && !isRevoked) {
@@ -1224,7 +1534,7 @@ export const MessageBubble = memo(
       return (
         <div
           className={cn(
-            "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            "vy-msg-enter vy-bubble-pad relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
           )}
           style={{
             background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -1307,7 +1617,26 @@ export const MessageBubble = memo(
     };
 
     return (
-      <div className={cn("flex w-full gap-2 px-1", isMe ? "flex-row-reverse" : "flex-row")}>
+      <div
+        data-vy-message="true"
+        onContextMenu={openMenu}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={finishTouch}
+        onTouchCancel={resetTouchGesture}
+        className={cn(
+          "vy-message-interaction relative flex w-full gap-2 px-1",
+          isMe ? "flex-row-reverse" : "flex-row",
+        )}
+      >
+        {swipeOffset < -10 && (
+          <span
+            className="pointer-events-none absolute right-2 top-1/2 z-0 flex h-8 w-8 -translate-y-1/2 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)]"
+            aria-hidden
+          >
+            <IconReply size={17} />
+          </span>
+        )}
         {!isMe && chat.type === "group" && (
           <div className="w-8 shrink-0 self-end">
             {showAvatar && author && (
@@ -1330,12 +1659,16 @@ export const MessageBubble = memo(
 
         <div
           className={cn(
-            "min-w-0 flex flex-col",
+            "relative z-[1] min-w-0 flex flex-col",
             message.kind === "flex" || message.kind === "rich"
               ? "max-w-[min(100%,360px)]"
               : "max-w-[74%]",
             isMe ? "items-end" : "items-start",
           )}
+          style={{
+            transform: swipeOffset ? `translateX(${swipeOffset}px)` : undefined,
+            transition: swipeOffset === 0 ? "transform 160ms ease-out" : "none",
+          }}
         >
           {showName && !isMe && chat.type === "group" && author && (
             <button
@@ -1569,7 +1902,7 @@ export const MessageBubble = memo(
             <div
               {...pressHandlers}
               className={cn(
-                "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                "vy-msg-enter vy-bubble-pad relative cursor-text select-text rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
               )}
               style={{
                 background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -1582,7 +1915,7 @@ export const MessageBubble = memo(
               {mediaItems.length > 1 && !streamerMode && (
                 <div
                   className={cn(
-                    "grid overflow-hidden rounded-xl",
+                    "grid gap-px overflow-hidden rounded-xl bg-[var(--vy-border)] p-px",
                     mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
                   )}
                 >
@@ -1590,7 +1923,7 @@ export const MessageBubble = memo(
                     <button
                       key={item.id}
                       type="button"
-                      className="group relative aspect-square overflow-hidden bg-black/5"
+                      className="group relative aspect-square overflow-hidden bg-[var(--vy-surface)]"
                       onClick={(e) => {
                         e.stopPropagation();
                         setLightboxMedia(item);
@@ -1725,6 +2058,56 @@ export const MessageBubble = memo(
             }}
             onClose={() => setEditing(false)}
           />
+        )}
+        {partialCopyOpen && (
+          <div
+            className="fixed inset-0 z-[70] flex items-center justify-center bg-black/55 p-4"
+            role="dialog"
+            aria-modal="true"
+            aria-label="メッセージを部分コピー"
+            onClick={(e) => {
+              if (e.target === e.currentTarget) setPartialCopyOpen(false);
+            }}
+          >
+            <div className="w-full max-w-md rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-2xl">
+              <div className="mb-3 flex items-center justify-between gap-3">
+                <p className="text-sm font-semibold">部分コピー</p>
+                <button
+                  type="button"
+                  onClick={() => setPartialCopyOpen(false)}
+                  className="rounded-lg p-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
+                  aria-label="閉じる"
+                >
+                  <IconClose size={17} />
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-[var(--vy-text-dim)]">
+                コピーしたい範囲を選択してください
+              </p>
+              <textarea
+                ref={partialCopyRef}
+                readOnly
+                value={message.text ?? message.altText ?? ""}
+                onFocus={(e) => e.currentTarget.select()}
+                className="vy-partial-copy-text vy-scroll h-40 w-full resize-none rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+              />
+              <button
+                type="button"
+                onClick={() => {
+                  const textarea = partialCopyRef.current;
+                  const full = message.text ?? message.altText ?? "";
+                  const start = textarea?.selectionStart ?? 0;
+                  const end = textarea?.selectionEnd ?? 0;
+                  const selected = end > start ? full.slice(start, end) : full;
+                  void copyText(selected);
+                  setPartialCopyOpen(false);
+                }}
+                className="mt-3 w-full rounded-xl bg-[var(--vy-accent)] px-3 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)]"
+              >
+                選択範囲をコピー
+              </button>
+            </div>
+          </div>
         )}
         {lightbox && (lightboxMedia?.imageSrc ?? message.imageSrc) && (
           <MediaLightbox

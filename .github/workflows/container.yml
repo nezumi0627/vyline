@@ -3,6 +3,7 @@ name: Container
 on:
   push:
     branches: [main]
+    tags: ["v*"]
   workflow_dispatch:
 
 permissions:
@@ -49,6 +50,7 @@ jobs:
           tags: |
             type=raw,value=latest,enable={{is_default_branch}}
             type=ref,event=branch
+            type=ref,event=tag
             type=sha,prefix=sha-
 
       - name: Build and push multi-architecture image

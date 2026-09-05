@@ -24,15 +24,27 @@
 import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
-import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import { statMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { rebuildAccountChatDb } from "../storage/chatStore.js";
+import { BackupStorageLimitError } from "../storage/backupLimits.js";
+import { BackupWorkCapacityError } from "../service/diskBackedWorkQueue.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
 import { isPluginActive } from "../line/pluginRuntime.js";
 import {
+  completeMediaBatchUpload,
+  createMediaBatchUpload,
+  MediaSendUploadError,
+  removeMediaBatchUpload,
+  removeStandaloneMediaUpload,
+  stageMediaBatchItem,
+  stageStandaloneMediaUpload,
+  type MediaUploadMetadata,
+  type StagedMediaType,
+} from "../service/mediaSendStaging.js";
+import {
   commentNote,
-  deleteNoteComment,
   createNote,
   deleteNote,
   getNote,
@@ -41,11 +53,8 @@ import {
   likeNote,
   listNotes,
   listNoteLikes,
-  listNoteComments,
-  likeNoteComment,
   shareNoteToChat,
   unlikeNote,
-  unlikeNoteComment,
   updateNote,
   uploadNoteCommentImage,
   uploadNoteMedia,
@@ -76,6 +85,7 @@ import {
   fetchMessagesSince,
   pollTalkEvents,
   fetchMessageMedia,
+  fetchPlainMessageMediaToStorage,
   sendMessage,
   sendMedia,
   sendMediaBatch,
@@ -159,6 +169,16 @@ import {
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
+
+const IMAGE_UPLOAD_MAX_BYTES = 32 * 1024 * 1024;
+const LARGE_CONTENT_UPLOAD_MAX_BYTES = 512 * 1024 * 1024;
+
+function stagedUploadFile(
+  upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>>,
+  fallbackType: string,
+): Blob {
+  return Bun.file(upload.path, { type: upload.mimeType || fallbackType });
+}
 
 // ─── notes（LINE ノート / Timeline） ───
 lineRouter.get("/:accountId/notes", async (c) => {
@@ -348,97 +368,51 @@ lineRouter.post("/:accountId/notes/:postId/comments", async (c) => {
   }
 });
 
-lineRouter.get("/:accountId/notes/:postId/comments", async (c) => {
-  const accountId = c.req.param("accountId");
-  const postId = c.req.param("postId");
-  const homeId = c.req.query("homeId");
-  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
-  try {
-    const client = await getContentClient(accountId);
-    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await listNoteComments(client, homeId, postId));
-  } catch (err) {
-    return handleError(err, c);
-  }
-});
-
-lineRouter.delete("/:accountId/notes/:postId/comments/:commentId", async (c) => {
-  const accountId = c.req.param("accountId");
-  const postId = c.req.param("postId");
-  const commentId = c.req.param("commentId");
-  const homeId = c.req.query("homeId");
-  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
-  try {
-    const client = await getContentClient(accountId);
-    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await deleteNoteComment(client, homeId, postId, commentId));
-  } catch (err) {
-    return handleError(err, c);
-  }
-});
-
-lineRouter.post("/:accountId/notes/comments/:commentId/like", async (c) => {
-  const accountId = c.req.param("accountId");
-  const commentId = c.req.param("commentId");
-  const body = await c.req.json<{ homeId?: string; likeType?: string }>();
-  if (!body.homeId) return c.json({ ok: false, error: "homeId required" }, 400);
-  const allowed = new Set(["1001", "1002", "1003", "1004", "1005", "1006"]);
-  if (body.likeType && !allowed.has(body.likeType)) {
-    return c.json({ ok: false, error: "invalid likeType" }, 400);
-  }
-  try {
-    const client = await getContentClient(accountId);
-    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(
-      await likeNoteComment(
-        client,
-        body.homeId,
-        commentId,
-        body.likeType as "1001" | "1002" | "1003" | "1004" | "1005" | "1006" | undefined,
-      ),
-    );
-  } catch (err) {
-    return handleError(err, c);
-  }
-});
-
-lineRouter.delete("/:accountId/notes/comments/:commentId/like", async (c) => {
-  const accountId = c.req.param("accountId");
-  const commentId = c.req.param("commentId");
-  const homeId = c.req.query("homeId");
-  if (!homeId) return c.json({ ok: false, error: "homeId required" }, 400);
-  try {
-    const client = await getContentClient(accountId);
-    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await unlikeNoteComment(client, homeId, commentId));
-  } catch (err) {
-    return handleError(err, c);
-  }
-});
-
 lineRouter.post("/:accountId/notes/media/:type", async (c) => {
   const accountId = c.req.param("accountId");
   const type = c.req.param("type");
   if (type !== "image" && type !== "video") {
     return c.json({ ok: false, error: "type must be image or video" }, 400);
   }
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
     const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await uploadNoteMedia(client, type, await c.req.blob()));
+    upload = await stageStandaloneMediaUpload(
+      c.req.raw,
+      mediaUploadMetadata(c),
+      type === "video" ? LARGE_CONTENT_UPLOAD_MAX_BYTES : IMAGE_UPLOAD_MAX_BYTES,
+    );
+    return c.json(
+      await uploadNoteMedia(
+        client,
+        type,
+        stagedUploadFile(upload, type === "video" ? "video/mp4" : "image/jpeg"),
+      ),
+    );
   } catch (err) {
-    return handleError(err, c);
+    return handleMediaUploadError(err, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 
 lineRouter.post("/:accountId/notes/comment-image", async (c) => {
   const accountId = c.req.param("accountId");
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
     const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await uploadNoteCommentImage(client, await c.req.blob()));
+    upload = await stageStandaloneMediaUpload(
+      c.req.raw,
+      mediaUploadMetadata(c),
+      IMAGE_UPLOAD_MAX_BYTES,
+    );
+    return c.json(await uploadNoteCommentImage(client, stagedUploadFile(upload, "image/jpeg")));
   } catch (err) {
-    return handleError(err, c);
+    return handleMediaUploadError(err, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 
@@ -599,19 +573,27 @@ lineRouter.post("/:accountId/albums/:albumId/share", async (c) => {
 lineRouter.post("/:accountId/albums/:albumId/media", async (c) => {
   const chatId = c.req.query("chatId");
   if (!chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    const contentType = c.req.header("content-type");
+    upload = await stageStandaloneMediaUpload(
+      c.req.raw,
+      mediaUploadMetadata(c),
+      LARGE_CONTENT_UPLOAD_MAX_BYTES,
+    );
+    const contentType = upload.mimeType;
     return c.json(
       await uploadAlbumMedia(client, c.req.param("albumId"), {
         chatId,
-        data: await c.req.blob(),
+        data: stagedUploadFile(upload, "application/octet-stream"),
         ...(contentType ? { contentType } : {}),
       }),
     );
   } catch (err) {
-    return handleError(err, c);
+    return handleMediaUploadError(err, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 lineRouter.post("/:accountId/albums/:albumId/photos", async (c) => {
@@ -764,6 +746,12 @@ function isLiffError(res: unknown): { statusCode: number; statusMessage: string 
 // ─── error helper ─────────────────────────────
 
 function handleError(err: unknown, c: Context<any, any, any>) {
+  if (err instanceof BackupStorageLimitError)
+    return c.json({ ok: false, code: "BACKUP_STORAGE_LIMIT", error: err.message }, 507);
+  if (err instanceof BackupWorkCapacityError) {
+    c.header("Retry-After", "5");
+    return c.json({ ok: false, code: "BACKUP_WORK_CAPACITY", error: err.message }, 429);
+  }
   if (err instanceof NotLoggedInError || err instanceof LiffNotLoggedInError) {
     return c.json({ ok: false, error: "not logged in" }, 401);
   }
@@ -789,7 +777,7 @@ function handleError(err: unknown, c: Context<any, any, any>) {
     );
   }
   if (code === "CREATE_GROUP_BANNED" || message.includes("CREATE_GROUP_BANNED")) {
-    log.warn({ err: message }, "create group permanently banned");
+    log.warn({ err }, "create group permanently banned");
     return c.json(
       {
         ok: false,
@@ -995,34 +983,145 @@ lineRouter.get("/:accountId/getMessageDelta/:chatMid", async (c) => {
 
 // ─── GET /line/:accountId/media/:chatMid/:messageId ───
 
+type MediaByteRange = { start: number; end: number };
+
+/** Parse one RFC 7233 byte range. Multiple/invalid/unsatisfiable ranges return "invalid". */
+export function parseMediaByteRange(
+  header: string | undefined,
+  size: number,
+): MediaByteRange | null | "invalid" {
+  if (!header) return null;
+  if (!Number.isSafeInteger(size) || size < 0 || !header.startsWith("bytes=")) return "invalid";
+  const value = header.slice(6).trim();
+  if (!value || value.includes(",")) return "invalid";
+  const match = /^(\d*)-(\d*)$/.exec(value);
+  if (!match || (!match[1] && !match[2]) || size === 0) return "invalid";
+
+  if (!match[1]) {
+    const suffix = Number(match[2]);
+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return "invalid";
+    return { start: Math.max(0, size - suffix), end: size - 1 };
+  }
+
+  const start = Number(match[1]);
+  const requestedEnd = match[2] ? Number(match[2]) : size - 1;
+  if (
+    !Number.isSafeInteger(start) ||
+    !Number.isSafeInteger(requestedEnd) ||
+    start < 0 ||
+    start >= size ||
+    requestedEnd < start
+  ) {
+    return "invalid";
+  }
+  return { start, end: Math.min(requestedEnd, size - 1) };
+}
+
+function storedMediaResponse(
+  media: Awaited<ReturnType<typeof statMediaStorage>> & {},
+  rangeHeader: string | undefined,
+): Response {
+  const range = parseMediaByteRange(rangeHeader, media.sizeBytes);
+  const commonHeaders = {
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=604800, immutable",
+    "Content-Type": media.contentType,
+    "X-Vyline-Media-Cache": "HIT",
+  };
+  if (range === "invalid") {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        ...commonHeaders,
+        "Content-Length": "0",
+        "Content-Range": `bytes */${media.sizeBytes}`,
+      },
+    });
+  }
+  if (range) {
+    const length = range.end - range.start + 1;
+    return new Response(Bun.file(media.path).slice(range.start, range.end + 1), {
+      status: 206,
+      headers: {
+        ...commonHeaders,
+        "Content-Length": String(length),
+        "Content-Range": `bytes ${range.start}-${range.end}/${media.sizeBytes}`,
+      },
+    });
+  }
+  return new Response(Bun.file(media.path), {
+    status: 200,
+    headers: { ...commonHeaders, "Content-Length": String(media.sizeBytes) },
+  });
+}
+
+function bufferedMediaResponse(
+  bytes: Uint8Array,
+  contentType: string,
+  rangeHeader: string | undefined,
+): Response {
+  const range = parseMediaByteRange(rangeHeader, bytes.byteLength);
+  const commonHeaders = {
+    "Accept-Ranges": "bytes",
+    "Cache-Control": "private, max-age=3600",
+    "Content-Type": contentType,
+  };
+  if (range === "invalid") {
+    return new Response(null, {
+      status: 416,
+      headers: {
+        ...commonHeaders,
+        "Content-Length": "0",
+        "Content-Range": `bytes */${bytes.byteLength}`,
+      },
+    });
+  }
+  const body = range ? bytes.subarray(range.start, range.end + 1) : bytes;
+  return new Response(body as unknown as BodyInit, {
+    status: range ? 206 : 200,
+    headers: {
+      ...commonHeaders,
+      "Content-Length": String(body.byteLength),
+      ...(range
+        ? { "Content-Range": `bytes ${range.start}-${range.end}/${bytes.byteLength}` }
+        : {}),
+    },
+  });
+}
+
 lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   const messageId = c.req.param("messageId");
   const preview = (c.req.query("preview") ?? "1") !== "0";
+  const rangeHeader = c.req.header("Range");
 
   try {
-    // サーバー側の永続保存を優先（端末乗り換え後もメディアを保持）
-    const cached = await readMediaStorage(accountId, chatMid, messageId);
+    // 永続メディアは Bun.file から直接返し、動画を JS heap へ読み込まない。
+    const cached = await statMediaStorage(accountId, chatMid, messageId);
     if (cached) {
-      return new Response(cached.buf as unknown as BodyInit, {
-        status: 200,
-        headers: {
-          "Content-Type": cached.contentType,
-          "Cache-Control": "private, max-age=604800, immutable",
-          "X-Vyline-Media-Cache": "HIT",
-        },
-      });
+      return storedMediaResponse(cached, rangeHeader);
     }
-    const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
-    void writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
-    return new Response(bytes as unknown as BodyInit, {
-      status: 200,
-      headers: {
-        "Content-Type": contentType,
-        "Cache-Control": "private, max-age=3600",
-      },
-    });
+    // Plain originals can be copied from LINE to disk with constant JS-heap use.
+    // Preview bodies are never written under the original media key, and E2EE
+    // stays on the buffered decrypt path below.
+    if (!preview) {
+      const streamed = await fetchPlainMessageMediaToStorage(accountId, chatMid, messageId);
+      if (streamed) return storedMediaResponse(streamed, rangeHeader);
+    }
+    const fetched = await fetchMessageMedia(accountId, chatMid, messageId, preview);
+    if ("stored" in fetched) {
+      return storedMediaResponse(fetched.stored, rangeHeader);
+    }
+    const { bytes, contentType } = fetched;
+    // OBS preview を原本キーへ保存すると、その後 preview=0 でもサムネイルを返してしまう。
+    // 原本要求だけ永続化し、保存後は同じストリーム/Range 経路で返す。
+    if (!preview) {
+      await writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
+      const stored = await statMediaStorage(accountId, chatMid, messageId);
+      if (stored) return storedMediaResponse(stored, rangeHeader);
+    }
+    return bufferedMediaResponse(bytes, contentType, rangeHeader);
   } catch (err) {
     if (err instanceof NotLoggedInError) {
       return c.json({ ok: false, error: "not logged in" }, 401);
@@ -1287,97 +1386,127 @@ lineRouter.post("/:accountId/send-emoji", async (c) => {
   }
 });
 
-// ─── POST /line/:accountId/send-media ─────────
-// { chatMid, dataBase64, mimeType?, filename?, mediaType? }
+// ─── Binary media upload ──────────────────────
 
-lineRouter.post("/:accountId/send-media", async (c) => {
-  const accountId = c.req.param("accountId");
-  const body = await c.req.json<{
-    chatMid?: string;
-    dataBase64?: string;
+function decodeMediaFilename(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    throw new MediaSendUploadError("invalid encoded media filename", 400);
+  }
+}
+
+function mediaUploadMetadata(c: Context): MediaUploadMetadata {
+  const metadata: MediaUploadMetadata = {};
+  const mimeType = c.req.header("Content-Type");
+  const filename = decodeMediaFilename(c.req.header("X-Vyline-Media-Filename"));
+  const mediaType = c.req.header("X-Vyline-Media-Type") as StagedMediaType | undefined;
+  if (mimeType) metadata.mimeType = mimeType;
+  if (filename) metadata.filename = filename;
+  if (mediaType) metadata.mediaType = mediaType;
+  return metadata;
+}
+
+function serviceMediaOptions(metadata: MediaUploadMetadata): {
+  mimeType?: string;
+  filename?: string;
+  mediaType?: StagedMediaType;
+} {
+  const options: {
     mimeType?: string;
     filename?: string;
-    mediaType?: "image" | "video" | "audio" | "file" | "gif";
-  }>();
+    mediaType?: StagedMediaType;
+  } = {};
+  if (metadata.mimeType) options.mimeType = metadata.mimeType;
+  if (metadata.filename) options.filename = metadata.filename;
+  if (metadata.mediaType) options.mediaType = metadata.mediaType;
+  return options;
+}
 
-  if (!body.chatMid || !body.dataBase64) {
-    return c.json({ ok: false, error: "chatMid and dataBase64 required" }, 400);
+function handleMediaUploadError(error: unknown, c: Context) {
+  if (error instanceof MediaSendUploadError) {
+    return c.json({ ok: false, error: error.message }, error.status);
   }
-  if (body.dataBase64.length > 15_000_000) {
-    return c.json({ ok: false, error: "file too large" }, 413);
-  }
+  return handleError(error, c);
+}
 
+// A Blob/File request body is streamed into VYLINE_DATA_DIR before LINE upload.
+lineRouter.post("/:accountId/send-media", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.header("X-Vyline-Chat-Mid");
+  if (!chatMid) return c.json({ ok: false, error: "X-Vyline-Chat-Mid required" }, 400);
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
-    const opts: {
-      mimeType?: string;
-      filename?: string;
-      mediaType?: "image" | "video" | "audio" | "file" | "gif";
-    } = {};
-    if (body.mimeType) opts.mimeType = body.mimeType;
-    if (body.filename) opts.filename = body.filename;
-    if (body.mediaType) opts.mediaType = body.mediaType;
-    await sendMedia(accountId, body.chatMid, body.dataBase64, opts);
+    upload = await stageStandaloneMediaUpload(c.req.raw, mediaUploadMetadata(c));
+    await sendMedia(
+      accountId,
+      chatMid,
+      { path: upload.path, sizeBytes: upload.sizeBytes },
+      serviceMediaOptions(upload),
+    );
     return c.json({ ok: true });
-  } catch (err) {
-    return handleError(err, c);
+  } catch (error) {
+    return handleMediaUploadError(error, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 
-// ─── POST /line/:accountId/send-media-batch ───────
-// { chatMid, items: [{ dataBase64, mimeType?, filename?, mediaType? }] }
-
-lineRouter.post("/:accountId/send-media-batch", async (c) => {
+// Batch uploads stage each binary body independently, then preserve the existing
+// reqseq/subordinate-message service flow when complete is called.
+lineRouter.post("/:accountId/send-media-batch/start", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{
-    chatMid?: string;
-    items?: Array<{
-      dataBase64?: string;
-      mimeType?: string;
-      filename?: string;
-      mediaType?: "image" | "video" | "audio" | "file" | "gif";
-    }>;
-  }>();
-
-  if (!body.chatMid || !Array.isArray(body.items) || body.items.length === 0) {
-    return c.json({ ok: false, error: "chatMid and items required" }, 400);
-  }
-
   try {
-    if (body.items.some((item) => !item?.dataBase64)) {
-      // 黙めて除外すると count < items.length になりクライアントが二重送信しかねない
-      return c.json({ ok: false, error: "all items require dataBase64" }, 400);
-    }
-    const items = body.items
-      .filter((item): item is NonNullable<typeof item> & { dataBase64: string } =>
-        Boolean(item?.dataBase64),
-      )
-      .map((item) => {
-        const opts: {
-          dataBase64: string;
-          mimeType?: string;
-          filename?: string;
-          mediaType?: "image" | "video" | "audio" | "file" | "gif";
-        } = { dataBase64: item.dataBase64 };
-        if (item.mimeType) opts.mimeType = item.mimeType;
-        if (item.filename) opts.filename = item.filename;
-        if (item.mediaType) opts.mediaType = item.mediaType;
-        return opts;
-      });
+    const body = await c.req.json<{ chatMid?: string; itemCount?: number }>();
+    if (!body.chatMid) throw new MediaSendUploadError("chatMid required", 400);
+    const upload = await createMediaBatchUpload(accountId, body.chatMid, Number(body.itemCount));
+    return c.json({ ok: true, ...upload });
+  } catch (error) {
+    return handleMediaUploadError(error, c);
+  }
+});
 
-    if (items.length === 0) {
-      return c.json({ ok: false, error: "items required" }, 400);
-    }
+lineRouter.post("/:accountId/send-media-batch/:uploadId/items/:index", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    const result = await stageMediaBatchItem(
+      accountId,
+      c.req.param("uploadId"),
+      Number(c.req.param("index")),
+      c.req.raw,
+      mediaUploadMetadata(c),
+    );
+    return c.json({ ok: true, ...result });
+  } catch (error) {
+    return handleMediaUploadError(error, c);
+  }
+});
 
-    for (const item of items) {
-      if (item.dataBase64.length > 15_000_000) {
-        return c.json({ ok: false, error: "file too large" }, 413);
-      }
-    }
-
-    const count = await sendMediaBatch(accountId, body.chatMid, items);
+lineRouter.post("/:accountId/send-media-batch/:uploadId/complete", async (c) => {
+  const accountId = c.req.param("accountId");
+  const uploadId = c.req.param("uploadId");
+  let completing = false;
+  try {
+    const staged = completeMediaBatchUpload(accountId, uploadId);
+    completing = true;
+    const count = await sendMediaBatch(accountId, staged.chatMid, staged.items);
     return c.json({ ok: true, count });
-  } catch (err) {
-    return handleError(err, c);
+  } catch (error) {
+    return handleMediaUploadError(error, c);
+  } finally {
+    if (completing) {
+      await removeMediaBatchUpload(accountId, uploadId, true).catch(() => undefined);
+    }
+  }
+});
+
+lineRouter.delete("/:accountId/send-media-batch/:uploadId", async (c) => {
+  try {
+    await removeMediaBatchUpload(c.req.param("accountId"), c.req.param("uploadId"));
+    return c.json({ ok: true });
+  } catch (error) {
+    return handleMediaUploadError(error, c);
   }
 });
 
@@ -1628,6 +1757,8 @@ lineRouter.delete("/:accountId/vyline/cache", async (c) => {
       import("../storage/cdnAssetCache.js"),
     ]);
     const [cdnRemoved, iconRemoved] = await Promise.all([clearCdnCache(), clearIconCache()]);
+    const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
+    invalidateVylineStorageInfoCache();
     const removed = cdnRemoved + iconRemoved;
     return c.json({ ok: true, removed });
   } catch (err) {
@@ -1681,16 +1812,19 @@ lineRouter.get("/:accountId/getChatMembers/:chatMid", async (c) => {
 
 lineRouter.post("/:accountId/profile/image", async (c) => {
   const accountId = c.req.param("accountId");
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
-    const buf = new Uint8Array(await c.req.arrayBuffer());
-    if (buf.byteLength === 0) {
-      return c.json({ ok: false, error: "empty body" }, 400);
-    }
-    const mime = c.req.header("content-type") ?? "image/jpeg";
-    const result = await updateMyProfileImage(accountId, buf, mime);
+    upload = await stageStandaloneMediaUpload(
+      c.req.raw,
+      mediaUploadMetadata(c),
+      IMAGE_UPLOAD_MAX_BYTES,
+    );
+    const result = await updateMyProfileImage(accountId, stagedUploadFile(upload, "image/jpeg"));
     return c.json({ ok: true, ...result });
   } catch (err) {
-    return handleError(err, c);
+    return handleMediaUploadError(err, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 
@@ -1698,16 +1832,22 @@ lineRouter.post("/:accountId/profile/image", async (c) => {
 
 lineRouter.post("/:accountId/profile/background", async (c) => {
   const accountId = c.req.param("accountId");
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
-    const buf = new Uint8Array(await c.req.arrayBuffer());
-    if (buf.byteLength === 0) {
-      return c.json({ ok: false, error: "empty body" }, 400);
-    }
-    const mime = c.req.header("content-type") ?? "image/jpeg";
-    const result = await updateMyProfileBackground(accountId, buf, mime);
+    upload = await stageStandaloneMediaUpload(
+      c.req.raw,
+      mediaUploadMetadata(c),
+      IMAGE_UPLOAD_MAX_BYTES,
+    );
+    const result = await updateMyProfileBackground(
+      accountId,
+      stagedUploadFile(upload, "image/jpeg"),
+    );
     return c.json({ ok: true, ...result });
   } catch (err) {
-    return handleError(err, c);
+    return handleMediaUploadError(err, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 
@@ -1753,16 +1893,23 @@ lineRouter.patch("/:accountId/chats/:chatMid", async (c) => {
 lineRouter.post("/:accountId/chats/:chatMid/picture", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
+  let upload: Awaited<ReturnType<typeof stageStandaloneMediaUpload>> | null = null;
   try {
-    const buf = new Uint8Array(await c.req.arrayBuffer());
-    if (buf.byteLength === 0) {
-      return c.json({ ok: false, error: "empty body" }, 400);
-    }
-    const mime = c.req.header("content-type") ?? "image/jpeg";
-    const result = await updateChatPicture(accountId, chatMid, buf, mime);
+    upload = await stageStandaloneMediaUpload(
+      c.req.raw,
+      mediaUploadMetadata(c),
+      IMAGE_UPLOAD_MAX_BYTES,
+    );
+    const result = await updateChatPicture(
+      accountId,
+      chatMid,
+      stagedUploadFile(upload, "image/jpeg"),
+    );
     return c.json({ ok: true, ...result });
   } catch (err) {
-    return handleError(err, c);
+    return handleMediaUploadError(err, c);
+  } finally {
+    if (upload) await removeStandaloneMediaUpload(upload).catch(() => undefined);
   }
 });
 
@@ -2493,6 +2640,22 @@ lineRouter.get("/:accountId/restore/ios-backup/:sessionId", async (c) => {
 
 // ─── Android: naver_line DB / LEINs バックアップ復元 ───
 
+lineRouter.get("/:accountId/backup/storage", async (c) => {
+  try {
+    const { getBackupStorageUsage } = await import("../service/backupService.js");
+    const { MAX_UPLOAD_BYTES, MAX_EXTRACT_BYTES } = await import(
+      "../service/androidBackupService.js"
+    );
+    return c.json({
+      ok: true,
+      storage: await getBackupStorageUsage(c.req.param("accountId")),
+      android: { maxUploadBytes: MAX_UPLOAD_BYTES, maxExtractBytes: MAX_EXTRACT_BYTES },
+    });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.post("/:accountId/restore/android-backup", async (c) => {
   const accountId = c.req.param("accountId");
   if (!c.req.raw.body) {
@@ -2560,6 +2723,16 @@ lineRouter.post("/:accountId/restore/android-backup/chunked/:uploadId/complete",
   }
 });
 
+lineRouter.delete("/:accountId/restore/android-backup/chunked/:uploadId", async (c) => {
+  try {
+    const { cancelAndroidBackupChunkUpload } = await import("../service/androidBackupService.js");
+    await cancelAndroidBackupChunkUpload(c.req.param("accountId"), c.req.param("uploadId"));
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 lineRouter.get("/:accountId/restore/android-backup/:sessionId", async (c) => {
   const { getAndroidBackupSession } = await import("../service/androidBackupService.js");
   const session = getAndroidBackupSession(c.req.param("accountId"), c.req.param("sessionId"));
@@ -2583,7 +2756,7 @@ lineRouter.get("/:accountId/backup/chats", async (c) => {
 lineRouter.post("/:accountId/backup/create", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ chatMids?: string[]; includeMedia?: boolean }>();
-  const { createBackup } = await import("../service/backupService.js");
+  const { createBackup, BackupStorageLimitError } = await import("../service/backupService.js");
   try {
     const summary = await createBackup(accountId, {
       ...(body.chatMids?.length ? { chatMids: body.chatMids } : {}),
@@ -2591,15 +2764,22 @@ lineRouter.post("/:accountId/backup/create", async (c) => {
     });
     return c.json({ ok: true, summary });
   } catch (err) {
+    if (err instanceof BackupStorageLimitError) {
+      return c.json({ ok: false, code: "BACKUP_STORAGE_LIMIT", error: err.message }, 507);
+    }
     return handleError(err, c);
   }
 });
 
 lineRouter.get("/:accountId/backup/list", async (c) => {
   const accountId = c.req.param("accountId");
-  const { listBackups } = await import("../service/backupService.js");
+  const { listBackups, getBackupStorageUsage } = await import("../service/backupService.js");
   try {
-    return c.json({ ok: true, data: await listBackups(accountId) });
+    const [data, storage] = await Promise.all([
+      listBackups(accountId),
+      getBackupStorageUsage(accountId),
+    ]);
+    return c.json({ ok: true, data, storage });
   } catch (err) {
     return handleError(err, c);
   }
@@ -2708,6 +2888,8 @@ lineRouter.delete("/:accountId/vyline/cache/cdn", async (c) => {
   try {
     const { clearCdnCache } = await import("../storage/cdnAssetCache.js");
     const removed = await clearCdnCache();
+    const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
+    invalidateVylineStorageInfoCache();
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -2719,6 +2901,8 @@ lineRouter.delete("/:accountId/vyline/cache/icons", async (c) => {
   try {
     const { clearIconCache } = await import("../storage/cdnAssetCache.js");
     const removed = await clearIconCache();
+    const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
+    invalidateVylineStorageInfoCache();
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -2730,6 +2914,8 @@ lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
   try {
     const { clearMediaStorage } = await import("../storage/mediaStorage.js");
     const removed = await clearMediaStorage();
+    const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
+    invalidateVylineStorageInfoCache();
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -2746,6 +2932,8 @@ lineRouter.delete("/:accountId/vyline/saved-media/:type", async (c) => {
   try {
     const { clearMediaStorageType } = await import("../storage/mediaStorage.js");
     const removed = await clearMediaStorageType(type as "image" | "video" | "audio" | "file");
+    const { invalidateVylineStorageInfoCache } = await import("../storage/vylineStorageInfo.js");
+    invalidateVylineStorageInfoCache();
     return c.json({ ok: true, removed, type });
   } catch (err) {
     return handleError(err, c);

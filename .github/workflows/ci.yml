@@ -17,6 +17,7 @@ jobs:
         with:
           bun-version: latest
       - run: bun run docs:readme:check
+      - run: node scripts/verify-release-architecture.mjs
 
   typecheck:
     name: TypeScript
@@ -71,9 +72,11 @@ jobs:
           set -euo pipefail
           container_id="$(docker run -d -p 127.0.0.1:3000:3000 vyline)"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          healthy=false
           for _ in {1..30}; do
             if curl --fail --silent http://127.0.0.1:3000/healthz >/dev/null; then
-              exit 0
+              healthy=true
+              break
             fi
             if [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != "true" ]; then
               echo "Container exited during startup"
@@ -82,6 +85,15 @@ jobs:
             fi
             sleep 1
           done
-          echo "Health check timed out"
-          docker logs "$container_id"
-          exit 1
+          if [ "$healthy" != "true" ]; then
+            echo "Health check timed out"
+            docker logs "$container_id"
+            exit 1
+          fi
+
+          pid1_uid="$(docker exec "$container_id" sh -c "awk '/^Uid:/ { print \$2 }' /proc/1/status")"
+          if [ "$pid1_uid" = "0" ]; then
+            echo "Vyline runtime is still running as root"
+            docker logs "$container_id"
+            exit 1
+          fi

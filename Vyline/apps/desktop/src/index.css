@@ -42,6 +42,8 @@
   --vy-radius: 0.9rem;
   --vy-chat-bg: #0e1621;
   --vy-chat-pattern: 1;
+  --vy-app-height: 100dvh;
+  --vy-app-top: 0px;
 
   /* Legacy aliases (tailwind.config / 既存コンポーネント互換) */
   --vy-accent-primary: var(--vy-accent);
@@ -81,6 +83,10 @@
   * {
     border-color: var(--vy-border);
   }
+  html,
+  body {
+    overflow-x: clip;
+  }
   body {
     font-family: var(--vy-font-family);
     background-color: var(--vy-bg);
@@ -93,148 +99,60 @@
   }
 }
 
-/* --- Shared controls ----------------------------------------------------
-   Keep this layer intentionally small: only patterns used in multiple
-   screens live here. Theme colors remain the source of truth. */
-.vy-button {
-  display: inline-flex;
-  min-height: var(--vy-control-height-md);
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  border: 1px solid transparent;
-  border-radius: var(--vy-control-radius);
-  padding: 0 0.875rem;
-  font-size: 0.875rem;
-  font-weight: 600;
-  line-height: 1.2;
-  transition: background-color var(--vy-motion-fast) var(--vy-ease-ui), border-color
-    var(--vy-motion-fast) var(--vy-ease-ui), color var(--vy-motion-fast) var(--vy-ease-ui),
-    box-shadow var(--vy-motion-fast) var(--vy-ease-ui);
-}
-.vy-button[data-size="sm"] {
-  min-height: var(--vy-control-height-sm);
-  padding-inline: 0.75rem;
-  font-size: 0.75rem;
-}
-.vy-button[data-size="lg"] {
-  min-height: var(--vy-control-height-lg);
-  padding-inline: 1.125rem;
-}
-.vy-button[data-variant="primary"] {
-  background: var(--vy-accent);
-  color: var(--vy-accent-contrast);
-}
-.vy-button[data-variant="primary"]:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--vy-accent) 88%, var(--vy-text));
-}
-.vy-button[data-variant="secondary"] {
-  border-color: var(--vy-border);
-  background: var(--vy-surface-2);
-  color: var(--vy-text);
-}
-.vy-button[data-variant="secondary"]:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--vy-surface-2) 92%, var(--vy-text));
-}
-.vy-button[data-variant="ghost"] {
-  background: transparent;
-  color: var(--vy-text-dim);
-}
-.vy-button[data-variant="ghost"]:hover:not(:disabled) {
-  background: color-mix(in oklab, var(--vy-surface-2) 76%, transparent);
-  color: var(--vy-text);
-}
-.vy-button:active:not(:disabled) {
-  transform: translateY(1px);
-}
-.vy-button:disabled {
-  cursor: not-allowed;
-  opacity: 0.45;
-}
-.vy-button:focus-visible,
-.vy-text-field:focus-visible,
-.vy-switch-hit:focus-visible {
-  outline: none;
-  box-shadow: 0 0 0 3px color-mix(in oklab, var(--vy-accent) 34%, transparent);
+.vy-viewport-root {
+  position: fixed;
+  inset-inline: 0;
+  top: var(--vy-app-top, 0px);
+  height: var(--vy-app-height, 100dvh);
 }
 
-.vy-text-field {
-  min-height: var(--vy-control-height-md);
-  width: 100%;
-  border: 1px solid var(--vy-border);
-  border-radius: var(--vy-control-radius);
-  background: var(--vy-surface-2);
-  color: var(--vy-text);
-  padding: 0 0.75rem;
-  font-size: 0.875rem;
-  line-height: 1.25;
-  transition: border-color var(--vy-motion-fast) var(--vy-ease-ui), box-shadow var(--vy-motion-fast)
-    var(--vy-ease-ui), background-color var(--vy-motion-fast) var(--vy-ease-ui);
-}
-.vy-text-field::placeholder {
-  color: var(--vy-text-dim);
-}
-.vy-text-field:hover:not(:disabled) {
-  border-color: color-mix(in oklab, var(--vy-text-dim) 48%, var(--vy-border));
-}
-.vy-text-field:focus-visible {
-  border-color: var(--vy-accent);
-}
-.vy-text-field[aria-invalid="true"] {
-  border-color: var(--vy-danger);
-}
-.vy-text-field:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+/*
+ * Mobile long-press belongs to Vyline's gesture layer, not browser text selection.
+ * Selection remains available in explicit selection surfaces such as partial-copy.
+ */
+html[data-vy-interaction="mobile"] .vy-message-interaction,
+html[data-vy-interaction="mobile"] [data-vy-chat-row],
+html[data-vy-interaction="mobile"] .vy-context-menu,
+html[data-vy-interaction="mobile"] .vy-context-menu * {
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
 }
 
-.vy-settings-row {
-  display: flex;
-  min-height: 3.25rem;
-  align-items: center;
-  justify-content: space-between;
-  gap: 1rem;
-  padding-block: 0.75rem;
+html[data-vy-interaction="mobile"] .vy-message-interaction {
+  touch-action: pan-y;
 }
 
-.vy-switch-hit {
-  display: inline-flex;
-  width: 3rem;
-  min-width: 3rem;
-  height: var(--vy-control-height-lg);
-  align-items: center;
-  justify-content: center;
-  border-radius: 999px;
+html[data-vy-interaction="mobile"] [data-vy-chat-row] {
+  touch-action: pan-y;
 }
-.vy-switch-hit:disabled {
-  cursor: not-allowed;
-  opacity: 0.5;
+
+html[data-vy-interaction="mobile"] .vy-context-menu {
+  touch-action: manipulation;
 }
-.vy-switch-track {
-  position: relative;
-  display: block;
-  width: 2.75rem;
-  height: 1.5rem;
-  border-radius: 999px;
-  background: color-mix(in oklab, var(--vy-text-dim) 35%, transparent);
-  transition: background-color var(--vy-motion-fast) var(--vy-ease-ui);
+
+/*
+ * Layout follows viewport width, but mouse/keyboard manipulation follows the UA.
+ * These selectors are a CSS safety net in addition to the React-side guards.
+ */
+html[data-vy-interaction="mobile"] .vy-desktop-manipulator {
+  display: none !important;
 }
-.vy-switch-thumb {
-  position: absolute;
-  top: 0.125rem;
-  left: 0.125rem;
-  width: 1.25rem;
-  height: 1.25rem;
-  border-radius: 999px;
-  background: #fff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
-  transition: transform var(--vy-motion-fast) var(--vy-ease-ui);
+
+html[data-vy-interaction="mobile"] .vy-touch-target {
+  min-width: 2.75rem;
+  min-height: 2.75rem;
 }
-.vy-switch-hit[data-state="checked"] .vy-switch-track {
-  background: var(--vy-accent);
+
+html[data-vy-interaction="mobile"] button {
+  -webkit-tap-highlight-color: transparent;
 }
-.vy-switch-hit[data-state="checked"] .vy-switch-thumb {
-  transform: translateX(1.25rem);
+
+html[data-vy-interaction="mobile"] .vy-message-interaction .vy-partial-copy-text {
+  -webkit-user-select: text;
+  user-select: text;
+  -webkit-touch-callout: default;
+  touch-action: auto;
 }
 
 /* --- Scrollbars --- */
@@ -651,8 +569,8 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
 }
 
 /* --- Responsive chat layouts ---
-   Mobile is intentionally list-first. Tablet keeps the two-pane desktop model,
-   but trims chrome so the conversation has room for touch interaction. */
+   Columns and density follow viewport width. Pointer/keyboard affordances are
+   independently selected by data-vy-interaction from the operating-system UA. */
 @media (max-width: 767px) {
   .vy-sidebar-tabs,
   .vy-sidebar-create-group,

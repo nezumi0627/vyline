@@ -42,16 +42,21 @@ describe("handoff archive", () => {
     await rm(dataDir, { recursive: true, force: true });
   });
 
-  test("rejects a small compressed archive that expands beyond the handoff limit", async () => {
-    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-zip-bomb-"));
-    process.env.VYLINE_DATA_DIR = dataDir;
+  test("rejects a small compressed archive before expanding an oversized payload", async () => {
     const { inspectHandoff } = await import("./handoffService.js");
-    const archive = zipSync({ "settings.json": strToU8("A".repeat(11 * 1024 * 1024)) });
-
-    expect(archive.byteLength).toBeLessThan(5 * 1024 * 1024);
+    const compressedBomb = zipSync(
+      {
+        "manifest.json": strToU8("{}"),
+        "settings.json": new Uint8Array(6 * 1024 * 1024),
+      },
+      { level: 9 },
+    );
+    expect(compressedBomb.byteLength).toBeLessThan(5 * 1024 * 1024);
     expect(() =>
-      inspectHandoff("u1234567890abcdef1234567890abcdef", Buffer.from(archive).toString("base64")),
-    ).toThrow("handoff archive expands beyond safe limits");
-    await rm(dataDir, { recursive: true, force: true });
+      inspectHandoff(
+        "u1234567890abcdef1234567890abcdef",
+        Buffer.from(compressedBomb).toString("base64"),
+      ),
+    ).toThrow("expands beyond");
   });
 });

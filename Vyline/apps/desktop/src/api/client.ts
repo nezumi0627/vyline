@@ -30,6 +30,7 @@ import type {
   CallType,
   Message,
   AccountSettings,
+  BackupStorageUsage,
 } from "@vyline/types";
 
 // re-export for convenience
@@ -48,15 +49,29 @@ export interface AgentIHistoryItem {
   text: string;
 }
 
+export interface BinaryMediaUploadItem {
+  body: Blob;
+  mimeType?: string;
+  filename?: string;
+  mediaType?: "image" | "video" | "audio" | "file" | "gif";
+}
+
 const BASE = "/api";
 const SUBDEVICE_INSTALLATION_ID_KEY = "vyline:subdevice-installation-id";
 const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 function getSubdeviceInstallationId(): string | null {
-  if (typeof localStorage === "undefined" || typeof crypto?.randomUUID !== "function") return null;
+  if (typeof localStorage === "undefined" || typeof crypto?.getRandomValues !== "function")
+    return null;
   const existing = localStorage.getItem(SUBDEVICE_INSTALLATION_ID_KEY);
   if (existing && INSTALLATION_ID_RE.test(existing)) return existing;
-  const created = crypto.randomUUID();
+  // randomUUID is unavailable on plain HTTP LAN origins. getRandomValues is
+  // still cryptographically secure there; generate the same UUID v4 format.
+  const bytes = crypto.getRandomValues(new Uint8Array(16));
+  bytes[6] = (bytes[6]! & 0x0f) | 0x40;
+  bytes[8] = (bytes[8]! & 0x3f) | 0x80;
+  const hex = Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+  const created = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
   localStorage.setItem(SUBDEVICE_INSTALLATION_ID_KEY, created);
   return created;
 }
@@ -71,89 +86,126 @@ function isBackendDown(err: unknown): boolean {
   );
 }
 
+function responseExcerpt(text: string, maxLength = 180): string {
+  const compact = text.replace(/\s+/g, " ").trim();
+  return compact.length > maxLength ? `${compact.slice(0, maxLength)}…` : compact;
+}
+
+function responseLabel(res: Response): string {
+  const contentType = res.headers.get("content-type")?.split(";", 1)[0]?.trim();
+  return `HTTP ${res.status}${contentType ? ` / ${contentType}` : ""}`;
+}
+
+async function parseJsonResponse<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  if (!text.trim()) {
+    throw new Error(
+      res.ok
+        ? `サーバーが空の応答を返しました（${responseLabel(res)}）`
+        : `サーバーエラー（${responseLabel(res)}）。backend / reverse proxy のログを確認してください`,
+    );
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new Error(
+      `サーバーがJSONではない応答を返しました（${responseLabel(res)}）: ${responseExcerpt(text)}`,
+    );
+  }
+}
+
+async function readHttpError(res: Response, fallback: string): Promise<string> {
+  const text = await res.text().catch(() => "");
+  if (text.trim()) {
+    try {
+      const parsed = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const message = typeof parsed.error === "string" ? parsed.error : parsed.message;
+      if (typeof message === "string" && message.trim()) return message;
+    } catch {
+      const excerpt = responseExcerpt(text);
+      if (excerpt) return `${fallback}（${responseLabel(res)}）: ${excerpt}`;
+    }
+  }
+  return `${fallback}（${responseLabel(res)}）`;
+}
+
+async function backendFetch(path: string, init: RequestInit = {}): Promise<Response> {
+  const sessionToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
+  const installationId = getSubdeviceInstallationId();
+  const headers = new Headers(init.headers);
+  if (sessionToken && !headers.has("Authorization")) {
+    headers.set("Authorization", `Bearer ${sessionToken}`);
+  }
+  if (installationId && !headers.has("X-Vyline-Installation-Id")) {
+    headers.set("X-Vyline-Installation-Id", installationId);
+  }
+
+  try {
+    return await fetch(`${BASE}${path}`, { ...init, headers });
+  } catch (err) {
+    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
+    throw new Error(`backend に接続できません（backend が起動しているか確認）: ${String(err)}`);
+  }
+}
+
 async function request<T>(
   method: string,
   path: string,
   body?: unknown,
   extraHeaders?: HeadersInit,
 ): Promise<T> {
-  let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method,
-      headers: {
-        ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
-        ...(extraHeaders ?? {}),
-      },
-      body: body ? JSON.stringify(body) : undefined,
-    });
-  } catch (err) {
-    if (isBackendDown(err)) {
-      throw new Error("BACKEND_DOWN");
-    }
-    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
-  }
-
-  const text = await res.text();
-  if (!text.trim()) {
-    throw new Error(
-      res.ok
-        ? "サーバーが空の応答を返しました"
-        : `サーバーエラー HTTP ${res.status}（backend のログを確認）`,
-    );
-  }
-
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
-  }
+  const hasBody = body !== undefined;
+  const headers = new Headers(extraHeaders);
+  if (hasBody && !headers.has("Content-Type")) headers.set("Content-Type", "application/json");
+  const res = await backendFetch(path, {
+    method,
+    headers,
+    body: hasBody ? JSON.stringify(body) : undefined,
+  });
+  return parseJsonResponse<T>(res);
 }
 
 async function uploadBinary<T>(path: string, body: Blob, extraHeaders?: HeadersInit): Promise<T> {
-  let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
-  try {
-    res = await fetch(`${BASE}${path}`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/octet-stream",
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
-        ...(extraHeaders ?? {}),
-      },
-      body,
-    });
-  } catch (err) {
-    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
-    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
-  }
-
-  const text = await res.text();
+  const headers = new Headers(extraHeaders);
+  if (!headers.has("Content-Type")) headers.set("Content-Type", "application/octet-stream");
+  const res = await backendFetch(path, { method: "POST", headers, body });
   if (res.status === 413) {
     throw new Error(
       "リバースプロキシがアップロードchunkを拒否しました（HTTP 413）。Nginx の client_max_body_size が 512 KiB 未満になっていないか確認してください。",
     );
   }
-  if (!text.trim()) {
-    throw new Error(
-      res.ok
-        ? "サーバーが空の応答を返しました"
-        : `サーバーエラー HTTP ${res.status}（backend のログを確認）`,
-    );
+  return parseJsonResponse<T>(res);
+}
+
+function binaryMediaHeaders(
+  body: Blob,
+  metadata: Omit<BinaryMediaUploadItem, "body">,
+  chatMid?: string,
+): Headers {
+  const headers = new Headers({
+    "Content-Type": metadata.mimeType || body.type || "application/octet-stream",
+  });
+  if (chatMid) headers.set("X-Vyline-Chat-Mid", chatMid);
+  if (metadata.filename) {
+    headers.set("X-Vyline-Media-Filename", encodeURIComponent(metadata.filename));
   }
-  try {
-    return JSON.parse(text) as T;
-  } catch {
-    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
-  }
+  if (metadata.mediaType) headers.set("X-Vyline-Media-Type", metadata.mediaType);
+  return headers;
+}
+
+async function uploadMediaBinary<T>(
+  path: string,
+  item: BinaryMediaUploadItem,
+  chatMid?: string,
+): Promise<T> {
+  const res = await backendFetch(path, {
+    method: "POST",
+    headers: binaryMediaHeaders(item.body, item, chatMid),
+    body: item.body,
+  });
+  return parseJsonResponse<T>(res);
 }
 
 async function uploadAndroidBackupChunked(
@@ -178,63 +230,61 @@ async function uploadAndroidBackupChunked(
   }
 
   const chunkSize = Math.min(768 * 1024, Math.max(64 * 1024, Number(init.chunkSize ?? 512 * 1024)));
-  let index = 0;
-  for (let offset = 0; offset < file.size; offset += chunkSize, index += 1) {
-    const end = Math.min(file.size, offset + chunkSize);
-    const chunk = file.slice(offset, end);
-    let lastError: unknown = null;
-    let uploaded = false;
-    for (let attempt = 1; attempt <= 3 && !uploaded; attempt += 1) {
-      try {
-        const response = await uploadBinary<{
-          ok: boolean;
-          receivedBytes?: number;
-          expectedBytes?: number;
-          error?: string;
-        }>(`${basePath}/${encodeURIComponent(init.uploadId)}/chunks/${index}`, chunk);
-        if (!response.ok) {
-          throw new Error(response.error ?? `chunk ${index} の送信に失敗しました`);
-        }
-        onProgress?.(response.receivedBytes ?? end, file.size);
-        uploaded = true;
-      } catch (error) {
-        lastError = error;
-        if (attempt < 3) {
-          await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+  try {
+    let index = 0;
+    for (let offset = 0; offset < file.size; offset += chunkSize, index += 1) {
+      const end = Math.min(file.size, offset + chunkSize);
+      const chunk = file.slice(offset, end);
+      let lastError: unknown = null;
+      let uploaded = false;
+      for (let attempt = 1; attempt <= 3 && !uploaded; attempt += 1) {
+        try {
+          const response = await uploadBinary<{
+            ok: boolean;
+            receivedBytes?: number;
+            expectedBytes?: number;
+            error?: string;
+          }>(`${basePath}/${encodeURIComponent(init.uploadId)}/chunks/${index}`, chunk);
+          if (!response.ok) {
+            throw new Error(response.error ?? `chunk ${index} の送信に失敗しました`);
+          }
+          onProgress?.(response.receivedBytes ?? end, file.size);
+          uploaded = true;
+        } catch (error) {
+          lastError = error;
+          if (attempt < 3) {
+            await new Promise((resolve) => window.setTimeout(resolve, attempt * 250));
+          }
         }
       }
+      if (!uploaded) {
+        throw lastError instanceof Error
+          ? lastError
+          : new Error(`chunk ${index} の送信に失敗しました`);
+      }
     }
-    if (!uploaded) {
-      throw lastError instanceof Error
-        ? lastError
-        : new Error(`chunk ${index} の送信に失敗しました`);
-    }
-  }
 
-  return request<{ ok: boolean; sessionId?: string; error?: string }>(
-    "POST",
-    `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
-  );
+    return await request<{ ok: boolean; sessionId?: string; error?: string }>(
+      "POST",
+      `${basePath}/${encodeURIComponent(init.uploadId)}/complete`,
+    );
+  } finally {
+    // Completion removes the upload session; failures release temporary space.
+    await request("DELETE", `${basePath}/${encodeURIComponent(init.uploadId)}`).catch(
+      () => undefined,
+    );
+  }
 }
 
 async function requestBlob<T>(method: string, path: string, blob: Blob): Promise<T> {
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
-  const res = await fetch(`${BASE}${path}`, {
-    method,
-    headers: {
-      "Content-Type": blob.type || "application/octet-stream",
-      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-      ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
-    },
-    body: blob,
+  const headers = new Headers({
+    "Content-Type": blob.type || "application/octet-stream",
   });
-  const text = await res.text();
-  if (!text.trim()) throw new Error(`サーバーが空の応答を返しました (HTTP ${res.status})`);
-  const parsed = JSON.parse(text) as T & { error?: string };
-  if (!res.ok) throw new Error(parsed.error ?? `HTTP ${res.status}`);
-  return parsed;
+  const res = await backendFetch(path, { method, headers, body: blob });
+  if (!res.ok) {
+    throw new Error(await readHttpError(res, `HTTP ${res.status}`));
+  }
+  return parseJsonResponse<T>(res);
 }
 
 // ─── api ──────────────────────────────────────
@@ -309,13 +359,13 @@ export const api = {
       request<LoginResult>("POST", "/auth/login/email", params),
 
     loginEmailPoll: (accountId: string) =>
-      request<EmailPollResponse>("GET", `/auth/login/email/${accountId}`),
+      request<EmailPollResponse>("GET", `/auth/login/email/${encodeURIComponent(accountId)}`),
 
     loginQrStart: (accountId: string) =>
       request<LoginResult>("POST", "/auth/login/qr", { accountId }),
 
     loginQrPoll: (accountId: string) =>
-      request<QrPollResponse>("GET", `/auth/login/qr/${accountId}`),
+      request<QrPollResponse>("GET", `/auth/login/qr/${encodeURIComponent(accountId)}`),
 
     contentQrStart: (accountId: string) =>
       request<LoginResult>("POST", "/auth/content/qr", { accountId }),
@@ -382,7 +432,7 @@ export const api = {
       ),
 
     deleteAccount: (accountId: string) =>
-      request<{ ok: boolean }>("DELETE", `/auth/accounts/${accountId}`),
+      request<{ ok: boolean }>("DELETE", `/auth/accounts/${encodeURIComponent(accountId)}`),
   },
 
   line: {
@@ -432,14 +482,11 @@ export const api = {
     },
 
     /** チャット履歴を JSON / TXT でダウンロード（復号済み） */
-    exportChat: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
-      const res = await fetch(
-        `${BASE}/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
+    exportMessages: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
+      const res = await backendFetch(
+        `/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
       );
-      if (!res.ok) {
-        const err = (await res.json().catch(() => null)) as { error?: string } | null;
-        throw new Error(err?.error ?? `export failed (${res.status})`);
-      }
+      if (!res.ok) throw new Error(await readHttpError(res, "export failed"));
       const blob = await res.blob();
       const disposition = res.headers.get("Content-Disposition") ?? "";
       const match = /filename="([^"]+)"/.exec(disposition);
@@ -471,33 +518,78 @@ export const api = {
     sendMedia: (
       accountId: string,
       chatMid: string,
-      dataBase64: string,
-      opts?: { mimeType?: string; filename?: string; mediaType?: string },
-    ) =>
-      request<SendResponse>("POST", `/line/${accountId}/send-media`, {
-        chatMid,
-        dataBase64,
-        ...opts,
-      }),
-
-    sendMediaBatch: (
-      accountId: string,
-      chatMid: string,
-      items: Array<{
-        dataBase64: string;
+      body: Blob,
+      opts?: {
         mimeType?: string;
         filename?: string;
-        mediaType?: string;
-      }>,
+        mediaType?: BinaryMediaUploadItem["mediaType"];
+      },
     ) =>
-      request<{ ok: boolean; count?: number; error?: string }>(
-        "POST",
-        `/line/${accountId}/send-media-batch`,
+      uploadMediaBinary<SendResponse>(
+        `/line/${accountId}/send-media`,
         {
-          chatMid,
-          items,
+          body,
+          ...(opts?.mimeType ? { mimeType: opts.mimeType } : {}),
+          ...(opts?.filename ? { filename: opts.filename } : {}),
+          ...(opts?.mediaType ? { mediaType: opts.mediaType } : {}),
         },
+        chatMid,
       ),
+
+    sendMediaBatch: async (
+      accountId: string,
+      chatMid: string,
+      items: Iterable<BinaryMediaUploadItem> | AsyncIterable<BinaryMediaUploadItem>,
+      itemCount: number,
+    ) => {
+      const start = await request<{
+        ok: boolean;
+        uploadId?: string;
+        maxItemBytes?: number;
+        error?: string;
+      }>("POST", `/line/${accountId}/send-media-batch/start`, {
+        chatMid,
+        itemCount,
+      });
+      if (!start.ok || !start.uploadId) {
+        return { ok: false, error: start.error ?? "一括送信を開始できませんでした" };
+      }
+      const uploadId = start.uploadId;
+      try {
+        let index = 0;
+        for await (const item of items) {
+          if (index >= itemCount) {
+            return { ok: false, error: "送信項目数が開始時の件数を超えています" };
+          }
+          const uploaded = await uploadMediaBinary<{
+            ok: boolean;
+            receivedBytes?: number;
+            receivedItems?: number;
+            expectedItems?: number;
+            error?: string;
+          }>(
+            `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/items/${index}`,
+            item,
+          );
+          if (!uploaded.ok) {
+            return { ok: false, error: uploaded.error ?? `${index + 1}件目の送信に失敗しました` };
+          }
+          index++;
+        }
+        if (index !== itemCount) {
+          return { ok: false, error: `送信項目数が一致しません（${index}/${itemCount}）` };
+        }
+        return await request<{ ok: boolean; count?: number; error?: string }>(
+          "POST",
+          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}/complete`,
+        );
+      } finally {
+        await request(
+          "DELETE",
+          `/line/${accountId}/send-media-batch/${encodeURIComponent(uploadId)}`,
+        ).catch(() => undefined);
+      }
+    },
 
     sendSticker: (
       accountId: string,
@@ -652,6 +744,10 @@ export const api = {
       request<{
         ok: boolean;
         driveLetter?: string;
+        dataPath?: string;
+        storagePath?: string;
+        dataSize?: number;
+        storageSize?: number;
         disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
         vylineTotal: number;
         cacheSize: number;
@@ -749,30 +845,28 @@ export const api = {
       },
     ) => request<ProfileResponse>("PATCH", `/line/${accountId}/updateProfileAttributes`, body),
 
-    updateProfileImage: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
-      fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/image`, {
+    updateProfileImage: async (accountId: string, image: Blob, mime = "image/jpeg") => {
+      const res = await backendFetch(`/line/${encodeURIComponent(accountId)}/profile/image`, {
         method: "POST",
         headers: { "Content-Type": mime },
-        body: bytes,
-      }).then(async (res) => {
-        const text = await res.text();
-        return JSON.parse(text || "{}") as ProfileResponse & { objId?: string };
-      }),
+        body: image,
+      });
+      return parseJsonResponse<ProfileResponse & { objId?: string }>(res);
+    },
 
-    updateProfileBackground: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
-      fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/background`, {
+    updateProfileBackground: async (accountId: string, image: Blob, mime = "image/jpeg") => {
+      const res = await backendFetch(`/line/${encodeURIComponent(accountId)}/profile/background`, {
         method: "POST",
         headers: { "Content-Type": mime },
-        body: bytes,
-      }).then(async (res) => {
-        const text = await res.text();
-        return JSON.parse(text || "{}") as {
-          ok: boolean;
-          objId?: string;
-          backgroundUrl?: string;
-          error?: string;
-        };
-      }),
+        body: image,
+      });
+      return parseJsonResponse<{
+        ok: boolean;
+        objId?: string;
+        backgroundUrl?: string;
+        error?: string;
+      }>(res);
+    },
 
     updateContactSetting: (accountId: string, mid: string, displayNameOverride: string | null) =>
       request<{ ok: boolean; error?: string }>(
@@ -1126,9 +1220,18 @@ export const api = {
         error?: string;
       }>("POST", `/line/${accountId}/backup/create`, opts),
 
+    backupStorage: (accountId: string) =>
+      request<{
+        ok: boolean;
+        storage?: BackupStorageUsage;
+        android?: { maxUploadBytes: number; maxExtractBytes: number };
+        error?: string;
+      }>("GET", `/line/${encodeURIComponent(accountId)}/backup/storage`),
+
     backupList: (accountId: string) =>
       request<{
         ok: boolean;
+        storage?: BackupStorageUsage;
         data?: Array<{
           id: string;
           createdAt: string;
@@ -1469,27 +1572,6 @@ export const api = {
             imageObjectId,
           },
         ),
-      comments: (accountId: string, postId: string, homeId: string) =>
-        request<unknown>(
-          "GET",
-          `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments?homeId=${encodeURIComponent(homeId)}`,
-        ),
-      deleteComment: (accountId: string, postId: string, commentId: string, homeId: string) =>
-        request<unknown>(
-          "DELETE",
-          `/line/${accountId}/notes/${encodeURIComponent(postId)}/comments/${encodeURIComponent(commentId)}?homeId=${encodeURIComponent(homeId)}`,
-        ),
-      likeComment: (accountId: string, commentId: string, homeId: string, likeType?: string) =>
-        request<unknown>(
-          "POST",
-          `/line/${accountId}/notes/comments/${encodeURIComponent(commentId)}/like`,
-          { homeId, likeType },
-        ),
-      unlikeComment: (accountId: string, commentId: string, homeId: string) =>
-        request<unknown>(
-          "DELETE",
-          `/line/${accountId}/notes/comments/${encodeURIComponent(commentId)}/like?homeId=${encodeURIComponent(homeId)}`,
-        ),
       uploadMedia: (accountId: string, type: "image" | "video", blob: Blob) =>
         requestBlob<{ objId: string; objHash: string }>(
           "POST",
@@ -1665,14 +1747,14 @@ export const api = {
         };
       }>("PATCH", `/diagnostics/${encodeURIComponent(mid)}/status`, patch),
     list: (mid: string) =>
-      request<{ ok: boolean; entries: unknown[] }>(
+      request<{ ok: boolean; entries: unknown[]; error?: string }>(
         "GET",
         `/diagnostics/${encodeURIComponent(mid)}`,
       ),
     clear: (mid: string) =>
-      request<{ ok: boolean }>("DELETE", `/diagnostics/${encodeURIComponent(mid)}`),
+      request<{ ok: boolean; error?: string }>("DELETE", `/diagnostics/${encodeURIComponent(mid)}`),
     export: (mid: string) =>
-      request<{ ok: boolean; content: string }>(
+      request<{ ok: boolean; content: string; error?: string }>(
         "GET",
         `/diagnostics/${encodeURIComponent(mid)}/export`,
       ),

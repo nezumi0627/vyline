@@ -32,12 +32,10 @@ try {
   );
 
   console.log("\n[cli] Done!");
-  console.log(`  Extracted: ${result.extracted.lineFiles.length} LINE files`);
-  console.log(`  Databases: ${result.extracted.databases.length}`);
-  console.log(`  Parsed chats: ${result.parsed.chats.length}`);
-  console.log(
-    `  Total messages: ${Array.from(result.parsed.messages.values()).reduce((a, b) => a + b.length, 0)}`,
-  );
+  console.log(`  Extracted: ${result.extracted.lineFiles} LINE files`);
+  console.log(`  Databases: ${result.extracted.databases}`);
+  console.log(`  Parsed chats: ${result.parsed.chats}`);
+  console.log(`  Total messages: ${result.parsed.totalMessages}`);
 } catch (e) {
   console.error("[cli] Error:", e);
   process.exit(1);

@@ -34,8 +34,11 @@ import {
   IconLogout,
   IconChevron,
   IconShield,
+  IconPanelLeft,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
+import { CHAT_PANE_DRAG_TYPE } from "@/lib/chatPanes";
+import { isDesktopInteraction } from "@/lib/interactionEnvironment";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -81,8 +84,15 @@ function buildPreviewMap(
   };
 
   const lastByChat = new Map<string, (typeof messages)[number]>();
-  for (const m of messages) {
-    lastByChat.set(m.chatId, m);
+  for (const message of messages) {
+    const previous = lastByChat.get(message.chatId);
+    if (
+      !previous ||
+      message.createdAt > previous.createdAt ||
+      (message.createdAt === previous.createdAt && message.id.localeCompare(previous.id) > 0)
+    ) {
+      lastByChat.set(message.chatId, message);
+    }
   }
   const out = new Map<string, { text: string; time: number } | null>();
   for (const chat of chats) {
@@ -119,14 +129,18 @@ function SidebarBase() {
   const messages = useStore((s) => s.messages);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
   const activeChatId = useStore((s) => s.activeChatId);
+  const chatPaneIds = useStore((s) => s.chatPaneIds);
   const openChat = useStore((s) => s.openChat);
+  const openChatInSplit = useStore((s) => s.openChatInSplit);
   const setScreen = useStore((s) => s.setScreen);
+  const showNotice = useStore((s) => s.showNotice);
   const streamerMode = useStore((s) => s.settings.streamerMode);
   const sort = useStore((s) => s.settings.chatSort);
   const updateSetting = useStore((s) => s.updateSetting);
   const customOrder = useStore((s) => s.customOrder);
   const setCustomOrder = useStore((s) => s.setCustomOrder);
   const self = useStore((s) => s.self);
+  const desktopInteraction = isDesktopInteraction();
 
   const togglePin = useStore((s) => s.togglePin);
   const toggleHide = useStore((s) => s.toggleHide);
@@ -142,6 +156,10 @@ function SidebarBase() {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
+  const [wideLayoutAvailable, setWideLayoutAvailable] = useState(() =>
+    typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
+  );
+  const [splitPickMode, setSplitPickMode] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
   const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
   const [blockBusy, setBlockBusy] = useState(false);
@@ -159,6 +177,24 @@ function SidebarBase() {
   useEffect(() => {
     previewMapRef.current = previewMap;
   }, [previewMap]);
+
+  const displayedPaneIds = useMemo(
+    () => (chatPaneIds.length > 0 ? chatPaneIds : activeChatId ? [activeChatId] : []),
+    [activeChatId, chatPaneIds],
+  );
+
+  // Split availability is a layout concern, so it follows viewport width rather than UA.
+  useEffect(() => {
+    const media = window.matchMedia("(min-width: 768px)");
+    const update = () => setWideLayoutAvailable(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+
+  useEffect(() => {
+    if (!wideLayoutAvailable) setSplitPickMode(false);
+  }, [wideLayoutAvailable]);
 
   const filtered = useMemo(() => {
     let list = chats;
@@ -255,6 +291,22 @@ function SidebarBase() {
     setLiveOrder(null);
   }, [setCustomOrder]);
 
+  const moveCustomChatBy = useCallback(
+    (chatId: string, offset: -1 | 1) => {
+      const order = customOrder.length ? [...customOrder] : chats.map((chat) => chat.id);
+      const currentIndex = order.indexOf(chatId);
+      const nextIndex = currentIndex + offset;
+      if (currentIndex < 0 || nextIndex < 0 || nextIndex >= order.length) return;
+      const targetId = order[nextIndex];
+      if (!targetId) return;
+      order[currentIndex] = targetId;
+      order[nextIndex] = chatId;
+      setCustomOrder(order);
+      showNotice(offset < 0 ? "トークを1つ上へ移動しました" : "トークを1つ下へ移動しました");
+    },
+    [chats, customOrder, setCustomOrder, showNotice],
+  );
+
   // ブロック状態のキャッシュ（メニュー表示・確認用）
   useEffect(() => {
     if (!accountId) return;
@@ -282,8 +334,29 @@ function SidebarBase() {
 
   const closeMenu = useCallback(() => setMenu(null), []);
 
+  const handleChatClick = useCallback(
+    (chat: Chat) => {
+      if (!splitPickMode) {
+        openChat(chat.id);
+        return;
+      }
+      if (displayedPaneIds.includes(chat.id)) {
+        showNotice("すでに表示中です。別のトークを選択してください");
+        return;
+      }
+      openChatInSplit(chat.id);
+      setSplitPickMode(false);
+      showNotice(`「${displayName(chat, false)}」を分割表示しました`);
+    },
+    [displayedPaneIds, openChat, openChatInSplit, showNotice, splitPickMode],
+  );
+
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
   const isChatLocked = menu ? lockedChatMids.includes(menu.chat.id) : false;
+  const menuChatAlreadyDisplayed = menu ? displayedPaneIds.includes(menu.chat.id) : false;
+  const menuCustomOrder =
+    sort === "custom" ? (customOrder.length ? customOrder : chats.map((chat) => chat.id)) : [];
+  const menuCustomIndex = menu ? menuCustomOrder.indexOf(menu.chat.id) : -1;
 
   const menuItems: MenuItem[] = menu
     ? [
@@ -303,6 +376,44 @@ function SidebarBase() {
             });
           },
         },
+        ...(wideLayoutAvailable
+          ? [
+              {
+                label: menuChatAlreadyDisplayed ? "分割するトークを選ぶ" : "チャット分割",
+                icon: <IconPanelLeft size={16} />,
+                onClick: () => {
+                  if (menuChatAlreadyDisplayed) {
+                    setSplitPickMode(true);
+                    showNotice("分割表示する別のトークをタップしてください");
+                    return;
+                  }
+                  openChatInSplit(menu.chat.id);
+                  showNotice(`「${displayName(menu.chat, false)}」を分割表示しました`);
+                },
+              },
+            ]
+          : []),
+        ...(!desktopInteraction && sort === "custom" && menuCustomIndex > 0
+          ? [
+              {
+                label: "1つ上へ移動",
+                icon: <IconChevron size={16} className="-rotate-90" />,
+                onClick: () => moveCustomChatBy(menu.chat.id, -1),
+              },
+            ]
+          : []),
+        ...(!desktopInteraction &&
+        sort === "custom" &&
+        menuCustomIndex >= 0 &&
+        menuCustomIndex < menuCustomOrder.length - 1
+          ? [
+              {
+                label: "1つ下へ移動",
+                icon: <IconChevron size={16} className="rotate-90" />,
+                onClick: () => moveCustomChatBy(menu.chat.id, 1),
+              },
+            ]
+          : []),
         {
           label: menu.chat.pinned ? "ピン留めを解除" : "ピン留め",
           icon: <IconPin size={16} />,
@@ -400,7 +511,7 @@ function SidebarBase() {
         <button
           type="button"
           onClick={() => setScreen("settings")}
-          className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+          className="vy-touch-target rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           aria-label="プロフィール設定"
         >
           <Avatar
@@ -425,7 +536,7 @@ function SidebarBase() {
           type="button"
           onClick={() => setScreen("chat")}
           aria-label="チャット"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
           <IconChat size={19} />
         </button>
@@ -433,7 +544,7 @@ function SidebarBase() {
           type="button"
           onClick={() => setScreen("settings")}
           aria-label="設定"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          className="vy-touch-target flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
           <IconSettings size={19} />
         </button>
@@ -467,7 +578,7 @@ function SidebarBase() {
             aria-label="並び順"
             aria-expanded={sortOpen}
             className={cn(
-              "flex h-9 w-9 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+              "vy-touch-target flex h-9 w-9 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
               sortOpen
                 ? "text-[var(--vy-accent)]"
                 : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
@@ -553,8 +664,22 @@ function SidebarBase() {
 
       {sort === "custom" && (
         <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
-          ドラッグして並び替え
+          {desktopInteraction ? "ドラッグして並び替え" : "長押しメニューから順序を変更"}
         </p>
+      )}
+
+      {splitPickMode && (
+        <div className="mx-3 mb-2 flex items-center gap-2 rounded-xl bg-[var(--vy-surface-2)] px-3 py-2 text-xs">
+          <IconPanelLeft size={15} className="shrink-0 text-[var(--vy-accent)]" />
+          <span className="min-w-0 flex-1">分割表示するトークを選択</span>
+          <button
+            type="button"
+            onClick={() => setSplitPickMode(false)}
+            className="vy-touch-target shrink-0 rounded-lg px-2 py-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface)] hover:text-[var(--vy-text)]"
+          >
+            キャンセル
+          </button>
+        </div>
       )}
 
       <div
@@ -578,12 +703,13 @@ function SidebarBase() {
               <ChatRow
                 key={chat.id}
                 chat={chat}
-                active={chat.id === activeChatId}
-                draggable={sort === "custom"}
+                active={chat.id === activeChatId || chatPaneIds.includes(chat.id)}
+                reorderable={sort === "custom" && desktopInteraction}
+                desktopInteraction={desktopInteraction}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
                 locked={lockedChatMids.includes(chat.id)}
-                onClick={() => openChat(chat.id)}
+                onClick={() => handleChatClick(chat)}
                 onContextMenu={(e) => openRowMenu(e, chat)}
                 onDragStart={() => onDragStart(chat.id)}
                 onDragEnd={finishDrag}
@@ -626,7 +752,8 @@ export const Sidebar = memo(SidebarBase);
 const ChatRow = memo(function ChatRow({
   chat,
   active,
-  draggable,
+  reorderable,
+  desktopInteraction,
   dragging,
   blocked,
   locked,
@@ -641,7 +768,8 @@ const ChatRow = memo(function ChatRow({
 }: {
   chat: Chat;
   active: boolean;
-  draggable: boolean;
+  reorderable: boolean;
+  desktopInteraction: boolean;
   dragging: boolean;
   blocked?: boolean;
   locked?: boolean;
@@ -655,20 +783,44 @@ const ChatRow = memo(function ChatRow({
   preview: { text: string; time: number } | null;
 }) {
   const name = displayName(chat, streamerMode);
-  const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
+  const longPressRef = useRef<{
+    timer: ReturnType<typeof setTimeout> | null;
+    fired: boolean;
+    startX: number | null;
+    startY: number | null;
+  }>({
     timer: null,
     fired: false,
+    startX: null,
+    startY: null,
   });
+  const suppressClickUntilRef = useRef(0);
+
+  useEffect(
+    () => () => {
+      if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
+    },
+    [],
+  );
 
   const onTouchStart = useCallback(
     (e: React.TouchEvent) => {
+      if (desktopInteraction) return;
       const t = e.touches[0];
       if (!t) return;
       const cx = t.clientX;
       const cy = t.clientY;
+      if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
       longPressRef.current.fired = false;
+      longPressRef.current.startX = cx;
+      longPressRef.current.startY = cy;
       longPressRef.current.timer = setTimeout(() => {
+        longPressRef.current.timer = null;
         longPressRef.current.fired = true;
+        longPressRef.current.startX = null;
+        longPressRef.current.startY = null;
+        suppressClickUntilRef.current = Date.now() + 750;
+        window.getSelection()?.removeAllRanges();
         if (navigator.vibrate) navigator.vibrate(12);
         onContextMenu({
           preventDefault() {},
@@ -678,51 +830,89 @@ const ChatRow = memo(function ChatRow({
         } as React.MouseEvent);
       }, 480);
     },
-    [onContextMenu],
+    [desktopInteraction, onContextMenu],
   );
 
-  const onTouchMove = useCallback(() => {
+  const onTouchMove = useCallback((event: React.TouchEvent) => {
+    const touch = event.touches[0];
+    const startX = longPressRef.current.startX;
+    const startY = longPressRef.current.startY;
+    if (!touch || startX == null || startY == null) return;
+    if (Math.abs(touch.clientX - startX) <= 8 && Math.abs(touch.clientY - startY) <= 8) return;
     if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
     longPressRef.current.timer = null;
+    longPressRef.current.startX = null;
+    longPressRef.current.startY = null;
   }, []);
 
-  const onTouchEnd = useCallback(() => {
+  const onTouchEnd = useCallback((event: React.TouchEvent) => {
     if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
     longPressRef.current.timer = null;
+    longPressRef.current.startX = null;
+    longPressRef.current.startY = null;
     if (longPressRef.current.fired) {
+      event.preventDefault();
       longPressRef.current.fired = false;
     }
+  }, []);
+
+  const onTouchCancel = useCallback(() => {
+    if (longPressRef.current.timer) clearTimeout(longPressRef.current.timer);
+    longPressRef.current.timer = null;
+    longPressRef.current.fired = false;
+    longPressRef.current.startX = null;
+    longPressRef.current.startY = null;
   }, []);
 
   return (
     <div
       data-vy-chat-row
-      draggable={draggable}
-      onDragStart={(e) => {
-        if (!draggable) return;
-        e.dataTransfer.effectAllowed = "move";
-        e.dataTransfer.setData("text/plain", chat.id);
-        if (e.currentTarget instanceof HTMLElement) {
-          e.dataTransfer.setDragImage(e.currentTarget, 24, 24);
+      draggable={desktopInteraction}
+      onDragStart={(event) => {
+        if (!desktopInteraction) return;
+        // 一覧の並べ替えは move、トーク領域への分割追加は copy。
+        // source 側で copy のみにすると target が move を選んだ瞬間に drop 自体が拒否される。
+        event.dataTransfer.effectAllowed = "copyMove";
+        event.dataTransfer.setData(CHAT_PANE_DRAG_TYPE, chat.id);
+        event.dataTransfer.setData("text/plain", chat.id);
+        if (event.currentTarget instanceof HTMLElement) {
+          event.dataTransfer.setDragImage(event.currentTarget, 24, 24);
         }
-        onDragStart();
+        if (reorderable) onDragStart();
       }}
-      onDragEnd={onDragEnd}
+      onDragEnd={() => {
+        if (reorderable) onDragEnd();
+      }}
       onDragOver={onDragOver}
       onDrop={onDrop}
       className={cn("mb-0.5 will-change-transform", dragging && "opacity-40")}
     >
       <button
         type="button"
-        onClick={onClick}
-        onContextMenu={onContextMenu}
+        onClick={(event) => {
+          if (Date.now() < suppressClickUntilRef.current) {
+            event.preventDefault();
+            suppressClickUntilRef.current = 0;
+            return;
+          }
+          onClick();
+        }}
+        onContextMenu={(event) => {
+          if (!desktopInteraction) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+          }
+          onContextMenu(event);
+        }}
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
         className={cn(
           "vy-sidebar-row relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
           active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
-          draggable && "cursor-grab active:cursor-grabbing",
+          desktopInteraction && "md:cursor-grab md:active:cursor-grabbing",
         )}
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
@@ -832,28 +1022,50 @@ const ChatRow = memo(function ChatRow({
   );
 });
 
-function AccountSwitcher() {
+export function AccountSwitcher({
+  context = "sidebar",
+}: {
+  context?: "sidebar" | "settings";
+}) {
   const navigate = useNavigate();
   const accountId = useStore((s) => s.accountId);
   const accounts = useAuthStore((s) => s.accounts);
   const sessions = useAuthStore((s) => s.sessions);
   const openLogin = useAuthStore((s) => s.openLogin);
+  const switchAccount = useAuthStore((s) => s.switchAccount);
   const logout = useAuthStore((s) => s.logout);
   const setScreen = useStore((s) => s.setScreen);
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  const switchableAccountIds = useMemo(
+    () => [
+      ...new Set([
+        ...accounts,
+        ...sessions.filter((session) => session.hasToken).map((session) => session.accountId),
+      ]),
+    ],
+    [accounts, sessions],
+  );
   const currentSession = sessions.find((s) => s.accountId === accountId);
   const currentName = currentSession?.displayName || accountId || "未ログイン";
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
   const currentPremium = currentSession?.premium?.active ?? selfPremium;
 
-  const handleSwitch = (id: string) => {
+  const handleSwitch = async (id: string) => {
+    if (busy) return;
     setOpen(false);
-    // 別アカウントへの切替はログイン画面を経由する（戻るで元のチャットへ）
-    openLogin("manual", id);
-    setScreen("login");
-    navigate("/login");
+    setBusy(true);
+    const result = await switchAccount(id);
+    setBusy(false);
+    if (!result.ok) {
+      openLogin("manual", id);
+      setScreen("login");
+      navigate("/login");
+      return;
+    }
+    setScreen(context === "settings" ? "settings" : "chat");
+    navigate("/");
   };
 
   const handleLogout = async () => {
@@ -862,13 +1074,27 @@ function AccountSwitcher() {
     await logout(accountId);
     setBusy(false);
     setOpen(false);
+    if (useAuthStore.getState().activeAccountId) {
+      setScreen(context === "settings" ? "settings" : "chat");
+      navigate("/");
+      return;
+    }
     openLogin("manual", null);
     setScreen("login");
     navigate("/login");
   };
 
   return (
-    <div className="border-t border-[var(--vy-border)] px-3 py-2">
+    <div
+      className={cn(
+        context === "sidebar" ? "border-t border-[var(--vy-border)] px-3 py-2" : "px-1 py-2",
+      )}
+    >
+      {context === "settings" && (
+        <p className="px-2 pb-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)]">
+          ログイン中のアカウント
+        </p>
+      )}
       <button
         type="button"
         onClick={() => setOpen((v) => !v)}
@@ -895,7 +1121,7 @@ function AccountSwitcher() {
 
       {open && (
         <div className="mt-1 space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-1 shadow-lg">
-          {accounts
+          {switchableAccountIds
             .filter((id) => id !== accountId)
             .map((id) => {
               const s = sessions.find((s) => s.accountId === id);
