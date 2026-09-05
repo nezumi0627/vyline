@@ -1,7 +1,8 @@
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
+import { writeJsonAtomic } from "./safeFile.js";
 
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
 const FILE = join(DATA_DIR, "subdevices.json");
@@ -25,6 +26,8 @@ type Pairing = { id: string; tokenHash: string; expiresAt: number; accountId: st
 type State = { devices: Subdevice[]; pairings: Pairing[] };
 
 let cache: State | null = null;
+let loadInflight: Promise<State> | null = null;
+let mutationQueue: Promise<void> = Promise.resolve();
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const token = (prefix: string) => `${prefix}_${randomBytes(32).toString("base64url")}`;
 
@@ -74,35 +77,58 @@ function mergeDuplicateDevices(devices: Subdevice[]): Subdevice[] {
 
 async function load(): Promise<State> {
   if (cache) return cache;
-  if (!existsSync(FILE)) return (cache = { devices: [], pairings: [] });
-  try {
-    cache = JSON.parse(await readFile(FILE, "utf8")) as State;
-    cache.devices ??= [];
-    cache.pairings ??= [];
-  } catch {
-    cache = { devices: [], pairings: [] };
+  if (!loadInflight) {
+    const pending = (async () => {
+      if (!existsSync(FILE)) return (cache = { devices: [], pairings: [] });
+      try {
+        const loaded = JSON.parse(await readFile(FILE, "utf8")) as State;
+        loaded.devices ??= [];
+        loaded.pairings ??= [];
+        return (cache = loaded);
+      } catch {
+        return (cache = { devices: [], pairings: [] });
+      }
+    })();
+    loadInflight = pending;
+    void pending.finally(() => {
+      if (loadInflight === pending) loadInflight = null;
+    });
   }
-  return cache;
+  return loadInflight;
 }
 
-async function save(state: State) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(state, null, 2), "utf8");
-  cache = state;
+function mutate<T>(work: (draft: State) => { result: T; changed: boolean }): Promise<T> {
+  const next = mutationQueue
+    .catch(() => undefined)
+    .then(async () => {
+      const draft = structuredClone(await load());
+      const { result, changed } = work(draft);
+      if (!changed) return result;
+      await writeJsonAtomic(FILE, draft);
+      cache = draft;
+      return result;
+    });
+  mutationQueue = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  return next;
 }
 
 export async function createPairing(accountId: string) {
-  const state = await load();
-  state.pairings = state.pairings.filter((p) => p.expiresAt > Date.now());
-  const raw = token("vyp");
-  state.pairings.push({
-    id: randomBytes(12).toString("hex"),
-    tokenHash: hash(raw),
-    expiresAt: Date.now() + PAIRING_TTL_MS,
-    accountId,
+  return mutate((state) => {
+    const now = Date.now();
+    state.pairings = state.pairings.filter((p) => p.expiresAt > now);
+    const raw = token("vyp");
+    const expiresAt = now + PAIRING_TTL_MS;
+    state.pairings.push({
+      id: randomBytes(12).toString("hex"),
+      tokenHash: hash(raw),
+      expiresAt,
+      accountId,
+    });
+    return { result: { token: raw, expiresAt }, changed: true };
   });
-  await save(state);
-  return { token: raw, expiresAt: state.pairings.at(-1)!.expiresAt };
 }
 
 export async function getPairing(raw: string) {
@@ -118,82 +144,98 @@ export async function completePairing(
   installationId: string,
 ) {
   if (!isValidInstallationId(installationId)) return null;
-  const state = await load();
-  const index = state.pairings.findIndex(
-    (p) => p.tokenHash === hash(raw) && p.expiresAt > Date.now(),
+  return mutate<{ device: ReturnType<typeof toSafeDevice>; sessionToken: string } | null>(
+    (state) => {
+      const index = state.pairings.findIndex(
+        (p) => p.tokenHash === hash(raw) && p.expiresAt > Date.now(),
+      );
+      if (index < 0) return { result: null, changed: false };
+      const accountId = state.pairings[index]!.accountId;
+      state.pairings.splice(index, 1);
+      const rawSession = token("vys");
+      const installationIdHash = hash(installationId);
+      const normalizedName = name.trim().toLocaleLowerCase("ja-JP");
+      const existing = state.devices.find(
+        (device) =>
+          device.installationIdHash === installationIdHash ||
+          (!device.installationIdHash &&
+            device.accountId === accountId &&
+            device.platform === platform &&
+            device.name.trim().toLocaleLowerCase("ja-JP") === normalizedName),
+      );
+      if (existing) {
+        if (existing.blocked) return { result: null, changed: true };
+        existing.accountId = accountId;
+        existing.name = name.trim().slice(0, 80) || "サブデバイス";
+        existing.platform = platform;
+        existing.tokenHash = hash(rawSession);
+        existing.lastSeenAt = new Date().toISOString();
+        return {
+          result: { device: toSafeDevice(existing), sessionToken: rawSession },
+          changed: true,
+        };
+      }
+      const device: Subdevice = {
+        id: randomBytes(12).toString("hex"),
+        name: name.trim().slice(0, 80) || "サブデバイス",
+        platform,
+        createdAt: new Date().toISOString(),
+        lastSeenAt: new Date().toISOString(),
+        blocked: false,
+        tokenHash: hash(rawSession),
+        installationIdHash,
+        accountId,
+      };
+      state.devices.push(device);
+      return {
+        result: { device: toSafeDevice(device), sessionToken: rawSession },
+        changed: true,
+      };
+    },
   );
-  if (index < 0) return null;
-  const accountId = state.pairings[index]!.accountId;
-  state.pairings.splice(index, 1);
-  const rawSession = token("vys");
-  const installationIdHash = hash(installationId);
-  const normalizedName = name.trim().toLocaleLowerCase("ja-JP");
-  const existing = state.devices.find(
-    (device) =>
-      device.installationIdHash === installationIdHash ||
-      (!device.installationIdHash &&
-        device.accountId === accountId &&
-        device.platform === platform &&
-        device.name.trim().toLocaleLowerCase("ja-JP") === normalizedName),
-  );
-  if (existing) {
-    if (existing.blocked) {
-      await save(state);
-      return null;
-    }
-    existing.accountId = accountId;
-    existing.name = name.trim().slice(0, 80) || "サブデバイス";
-    existing.platform = platform;
-    existing.tokenHash = hash(rawSession);
-    existing.lastSeenAt = new Date().toISOString();
-    await save(state);
-    return { device: toSafeDevice(existing), sessionToken: rawSession };
-  }
-  const device: Subdevice = {
-    id: randomBytes(12).toString("hex"),
-    name: name.trim().slice(0, 80) || "サブデバイス",
-    platform,
-    createdAt: new Date().toISOString(),
-    lastSeenAt: new Date().toISOString(),
-    blocked: false,
-    tokenHash: hash(rawSession),
-    installationIdHash,
-    accountId,
-  };
-  state.devices.push(device);
-  await save(state);
-  return { device: toSafeDevice(device), sessionToken: rawSession };
 }
 
 export async function listSubdevices() {
-  const state = await load();
-  const devices = mergeDuplicateDevices(state.devices);
-  if (devices.length !== state.devices.length) {
-    state.devices = devices;
-    await save(state);
+  return mutate((state) => {
+    const devices = mergeDuplicateDevices(state.devices);
+    const changed = devices.length !== state.devices.length;
+    if (changed) state.devices = devices;
+    return { result: devices.map(toSafeDevice), changed };
+  });
+}
+
+function findSessionDevice(
+  state: State,
+  raw: string,
+  installationId?: string,
+): { device: Subdevice; installationIdHash?: string } | null {
+  const device = state.devices.find((item) => item.tokenHash === hash(raw));
+  if (!device || device.blocked) return null;
+  if (!device.installationIdHash) {
+    if (!isValidInstallationId(installationId)) return null;
+    return { device, installationIdHash: hash(installationId) };
   }
-  return devices.map(toSafeDevice);
+  if (
+    !isValidInstallationId(installationId) ||
+    device.installationIdHash !== hash(installationId)
+  ) {
+    return null;
+  }
+  return { device };
 }
 
 async function resolveSubdeviceSession(
   raw: string,
   installationId?: string,
 ): Promise<Subdevice | null> {
-  const state = await load();
-  const device = state.devices.find((d) => d.tokenHash === hash(raw));
-  if (!device || device.blocked) return null;
-  if (!device.installationIdHash) {
-    if (!isValidInstallationId(installationId)) return null;
-    // One-time migration for a session created before installation binding existed.
-    device.installationIdHash = hash(installationId);
-    await save(state);
-  } else if (
-    !isValidInstallationId(installationId) ||
-    device.installationIdHash !== hash(installationId)
-  ) {
-    return null;
-  }
-  return device;
+  return mutate((state) => {
+    const resolved = findSessionDevice(state, raw, installationId);
+    if (!resolved) return { result: null, changed: false };
+    if (resolved.installationIdHash) {
+      resolved.device.installationIdHash = resolved.installationIdHash;
+    }
+    return { result: resolved.device, changed: Boolean(resolved.installationIdHash) };
+  });
 }
 
 /** Validates a subdevice session without updating lastSeenAt, and returns its account scope. */
@@ -203,12 +245,15 @@ export async function getSubdeviceSession(raw: string, installationId?: string) 
 }
 
 export async function authenticateSubdevice(raw: string, installationId?: string) {
-  const device = await resolveSubdeviceSession(raw, installationId);
-  if (!device) return null;
-  const state = await load();
-  device.lastSeenAt = new Date().toISOString();
-  await save(state);
-  return toSafeDevice(device);
+  return mutate((state) => {
+    const resolved = findSessionDevice(state, raw, installationId);
+    if (!resolved) return { result: null, changed: false };
+    if (resolved.installationIdHash) {
+      resolved.device.installationIdHash = resolved.installationIdHash;
+    }
+    resolved.device.lastSeenAt = new Date().toISOString();
+    return { result: toSafeDevice(resolved.device), changed: true };
+  });
 }
 
 export async function isSubdeviceSessionValid(raw: string, installationId?: string) {
@@ -216,18 +261,20 @@ export async function isSubdeviceSessionValid(raw: string, installationId?: stri
 }
 
 export async function removeSubdevice(id: string) {
-  const state = await load();
-  const before = state.devices.length;
-  state.devices = state.devices.filter((d) => d.id !== id);
-  await save(state);
-  return state.devices.length !== before;
+  return mutate((state) => {
+    const before = state.devices.length;
+    state.devices = state.devices.filter((device) => device.id !== id);
+    const removed = state.devices.length !== before;
+    return { result: removed, changed: removed };
+  });
 }
 
 export async function setSubdeviceBlocked(id: string, blocked: boolean) {
-  const state = await load();
-  const device = state.devices.find((d) => d.id === id);
-  if (!device) return false;
-  device.blocked = blocked;
-  await save(state);
-  return true;
+  return mutate((state) => {
+    const device = state.devices.find((item) => item.id === id);
+    if (!device) return { result: false, changed: false };
+    const changed = device.blocked !== blocked;
+    device.blocked = blocked;
+    return { result: true, changed };
+  });
 }
