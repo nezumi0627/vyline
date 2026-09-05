@@ -521,6 +521,22 @@ function parseContactFromMeta(
   return { mid, name };
 }
 
+export function parseCallDurationSeconds(meta: Record<string, unknown> | null): number | undefined {
+  const durationKey =
+    meta?.DURATION != null
+      ? "DURATION"
+      : meta?.GC_DURATION != null
+        ? "GC_DURATION"
+        : meta?.duration != null
+          ? "duration"
+          : null;
+  if (!durationKey) return undefined;
+  const n = Number(meta?.[durationKey]);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  // LINEのCHATEVENTメタデータのDURATION/GC_DURATIONはミリ秒。
+  return Math.round(durationKey === "duration" ? n : n / 1000);
+}
+
 function parseCallMeta(
   contentType: string,
   meta: Record<string, unknown> | null,
@@ -530,14 +546,7 @@ function parseCallMeta(
   const video =
     (u.includes("VIDEO") && u.includes("CALL")) || typeHint.includes("VIDEO") || typeHint === "1";
   const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
-  const durationRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.duration;
-  let durationSec: number | undefined;
-  if (typeof durationRaw === "string" || typeof durationRaw === "number") {
-    const n = Number(durationRaw);
-    if (Number.isFinite(n) && n > 0) {
-      durationSec = n > 10_000 ? Math.round(n / 1000) : Math.round(n);
-    }
-  }
+  const durationSec = parseCallDurationSeconds(meta);
   const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();
   let outcome: import("./store-types.js").CallMessageMeta["outcome"] = "ended";
   if (result.includes("cancel") || result.includes("miss") || result === "3") {
