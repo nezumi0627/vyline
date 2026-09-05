@@ -174,8 +174,14 @@ export async function loadTokens(): Promise<TokenMap> {
   const cleaned: TokenMap = {};
   const accounts = accountsDir();
   const legacyTokens = tokensFile();
+  let accountDirs: Array<{ isDirectory(): boolean; name: string }> = [];
   try {
-    for (const dir of await readdir(accounts, { withFileTypes: true })) {
+    accountDirs = await readdir(accounts, { withFileTypes: true, encoding: "utf8" });
+  } catch (err) {
+    log.warn({ err }, "failed to list account credential files");
+  }
+  for (const dir of accountDirs) {
+    try {
       if (!dir.isDirectory()) continue;
       let id: string;
       try {
@@ -189,9 +195,9 @@ export async function loadTokens(): Promise<TokenMap> {
       const entry = JSON.parse(await readFile(path, "utf8")) as TokenEntry;
       const decoded = await decodePersistedEntry(id, entry);
       if (decoded) cleaned[id] = decoded;
+    } catch (err) {
+      log.warn({ err, accountDirectory: dir.name }, "failed to read account credential file");
     }
-  } catch (err) {
-    log.warn({ err }, "failed to read account credential files");
   }
 
   // Legacy shared tokens.json remains readable. Account files win, and a legacy
