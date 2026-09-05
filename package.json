@@ -12,10 +12,10 @@
     "Vyline/backend"
   ],
   "scripts": {
-    "dev": "concurrently -n backend,frontend -c cyan,magenta \"bun run dev:backend\" \"bun run dev:frontend\"",
+    "dev": "bun run --parallel --no-orphans dev:backend dev:frontend",
     "dev:backend": "bun --watch Vyline/backend/src/index.ts",
     "server": "bun Vyline/backend/src/index.ts",
-    "dev:frontend": "bun run --cwd Vyline/apps/desktop dev",
+    "dev:frontend": "bun --cwd Vyline/apps/desktop ./node_modules/vite/bin/vite.js",
     "build": "bun run --cwd Vyline/apps/desktop build",
     "vyl": "bun Vyline/packages/cli/src/index.ts",
     "vyl:init": "bun Vyline/packages/cli/src/index.ts init",
