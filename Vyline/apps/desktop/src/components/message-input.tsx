@@ -4,7 +4,6 @@ import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { compressImageFile } from "@/utils/compressImage";
 import {
-  IconSend,
   IconSmile,
   IconPaperclip,
   IconMic,
@@ -12,6 +11,7 @@ import {
   IconAtSign,
   IconBellOff,
   IconSpark,
+  IconArrowUp,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
@@ -151,6 +151,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
   >([]);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
   const [agentOpen, setAgentOpen] = useState(false);
+  const [composerFocused, setComposerFocused] = useState(false);
+  const [dragging, setDragging] = useState(false);
 
   // 画像送信中かどうか（楽観メッセージの pending image を検出）
   const sendingImage = messages.some(
@@ -357,8 +359,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
     });
   }
 
-  async function sendPendingMedia() {
-    if (sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
+  async function sendPendingMedia(): Promise<boolean> {
+    if (sendingMediaBatch || pendingMedia.length === 0 || !accountId) return false;
     setSendingMediaBatch(true);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
@@ -393,15 +395,28 @@ export function MessageInput({ chatId }: { chatId: string }) {
       const res = await api.line.sendMediaBatch(accountId, chatId, items);
       if (!res.ok) {
         window.alert(res.error ?? "まとめて送信に失敗しました");
-        return;
+        return false;
       }
       clearPendingMedia();
       await useStore.getState().refreshMessages(chatId, { force: true });
+      return true;
     } catch (err) {
       window.alert(err instanceof Error ? err.message : String(err));
+      return false;
     } finally {
       setSendingMediaBatch(false);
     }
+  }
+
+  async function submitComposer() {
+    const state = useStore.getState();
+    const text = state.drafts[chatId] ?? draft;
+    const hasText = Boolean(text.trim() || text.includes(STICON_PLACEHOLDER));
+    if (pendingMedia.length > 0) {
+      const mediaSent = await sendPendingMedia();
+      if (!mediaSent) return;
+    }
+    if (hasText) send();
   }
 
   useEffect(() => {
@@ -494,11 +509,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     }
     if (e.key === "Enter" && !e.shiftKey && enterToSend && !composing) {
       e.preventDefault();
-      if (!draft.trim() && pendingMedia.length > 0) {
-        void sendPendingMedia();
-        return;
-      }
-      send();
+      void submitComposer();
     }
   }
 
@@ -574,10 +585,23 @@ export function MessageInput({ chatId }: { chatId: string }) {
   return (
     <div
       className="relative px-3 pb-3 pt-1 md:px-5 md:pb-5"
-      onDragOver={(e) => e.preventDefault()}
+      onDragEnter={(e) => {
+        if (e.dataTransfer.types.includes("application/x-vyline-sticker")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragOver={(e) => {
+        if (e.dataTransfer.types.includes("application/x-vyline-sticker")) return;
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDragLeave={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDragging(false);
+      }}
       onDrop={(e) => {
         // スタンプ画像等のドロップでブラウザがナビゲート/URL挿入するのを防ぐ
         e.preventDefault();
+        setDragging(false);
         if (e.dataTransfer.types.includes("application/x-vyline-sticker")) return;
         const files = Array.from(e.dataTransfer.files ?? []).filter(
           (file) => file.type.startsWith("image/") || file.type.startsWith("video/"),
@@ -650,37 +674,48 @@ export function MessageInput({ chatId }: { chatId: string }) {
       )}
 
       {recording ? (
-        <div className="vy-fade-in flex items-center gap-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2.5">
-          <span
-            className="flex h-3 w-3 animate-pulse rounded-full"
-            style={{ background: "var(--vy-danger)" }}
-            aria-hidden
-          />
-          <span className="text-sm font-medium">録音中</span>
-          <span className="font-mono text-sm tabular-nums text-[var(--vy-text-dim)]">
-            0:{recSeconds.toString().padStart(2, "0")}
-          </span>
-          <div className="flex flex-1 items-end gap-0.5" aria-hidden>
-            {Array.from({ length: 28 }).map((_, i) => (
+        <div className="vy-fade-in rounded-[22px] border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2 shadow-[0_6px_20px_color-mix(in_oklab,var(--vy-text)_8%,transparent)]">
+          <div className="flex h-10 items-center gap-3 pl-1 pr-0">
+            <IconButton label="録音をキャンセル" onClick={() => stopRecording(false)}>
+              <IconClose size={18} />
+            </IconButton>
+            <span className="flex items-center gap-2">
               <span
-                key={i}
-                className="w-1 rounded-full bg-[var(--vy-accent)] opacity-70"
-                style={{ height: 6 + Math.abs(Math.sin(i * 0.9 + recSeconds)) * 18 }}
+                className="h-2 w-2 animate-pulse rounded-full"
+                style={{ background: "var(--vy-danger)" }}
+                aria-hidden
               />
-            ))}
+              <span className="text-[13px] font-medium tabular-nums text-[var(--vy-text)]">
+                {Math.floor(recSeconds / 60)}:{String(recSeconds % 60).padStart(2, "0")}
+              </span>
+            </span>
+            <div className="flex h-6 flex-1 items-center gap-[3px] overflow-hidden" aria-hidden>
+              {Array.from({ length: 12 }).map((_, i) => {
+                const base =
+                  [0.35, 0.7, 0.45, 0.9, 0.6, 0.8, 0.4, 0.65, 0.5, 0.85, 0.55, 0.75][i] ?? 0.5;
+                return (
+                  <span
+                    key={i}
+                    className="w-[3px] shrink-0 origin-center rounded-full bg-[color-mix(in_oklab,var(--vy-text)_25%,transparent)] transition-transform duration-300"
+                    style={{
+                      height: `${base * 100}%`,
+                      transform: `scaleY(${0.55 + Math.abs(Math.sin(recSeconds * 0.8 + i * 0.7)) * 0.45})`,
+                    }}
+                  />
+                );
+              })}
+            </div>
+            <button
+              type="button"
+              onClick={() => stopRecording(true)}
+              aria-label="音声を送信"
+              className="group grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--vy-text)] text-[var(--vy-surface)] transition-[transform,opacity] hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--vy-text)_30%,transparent)] focus-visible:outline-none"
+            >
+              <span className="transition-transform duration-150 group-hover:-translate-y-0.5">
+                <IconArrowUp size={18} />
+              </span>
+            </button>
           </div>
-          <IconButton label="録音をキャンセル" onClick={() => stopRecording(false)}>
-            <IconClose size={20} />
-          </IconButton>
-          <button
-            type="button"
-            onClick={() => stopRecording(true)}
-            aria-label="音声を送信"
-            className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-            style={{ background: "var(--vy-accent)" }}
-          >
-            <IconSend size={19} />
-          </button>
         </div>
       ) : locked ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
@@ -692,61 +727,6 @@ export function MessageInput({ chatId }: { chatId: string }) {
         </div>
       ) : (
         <>
-          {pendingMedia.length > 0 && (
-            <div className="vy-fade-in mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2 shadow-sm">
-              <div className="mb-2 flex items-center justify-between gap-2 px-1">
-                <div className="text-xs font-medium text-[var(--vy-text-dim)]">
-                  {pendingMedia.length} 件のメディアを待機中
-                </div>
-                <button
-                  type="button"
-                  onClick={clearPendingMedia}
-                  className="text-xs text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
-                >
-                  クリア
-                </button>
-              </div>
-              <div className="grid max-h-56 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4 md:grid-cols-5">
-                {pendingMedia.map((item) => (
-                  <div
-                    key={item.id}
-                    className="group relative overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)]"
-                  >
-                    {item.kind === "video" ? (
-                      <video src={item.url} className="h-24 w-full object-cover" muted />
-                    ) : (
-                      <img src={item.url} alt="" className="h-24 w-full object-cover" />
-                    )}
-                    <button
-                      type="button"
-                      onClick={() => removePendingMedia(item.id)}
-                      className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white opacity-90 transition hover:bg-black/75"
-                      aria-label="添付を削除"
-                    >
-                      <IconClose size={12} />
-                    </button>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-2 flex items-center justify-end gap-2">
-                <button
-                  type="button"
-                  onClick={clearPendingMedia}
-                  className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)]"
-                >
-                  キャンセル
-                </button>
-                <button
-                  type="button"
-                  onClick={() => void sendPendingMedia()}
-                  disabled={sendingMediaBatch}
-                  className="rounded-full bg-[var(--vy-accent)] px-4 py-1 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-60"
-                >
-                  {sendingMediaBatch ? "送信中…" : "まとめて送信"}
-                </button>
-              </div>
-            </div>
-          )}
           {mentionPicker && mentionOptions.length > 0 && (
             <div className="mb-1.5 max-h-52 overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] py-1 shadow-lg">
               <p className="px-3 py-1.5 text-[0.65rem] font-medium text-[var(--vy-text-dim)]">
@@ -783,116 +763,179 @@ export function MessageInput({ chatId }: { chatId: string }) {
             </div>
           )}
           {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
-          <div className="vy-input-row flex items-end gap-1.5 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
-            <PlusMenu chatId={chatId} />
-            <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
-              <IconPaperclip size={20} />
-            </IconButton>
-            <IconButton
-              label="スタンプ・絵文字"
-              active={picker}
-              onClick={() => setPicker((p) => !p)}
-            >
-              <IconSmile size={20} />
-            </IconButton>
-            <IconButton
-              label={
-                muteNext
-                  ? "ミュートメッセージ: 有効（通知なしで送信）"
-                  : "ミュートメッセージ: 無効（クリックで有効化）"
-              }
-              active={muteNext}
-              onClick={() => setMuteNext((m) => !m)}
-            >
-              <IconBellOff size={19} />
-            </IconButton>
-            {agentEnabled && draft.trim() && (
-              <IconButton
-                label="AIで文章を整える"
-                active={agentOpen}
-                onClick={() => setAgentOpen(true)}
-              >
-                <IconSpark size={19} />
-              </IconButton>
+          <div
+            className={cn(
+              "relative rounded-[22px] border bg-[var(--vy-surface)] p-2 shadow-[0_6px_20px_color-mix(in_oklab,var(--vy-text)_8%,transparent)] transition-[transform,box-shadow,border-color] duration-200",
+              composerFocused || picker
+                ? "-translate-y-0.5 border-[color-mix(in_oklab,var(--vy-text)_25%,var(--vy-border))] shadow-[0_10px_28px_color-mix(in_oklab,var(--vy-text)_13%,transparent)]"
+                : "border-[var(--vy-border)]",
+              dragging &&
+                "border-dashed border-[color-mix(in_oklab,var(--vy-text)_40%,var(--vy-border))]",
             )}
-
-            <div className="relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
-              {overlaySegments && (
-                <div
-                  aria-hidden
-                  className="vy-input-text pointer-events-none absolute inset-0 overflow-hidden py-1.5 whitespace-pre-wrap break-words text-[var(--vy-text)]"
-                  style={{ transform: `translateY(-${overlayScrollTop}px)` }}
-                >
-                  {overlaySegments.map((seg, i) =>
-                    seg.type === "sticon" ? (
-                      <img
-                        key={i}
-                        src={seg.url}
-                        alt=""
-                        className="inline-block"
-                        style={{ width: `${sticonEm}em`, height: `${sticonEm}em` }}
-                        draggable={false}
-                      />
+          >
+            {dragging && (
+              <div className="pointer-events-none absolute inset-0 z-20 grid place-items-center rounded-[22px] bg-[color-mix(in_oklab,var(--vy-surface)_88%,transparent)] text-sm font-medium text-[var(--vy-text)] backdrop-blur-sm">
+                ここにドロップして添付
+              </div>
+            )}
+            {pendingMedia.length > 0 && (
+              <div className="vy-fade-in mb-2 flex items-center gap-2 overflow-x-auto px-1 pb-1">
+                {pendingMedia.map((item) => (
+                  <div
+                    key={item.id}
+                    className="group relative h-16 w-16 shrink-0 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] shadow-sm"
+                  >
+                    {item.kind === "video" ? (
+                      <video src={item.url} className="h-full w-full object-cover" muted />
                     ) : (
-                      <span key={i}>{seg.value.split(STICON_PLACEHOLDER).join("")}</span>
-                    ),
+                      <img src={item.url} alt="" className="h-full w-full object-cover" />
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => removePendingMedia(item.id)}
+                      className="absolute right-1 top-1 rounded-full bg-black/60 p-1 text-white opacity-90 transition hover:bg-black/80"
+                      aria-label="添付を削除"
+                    >
+                      <IconClose size={12} />
+                    </button>
+                  </div>
+                ))}
+                <button
+                  type="button"
+                  onClick={clearPendingMedia}
+                  className="shrink-0 rounded-full px-2.5 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+                >
+                  クリア
+                </button>
+              </div>
+            )}
+            <div className="vy-input-row flex items-end gap-0.5">
+              <div className="flex items-center gap-0.5 pb-0.5">
+                <PlusMenu chatId={chatId} />
+                <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
+                  <IconPaperclip size={18} />
+                </IconButton>
+                <IconButton
+                  label="スタンプ・絵文字"
+                  active={picker}
+                  onClick={() => setPicker((p) => !p)}
+                >
+                  <IconSmile size={18} />
+                </IconButton>
+                <IconButton
+                  label={
+                    muteNext
+                      ? "ミュートメッセージ: 有効（通知なしで送信）"
+                      : "ミュートメッセージ: 無効（クリックで有効化）"
+                  }
+                  active={muteNext}
+                  onClick={() => setMuteNext((m) => !m)}
+                >
+                  <IconBellOff size={18} />
+                </IconButton>
+              </div>
+
+              <div className="relative flex min-h-9 max-h-40 min-w-0 flex-1 items-center">
+                {overlaySegments && (
+                  <div
+                    aria-hidden
+                    className="vy-input-text pointer-events-none absolute inset-0 overflow-hidden py-1.5 whitespace-pre-wrap break-words text-[var(--vy-text)]"
+                    style={{ transform: `translateY(-${overlayScrollTop}px)` }}
+                  >
+                    {overlaySegments.map((seg, i) =>
+                      seg.type === "sticon" ? (
+                        <img
+                          key={i}
+                          src={seg.url}
+                          alt=""
+                          className="inline-block"
+                          style={{ width: `${sticonEm}em`, height: `${sticonEm}em` }}
+                          draggable={false}
+                        />
+                      ) : (
+                        <span key={i}>{seg.value.split(STICON_PLACEHOLDER).join("")}</span>
+                      ),
+                    )}
+                  </div>
+                )}
+                <textarea
+                  ref={taRef}
+                  rows={1}
+                  value={draft}
+                  onChange={(e) =>
+                    onDraftChange(e.target.value, e.target.selectionStart ?? undefined)
+                  }
+                  onKeyDown={onKeyDown}
+                  onPaste={onPaste}
+                  onFocus={() => setComposerFocused(true)}
+                  onBlur={() => setComposerFocused(false)}
+                  onScroll={(e) => setOverlayScrollTop(e.currentTarget.scrollTop)}
+                  placeholder={
+                    draft
+                      ? undefined
+                      : muteNext
+                        ? "メッセージを入力（ミュート送信: 通知なし）"
+                        : "メッセージを入力"
+                  }
+                  aria-label="メッセージを入力"
+                  className={cn(
+                    "vy-scroll vy-input-text max-h-40 w-full resize-none bg-transparent py-1.5 leading-relaxed outline-none placeholder:text-[var(--vy-text-dim)]",
+                    overlaySegments
+                      ? "caret-[var(--vy-text)] text-transparent selection:bg-[color-mix(in_oklab,var(--vy-accent)_35%,transparent)]"
+                      : "text-[var(--vy-text)]",
+                  )}
+                />
+              </div>
+
+              <div className="flex items-center gap-0.5 pb-0.5">
+                {agentEnabled && draft.trim() && (
+                  <IconButton
+                    label="AIで文章を整える"
+                    active={agentOpen}
+                    onClick={() => setAgentOpen(true)}
+                  >
+                    <IconSpark size={18} />
+                  </IconButton>
+                )}
+                <div className="ml-1">
+                  {draft.trim() || draft.includes(STICON_PLACEHOLDER) || pendingMedia.length > 0 ? (
+                    <button
+                      type="button"
+                      onClick={() => void submitComposer()}
+                      disabled={sendingMediaBatch}
+                      aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
+                      title={
+                        muteNext
+                          ? "ミュートメッセージとして送信（相手に通知されません）"
+                          : undefined
+                      }
+                      className="group relative grid h-10 w-10 shrink-0 place-items-center rounded-full bg-[var(--vy-text)] text-[var(--vy-surface)] transition-[transform,opacity] hover:opacity-90 active:scale-95 focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--vy-text)_30%,transparent)] focus-visible:outline-none disabled:cursor-wait disabled:opacity-60"
+                    >
+                      <span className="transition-transform duration-150 group-hover:-translate-y-0.5">
+                        <IconArrowUp size={18} />
+                      </span>
+                      {muteNext && (
+                        <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white shadow">
+                          ✕
+                        </span>
+                      )}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      aria-label="音声メッセージを録音"
+                      onClick={() => {
+                        setPicker(false);
+                        setRecording(true);
+                      }}
+                      className="grid h-10 w-10 place-items-center rounded-full bg-[color-mix(in_oklab,var(--vy-text)_6%,transparent)] text-[var(--vy-text-dim)] transition-[background-color,color,transform] hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] hover:text-[var(--vy-text)] active:scale-95 focus-visible:ring-2 focus-visible:ring-[color-mix(in_oklab,var(--vy-text)_30%,transparent)] focus-visible:outline-none"
+                    >
+                      <IconMic size={18} />
+                    </button>
                   )}
                 </div>
-              )}
-              <textarea
-                ref={taRef}
-                rows={1}
-                value={draft}
-                onChange={(e) =>
-                  onDraftChange(e.target.value, e.target.selectionStart ?? undefined)
-                }
-                onKeyDown={onKeyDown}
-                onPaste={onPaste}
-                onScroll={(e) => setOverlayScrollTop(e.currentTarget.scrollTop)}
-                placeholder={
-                  draft
-                    ? undefined
-                    : muteNext
-                      ? "メッセージを入力（ミュート送信: 通知なし）"
-                      : "メッセージを入力"
-                }
-                aria-label="メッセージを入力"
-                className={cn(
-                  "vy-scroll vy-input-text max-h-40 w-full resize-none bg-transparent py-1.5 leading-relaxed outline-none placeholder:text-[var(--vy-text-dim)]",
-                  overlaySegments
-                    ? "caret-[var(--vy-text)] text-transparent selection:bg-[color-mix(in_oklab,var(--vy-accent)_35%,transparent)]"
-                    : "text-[var(--vy-text)]",
-                )}
-              />
+              </div>
             </div>
-
-            {draft.trim() || draft.includes(STICON_PLACEHOLDER) ? (
-              <button
-                type="button"
-                onClick={send}
-                aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
-                title={
-                  muteNext ? "ミュートメッセージとして送信（相手に通知されません）" : undefined
-                }
-                className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-                style={{
-                  background: muteNext
-                    ? "color-mix(in oklab, var(--vy-accent) 80%, #6366f1)"
-                    : "var(--vy-accent)",
-                }}
-              >
-                <IconSend size={18} />
-                {muteNext && (
-                  <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white shadow">
-                    ✕
-                  </span>
-                )}
-              </button>
-            ) : (
-              <IconButton label="音声メッセージを録音" onClick={() => setRecording(true)}>
-                <IconMic size={20} />
-              </IconButton>
-            )}
           </div>
         </>
       )}
@@ -905,13 +948,17 @@ export function MessageInput({ chatId }: { chatId: string }) {
           onApply={(text) => setDraft(chatId, text)}
         />
       )}
-      <div className="mt-1 flex flex-wrap items-center gap-2 px-1 text-[0.65rem] text-[var(--vy-text-dim)]">
+      <div className="mt-2.5 flex min-h-5 flex-wrap items-center gap-2 px-2 text-xs text-[var(--vy-text-dim)]">
         {muteNext && (
-          <span className="flex items-center gap-1 rounded-md bg-[color-mix(in_oklab,var(--vy-accent)_15%,transparent)] px-1.5 py-0.5 font-medium text-[var(--vy-accent)]">
+          <span className="flex items-center gap-1 font-medium">
             <IconBellOff size={12} />
-            ミュート送信中（相手にプッシュ通知されません）
+            ミュートメッセージ：相手に通知されません
           </span>
         )}
+        {!muteNext &&
+          (draft.trim() || draft.includes(STICON_PLACEHOLDER) || pendingMedia.length > 0) && (
+            <span>{enterToSend ? "Enter で送信 / Shift + Enter で改行" : "送信ボタンで送信"}</span>
+          )}
         {draftSticons.length > 0 && <span>LINE絵文字 {draftSticons.length} 個を文中に挿入中</span>}
       </div>
     </div>
