@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { mapMember } from "@/lib/mappers";
@@ -1559,56 +1559,90 @@ export function PlusMenu({ chatId }: { chatId: string }) {
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
   const [open, setOpen] = useState(false);
   const [mode, setMode] = useState<"schedule" | "ladder" | "poll" | null>(null);
+  const wrapRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onPointerDown = (event: MouseEvent) => {
+      if (!wrapRef.current?.contains(event.target as Node)) setOpen(false);
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("mousedown", onPointerDown);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("mousedown", onPointerDown);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [open]);
 
   const items: {
     key: "schedule" | "ladder" | "poll";
     label: string;
-    icon: string;
+    description: string;
     disabled?: boolean;
   }[] = [
-    { key: "schedule", label: "イベントを作成", icon: "📅" },
-    { key: "ladder", label: "あみだくじ", icon: "🎯", disabled: chat?.type !== "group" },
-    { key: "poll", label: "アンケート", icon: "🗳️" },
+    { key: "schedule", label: "イベント作成", description: "日程と場所を決めて共有" },
+    {
+      key: "ladder",
+      label: "あみだくじ",
+      description: "メンバーでくじ引き",
+      disabled: chat?.type !== "group",
+    },
+    { key: "poll", label: "アンケート", description: "選択肢を作って投票" },
   ];
 
   return (
     <>
       <style>{PLUS_KEYFRAMES}</style>
-      <div className="relative">
+      <div ref={wrapRef} className="relative">
         <button
           type="button"
           className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full text-lg text-[var(--vy-text-dim)] transition-transform duration-200 hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
-            open && "rotate-45 text-[var(--vy-accent)]",
+            "grid h-9 w-9 place-items-center rounded-full text-[22px] font-light leading-none text-[var(--vy-text-dim)] transition-[background-color,color,transform] duration-200 hover:bg-[color-mix(in_oklab,var(--vy-text)_5%,transparent)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none active:scale-95",
+            open &&
+              "rotate-45 bg-[color-mix(in_oklab,var(--vy-text)_8%,transparent)] text-[var(--vy-text)]",
           )}
           onClick={() => setOpen((p) => !p)}
           aria-label="メニューを開く"
+          aria-expanded={open}
         >
           ＋
         </button>
         {open && (
           <div
-            className="absolute bottom-full left-0 z-[70] mb-2 w-52 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-xl"
+            className="absolute bottom-full left-0 z-[70] mb-3 w-64 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-1.5 shadow-[0_14px_36px_color-mix(in_oklab,var(--vy-text)_16%,transparent)]"
             style={{ animation: "vy-pop 0.16s ease-out" }}
+            role="menu"
+            aria-label="作成メニュー"
           >
             {items.map((item) => (
               <button
                 key={item.key}
                 type="button"
+                role="menuitem"
                 disabled={item.disabled}
-                className="flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
+                className="flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left text-sm text-[var(--vy-text)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_5%,transparent)] focus-visible:bg-[color-mix(in_oklab,var(--vy-text)_5%,transparent)] focus-visible:outline-none disabled:cursor-not-allowed disabled:opacity-45"
                 onClick={() => {
                   setOpen(false);
                   setMode(item.key);
                 }}
               >
-                <span className="text-base">{item.icon}</span>
-                {item.label}
-                {item.disabled && (
-                  <span className="ml-auto text-[10px] text-[var(--vy-text-dim)]">
-                    グループのみ
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-lg bg-[color-mix(in_oklab,var(--vy-text)_6%,transparent)] text-[var(--vy-text)]">
+                  <PlusMenuGlyph kind={item.key} />
+                </span>
+                <span className="min-w-0 flex-1">
+                  <span className="flex items-center gap-1.5 font-medium">
+                    {item.label}
+                    {item.disabled && (
+                      <span className="text-[11px] text-[var(--vy-text-dim)]">🔒</span>
+                    )}
                   </span>
-                )}
+                  <span className="mt-0.5 block truncate text-xs text-[var(--vy-text-dim)]">
+                    {item.disabled ? "グループ限定" : item.description}
+                  </span>
+                </span>
               </button>
             ))}
           </div>
@@ -1624,5 +1658,53 @@ export function PlusMenu({ chatId }: { chatId: string }) {
         <PollModal accountId={accountId} chatId={chatId} onClose={() => setMode(null)} />
       )}
     </>
+  );
+}
+
+function PlusMenuGlyph({ kind }: { kind: "schedule" | "ladder" | "poll" }) {
+  if (kind === "schedule") {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden
+      >
+        <rect x="4" y="5.5" width="16" height="14" rx="2.5" />
+        <path d="M8 3.5v4M16 3.5v4M4 9.5h16M12 12v5M9.5 14.5h5" />
+      </svg>
+    );
+  }
+  if (kind === "ladder") {
+    return (
+      <svg
+        viewBox="0 0 24 24"
+        width="18"
+        height="18"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.8"
+        aria-hidden
+      >
+        <path d="M6 4v16M18 4v16M6 8h6v4h6M6 16h7v-3h5" />
+      </svg>
+    );
+  }
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      width="18"
+      height="18"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.8"
+      aria-hidden
+    >
+      <rect x="4" y="4" width="16" height="16" rx="2.5" />
+      <path d="m7.5 9 1.5 1.5L11.5 8M13.5 9H17M7.5 15l1.5 1.5 2.5-2.5M13.5 15H17" />
+    </svg>
   );
 }
