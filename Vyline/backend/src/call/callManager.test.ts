@@ -1,4 +1,6 @@
 import { expect, spyOn, test } from "bun:test";
+import { encodeCallVideoFrame } from "@vyline/types";
+import { Buffer } from "node:buffer";
 import * as sessionFactory from "./sessionFactory.js";
 import {
   endManagedCall,
@@ -53,6 +55,67 @@ test("managed calls are isolated by account and can be ended through the scoped 
     for (const call of listAccountCalls(accountId)) await endManagedCall(call.sessionId);
   }
 });
+
+test("video websocket validates and relays VP8 packets without buffering them", async () => {
+  const session = fakeSession();
+  const create = spyOn(sessionFactory, "createDirectCallSession").mockResolvedValue({
+    session: session as never,
+    transportKind: "planet",
+    wire: { deviceDetails: { device: "DESKTOPWIN" } },
+  } as never);
+  const accountId = `video-call-${crypto.randomUUID()}`;
+  const messages: unknown[][] = [[], []];
+  const sockets = messages.map((received, index) => ({
+    data: { accountId, sessionId: "", media: "video" as const },
+    send(value: unknown) {
+      received.push(value);
+    },
+    close() {},
+  }));
+  try {
+    const created = await startManagedCall({
+      accountId,
+      client: {} as never,
+      to: "u-peer",
+      kind: "VIDEO",
+    });
+    for (const socket of sockets) socket.data.sessionId = created.sessionId;
+    const manager = await import("./callManager.js");
+    manager.attachCallWebSocket(sockets[0] as never);
+    manager.attachCallWebSocket(sockets[1] as never);
+    manager.callWebSocketHandler.message(
+      sockets[0] as never,
+      JSON.stringify({ type: "video", enabled: true }),
+    );
+    manager.callWebSocketHandler.message(
+      sockets[1] as never,
+      JSON.stringify({ type: "video", enabled: true }),
+    );
+    const packet = encodeCallVideoFrame({
+      data: new Uint8Array([0, 0, 0, 0x9d, 1, 0x2a, 1, 2, 3]),
+      key: true,
+      timestamp: 1,
+    });
+    manager.callWebSocketHandler.message(sockets[0] as never, Buffer.from(packet));
+    expect(
+      messages[1]!.some(
+        (value) =>
+          value instanceof Uint8Array &&
+          Array.from(value).join(",") === Array.from(packet).join(","),
+      ),
+    ).toBe(true);
+    expect(
+      messages[0]!.some((value) => typeof value === "string" && value.includes('"available":true')),
+    ).toBe(true);
+  } finally {
+    create.mockRestore();
+    await endManagedCall(createdSessionId(messages, accountId));
+  }
+});
+
+function createdSessionId(_messages: unknown[][], accountId: string): string {
+  return listAccountCalls(accountId)[0]?.sessionId ?? "missing";
+}
 
 test("concurrent starts for one account are serialized before route acquisition", async () => {
   let release!: () => void;

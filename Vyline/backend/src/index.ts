@@ -41,6 +41,7 @@ import {
 } from "./api/requestLimits.js";
 import { resolveCorsOrigin } from "./api/corsPolicy.js";
 import { maintainCallRecordings } from "./service/callRecordingService.js";
+import { CALL_VIDEO_MAX_BYTES } from "@vyline/types";
 
 void maintainCallRecordings().catch(() => undefined);
 setInterval(() => { void maintainCallRecordings().catch(() => undefined); }, 60_000).unref();
@@ -470,13 +471,21 @@ export default {
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
       }
-      const ok = server.upgrade(request, { data: { accountId, sessionId } });
+      const mediaParam = url.searchParams.get("media");
+      if (mediaParam !== null && mediaParam !== "video") {
+        return new Response("invalid call media", { status: 400 });
+      }
+      const media = mediaParam === "video" ? "video" : "audio";
+      const ok = server.upgrade(request, { data: { accountId, sessionId, media } });
       if (ok) return undefined as unknown as Response;
       return new Response("WebSocket upgrade failed", { status: 500 });
     }
     return app.fetch(request, server);
   },
   websocket: {
+    maxPayloadLength: CALL_VIDEO_MAX_BYTES + 41,
+    backpressureLimit: 2 * 1024 * 1024,
+    closeOnBackpressureLimit: true,
     open(ws: Bun.ServerWebSocket<CallWsData>) {
       void getCallWsHandlers().then((h) => h.open(ws));
     },

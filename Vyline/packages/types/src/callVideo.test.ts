@@ -23,7 +23,7 @@ test("video bridge frame preserves VP8 and rejects malformed headers and size", 
 
 test("group video bridge carries a validated participant MID without changing direct frames", () => {
   const frame = {
-    data: new Uint8Array([1]),
+    data: new Uint8Array([0, 0, 0, 0x9d, 1, 0x2a]),
     key: true,
     timestamp: 9,
     rotation: 0,
@@ -31,7 +31,7 @@ test("group video bridge carries a validated participant MID without changing di
   };
   const packet = encodeCallVideoFrame(frame);
   expect(packet[0]).toBe(2);
-  expect(packet.length).toBe(42);
+  expect(packet.length).toBe(47);
   expect(decodeCallVideoFrame(packet)).toEqual(frame);
   for (const sourceMid of ["", "u-peer", `c${"1".repeat(32)}`, `u${"z".repeat(32)}`]) {
     expect(() => encodeCallVideoFrame({ ...frame, sourceMid })).toThrow();

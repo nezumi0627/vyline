@@ -17,6 +17,15 @@ export interface CallVideoState {
   remoteEnabled: boolean;
 }
 
+/** Validate the small amount of VP8 framing visible without decoding pixels. */
+export function validateVp8(data: Uint8Array, key: boolean): void {
+  if (data.length < (key ? 6 : 1)) throw new Error("Invalid VP8 frame");
+  const isKey = (data[0]! & 1) === 0;
+  if (isKey !== key) throw new Error("VP8 keyframe flag mismatch");
+  if (key && (data[3] !== 0x9d || data[4] !== 0x01 || data[5] !== 0x2a))
+    throw new Error("Invalid VP8 keyframe signature");
+}
+
 export function encodeCallVideoFrame(frame: CallVideoFrame): Uint8Array {
   if (
     !Number.isInteger(frame.timestamp) ||
@@ -30,6 +39,7 @@ export function encodeCallVideoFrame(frame: CallVideoFrame): Uint8Array {
     frame.data.length > CALL_VIDEO_MAX_BYTES
   )
     throw new Error("Invalid video frame");
+  validateVp8(frame.data, frame.key);
   const headerBytes = frame.sourceMid ? 41 : 8;
   const packet = new Uint8Array(headerBytes + frame.data.length);
   packet.set([frame.sourceMid ? 2 : 1, Number(frame.key), frame.rotation ?? 0, 0]);
@@ -52,6 +62,7 @@ export function decodeCallVideoFrame(packet: Uint8Array): CallVideoFrame {
     packet[3] !== 0
   )
     throw new Error("Invalid video frame");
+  validateVp8(packet.subarray(headerBytes), packet[1] === 1);
   return {
     key: packet[1] === 1,
     rotation: packet[2]!,

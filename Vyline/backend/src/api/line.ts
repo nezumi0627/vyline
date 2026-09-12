@@ -2053,6 +2053,8 @@ lineRouter.post("/:accountId/call/start", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{ to: string; callType?: "AUDIO" | "VIDEO" }>();
   if (!body.to) return c.json({ ok: false, error: "to required" }, 400);
+  if (body.callType !== undefined && body.callType !== "AUDIO" && body.callType !== "VIDEO")
+    return c.json({ ok: false, error: "callType must be AUDIO or VIDEO" }, 400);
   try {
     const session = await startDirectCall(accountId, body.to, body.callType ?? "AUDIO");
     return c.json({ ok: true, session });
@@ -2111,6 +2113,8 @@ lineRouter.post("/:accountId/call", async (c) => {
   }>();
 
   const callType = body.callType ?? "AUDIO";
+  if (callType !== "AUDIO" && callType !== "VIDEO")
+    return c.json({ ok: false, error: "callType must be AUDIO or VIDEO" }, 400);
 
   try {
     let route;

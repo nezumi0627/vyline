@@ -1492,13 +1492,16 @@ const routes: Array<[string, Method, OpSpec]> = [
     "/line/{accountId}/call/start",
     "post",
     {
-      op: "acquireCallRoute",
-      summary: "通話開始（ルート確保）",
-      description: "LINE: acquireCallRoute (/V4)",
+      op: "startCall",
+      summary: "通話開始",
+      description: "1:1通話セッション開始。映像は callType=VIDEO と media=video WebSocket を使用",
       tags: ["calls"],
       params: [acc],
-      requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
-      responses: { "200": jsonRes("通話情報") },
+      requestBody: body(["to"], {
+        to: { type: "string" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+      }),
+      responses: { "200": jsonRes("通話セッション。VIDEO時は video.available=true") },
     },
   ],
   [
