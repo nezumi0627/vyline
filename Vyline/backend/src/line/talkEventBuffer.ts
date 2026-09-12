@@ -9,7 +9,14 @@ export type TalkPollEventPayload =
   | { kind: "revoke"; chatMid: string; messageId: string }
   | { kind: "read"; chatMid: string }
   | { kind: "reaction"; chatMid: string; messageId: string }
-  | { kind: "call:incoming"; chatMid: string; callerMid: string; callType: "audio" | "video"; callMid?: string; receivedAt?: number }
+  | {
+      kind: "call:incoming";
+      chatMid: string;
+      callerMid: string;
+      callType: "audio" | "video";
+      callMid?: string;
+      receivedAt?: number;
+    }
   | { kind: "call:end"; chatMid: string; durationSec?: number; callMid?: string }
   | { kind: "call:cancel"; chatMid: string; callerMid: string; callMid?: string }
   | {

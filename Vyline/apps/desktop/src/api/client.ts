@@ -55,8 +55,7 @@ const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-
 /** 通話録音の分割送信など、開始時点の認証情報を固定するためのfetch。 */
 export function captureBackendFetch() {
   const hasLocalStorage = typeof localStorage !== "undefined";
-  const token =
-    hasLocalStorage ? localStorage.getItem("vyline:subdevice-session") : null;
+  const token = hasLocalStorage ? localStorage.getItem("vyline:subdevice-session") : null;
   const installationId = getSubdeviceInstallationId();
   const headers = new Headers();
   if (token) headers.set("Authorization", `Bearer ${token}`);
