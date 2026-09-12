@@ -21339,9 +21339,7 @@ export const Thrift: LooseType = {
     { fid: 1, name: "reqSeq", type: 8 },
     { fid: 2, name: "messageId", type: 11 },
   ],
-  SilentlyUnsendMessageResponse: [
-    { fid: 1, name: "silentUnsend", type: 2 },
-  ],
+  SilentlyUnsendMessageResponse: [{ fid: 1, name: "silentUnsend", type: 2 }],
   I80_B0: [
     {
       fid: 1,
