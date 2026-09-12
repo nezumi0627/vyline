@@ -16,6 +16,7 @@ COPY Vyline/packages/line-types/package.json Vyline/packages/line-types/
 COPY Vyline/packages/loose-types/package.json Vyline/packages/loose-types/
 COPY Vyline/packages/plugin/sdk/package.json Vyline/packages/plugin/sdk/
 COPY Vyline/packages/themes/package.json Vyline/packages/themes/
+COPY tools/package.json tools/
 RUN bun install --ignore-scripts
 
 FROM deps AS prod-deps

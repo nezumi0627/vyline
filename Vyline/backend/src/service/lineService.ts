@@ -52,6 +52,11 @@ import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js"
 import { checkStickerGiftEligibility } from "./liffFeatures.js";
 import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
 import {
+  normalizeIncomingCall,
+  rememberIncomingCall,
+  finishIncomingCall,
+} from "../call/incomingCallRegistry.js";
+import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
   ensureGroupKeyById,
@@ -3382,26 +3387,45 @@ async function processSingleOperation(
 
   // 着信通話
   if (type === "NOTIFIED_RECEIVED_CALL" || type === "3") {
-    const chatMid = String(op.param1 ?? "");
-    const callerMid = String(op.param2 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
+    const incoming = normalizeIncomingCall(op);
+    if (
+      incoming &&
+      incoming.callerMid !== myMid &&
+      rememberIncomingCall(accountId, incoming, op.revision)
+    ) {
       pushTalkEvent(accountId, {
         kind: "call:incoming",
-        chatMid,
-        callerMid,
-        callType: "audio",
+        callMid: incoming.callMid,
+        chatMid: incoming.chatMid,
+        callerMid: incoming.callerMid,
+        callType: incoming.callType,
+        receivedAt: incoming.receivedAt,
       });
-      log.info({ accountId, chatMid, callerMid }, "incoming call");
+      log.info(
+        {
+          accountId,
+          callMid: incoming.callMid,
+          chatMid: incoming.chatMid,
+          callerMid: incoming.callerMid,
+        },
+        "incoming call",
+      );
     }
     return;
   }
 
   // 通話キャンセル
   if (type === "NOTIFIED_CANCEL_CALL" || type === "NOTIFIED_MISSED_CALL" || type === "4") {
-    const chatMid = String(op.param1 ?? "");
+    const callMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
+    const pending = finishIncomingCall(
+      accountId,
+      callMid,
+      callerMid.startsWith("u") ? callerMid : undefined,
+    );
+    const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:cancel", chatMid, callerMid });
+      pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
     }
     return;
   }
@@ -5987,16 +6011,18 @@ export async function startDirectCall(
   }
 }
 
-export async function stopDirectCall(sessionId: string): Promise<void> {
-  const { endManagedCall } = await import("../call/callManager.js");
-  await endManagedCall(sessionId);
+export async function stopDirectCall(accountId: string, sessionId: string): Promise<void> {
+  const { endManagedCallForAccount } = await import("../call/callManager.js");
+  if (!(await endManagedCallForAccount(accountId, sessionId)))
+    throw new Error("call session not found");
 }
 
 export async function getDirectCallStatus(
+  accountId: string,
   sessionId: string,
 ): Promise<import("../call/callManager.js").CallSessionSnapshot | null> {
-  const { getCallSnapshot } = await import("../call/callManager.js");
-  return getCallSnapshot(sessionId);
+  const { getCallSnapshotForAccount } = await import("../call/callManager.js");
+  return getCallSnapshotForAccount(accountId, sessionId);
 }
 
 export async function listDirectCalls(

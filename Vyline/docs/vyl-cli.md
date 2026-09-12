@@ -116,7 +116,7 @@ bun run vyl plugin create my-plugin
 Creates a plugin template under `plugins/my-plugin` with:
 
 - `package.json`
-- `vyline.plugin.json`
+- `manifest.json`
 - `src/index.ts`
 - `README.md`
 

@@ -34,8 +34,26 @@ function accountsDir(): string {
   return join(dataDir(), "accounts");
 }
 
+/**
+ * Account IDs are used as storage keys.  Keep the accepted form deliberately
+ * narrow so a malformed ID can never escape the accounts directory.
+ */
+export function assertSafeAccountId(accountId: string): string {
+  if (
+    typeof accountId !== "string" ||
+    accountId.length < 1 ||
+    accountId.length > 128 ||
+    accountId === "." ||
+    accountId === ".." ||
+    !/^[A-Za-z0-9._:-]+$/.test(accountId)
+  ) {
+    throw new Error("invalid accountId");
+  }
+  return accountId;
+}
+
 function accountDir(accountId: string): string {
-  return join(accountsDir(), encodeURIComponent(accountId));
+  return join(accountsDir(), encodeURIComponent(assertSafeAccountId(accountId)));
 }
 
 function accountTokenFile(accountId: string): string {
@@ -50,6 +68,7 @@ export async function getProtocolTokenState(accountId: string): Promise<{
   hasRefreshToken: boolean;
   expire?: number;
 }> {
+  assertSafeAccountId(accountId);
   const path = storagePathForAccount(accountId);
   if (!existsSync(path)) return { hasRefreshToken: false };
   try {
@@ -158,7 +177,13 @@ export async function loadTokens(): Promise<TokenMap> {
   try {
     for (const dir of await readdir(accounts, { withFileTypes: true })) {
       if (!dir.isDirectory()) continue;
-      const id = decodeURIComponent(dir.name);
+      let id: string;
+      try {
+        id = assertSafeAccountId(decodeURIComponent(dir.name));
+      } catch {
+        log.warn({ directory: dir.name }, "ignored unsafe account directory");
+        continue;
+      }
       const path = accountTokenFile(id);
       if (!existsSync(path)) continue;
       const entry = JSON.parse(await readFile(path, "utf8")) as TokenEntry;
@@ -175,6 +200,12 @@ export async function loadTokens(): Promise<TokenMap> {
     try {
       const parsed = JSON.parse(await readFile(legacyTokens, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
+        try {
+          assertSafeAccountId(id);
+        } catch {
+          log.warn({ accountId: id }, "ignored unsafe legacy account id");
+          continue;
+        }
         if (cleaned[id]) continue;
         const decoded = await decodePersistedEntry(id, entry);
         if (decoded) {
@@ -207,6 +238,7 @@ export async function saveToken(
   authToken: unknown,
   meta?: SessionMeta,
 ): Promise<void> {
+  assertSafeAccountId(accountId);
   const token = normalizeAuthToken(authToken);
   if (!token) {
     log.warn({ accountId }, "skip token save — empty authToken");
@@ -251,6 +283,7 @@ export async function saveToken(
 }
 
 export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {
+  assertSafeAccountId(accountId);
   const tokens = await loadTokens();
   const existing = tokens[accountId];
   if (!existing) return;
@@ -290,6 +323,7 @@ export async function saveRefreshToken(
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
+  assertSafeAccountId(accountId);
   try {
     await unlink(accountTokenFile(accountId));
   } catch {
@@ -319,6 +353,7 @@ export async function exportCredentialHandoff(
   accountId: string,
   passphrase: string,
 ): Promise<CredentialHandoffBundle> {
+  assertSafeAccountId(accountId);
   const entry = await getToken(accountId);
   if (!entry) throw new Error("保存済みセッションがありません");
   let protocol: Record<string, unknown> = {};
@@ -377,6 +412,7 @@ export async function importCredentialHandoff(
     meta?: SessionMeta;
     protocol?: Record<string, unknown>;
   };
+  assertSafeAccountId(targetAccountId);
   await saveToken(targetAccountId, payload.authToken, payload.meta);
   const target = storagePathForAccount(targetAccountId);
   await mkdir(accountDir(targetAccountId), { recursive: true });
@@ -384,6 +420,7 @@ export async function importCredentialHandoff(
 }
 
 export async function getToken(accountId: string): Promise<TokenEntry | undefined> {
+  assertSafeAccountId(accountId);
   const tokens = await loadTokens();
   return tokens[accountId];
 }

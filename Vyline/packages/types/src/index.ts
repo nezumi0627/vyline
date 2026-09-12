@@ -68,6 +68,8 @@ export interface VylineCachedGroup {
 
 export * from "./accountFeatures.js";
 export * from "./unsendPolicy.js";
+export * from "./callVideo.js";
+export * from "./callRecording.js";
 
 // ─── Chat ─────────────────────────────────────
 
@@ -286,6 +288,12 @@ export type SessionsResponse = ApiResult<{ sessions: SavedSession[] }>;
 
 export type CallType = "AUDIO" | "VIDEO";
 
+export interface CallParticipant {
+  mid: string;
+  hasAudioStream: boolean;
+  hasVideoStream: boolean;
+}
+
 export type CallSessionState =
   | "idle"
   | "acquiring"
@@ -304,6 +312,7 @@ export interface CallSessionInfo {
   state: CallSessionState;
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
+  participants?: CallParticipant[];
   error?: string;
 }
 

@@ -75,6 +75,14 @@ const body = (required: string[], properties: Record<string, unknown>, descripti
   },
 });
 
+const binaryBody = (description: string, contentType = "application/octet-stream") => ({
+  required: true,
+  description,
+  content: {
+    [contentType]: { schema: { type: "string", format: "binary" } },
+  },
+});
+
 // ── 操作テーブル ────────────────────────────────────────────
 // [routePath, method, tag, spec]
 // operationId は LINE 関数名準拠（Vyline 拡張は description に明記）
@@ -150,7 +158,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "LINE: updateProfileAttributes + OBS uploadMediaByE2EE",
       tags: ["session"],
       params: [acc],
-      requestBody: body(["dataBase64"], { dataBase64: { type: "string" } }),
+      requestBody: binaryBody("画像バイナリ（最大16MiB）", "image/*"),
       responses: { "200": okRes() },
     },
   ],
@@ -162,7 +170,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "プロフィール背景画像更新",
       tags: ["session"],
       params: [acc],
-      requestBody: body(["dataBase64"], { dataBase64: { type: "string" } }),
+      requestBody: binaryBody("画像バイナリ（最大16MiB）", "image/*"),
       responses: { "200": okRes() },
     },
   ],
@@ -331,7 +339,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "LINE: updateChat (PICTURE_STATUS) + OBS アップロード",
       tags: ["chats"],
       params: [acc, chatMid],
-      requestBody: body([], { dataBase64: { type: "string" } }),
+      requestBody: binaryBody("画像バイナリ（最大16MiB）", "image/*"),
       responses: { "200": okRes() },
     },
   ],
@@ -618,7 +626,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       params: [acc],
       requestBody: body(["chatMid", "dataBase64"], {
         chatMid: { type: "string" },
-        dataBase64: { type: "string", description: "最大 ~12MB base64" },
+        dataBase64: {
+          type: "string",
+          maxLength: 15000000,
+          description: "base64文字列は最大15,000,000文字",
+        },
         mimeType: { type: "string" },
         filename: { type: "string" },
         mediaType: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
@@ -1480,13 +1492,16 @@ const routes: Array<[string, Method, OpSpec]> = [
     "/line/{accountId}/call/start",
     "post",
     {
-      op: "acquireCallRoute",
-      summary: "通話開始（ルート確保）",
-      description: "LINE: acquireCallRoute (/V4)",
+      op: "startCall",
+      summary: "通話開始",
+      description: "1:1通話セッション開始。映像は callType=VIDEO と media=video WebSocket を使用",
       tags: ["calls"],
       params: [acc],
-      requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
-      responses: { "200": jsonRes("通話情報") },
+      requestBody: body(["to"], {
+        to: { type: "string" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+      }),
+      responses: { "200": jsonRes("通話セッション。VIDEO時は video.available=true") },
     },
   ],
   [
@@ -1917,6 +1932,20 @@ const routes: Array<[string, Method, OpSpec]> = [
       responses: { "200": okRes() },
     },
   ],
+  [
+    "/line/{accountId}/vyline/saved-media/{chatMid}/{messageId}/restore",
+    "post",
+    {
+      op: "restoreSavedMedia",
+      summary: "保存メディアをゴミ箱から復元",
+      tags: ["storage"],
+      params: [acc, chatMid, pathParam("messageId", "メッセージ ID")],
+      responses: {
+        "200": okRes(),
+        "404": { description: "復元対象が見つからない" },
+      },
+    },
+  ],
 
   // ── misc (Vyline 拡張) ──────────────────────────────────
   [
@@ -1981,9 +2010,16 @@ const routes: Array<[string, Method, OpSpec]> = [
     "post",
     {
       op: "controlPlugin",
-      summary: "プラグイン操作（enable/disable/uninstall）",
+      summary: "プラグイン操作（enable/disable）",
       tags: ["misc"],
-      params: [acc, pathParam("pluginId", "プラグイン ID"), pathParam("action", "操作")],
+      params: [
+        acc,
+        pathParam("pluginId", "プラグイン ID"),
+        {
+          ...pathParam("action", "操作"),
+          schema: { type: "string", enum: ["enable", "disable"] },
+        },
+      ],
       responses: { "200": okRes() },
     },
   ],
@@ -2161,7 +2197,8 @@ export const lineOpenApiSpec = {
         properties: {
           dataBase64: {
             type: "string",
-            description: "base64 エンコードされたバイナリ（最大 ~12MB）",
+            maxLength: 15000000,
+            description: "base64 エンコードされたバイナリ（最大15,000,000文字）",
           },
           mimeType: { type: "string", example: "image/png" },
           filename: { type: "string" },
@@ -2176,6 +2213,7 @@ export const lineOpenApiSpec = {
           items: {
             type: "array",
             minItems: 1,
+            maxItems: 32,
             items: { $ref: "#/components/schemas/MediaBatchItem" },
           },
         },

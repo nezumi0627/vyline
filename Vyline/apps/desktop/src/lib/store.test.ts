@@ -1,5 +1,5 @@
 import { describe, expect, it } from "bun:test";
-import { resolveChatToOpen, useStore } from "./store.js";
+import { accountDraftKey, resolveChatToOpen, useStore } from "./store.js";
 
 describe("useStore account initialization", () => {
   it("records every activated chat for the next startup", () => {
@@ -85,5 +85,19 @@ describe("useStore account initialization", () => {
     useStore.getState().setAccountId("account-2");
 
     expect(useStore.getState().activeChatId).toBeNull();
+  });
+
+  it("keeps drafts isolated by account", () => {
+    useStore.setState({ accountId: "account-1", drafts: {} });
+    useStore.getState().setDraft("shared-chat", "account one draft");
+    useStore.getState().setAccountId("account-2");
+    useStore.getState().setDraft("shared-chat", "account two draft");
+
+    expect(useStore.getState().drafts[accountDraftKey("account-1", "shared-chat")]).toBe(
+      "account one draft",
+    );
+    expect(useStore.getState().drafts[accountDraftKey("account-2", "shared-chat")]).toBe(
+      "account two draft",
+    );
   });
 });

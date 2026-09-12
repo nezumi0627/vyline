@@ -3,9 +3,16 @@
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
+import { cp, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
+import {
+  MAX_SNAPSHOT_ARCHIVE_BYTES,
+  MAX_SNAPSHOT_EXTRACTED_BYTES,
+  MAX_SNAPSHOT_FILES,
+  measureSnapshotTree,
+  validateSnapshotArchiveEntries,
+} from "./snapshotSecurity.js";
 
 const repoUrl = "https://github.com/nezumi0627/vyline";
 const archiveUrl = "https://github.com/nezumi0627/vyline/archive/refs/heads/main.tar.gz";
@@ -323,12 +330,26 @@ async function restoreSnapshot(archive: string, dataDir: string, force: boolean)
   }
 
   const stage = join(tmpdir(), `vyline-restore-${randomUUID()}`);
+  await validateSnapshotArchive(archive);
   await mkdir(stage, { recursive: true });
   runChecked("tar", ["-xzf", archive, "-C", stage]);
 
   const payload = join(stage, "payload");
   if (!existsSync(payload)) {
+    await rm(stage, { recursive: true, force: true });
     throw new Error("Invalid snapshot: payload directory is missing");
+  }
+
+  const extracted = await measureSnapshotTree(stage);
+  if (extracted.files > MAX_SNAPSHOT_FILES) {
+    await rm(stage, { recursive: true, force: true });
+    throw new Error(`Snapshot contains too many files (limit: ${MAX_SNAPSHOT_FILES})`);
+  }
+  if (extracted.bytes > MAX_SNAPSHOT_EXTRACTED_BYTES) {
+    await rm(stage, { recursive: true, force: true });
+    throw new Error(
+      `Snapshot expands beyond the size limit (${MAX_SNAPSHOT_EXTRACTED_BYTES} bytes)`,
+    );
   }
 
   if (existsSync(dataDir)) {
@@ -344,6 +365,45 @@ async function restoreSnapshot(archive: string, dataDir: string, force: boolean)
   await cp(payload, dataDir, { recursive: true });
   await rm(stage, { recursive: true, force: true });
   console.log(`Restored snapshot to ${dataDir}`);
+}
+
+/**
+ * Validate an archive before extraction. The archive is unpacked into a fresh
+ * temporary directory, but validation still happens first so a malicious
+ * archive cannot write outside that directory during extraction.
+ */
+export async function validateSnapshotArchive(archive: string): Promise<void> {
+  const archiveInfo = await stat(archive);
+  if (archiveInfo.size > MAX_SNAPSHOT_ARCHIVE_BYTES) {
+    throw new Error(`Snapshot archive is too large (limit: ${MAX_SNAPSHOT_ARCHIVE_BYTES} bytes)`);
+  }
+
+  const listing = run("tar", ["-tzf", archive]);
+  if (!listing.ok) {
+    throw new Error(`Invalid snapshot archive: ${listing.stderr.trim() || "tar listing failed"}`);
+  }
+
+  const entries = listing.stdout
+    .split(/\r?\n/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  validateSnapshotArchiveEntries(entries);
+
+  // GNU tar and bsdtar both expose the entry kind in the first mode column.
+  // Reject links entirely: they are unnecessary in a data snapshot and can
+  // make a later recursive copy escape the intended payload directory.
+  const verbose = run("tar", ["-tvzf", archive]);
+  if (!verbose.ok) {
+    throw new Error(
+      `Invalid snapshot archive: ${verbose.stderr.trim() || "tar inspection failed"}`,
+    );
+  }
+  for (const line of verbose.stdout.split(/\r?\n/)) {
+    const kind = line.trimStart()[0];
+    if (kind === "l" || kind === "h") {
+      throw new Error("Snapshot archive contains a symbolic or hard link");
+    }
+  }
 }
 
 async function scheduleSnapshot(

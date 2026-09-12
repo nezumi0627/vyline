@@ -9,7 +9,8 @@
     "Vyline/packages/*",
     "Vyline/packages/plugin/sdk",
     "Vyline/apps/*",
-    "Vyline/backend"
+    "Vyline/backend",
+    "tools"
   ],
   "scripts": {
     "dev": "bun run --parallel --no-orphans dev:backend dev:frontend",
@@ -17,6 +18,7 @@
     "server": "bun Vyline/backend/src/index.ts",
     "dev:frontend": "bun --cwd Vyline/apps/desktop ./node_modules/vite/bin/vite.js",
     "build": "bun run --cwd Vyline/apps/desktop build",
+    "build:packages": "bun run --cwd Vyline/packages/ios-backup build",
     "vyl": "bun Vyline/packages/cli/src/index.ts",
     "vyl:init": "bun Vyline/packages/cli/src/index.ts init",
     "vyl:doctor": "bun Vyline/packages/cli/src/index.ts doctor",
@@ -24,8 +26,9 @@
     "vyl:snapshot": "bun Vyline/packages/cli/src/index.ts snapshot",
     "package:windows": "bun scripts/build-windows-release.ts",
     "package:linux": "bun scripts/build-linux-release.ts",
-    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck && bun run --cwd Vyline/packages/cli typecheck && bun run --cwd Vyline/packages/create-plugin typecheck && bun run --cwd Vyline/packages/vyl typecheck",
-    "lint": "biome check Vyline/apps Vyline/backend Vyline/docs Vyline/packages/cli Vyline/packages/create-plugin Vyline/packages/vyl Vyline/packages/ios-backup Vyline/packages/line-types Vyline/packages/loose-types Vyline/packages/plugin Vyline/packages/themes Vyline/packages/types",
+    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck && bun run --cwd Vyline/packages/cli typecheck && bun run --cwd Vyline/packages/create-plugin typecheck && bun run --cwd Vyline/packages/vyl typecheck && bun run --cwd Vyline/packages/ios-backup typecheck && bun run --cwd tools typecheck",
+    "lint": "biome check Vyline/apps Vyline/backend Vyline/docs Vyline/packages/cli Vyline/packages/create-plugin Vyline/packages/vyl Vyline/packages/ios-backup Vyline/packages/line-types Vyline/packages/loose-types Vyline/packages/plugin Vyline/packages/themes Vyline/packages/types tools",
+    "test:tooling": "bun test Vyline/packages/create-plugin/src/index.test.ts Vyline/packages/cli/src/snapshotSecurity.test.ts Vyline/backend/src/line/pluginManager.manifest.test.ts Vyline/packages/ios-backup/src",
     "vyline:delta": "bun Vyline/packages/protocol/src/tools/reportDesktopDelta.ts",
     "vyline:find-native": "bun tools/src/findNativeSymbol.ts",
     "vyline:focus-recovered": "bun tools/src/focusRecoveredSource.ts",

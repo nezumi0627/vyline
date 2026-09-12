@@ -1,4 +1,4 @@
-/** 1:1 通話の対象制限（DM のみ。表示名 allowlist は廃止） */
+/** 通話先の種別を検証する。実送信テストは AGENTS.md の指定先だけ。 */
 
 export class CallNotAllowedError extends Error {
   constructor(message: string) {
@@ -10,6 +10,10 @@ export class CallNotAllowedError extends Error {
 /** mid が 1:1 通話可能か（u* の DM のみ） */
 export function isAllowedCallTarget(toMid: string): boolean {
   return toMid.startsWith("u");
+}
+
+export function isGroupCallTarget(mid: string): boolean {
+  return /^c[0-9a-f]{32}$/.test(mid);
 }
 
 export function callAllowlistHint(): string {

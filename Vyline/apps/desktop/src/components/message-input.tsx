@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { useStore } from "@/lib/store";
+import { accountDraftKey, useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { compressImageFile } from "@/utils/compressImage";
@@ -109,13 +109,14 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 export function MessageInput({ chatId }: { chatId: string }) {
-  const draft = useStore((s) => s.drafts[chatId] ?? "");
+  const accountId = useStore((s) => s.accountId);
+  const draftKey = accountDraftKey(accountId, chatId);
+  const draft = useStore((s) => s.drafts[draftKey] ?? "");
   const setDraft = useStore((s) => s.setDraft);
   const sendMessage = useStore((s) => s.sendMessage);
   const sendSticker = useStore((s) => s.sendSticker);
   const sendCombinationSticker = useStore((s) => s.sendCombinationSticker);
   const sendAudio = useStore((s) => s.sendAudio);
-  const accountId = useStore((s) => s.accountId);
   const enterToSend = useStore((s) => s.settings.enterToSend);
   const agentEnabled = useStore((s) => s.settings.betaAgentI);
   const replyToId = useStore((s) => s.replyToId);
@@ -133,7 +134,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   // 下書きの本文（￼ プレースホルダ）と絵文字メタデータを同一ストアに永続化して、チャット切替・再起動後もズレないようにする
-  const draftSticons = useStore((s) => s.draftSticons[chatId] ?? NO_STICONS);
+  const draftSticons = useStore((s) => s.draftSticons[draftKey] ?? NO_STICONS);
   const setDraftSticons = useStore((s) => s.setDraftSticons);
   const setDraftMentions = useStore((s) => s.setDraftMentions);
   const [overlayScrollTop, setOverlayScrollTop] = useState(0);
@@ -163,10 +164,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
+  const pendingMediaRef = useRef(pendingMedia);
+  pendingMediaRef.current = pendingMedia;
 
   useEffect(() => {
-    for (const item of pendingMedia) URL.revokeObjectURL(item.url);
+    for (const item of pendingMediaRef.current) URL.revokeObjectURL(item.url);
     setPendingMedia([]);
+    return () => {
+      for (const item of pendingMediaRef.current) URL.revokeObjectURL(item.url);
+    };
   }, [chatId]);
 
   // ￼ プレースホルダの実幅（1em 比）を計測し、絵文字画像を同じ幅に描画する。
@@ -413,7 +419,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function insertAtCursor(chunk: string): number {
     const ta = taRef.current;
-    const current = useStore.getState().drafts[chatId] ?? "";
+    const state = useStore.getState();
+    const current = state.drafts[accountDraftKey(state.accountId, chatId)] ?? "";
     const start = ta?.selectionStart ?? current.length;
     const end = ta?.selectionEnd ?? current.length;
     const next = current.slice(0, start) + chunk + current.slice(end);
@@ -428,13 +435,15 @@ export function MessageInput({ chatId }: { chatId: string }) {
   }
 
   function insertLineEmoji(packageId: string, sticonId: string) {
-    const text = useStore.getState().drafts[chatId] ?? "";
+    const state = useStore.getState();
+    const key = accountDraftKey(state.accountId, chatId);
+    const text = state.drafts[key] ?? "";
     const start = insertAtCursor(STICON_PLACEHOLDER);
     // 本文のプレースホルダ順 = リソース順。挿入位置より前のプレースホルダ数に合わせてリソースを差し込む
     const before = text.slice(0, start).split(STICON_PLACEHOLDER).length - 1;
-    const prev = useStore.getState().draftSticons[chatId] ?? [];
+    const prev = state.draftSticons[key] ?? [];
     // 挿入後の本文に合わせて S/E を再計算する（範囲が無いと $ 文字が誤置換される fallback 経路に入るため）
-    const next = recomputeSticonRanges(useStore.getState().drafts[chatId] ?? "", [
+    const next = recomputeSticonRanges(useStore.getState().drafts[key] ?? "", [
       ...prev.slice(0, before),
       { productId: packageId, sticonId },
       ...prev.slice(before),
@@ -444,11 +453,12 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function send() {
     const state = useStore.getState();
-    const text = state.drafts[chatId] ?? draft;
+    const key = accountDraftKey(state.accountId, chatId);
+    const text = state.drafts[key] ?? draft;
     if (!text.trim() && !text.includes(STICON_PLACEHOLDER)) return;
-    const ranged = recomputeSticonRanges(text, state.draftSticons[chatId] ?? []);
+    const ranged = recomputeSticonRanges(text, state.draftSticons[key] ?? []);
     const sticonMeta = buildSticonMetadata(ranged) ?? {};
-    const mentionMeta = buildMentionMetadata(state.draftMentions[chatId] ?? []);
+    const mentionMeta = buildMentionMetadata(state.draftMentions[key] ?? []);
     const meta = mentionMeta ? { ...sticonMeta, MENTION: mentionMeta } : sticonMeta;
     void sendMessage(chatId, text, {
       contentMetadata: Object.keys(meta).length ? meta : undefined,
@@ -529,12 +539,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function onDraftChange(value: string, caret?: number) {
     const state = useStore.getState();
-    const oldText = state.drafts[chatId] ?? "";
+    const key = accountDraftKey(state.accountId, chatId);
+    const oldText = state.drafts[key] ?? "";
     setDraft(chatId, value);
-    setDraftSticons(chatId, syncSticonsToText(value, state.draftSticons[chatId] ?? []));
+    setDraftSticons(chatId, syncSticonsToText(value, state.draftSticons[key] ?? []));
     setDraftMentions(
       chatId,
-      recomputeMentionsOnEdit(oldText, value, state.draftMentions[chatId] ?? []),
+      recomputeMentionsOnEdit(oldText, value, state.draftMentions[key] ?? []),
     );
     const trig = chat?.type === "group" ? detectMentionTrigger(value, caret ?? value.length) : null;
     setMentionPicker(trig);
@@ -544,7 +555,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
   function insertMention(opt: { mid?: string; all?: boolean; name: string }) {
     const state = useStore.getState();
     const ta = taRef.current;
-    const text = state.drafts[chatId] ?? "";
+    const key = accountDraftKey(state.accountId, chatId);
+    const text = state.drafts[key] ?? "";
     const start = mentionPicker?.start ?? ta?.selectionStart ?? text.length;
     const end = mentionPicker
       ? start + 1 + mentionPicker.query.length
@@ -553,7 +565,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     const next = text.slice(0, start) + label + text.slice(end);
     setDraft(chatId, next);
     setDraftMentions(chatId, [
-      ...recomputeMentionsOnEdit(text, next, state.draftMentions[chatId] ?? []),
+      ...recomputeMentionsOnEdit(text, next, state.draftMentions[key] ?? []),
       { S: start, E: start + label.length, mid: opt.mid, all: opt.all, name: opt.name },
     ]);
     setMentionPicker(null);

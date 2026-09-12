@@ -84,6 +84,8 @@ const recentlyReadAt = new Map<string, number>();
 const RECENTLY_READ_WINDOW_MS = 60_000;
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
+export const accountDraftKey = (accountId: string | null, chatId: string) =>
+  `${accountId ?? "anonymous"}:${chatId}`;
 const lastOpenedChatStorageKey = (accountId: string) => `vyline:last-opened-chat:${accountId}`;
 
 function readLastOpenedChat(accountId: string): string | null {
@@ -123,6 +125,17 @@ function snapshotFromMessage(m: Message): MessageSnapshot {
 
 function isDataUrl(value?: string): boolean {
   return typeof value === "string" && value.startsWith("data:");
+}
+
+function revokeObjectUrl(value?: string): void {
+  if (typeof value === "string" && value.startsWith("blob:")) URL.revokeObjectURL(value);
+}
+
+function revokeMessageObjectUrls(messages: Message[]): void {
+  for (const message of messages) {
+    revokeObjectUrl(message.imageSrc);
+    revokeObjectUrl(message.audioSrc);
+  }
 }
 
 function mergePreservingComboStickerPreview(existing: Message, incoming: Message): Message {
@@ -576,6 +589,9 @@ export const useStore = create<State>()(
           eventPollCursor.delete(String(id));
         }
         if (accountChanged && currentAccountId !== null) {
+          revokeMessageObjectUrls(get().messages);
+          revokeObjectUrl(get().self.avatarUrl);
+          revokeObjectUrl(get().self.backgroundUrl);
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
@@ -602,21 +618,23 @@ export const useStore = create<State>()(
       },
 
       resetAccountData: () =>
-        set({
-          chats: [],
-          messages: [],
-          profileDrawerOpen: false,
-          announcements: {},
-          drafts: {},
-          draftSticons: {},
-          draftMentions: {},
-          replyToId: null,
-          highlightMessageId: null,
-          initialChatScrollMessageId: null,
-          initialChatScrollMode: null,
-          customOrder: [],
-          blockedMids: [],
-          lockedChatMids: [],
+        set((st) => {
+          revokeMessageObjectUrls(st.messages);
+          revokeObjectUrl(st.self.avatarUrl);
+          revokeObjectUrl(st.self.backgroundUrl);
+          return {
+            chats: [],
+            messages: [],
+            profileDrawerOpen: false,
+            announcements: {},
+            replyToId: null,
+            highlightMessageId: null,
+            initialChatScrollMessageId: null,
+            initialChatScrollMode: null,
+            customOrder: [],
+            blockedMids: [],
+            lockedChatMids: [],
+          };
         }),
 
       toggleChatReadDisabled: (id) => {
@@ -997,7 +1015,7 @@ export const useStore = create<State>()(
           };
           set((st) => ({
             messages: [...st.messages, message],
-            drafts: { ...st.drafts, [chatId]: "" },
+            drafts: { ...st.drafts, [accountDraftKey(st.accountId, chatId)]: "" },
             replyToId: null,
           }));
           get().showNotice("デモ送信（外部通信なし）");
@@ -1047,7 +1065,7 @@ export const useStore = create<State>()(
         };
         set((st) => ({
           messages: [...st.messages, optimistic],
-          drafts: { ...st.drafts, [chatId]: "" },
+          drafts: { ...st.drafts, [accountDraftKey(st.accountId, chatId)]: "" },
           replyToId: null,
         }));
 
@@ -1059,7 +1077,9 @@ export const useStore = create<State>()(
               contentMetadata: opts?.contentMetadata,
               mute: opts?.mute,
             });
+            if (get().accountId !== accountId) return;
           } catch {
+            if (get().accountId !== accountId) return;
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
             }));
@@ -1476,6 +1496,7 @@ export const useStore = create<State>()(
             filename,
             mediaType: isVideo ? "video" : "image",
           });
+          if (get().accountId !== accountId) return;
           if (res.ok) {
             const existing = refreshDebounce.get(chatId);
             if (existing) clearTimeout(existing);
@@ -1541,6 +1562,7 @@ export const useStore = create<State>()(
               filename: `voice-${seconds}s.${ext}`,
               mediaType: "audio",
             });
+            if (get().accountId !== accountId) return;
             if (!res.ok) {
               window.alert(res.error ?? "音声メッセージの送信に失敗しました");
               return;
@@ -1880,13 +1902,26 @@ export const useStore = create<State>()(
         }));
       },
 
-      setDraft: (chatId, text) => set((st) => ({ drafts: { ...st.drafts, [chatId]: text } })),
+      setDraft: (chatId, text) =>
+        set((st) => ({
+          drafts: { ...st.drafts, [accountDraftKey(st.accountId, chatId)]: text },
+        })),
 
       setDraftSticons: (chatId, sticons) =>
-        set((st) => ({ draftSticons: { ...st.draftSticons, [chatId]: sticons } })),
+        set((st) => ({
+          draftSticons: {
+            ...st.draftSticons,
+            [accountDraftKey(st.accountId, chatId)]: sticons,
+          },
+        })),
 
       setDraftMentions: (chatId, mentions) =>
-        set((st) => ({ draftMentions: { ...st.draftMentions, [chatId]: mentions } })),
+        set((st) => ({
+          draftMentions: {
+            ...st.draftMentions,
+            [accountDraftKey(st.accountId, chatId)]: mentions,
+          },
+        })),
 
       setReplyTo: (messageId) => set({ replyToId: messageId }),
 
@@ -2063,6 +2098,7 @@ export const useStore = create<State>()(
           const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatId, 50, {
             force: opts?.force === true,
           });
+          if (get().accountId !== accountId) return;
           if (res.ok && res.messages) {
             const asc = [...res.messages].reverse();
             const contactCache = new Map<string, ContactInfo>();
@@ -2311,6 +2347,7 @@ export const useStore = create<State>()(
           const res = await api.line.getMessageReadRange(accountId, chatId, myIds, {
             force: opts?.force === true,
           });
+          if (get().accountId !== accountId) return;
           if (!res.ok || !res.receipts) return;
 
           // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
@@ -2697,6 +2734,7 @@ export const useStore = create<State>()(
         const started = Date.now();
         try {
           const res = await api.line.getMessageDelta(accountId, chatId, lastId, 15);
+          if (get().accountId !== accountId) return;
           // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
           lastDeltaPollAt.set(chatKey, Date.now());
           if (res.ok && res.messages?.length) {
@@ -2723,6 +2761,7 @@ export const useStore = create<State>()(
           const cursor = eventPollCursor.get(accountId) ?? 0;
           try {
             const res = await api.line.fetchOperations(accountId, cursor);
+            if (get().accountId !== accountId) return;
             if (res.ok) {
               if (res.reset) {
                 // バッファが失われた（再起動 / 追い出し）→ カーソルを現在に合わせ再同期
@@ -2781,6 +2820,7 @@ export const useStore = create<State>()(
             /* silent poll */
           }
 
+          if (get().accountId !== accountId) return;
           const { activeChatId } = get();
           // push が機能しない環境の保険: アクティブチャットは delta で毎回取りこぼしを回収
           if (activeChatId) {

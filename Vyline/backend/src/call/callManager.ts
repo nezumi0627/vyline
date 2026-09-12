@@ -6,6 +6,7 @@ import type { ServerWebSocket } from "bun";
 import type { CallSession, CallSessionState } from "@vyline/protocol/stack/call";
 import type { PcmFrame } from "@vyline/protocol/stack/call";
 import { bufferSource, type AudioSource } from "@vyline/protocol/stack/call";
+import { decodeCallVideoFrame, type CallVideoState } from "@vyline/types";
 import { createDirectCallSession } from "./sessionFactory.js";
 import type { VylineClient } from "@vyline/protocol";
 import { randomUUID } from "node:crypto";
@@ -16,6 +17,7 @@ const log = childLogger("call:manager");
 const MAX_PCM_FRAME_BYTES = 64 * 1024;
 const MAX_MIC_QUEUE_FRAMES = 100;
 const MAX_WS_CLIENTS_PER_CALL = 8;
+const MAX_VIDEO_CLIENTS_PER_CALL = 4;
 const CALL_CLIENT_ERROR = "call operation failed";
 
 export interface CallSessionSnapshot {
@@ -26,6 +28,7 @@ export interface CallSessionSnapshot {
   state: CallSessionState;
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
+  video: CallVideoState;
   error?: string;
 }
 
@@ -40,6 +43,7 @@ interface ManagedCall {
   startedAt: number;
   error?: string;
   wsClients: Set<ServerWebSocket<CallWsData>>;
+  videoClients: Set<ServerWebSocket<CallWsData>>;
   micQueue: PcmFrame[];
   micWaiters: Array<(f: PcmFrame | null) => void>;
   micClosed: boolean;
@@ -51,10 +55,19 @@ interface ManagedCall {
 export interface CallWsData {
   accountId: string;
   sessionId: string;
+  media: "audio" | "video";
+  videoEnabled?: boolean;
 }
 
 const sessions = new Map<string, ManagedCall>();
 const byAccount = new Map<string, Set<string>>();
+const acquiringAccounts = new Set<string>();
+
+function reserveAccount(accountId: string): () => void {
+  if (acquiringAccounts.has(accountId)) throw new Error("通話の接続処理中です");
+  acquiringAccounts.add(accountId);
+  return () => acquiringAccounts.delete(accountId);
+}
 
 function micSource(call: ManagedCall): AudioSource {
   return {
@@ -103,6 +116,7 @@ function broadcastState(call: ManagedCall) {
 
 function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
   for (const ws of call.wsClients) {
+    if (ws.data.media !== "audio") continue;
     try {
       ws.send(pcm);
     } catch {
@@ -111,10 +125,50 @@ function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
   }
 }
 
+function broadcastVideoState(call: ManagedCall) {
+  const remoteEnabled = [...call.videoClients].some((ws) => ws.data.videoEnabled === true);
+  for (const ws of call.videoClients) {
+    try {
+      ws.send(
+        JSON.stringify({
+          type: "state",
+          sessionId: call.sessionId,
+          state: call.session.state,
+          transport: call.transport,
+          error: call.error,
+          video: {
+            available: call.kind === "VIDEO",
+            localEnabled: ws.data.videoEnabled === true,
+            remoteEnabled: remoteEnabled && ws.data.videoEnabled !== true,
+          },
+        }),
+      );
+    } catch {
+      /* disconnected client */
+    }
+  }
+}
+
+function broadcastVideo(
+  call: ManagedCall,
+  packet: Uint8Array,
+  sender: ServerWebSocket<CallWsData>,
+) {
+  for (const ws of call.videoClients) {
+    if (ws === sender || ws.data.videoEnabled !== true) continue;
+    try {
+      ws.send(packet);
+    } catch {
+      /* disconnected client */
+    }
+  }
+}
+
 function attachSessionEvents(call: ManagedCall) {
   call.session.on("state", (s) => {
     call.state = s;
     broadcastState(call);
+    broadcastVideoState(call);
   });
   call.session.on("ended", (reason) => {
     log.info({ sessionId: call.sessionId, reason }, "call ended");
@@ -182,65 +236,71 @@ export async function startManagedCall(opts: {
   desktopProfile?: DesktopProfile;
 }): Promise<CallSessionSnapshot> {
   const kind = opts.kind ?? "AUDIO";
-  const existing = [...(byAccount.get(opts.accountId) ?? [])]
-    .map((id) => sessions.get(id))
-    .find((c) => {
-      if (!c) return false;
-      const s = c.session.state;
-      if (s === "ended" || s === "failed") {
-        cleanupCall(c.sessionId);
-        return false;
-      }
-      return true;
+  const release = reserveAccount(opts.accountId);
+  try {
+    const existing = [...(byAccount.get(opts.accountId) ?? [])]
+      .map((id) => sessions.get(id))
+      .find((c) => {
+        if (!c) return false;
+        const s = c.session.state;
+        if (s === "ended" || s === "failed") {
+          cleanupCall(c.sessionId);
+          return false;
+        }
+        return true;
+      });
+    if (existing) {
+      throw new Error(`通話中: sessionId=${existing.sessionId}`);
+    }
+
+    const created = await createDirectCallSession(opts.client, {
+      to: opts.to,
+      kind,
+      ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     });
-  if (existing) {
-    throw new Error(`通話中: sessionId=${existing.sessionId}`);
-  }
+    const session = created.session;
+    const sessionId = randomUUID();
+    const transport = created.transportKind;
 
-  const created = await createDirectCallSession(opts.client, {
-    to: opts.to,
-    kind,
-    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
-  });
-  const session = created.session;
-  const sessionId = randomUUID();
-  const transport = created.transportKind;
-
-  const call: ManagedCall = {
-    sessionId,
-    accountId: opts.accountId,
-    to: opts.to,
-    kind,
-    session,
-    state: "idle",
-    transport,
-    startedAt: Date.now(),
-    wsClients: new Set(),
-    micQueue: [],
-    micWaiters: [],
-    micClosed: false,
-  };
-
-  sessions.set(sessionId, call);
-  if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
-  byAccount.get(opts.accountId)!.add(sessionId);
-
-  attachSessionEvents(call);
-
-  call.startTask = runCallStart(call);
-  broadcastState(call);
-  log.info(
-    {
+    const call: ManagedCall = {
       sessionId,
       accountId: opts.accountId,
       to: opts.to,
+      kind,
+      session,
+      state: "idle",
       transport,
-      device: created.wire.deviceDetails.device,
-    },
-    "call session created",
-  );
+      startedAt: Date.now(),
+      wsClients: new Set(),
+      micQueue: [],
+      micWaiters: [],
+      micClosed: false,
+      videoClients: new Set(),
+    };
 
-  return snapshot(call);
+    sessions.set(sessionId, call);
+    if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
+    byAccount.get(opts.accountId)!.add(sessionId);
+
+    attachSessionEvents(call);
+
+    call.startTask = runCallStart(call);
+    broadcastState(call);
+    log.info(
+      {
+        sessionId,
+        accountId: opts.accountId,
+        to: opts.to,
+        transport,
+        device: created.wire.deviceDetails.device,
+      },
+      "call session created",
+    );
+
+    return snapshot(call);
+  } finally {
+    release();
+  }
 }
 
 export async function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {
@@ -268,6 +328,7 @@ function cleanupCall(sessionId: string) {
       /* */
     }
   }
+  call.videoClients.clear();
   sessions.delete(sessionId);
   byAccount.get(call.accountId)?.delete(sessionId);
 }
@@ -275,6 +336,26 @@ function cleanupCall(sessionId: string) {
 export function getCallSnapshot(sessionId: string): CallSessionSnapshot | null {
   const call = sessions.get(sessionId);
   return call ? snapshot(call) : null;
+}
+
+/** アカウント境界を含めて取得する。BFFからはこの関数を優先して使う。 */
+export function getCallSnapshotForAccount(
+  accountId: string,
+  sessionId: string,
+): CallSessionSnapshot | null {
+  const call = sessions.get(sessionId);
+  return call?.accountId === accountId ? snapshot(call) : null;
+}
+
+export async function endManagedCallForAccount(
+  accountId: string,
+  sessionId: string,
+  reason = "user-ended",
+): Promise<boolean> {
+  const call = sessions.get(sessionId);
+  if (!call || call.accountId !== accountId) return false;
+  await endManagedCall(sessionId, reason);
+  return true;
 }
 
 export function listAccountCalls(accountId: string): CallSessionSnapshot[] {
@@ -295,6 +376,11 @@ function snapshot(call: ManagedCall): CallSessionSnapshot {
     state: call.session.state,
     transport: call.transport,
     startedAt: call.startedAt,
+    video: {
+      available: call.kind === "VIDEO",
+      localEnabled: false,
+      remoteEnabled: [...call.videoClients].some((ws) => ws.data.videoEnabled === true),
+    },
     ...(call.error ? { error: call.error } : {}),
   };
 }
@@ -309,6 +395,17 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
     ws.close(4429, "too many call clients");
     return;
   }
+  if (ws.data.media === "video") {
+    if (call.kind !== "VIDEO") {
+      ws.close(4406, "video is not enabled for this call");
+      return;
+    }
+    if (call.videoClients.size >= MAX_VIDEO_CLIENTS_PER_CALL) {
+      ws.close(4429, "too many video clients");
+      return;
+    }
+    call.videoClients.add(ws);
+  }
   call.wsClients.add(ws);
   ws.send(
     JSON.stringify({
@@ -319,6 +416,7 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
       error: call.error,
     }),
   );
+  if (ws.data.media === "video") broadcastVideoState(call);
 }
 
 /** ブラウザからの PCM Int16LE mono @48kHz */
@@ -329,6 +427,34 @@ export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
     return;
   const samples = new Int16Array(data);
   pushMic(call, { samples, sampleRate: 48000, channels: 1 });
+}
+
+/**
+ * ブラウザからのVP8映像フレームを検証して、同じ通話の映像socketへ中継する。
+ * フレームをキューイング・蓄積せず、遅い受信者はWebSocket側のbackpressureに任せる。
+ */
+export function ingestCallVideoPacket(ws: ServerWebSocket<CallWsData>, data: ArrayBuffer): void {
+  if (ws.data.media !== "video") return;
+  const call = sessions.get(ws.data.sessionId);
+  if (!call || call.accountId !== ws.data.accountId || call.session.state !== "in-call") return;
+  if (data.byteLength > 0x400000) return;
+  let frame: ReturnType<typeof decodeCallVideoFrame>;
+  try {
+    frame = decodeCallVideoFrame(new Uint8Array(data));
+  } catch {
+    return;
+  }
+  if (frame.sourceMid !== undefined) return;
+  if (ws.data.videoEnabled !== true) return;
+  broadcastVideo(call, data.byteLength ? new Uint8Array(data) : new Uint8Array(), ws);
+}
+
+function setVideoEnabled(ws: ServerWebSocket<CallWsData>, enabled: boolean): void {
+  if (ws.data.media !== "video") return;
+  const call = sessions.get(ws.data.sessionId);
+  if (!call || call.accountId !== ws.data.accountId || call.kind !== "VIDEO") return;
+  ws.data.videoEnabled = enabled;
+  broadcastVideoState(call);
 }
 
 /** テスト用: 440Hz トーンを数秒送る（Desktop 準拠の通話エンコード検証） */
@@ -350,8 +476,10 @@ export const callWebSocketHandler = {
   message(ws: ServerWebSocket<CallWsData>, message: string | Buffer) {
     if (typeof message === "string") {
       try {
-        const j = JSON.parse(message) as { type?: string };
+        const j = JSON.parse(message) as { type?: string; enabled?: boolean };
         if (j.type === "ping") ws.send(JSON.stringify({ type: "pong" }));
+        else if (j.type === "video" && typeof j.enabled === "boolean")
+          setVideoEnabled(ws, j.enabled);
       } catch {
         /* */
       }
@@ -361,10 +489,15 @@ export const callWebSocketHandler = {
       message instanceof Buffer
         ? message.buffer.slice(message.byteOffset, message.byteOffset + message.byteLength)
         : message;
-    ingestCallMicPcm(ws.data.sessionId, buf as ArrayBuffer);
+    if (ws.data.media === "video") ingestCallVideoPacket(ws, buf as ArrayBuffer);
+    else ingestCallMicPcm(ws.data.sessionId, buf as ArrayBuffer);
   },
   close(ws: ServerWebSocket<CallWsData>) {
     const call = sessions.get(ws.data.sessionId);
-    call?.wsClients.delete(ws);
+    if (call) {
+      call.wsClients.delete(ws);
+      call.videoClients.delete(ws);
+      if (ws.data.media === "video") broadcastVideoState(call);
+    }
   },
 };

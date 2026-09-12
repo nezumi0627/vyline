@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -66,12 +66,15 @@ export function IosBackupWizard({ onClose, onSuccess }: IosBackupWizardProps) {
   const [session, setSession] = useState<IosBackupSession | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
-  const [pollInterval, setPollInterval] = useState<ReturnType<typeof setInterval> | null>(null);
+  const pollTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const pollGenerationRef = useRef(0);
 
   useEffect(() => {
     loadDevices();
     return () => {
-      if (pollInterval) clearInterval(pollInterval);
+      pollGenerationRef.current += 1;
+      if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+      pollTimerRef.current = null;
     };
   }, []);
 
@@ -114,26 +117,36 @@ export function IosBackupWizard({ onClose, onSuccess }: IosBackupWizardProps) {
   };
 
   const pollSession = (sessionId: string) => {
-    const interval = setInterval(async () => {
+    const restoreAccountId = accountId;
+    if (!restoreAccountId) return;
+    pollGenerationRef.current += 1;
+    if (pollTimerRef.current) clearTimeout(pollTimerRef.current);
+    const generation = pollGenerationRef.current;
+    const poll = async () => {
+      if (generation !== pollGenerationRef.current) return;
       try {
-        const res = await api.line.getIosBackupSession(accountId!, sessionId);
+        const res = await api.line.getIosBackupSession(restoreAccountId, sessionId);
+        if (generation !== pollGenerationRef.current) return;
+        if (useStore.getState().accountId !== restoreAccountId) return;
         if (res.ok && res.session) {
           setSession(res.session);
           if (res.session.status === "completed") {
-            clearInterval(interval);
             setStep("complete");
             onSuccess?.();
           } else if (res.session.status === "failed") {
-            clearInterval(interval);
             setError(res.session.error || "復元に失敗しました");
             setStep("error");
+          } else {
+            pollTimerRef.current = setTimeout(poll, 2000);
           }
         }
       } catch {
-        // Ignore polling errors
+        if (generation === pollGenerationRef.current) {
+          pollTimerRef.current = setTimeout(poll, 2000);
+        }
       }
-    }, 2000);
-    setPollInterval(interval);
+    };
+    pollTimerRef.current = setTimeout(poll, 0);
   };
 
   const goBack = () => {

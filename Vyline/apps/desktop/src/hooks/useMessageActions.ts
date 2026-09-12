@@ -33,15 +33,15 @@ export function useMessageActions({
   useEffect(() => {
     setReplyTo(null);
     setSendError(null);
-    setMessageTextState(getDraft(selectedChatMid));
-  }, [selectedChatMid, getDraft]);
+    setMessageTextState(getDraft(accountId, selectedChatMid));
+  }, [accountId, selectedChatMid, getDraft]);
 
   const setMessageText = useCallback(
     (text: string) => {
       setMessageTextState(text);
-      if (selectedChatMid) setDraft(selectedChatMid, text);
+      if (selectedChatMid) setDraft(accountId, selectedChatMid, text);
     },
-    [selectedChatMid, setDraft],
+    [accountId, selectedChatMid, setDraft],
   );
 
   const send = useCallback(
@@ -53,7 +53,7 @@ export function useMessageActions({
       const relatedMessageId = replyTo?.id;
 
       setMessageTextState("");
-      clearDraft(selectedChatMid);
+      clearDraft(accountId, selectedChatMid);
       setSendError(null);
       setSending(true);
 
@@ -67,7 +67,7 @@ export function useMessageActions({
         } else {
           setSendError(res.error ?? "送信に失敗しました");
           setMessageTextState(text);
-          setDraft(selectedChatMid, text);
+          setDraft(accountId, selectedChatMid, text);
         }
       } finally {
         setSending(false);
