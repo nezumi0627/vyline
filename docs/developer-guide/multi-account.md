@@ -14,7 +14,7 @@ Vyline はログインセッションの `accountId` と、設定・引継ぎ・
 | 診断ログ | `data/logs/diagnostics-<safe-mid>.jsonl` | ✅ MID ごと。保存前にマスキング |
 | Primary セッション / auth token | `data/accounts/<accountId>/credentials.json` | ✅ accountId ごと。Windows は DPAPI(CurrentUser) で暗号化して保存 |
 | Protocol credential | `data/accounts/<accountId>/protocol.json` | ✅ refresh token / channel token / E2EE・device credential を accountId ごとに分離 |
-| チャット / メッセージ DB | `data/chatdb-{accountId}.json` | ✅ ファイル単位 |
+| チャット / メッセージ DB | `data/accounts/<safe-id>/chatdb.sqlite`（旧 JSON は移行元として保持） | ✅ SQLite ファイル単位 |
 | プロフィール等キャッシュ | `data/vyline-cache-{accountId}.json` | ✅ |
 | 既読レンジ | `data/vyline-readRanges-{accountId}.json` | ✅ |
 | 保存メディア | `storage/saved-media/{type}/...`（accountId + chatMid + messageId をハッシュ化） | ✅ キー単位 |

@@ -767,6 +767,27 @@ const BOX_CURSOR_MISS_MS = Number(process.env.VYLINE_BOX_CURSOR_MISS_MS ?? 15_00
 const DELTA_RPC_TIMEOUT_MS = Number(process.env.VYLINE_DELTA_RPC_TIMEOUT_MS ?? 12_000);
 const TALK_FETCH_TIMEOUT_MS = Number(process.env.VYLINE_TALK_FETCH_TIMEOUT_MS ?? 45_000);
 
+/** アカウント切替・ログアウト時に揮発キャッシュをまとめて解放する。 */
+export function clearAccountRuntimeCaches(accountId: string): void {
+  chatsCache.delete(accountId);
+  for (const key of readRangeBgAt.keys()) {
+    if (key.startsWith(`${accountId}:`)) readRangeBgAt.delete(key);
+  }
+  messageBoxesCache.delete(messageBoxesCacheKey(accountId, true));
+  messageBoxesCache.delete(messageBoxesCacheKey(accountId, false));
+  for (const cache of [boxCursorCache, boxCursorMiss]) {
+    for (const key of cache.keys()) {
+      if (key.startsWith(`${accountId}:`)) cache.delete(key);
+    }
+  }
+  for (const cache of [chatNameCache, mediaFlowCache]) {
+    for (const key of cache.keys()) {
+      if (key.startsWith(`${accountId}:`)) cache.delete(key);
+    }
+  }
+  void readRangeStorage.release(accountId);
+}
+
 function isTimeoutError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
   return (
@@ -3166,7 +3187,8 @@ async function resolveChatNameCached(
   accountId: string,
   chatMid: string,
 ): Promise<string | undefined> {
-  const cached = chatNameCache.get(chatMid);
+  const cacheKey = `${accountId}:${chatMid}`;
+  const cached = chatNameCache.get(cacheKey);
   if (cached && Date.now() - cached.at < CHAT_NAME_CACHE_TTL_MS) return cached.name;
   let name: string | undefined;
   try {
@@ -3180,7 +3202,7 @@ async function resolveChatNameCached(
   } catch {
     /* log は best-effort */
   }
-  chatNameCache.set(chatMid, { at: Date.now(), name });
+  chatNameCache.set(cacheKey, { at: Date.now(), name });
   return name;
 }
 
@@ -3261,6 +3283,9 @@ export async function processFetchedOperations(
       await processSingleOperation(accountId, op);
     } catch (err) {
       log.debug({ accountId, err, opType: op.type }, "operation processing error");
+      // Do not commit a cursor past an operation that was not durably
+      // processed. The next poll can safely retry idempotent operations.
+      throw err;
     }
   }
 }
@@ -4213,7 +4238,8 @@ async function determinePlainMediaFlow(
   mediaTypes: MediaSendType[],
 ): Promise<boolean> {
   const now = Date.now();
-  const cached = mediaFlowCache.get(chatMid);
+  const cacheKey = `${accountId}:${chatMid}`;
+  const cached = mediaFlowCache.get(cacheKey);
   let flowMap = cached && cached.expiresAt > now ? cached.flowMap : undefined;
   if (!flowMap) {
     try {
@@ -4227,7 +4253,7 @@ async function determinePlainMediaFlow(
         typeof res.cacheTtlMillis === "bigint"
           ? Number(res.cacheTtlMillis)
           : Number(res.cacheTtlMillis ?? 0);
-      mediaFlowCache.set(chatMid, {
+      mediaFlowCache.set(cacheKey, {
         flowMap,
         expiresAt: now + Math.max(60_000, Math.min(ttl || 0, 6 * 60 * 60 * 1000)),
       });

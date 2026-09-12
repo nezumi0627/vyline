@@ -2728,8 +2728,8 @@ lineRouter.delete("/:accountId/vyline/cache/icons", async (c) => {
 lineRouter.delete("/:accountId/vyline/saved-media", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const { clearMediaStorage } = await import("../storage/mediaStorage.js");
-    const removed = await clearMediaStorage();
+    const { clearMediaStorageForAccount } = await import("../storage/mediaStorage.js");
+    const removed = await clearMediaStorageForAccount(accountId);
     return c.json({ ok: true, removed });
   } catch (err) {
     return handleError(err, c);
@@ -2745,8 +2745,24 @@ lineRouter.delete("/:accountId/vyline/saved-media/:type", async (c) => {
   }
   try {
     const { clearMediaStorageType } = await import("../storage/mediaStorage.js");
-    const removed = await clearMediaStorageType(type as "image" | "video" | "audio" | "file");
+    const removed = await clearMediaStorageType(
+      type as "image" | "video" | "audio" | "file",
+      accountId,
+    );
     return c.json({ ok: true, removed, type });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/vyline/saved-media/:chatMid/:messageId/restore", async (c) => {
+  const accountId = c.req.param("accountId");
+  const chatMid = c.req.param("chatMid");
+  const messageId = c.req.param("messageId");
+  try {
+    const { restoreMediaStorage } = await import("../storage/mediaStorage.js");
+    const restored = await restoreMediaStorage(accountId, chatMid, messageId);
+    return c.json({ ok: true, restored }, restored ? 200 : 404);
   } catch (err) {
     return handleError(err, c);
   }

@@ -25,7 +25,7 @@ Docker Compose の bind mount（`./data` → `/app/data`、`./storage` → `/app
 | ---------------------------- | ----------------------------------- |
 | セッション / トークン        | `/app/data/tokens.json`                 |
 | E2EE 鍵 / storage            | `/app/data/storage-<account>.json`      |
-| チャット履歴                 | `/app/data/chatdb-<account>.json`       |
+| チャット履歴                 | `/app/data/accounts/<safe-id>/chatdb.sqlite`（旧 JSON は移行後も保持） |
 | プロフィールキャッシュ       | `/app/data/vyline-cache-<account>.json` |
 | スタンプ / sticon キャッシュ | `/app/data/cdn-cache/`                  |
 | 送信済み・取得済みメディア   | `/app/storage/saved-media/`         |
@@ -51,6 +51,7 @@ tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 | `VYLINE_HOST`        | `127.0.0.1`             | bind アドレス。Docker では `0.0.0.0`                                   |
 | `VYLINE_LAN_ACCESS`  | `false`                 | `true` のときだけ同一LANからアクセス可能。未認証APIは拒否される           |
 | `VYLINE_DATA_DIR`    | `backend/data/`         | トークン / 履歴などのデータ場所                                         |
+| `VYLINE_CHAT_CACHE_ACCOUNTS` | `1` | メモリに常駐させるアカウント履歴キャッシュ数（SQLiteの保存量は制限しない） |
 | `VYLINE_STORAGE_DIR` | `backend/storage/`     | 永続ストレージ（保存メディア、プロフィール等）の場所                    |
 | `VYLINE_CORS_ORIGIN` | `http://localhost:5173` | 許可するブラウザオリジン。**同一オリジンでアクセスする場合は設定不要** |
 | `VYLINE_STATIC_DIR`  | `apps/desktop/dist/`    | 配信するフロントビルドの場所                                           |
