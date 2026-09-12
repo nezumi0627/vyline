@@ -33,12 +33,12 @@ await writeFile(
 );
 
 await writeFile(
-  `${target}/vyline.plugin.json`,
+  `${target}/manifest.json`,
   json({
     id: pluginName,
     name: title(pluginName),
     version: "0.1.0",
-    entry: "./src/index.ts",
+    main: "src/index.ts",
     permissions: ["messages:read"],
     description: "A Vyline plugin.",
   }),
@@ -55,6 +55,12 @@ await writeFile(
 };
 
 export default {
+  manifest: {
+    id: "${pluginName}",
+    name: "${title(pluginName)}",
+    version: "0.1.0",
+    permissions: ["messages:read"],
+  },
   id: "${pluginName}",
   name: "${title(pluginName)}",
   version: "0.1.0",
@@ -84,7 +90,7 @@ bun run typecheck
 
 ## Manifest
 
-Edit \`vyline.plugin.json\` to declare plugin metadata and permissions.
+Edit \`manifest.json\` to declare plugin metadata and permissions.
 `,
 );
 

@@ -12,6 +12,13 @@ afterAll(async () => {
 });
 
 describe("tokenStore account isolation and handoff", () => {
+  test("rejects account IDs that could escape the account storage root", async () => {
+    for (const accountId of ["../outside", "..", ".", "a/b", "a\\b", "a\u0000b"]) {
+      await expect(tokenStore.saveToken(accountId, "secret")).rejects.toThrow("invalid accountId");
+      expect(() => tokenStore.storagePathForAccount(accountId)).toThrow("invalid accountId");
+    }
+  });
+
   test("stores credentials per account and migrates legacy entries", async () => {
     await tokenStore.saveToken("account-a", "auth-a", { displayName: "A" });
     await tokenStore.saveToken("account-b", "auth-b", { displayName: "B" });

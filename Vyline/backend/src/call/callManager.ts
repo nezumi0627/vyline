@@ -55,6 +55,13 @@ export interface CallWsData {
 
 const sessions = new Map<string, ManagedCall>();
 const byAccount = new Map<string, Set<string>>();
+const acquiringAccounts = new Set<string>();
+
+function reserveAccount(accountId: string): () => void {
+  if (acquiringAccounts.has(accountId)) throw new Error("通話の接続処理中です");
+  acquiringAccounts.add(accountId);
+  return () => acquiringAccounts.delete(accountId);
+}
 
 function micSource(call: ManagedCall): AudioSource {
   return {
@@ -182,65 +189,70 @@ export async function startManagedCall(opts: {
   desktopProfile?: DesktopProfile;
 }): Promise<CallSessionSnapshot> {
   const kind = opts.kind ?? "AUDIO";
-  const existing = [...(byAccount.get(opts.accountId) ?? [])]
-    .map((id) => sessions.get(id))
-    .find((c) => {
-      if (!c) return false;
-      const s = c.session.state;
-      if (s === "ended" || s === "failed") {
-        cleanupCall(c.sessionId);
-        return false;
-      }
-      return true;
+  const release = reserveAccount(opts.accountId);
+  try {
+    const existing = [...(byAccount.get(opts.accountId) ?? [])]
+      .map((id) => sessions.get(id))
+      .find((c) => {
+        if (!c) return false;
+        const s = c.session.state;
+        if (s === "ended" || s === "failed") {
+          cleanupCall(c.sessionId);
+          return false;
+        }
+        return true;
+      });
+    if (existing) {
+      throw new Error(`通話中: sessionId=${existing.sessionId}`);
+    }
+
+    const created = await createDirectCallSession(opts.client, {
+      to: opts.to,
+      kind,
+      ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
     });
-  if (existing) {
-    throw new Error(`通話中: sessionId=${existing.sessionId}`);
-  }
+    const session = created.session;
+    const sessionId = randomUUID();
+    const transport = created.transportKind;
 
-  const created = await createDirectCallSession(opts.client, {
-    to: opts.to,
-    kind,
-    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
-  });
-  const session = created.session;
-  const sessionId = randomUUID();
-  const transport = created.transportKind;
-
-  const call: ManagedCall = {
-    sessionId,
-    accountId: opts.accountId,
-    to: opts.to,
-    kind,
-    session,
-    state: "idle",
-    transport,
-    startedAt: Date.now(),
-    wsClients: new Set(),
-    micQueue: [],
-    micWaiters: [],
-    micClosed: false,
-  };
-
-  sessions.set(sessionId, call);
-  if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
-  byAccount.get(opts.accountId)!.add(sessionId);
-
-  attachSessionEvents(call);
-
-  call.startTask = runCallStart(call);
-  broadcastState(call);
-  log.info(
-    {
+    const call: ManagedCall = {
       sessionId,
       accountId: opts.accountId,
       to: opts.to,
+      kind,
+      session,
+      state: "idle",
       transport,
-      device: created.wire.deviceDetails.device,
-    },
-    "call session created",
-  );
+      startedAt: Date.now(),
+      wsClients: new Set(),
+      micQueue: [],
+      micWaiters: [],
+      micClosed: false,
+    };
 
-  return snapshot(call);
+    sessions.set(sessionId, call);
+    if (!byAccount.has(opts.accountId)) byAccount.set(opts.accountId, new Set());
+    byAccount.get(opts.accountId)!.add(sessionId);
+
+    attachSessionEvents(call);
+
+    call.startTask = runCallStart(call);
+    broadcastState(call);
+    log.info(
+      {
+        sessionId,
+        accountId: opts.accountId,
+        to: opts.to,
+        transport,
+        device: created.wire.deviceDetails.device,
+      },
+      "call session created",
+    );
+
+    return snapshot(call);
+  } finally {
+    release();
+  }
 }
 
 export async function endManagedCall(sessionId: string, reason = "user-ended"): Promise<void> {
@@ -275,6 +287,26 @@ function cleanupCall(sessionId: string) {
 export function getCallSnapshot(sessionId: string): CallSessionSnapshot | null {
   const call = sessions.get(sessionId);
   return call ? snapshot(call) : null;
+}
+
+/** アカウント境界を含めて取得する。BFFからはこの関数を優先して使う。 */
+export function getCallSnapshotForAccount(
+  accountId: string,
+  sessionId: string,
+): CallSessionSnapshot | null {
+  const call = sessions.get(sessionId);
+  return call?.accountId === accountId ? snapshot(call) : null;
+}
+
+export async function endManagedCallForAccount(
+  accountId: string,
+  sessionId: string,
+  reason = "user-ended",
+): Promise<boolean> {
+  const call = sessions.get(sessionId);
+  if (!call || call.accountId !== accountId) return false;
+  await endManagedCall(sessionId, reason);
+  return true;
 }
 
 export function listAccountCalls(accountId: string): CallSessionSnapshot[] {

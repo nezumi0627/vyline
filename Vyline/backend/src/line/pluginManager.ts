@@ -10,12 +10,14 @@ import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginManifest } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
-import { DATA_DIR, PLUGIN_DIR } from "./pluginPaths.js";
+import { getDataDir, getPluginDir } from "./pluginPaths.js";
 import { activatePlugin, deactivatePlugin, resolvePluginEntry } from "./pluginRuntime.js";
 
 const log = childLogger("plugins");
 
-const STATES_PATH = join(DATA_DIR, "plugin-states.json");
+function statesPath(): string {
+  return join(getDataDir(), "plugin-states.json");
+}
 
 export interface PluginEntry extends PluginManifest {
   /** プラグインディレクトリ名（= manifest の置かれたフォルダ） */
@@ -30,7 +32,7 @@ type PluginStates = Record<string, Record<string, boolean>>;
 
 function loadStates(): PluginStates {
   try {
-    return JSON.parse(readFileSync(STATES_PATH, "utf8")) as PluginStates;
+    return JSON.parse(readFileSync(statesPath(), "utf8")) as PluginStates;
   } catch {
     return {};
   }
@@ -38,7 +40,7 @@ function loadStates(): PluginStates {
 
 function saveStates(states: PluginStates): void {
   try {
-    writeFileSync(STATES_PATH, JSON.stringify(states, null, 2), "utf8");
+    writeFileSync(statesPath(), JSON.stringify(states, null, 2), "utf8");
   } catch (err) {
     log.warn({ err }, "failed to save plugin states");
   }
@@ -46,11 +48,12 @@ function saveStates(states: PluginStates): void {
 
 /** プラグインディレクトリを走査し manifest.json を読む（この関数自体はコードを実行しない） */
 export function listPlugins(): PluginEntry[] {
-  if (!existsSync(PLUGIN_DIR)) return [];
+  const pluginDir = getPluginDir();
+  if (!existsSync(pluginDir)) return [];
   const out: PluginEntry[] = [];
-  for (const entry of readdirSync(PLUGIN_DIR, { withFileTypes: true })) {
+  for (const entry of readdirSync(pluginDir, { withFileTypes: true })) {
     if (!entry.isDirectory()) continue;
-    const manifestPath = join(PLUGIN_DIR, entry.name, "manifest.json");
+    const manifestPath = join(pluginDir, entry.name, "manifest.json");
     if (!existsSync(manifestPath)) continue;
     try {
       const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as Partial<PluginManifest> & {

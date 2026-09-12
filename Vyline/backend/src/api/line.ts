@@ -23,6 +23,16 @@
 
 import { Hono } from "hono";
 import type { Context } from "hono";
+import { recordingRouter } from "./recordings.js";
+import {
+  MAX_MEDIA_BASE64_CHARS,
+  MAX_MEDIA_BATCH_BASE64_CHARS,
+  MAX_MEDIA_BATCH_ITEMS,
+  MAX_RAW_MEDIA_BYTES,
+  bytesToBlob,
+  readLimitedBytes,
+  tooLargeContentLength,
+} from "./requestLimits.js";
 import { childLogger } from "../logger.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { rebuildAccountChatDb } from "../storage/chatStore.js";
@@ -159,6 +169,7 @@ import {
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
+lineRouter.route("/:accountId/recordings", recordingRouter);
 
 // ─── notes（LINE ノート / Timeline） ───
 lineRouter.get("/:accountId/notes", async (c) => {
@@ -422,10 +433,17 @@ lineRouter.post("/:accountId/notes/media/:type", async (c) => {
   if (type !== "image" && type !== "video") {
     return c.json({ ok: false, error: "type must be image or video" }, 400);
   }
+  if (tooLargeContentLength(c, MAX_RAW_MEDIA_BYTES)) {
+    return c.json({ ok: false, error: "file too large" }, 413);
+  }
   try {
     const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await uploadNoteMedia(client, type, await c.req.blob()));
+    const bytes = await readLimitedBytes(c, MAX_RAW_MEDIA_BYTES);
+    if (!bytes) return c.json({ ok: false, error: "file too large" }, 413);
+    return c.json(
+      await uploadNoteMedia(client, type, bytesToBlob(bytes, c.req.header("content-type"))),
+    );
   } catch (err) {
     return handleError(err, c);
   }
@@ -436,7 +454,11 @@ lineRouter.post("/:accountId/notes/comment-image", async (c) => {
   try {
     const client = await getContentClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
-    return c.json(await uploadNoteCommentImage(client, await c.req.blob()));
+    const bytes = await readLimitedBytes(c, MAX_RAW_MEDIA_BYTES);
+    if (!bytes) return c.json({ ok: false, error: "file too large" }, 413);
+    return c.json(
+      await uploadNoteCommentImage(client, bytesToBlob(bytes, c.req.header("content-type"))),
+    );
   } catch (err) {
     return handleError(err, c);
   }
@@ -599,14 +621,19 @@ lineRouter.post("/:accountId/albums/:albumId/share", async (c) => {
 lineRouter.post("/:accountId/albums/:albumId/media", async (c) => {
   const chatId = c.req.query("chatId");
   if (!chatId) return c.json({ ok: false, error: "chatId required" }, 400);
+  if (tooLargeContentLength(c, MAX_RAW_MEDIA_BYTES)) {
+    return c.json({ ok: false, error: "file too large" }, 413);
+  }
   try {
     const client = await albumClient(c);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     const contentType = c.req.header("content-type");
+    const bytes = await readLimitedBytes(c, MAX_RAW_MEDIA_BYTES);
+    if (!bytes) return c.json({ ok: false, error: "file too large" }, 413);
     return c.json(
       await uploadAlbumMedia(client, c.req.param("albumId"), {
         chatId,
-        data: await c.req.blob(),
+        data: bytesToBlob(bytes, contentType),
         ...(contentType ? { contentType } : {}),
       }),
     );
@@ -1303,7 +1330,7 @@ lineRouter.post("/:accountId/send-media", async (c) => {
   if (!body.chatMid || !body.dataBase64) {
     return c.json({ ok: false, error: "chatMid and dataBase64 required" }, 400);
   }
-  if (body.dataBase64.length > 15_000_000) {
+  if (body.dataBase64.length > MAX_MEDIA_BASE64_CHARS) {
     return c.json({ ok: false, error: "file too large" }, 413);
   }
 
@@ -1341,6 +1368,9 @@ lineRouter.post("/:accountId/send-media-batch", async (c) => {
   if (!body.chatMid || !Array.isArray(body.items) || body.items.length === 0) {
     return c.json({ ok: false, error: "chatMid and items required" }, 400);
   }
+  if (body.items.length > MAX_MEDIA_BATCH_ITEMS) {
+    return c.json({ ok: false, error: "too many media items" }, 413);
+  }
 
   try {
     if (body.items.some((item) => !item?.dataBase64)) {
@@ -1368,8 +1398,12 @@ lineRouter.post("/:accountId/send-media-batch", async (c) => {
       return c.json({ ok: false, error: "items required" }, 400);
     }
 
+    const encodedBytes = items.reduce((sum, item) => sum + item.dataBase64.length, 0);
+    if (encodedBytes > MAX_MEDIA_BATCH_BASE64_CHARS) {
+      return c.json({ ok: false, error: "media batch too large" }, 413);
+    }
     for (const item of items) {
-      if (item.dataBase64.length > 15_000_000) {
+      if (item.dataBase64.length > MAX_MEDIA_BASE64_CHARS) {
         return c.json({ ok: false, error: "file too large" }, 413);
       }
     }
@@ -1682,7 +1716,9 @@ lineRouter.get("/:accountId/getChatMembers/:chatMid", async (c) => {
 lineRouter.post("/:accountId/profile/image", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const buf = new Uint8Array(await c.req.arrayBuffer());
+    const bytes = await readLimitedBytes(c, MAX_RAW_MEDIA_BYTES);
+    if (!bytes) return c.json({ ok: false, error: "file too large" }, 413);
+    const buf = bytes;
     if (buf.byteLength === 0) {
       return c.json({ ok: false, error: "empty body" }, 400);
     }
@@ -1699,7 +1735,9 @@ lineRouter.post("/:accountId/profile/image", async (c) => {
 lineRouter.post("/:accountId/profile/background", async (c) => {
   const accountId = c.req.param("accountId");
   try {
-    const buf = new Uint8Array(await c.req.arrayBuffer());
+    const bytes = await readLimitedBytes(c, MAX_RAW_MEDIA_BYTES);
+    if (!bytes) return c.json({ ok: false, error: "file too large" }, 413);
+    const buf = bytes;
     if (buf.byteLength === 0) {
       return c.json({ ok: false, error: "empty body" }, 400);
     }
@@ -1754,7 +1792,9 @@ lineRouter.post("/:accountId/chats/:chatMid/picture", async (c) => {
   const accountId = c.req.param("accountId");
   const chatMid = c.req.param("chatMid");
   try {
-    const buf = new Uint8Array(await c.req.arrayBuffer());
+    const bytes = await readLimitedBytes(c, MAX_RAW_MEDIA_BYTES);
+    if (!bytes) return c.json({ ok: false, error: "file too large" }, 413);
+    const buf = bytes;
     if (buf.byteLength === 0) {
       return c.json({ ok: false, error: "empty body" }, 400);
     }
@@ -2022,10 +2062,11 @@ lineRouter.post("/:accountId/call/start", async (c) => {
 });
 
 lineRouter.post("/:accountId/call/end", async (c) => {
+  const accountId = c.req.param("accountId");
   const body = await c.req.json<{ sessionId: string }>();
   if (!body.sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
   try {
-    await stopDirectCall(body.sessionId);
+    await stopDirectCall(accountId, body.sessionId);
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
@@ -2033,9 +2074,10 @@ lineRouter.post("/:accountId/call/end", async (c) => {
 });
 
 lineRouter.get("/:accountId/call/status", async (c) => {
+  const accountId = c.req.param("accountId");
   const sessionId = c.req.query("sessionId");
   if (!sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
-  const session = await getDirectCallStatus(sessionId);
+  const session = await getDirectCallStatus(accountId, sessionId);
   if (!session) return c.json({ ok: false, error: "not found" }, 404);
   return c.json({ ok: true, session });
 });

@@ -10,8 +10,7 @@
  */
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, relative, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, relative, resolve } from "node:path";
 import type {
   PluginContext,
   PluginLogger,
@@ -20,13 +19,13 @@ import type {
 } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
 import { safePathComponent } from "../storage/safeFile.js";
-import { PLUGIN_DIR } from "./pluginPaths.js";
+import { getDataDir, getPluginDir } from "./pluginPaths.js";
 
 const log = childLogger("plugins");
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-const SETTINGS_DIR = join(DATA_DIR, "plugin-settings");
+function settingsDir(): string {
+  return join(getDataDir(), "plugin-settings");
+}
 
 interface ActivePlugin {
   accountId: string;
@@ -51,7 +50,7 @@ function isInside(parent: string, child: string): boolean {
 function settingsPath(accountId: string, pluginId: string): string {
   const account = safePathComponent(accountId, "account");
   const plugin = safePathComponent(pluginId, "plugin");
-  return join(SETTINGS_DIR, `${account}.${plugin}.json`);
+  return join(settingsDir(), `${account}.${plugin}.json`);
 }
 
 export function isPluginActive(accountId: string, pluginId: string): boolean {
@@ -60,7 +59,7 @@ export function isPluginActive(accountId: string, pluginId: string): boolean {
 
 /** プラグインのエントリポイントファイルを解決する（index.ts → index.js → main） */
 export function resolvePluginEntry(pluginDirName: string, manifestMain?: string): string | null {
-  const dir = resolve(PLUGIN_DIR, pluginDirName);
+  const dir = resolve(getPluginDir(), pluginDirName);
   const candidates = manifestMain
     ? [resolve(dir, manifestMain)]
     : [resolve(dir, "index.ts"), resolve(dir, "index.js")];
@@ -97,7 +96,7 @@ function writeSettingsFile(
   pluginId: string,
   data: Record<string, unknown>,
 ): void {
-  mkdirSync(SETTINGS_DIR, { recursive: true });
+  mkdirSync(settingsDir(), { recursive: true });
   writeFileSync(settingsPath(accountId, pluginId), JSON.stringify(data, null, 2), "utf8");
 }
 

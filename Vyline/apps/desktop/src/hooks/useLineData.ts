@@ -52,9 +52,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   contactCacheRef.current = contactCache;
   const contactFetching = useRef<Set<string>>(new Set());
   const inFlight = useRef({
-    profile: false,
-    chats: false,
-    bootstrap: false,
+    profile: null as string | null,
+    chats: null as string | null,
+    bootstrap: null as string | null,
   });
   const bootstrapMessages = useRef<Map<string, Message[]>>(new Map());
   const historyWindows = useRef<Map<string, ChatHistoryWindow>>(new Map());
@@ -67,9 +67,15 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const olderInFlight = useRef(false);
   const accountIdRef = useRef(accountId);
   accountIdRef.current = accountId;
+  const scheduledTimers = useRef<Set<number>>(new Set());
+  const isCurrentAccount = useCallback(
+    (id: string | null = accountId) => Boolean(id && accountIdRef.current === id),
+    [accountId],
+  );
 
   const mergeContact = useCallback(
     (mid: string, info: ContactInfo) => {
+      if (!isCurrentAccount(accountId)) return;
       setContactCache((prev) => {
         const cur = prev.get(mid) ?? {};
         const nextInfo: ContactInfo = {
@@ -91,7 +97,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         });
       }
     },
-    [accountId],
+    [accountId, isCurrentAccount],
   );
 
   const applyChatsToContactCache = useCallback((list: Chat[]) => {
@@ -119,6 +125,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       api.line
         .getContact(accountId, mid)
         .then((res) => {
+          if (!isCurrentAccount(accountId)) return;
           if (!res.ok || !res.profile) return;
           mergeContact(mid, {
             name: res.profile.displayName || undefined,
@@ -130,7 +137,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           contactFetching.current.delete(mid);
         });
     },
-    [accountId, mergeContact],
+    [accountId, isCurrentAccount, mergeContact],
   );
 
   const fetchAvatar = fetchContact;
@@ -144,31 +151,34 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       const tail = unique.slice(immediateCount);
       for (const mid of head) fetchContact(mid);
       if (tail.length === 0) return;
-      window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
+        scheduledTimers.current.delete(timer);
+        if (!isCurrentAccount(accountId)) return;
         for (const mid of tail) fetchContact(mid);
       }, 250);
+      scheduledTimers.current.add(timer);
     },
-    [accountId, fetchContact],
+    [accountId, fetchContact, isCurrentAccount],
   );
 
   const loadProfile = useCallback(async () => {
-    if (!accountId || inFlight.current.profile) return;
-    inFlight.current.profile = true;
+    if (!accountId || inFlight.current.profile === accountId) return;
+    inFlight.current.profile = accountId;
     setLoadingProfile(true);
     try {
       const res = await api.line.getProfile(accountId);
       if (accountIdRef.current !== accountId) return;
       if (res.ok && res.profile) setProfile(res.profile);
     } finally {
-      setLoadingProfile(false);
-      inFlight.current.profile = false;
+      if (accountIdRef.current === accountId) setLoadingProfile(false);
+      if (inFlight.current.profile === accountId) inFlight.current.profile = null;
     }
   }, [accountId]);
 
   const loadChats = useCallback(
     async (opts?: { light?: boolean; refresh?: boolean; force?: boolean }) => {
-      if (!accountId || inFlight.current.chats) return;
-      inFlight.current.chats = true;
+      if (!accountId || inFlight.current.chats === accountId) return;
+      inFlight.current.chats = accountId;
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
@@ -193,8 +203,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
           prefetchContacts(warmTargets, 10);
         }
       } finally {
-        setLoadingChats(false);
-        inFlight.current.chats = false;
+        if (accountIdRef.current === accountId) setLoadingChats(false);
+        if (inFlight.current.chats === accountId) inFlight.current.chats = null;
       }
     },
     [accountId, applyChatsToContactCache, prefetchContacts],
@@ -259,7 +269,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
               local: true,
             },
           );
-          if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+          if (
+            !isCurrentAccount(accountId) ||
+            gen !== messagesGen.current ||
+            selectedChatMidRef.current !== chatMid
+          )
+            return;
           if (local.ok && local.messages?.length) {
             const latestAsc = [...local.messages].reverse();
             const merged = mergeHistoryMessages(cachedWindow.messages, latestAsc);
@@ -296,7 +311,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
             localLimit,
             { local: true },
           );
-          if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+          if (
+            !isCurrentAccount(accountId) ||
+            gen !== messagesGen.current ||
+            selectedChatMidRef.current !== chatMid
+          )
+            return;
           if (local.ok && local.messages?.length) {
             const asc = [...local.messages].reverse();
             commitHistoryWindow(chatMid, asc, local.hasMore ?? local.messages.length >= localLimit);
@@ -309,16 +329,21 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatMid, limit, {
           force: true,
         });
-        if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+        if (
+          !isCurrentAccount(accountId) ||
+          gen !== messagesGen.current ||
+          selectedChatMidRef.current !== chatMid
+        )
+          return;
         if (res.ok && res.messages) {
           const asc = [...res.messages].reverse();
           commitHistoryWindow(chatMid, asc, res.hasMore ?? res.messages.length >= limit);
         }
       } finally {
-        if (gen === messagesGen.current) setLoadingMessages(false);
+        if (isCurrentAccount(accountId) && gen === messagesGen.current) setLoadingMessages(false);
       }
     },
-    [accountId, commitHistoryWindow, fetchContact, resolveMessageAuthors],
+    [accountId, commitHistoryWindow, fetchContact, isCurrentAccount, resolveMessageAuthors],
   );
 
   const loadOlderMessages = useCallback(
@@ -346,7 +371,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
             local: true,
           },
         );
-        if (gen !== messagesGen.current || selectedChatMidRef.current !== chatMid) return;
+        if (
+          !isCurrentAccount(accountId) ||
+          gen !== messagesGen.current ||
+          selectedChatMidRef.current !== chatMid
+        )
+          return;
         if (!res.ok || !res.messages) {
           commitHistoryWindow(chatMid, current, false);
           return;
@@ -364,10 +394,10 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         commitHistoryWindow(chatMid, merged, hasMore);
       } finally {
         olderInFlight.current = false;
-        if (gen === messagesGen.current) setLoadingOlder(false);
+        if (isCurrentAccount(accountId) && gen === messagesGen.current) setLoadingOlder(false);
       }
     },
-    [accountId, commitHistoryWindow, hasMoreMessages],
+    [accountId, commitHistoryWindow, hasMoreMessages, isCurrentAccount],
   );
 
   // ChatArea が明示的に1ページ要求した時だけ、古いローカル履歴を追加取得する。
@@ -392,8 +422,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }, [hasMoreMessages, loadingOlder, selectedChatMid]);
 
   const loadBootstrap = useCallback(async () => {
-    if (!accountId || inFlight.current.bootstrap) return;
-    inFlight.current.bootstrap = true;
+    if (!accountId || inFlight.current.bootstrap === accountId) return;
+    inFlight.current.bootstrap = accountId;
     try {
       const res = await api.line.bootstrap(accountId);
       if (accountIdRef.current !== accountId) return;
@@ -418,7 +448,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     } catch {
       /* bootstrap optional */
     } finally {
-      inFlight.current.bootstrap = false;
+      if (inFlight.current.bootstrap === accountId) inFlight.current.bootstrap = null;
     }
   }, [accountId, applyChatsToContactCache]);
 
@@ -452,6 +482,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
+    for (const timer of scheduledTimers.current) window.clearTimeout(timer);
+    scheduledTimers.current.clear();
     messagesGen.current += 1;
     setProfile(null);
     setChats([]);
@@ -499,10 +531,16 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadChats({ light: true });
       if (accountIdRef.current !== accountId) return;
 
-      window.setTimeout(() => {
+      const timer = window.setTimeout(() => {
+        scheduledTimers.current.delete(timer);
         if (accountIdRef.current === accountId) void loadChats({ light: true });
       }, 4_000);
+      scheduledTimers.current.add(timer);
     })();
+    return () => {
+      for (const timer of scheduledTimers.current) window.clearTimeout(timer);
+      scheduledTimers.current.clear();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps -- accountId のみ
   }, [accountId]);
 

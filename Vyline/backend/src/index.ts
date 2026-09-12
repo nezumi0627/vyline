@@ -34,6 +34,16 @@ import {
   initializeDiagnostics,
 } from "./service/diagnosticsService.js";
 import { redactError } from "./service/redaction.js";
+import {
+  isMalformedJsonError,
+  MAX_MEDIA_BASE64_CHARS,
+  MAX_MEDIA_BATCH_BASE64_CHARS,
+} from "./api/requestLimits.js";
+import { resolveCorsOrigin } from "./api/corsPolicy.js";
+import { maintainCallRecordings } from "./service/callRecordingService.js";
+
+void maintainCallRecordings().catch(() => undefined);
+setInterval(() => { void maintainCallRecordings().catch(() => undefined); }, 60_000).unref();
 
 const PORT = Number(process.env.PORT ?? 3001);
 const MAX_REQUEST_BODY_BYTES = Number(
@@ -56,8 +66,7 @@ const STATIC_DIR =
 const app = new Hono();
 
 function allowedCorsOrigin(origin: string | undefined) {
-  if (!origin) return CORS_ORIGIN;
-  return CORS_ORIGINS.has(origin) ? origin : CORS_ORIGIN;
+  return resolveCorsOrigin(origin, CORS_ORIGINS, CORS_ORIGIN);
 }
 
 function subdeviceInstallationId(c: Context) {
@@ -102,6 +111,24 @@ app.use(
     credentials: true,
   }),
 );
+
+// JSONメディアは互換上Base64を受け取るため、解析前にも総量を制限する。
+// Androidバックアップ等の大きなraw uploadはこの制限対象にしない。
+app.use("*", async (c, next) => {
+  const path = c.req.path.replace(/^\/api/, "");
+  const length = Number(c.req.header("content-length") ?? "");
+  if (Number.isSafeInteger(length) && length >= 0) {
+    const limit = path.endsWith("/send-media")
+      ? MAX_MEDIA_BASE64_CHARS + 1_000_000
+      : path.endsWith("/send-media-batch")
+        ? MAX_MEDIA_BATCH_BASE64_CHARS + 2_000_000
+        : null;
+    if (limit !== null && length > limit) {
+      return c.json({ ok: false, error: "request body too large" }, 413);
+    }
+  }
+  return next();
+});
 
 // LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
 // QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
@@ -327,6 +354,9 @@ if (existsSync(STATIC_DIR)) {
 app.notFound((c) => c.json({ ok: false, error: "not found" }, 404));
 
 app.onError((err, c) => {
+  if (isMalformedJsonError(err)) {
+    return c.json({ ok: false, error: "invalid JSON body" }, 400);
+  }
   logger.error({ err }, "unhandled error");
   void appendDiagnosticToKnownAccounts(
     {

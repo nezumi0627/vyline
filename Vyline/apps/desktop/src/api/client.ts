@@ -52,6 +52,30 @@ const BASE = "/api";
 const SUBDEVICE_INSTALLATION_ID_KEY = "vyline:subdevice-installation-id";
 const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+/** 通話録音の分割送信など、開始時点の認証情報を固定するためのfetch。 */
+export function captureBackendFetch() {
+  const hasLocalStorage = typeof localStorage !== "undefined";
+  const token =
+    hasLocalStorage ? localStorage.getItem("vyline:subdevice-session") : null;
+  const installationId = getSubdeviceInstallationId();
+  const headers = new Headers();
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+  if (installationId) headers.set("X-Vyline-Installation-Id", installationId);
+  return (path: string, init: RequestInit = {}) => {
+    const merged = new Headers(init.headers);
+    headers.forEach((value, key) => {
+      if (!merged.has(key)) merged.set(key, value);
+    });
+    return fetch(`${BASE}${path}`, {
+      ...init,
+      headers: merged,
+      // Keep same-origin cookies as a fallback for the desktop's local
+      // session, even when the subdevice bearer token is absent.
+      credentials: "same-origin",
+    });
+  };
+}
+
 function getSubdeviceInstallationId(): string | null {
   if (typeof localStorage === "undefined" || typeof crypto?.randomUUID !== "function") return null;
   const existing = localStorage.getItem(SUBDEVICE_INSTALLATION_ID_KEY);

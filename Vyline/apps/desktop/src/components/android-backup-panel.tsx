@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield } from "@/components/icons";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
@@ -21,6 +21,8 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(
     null,
   );
+  const pollTimer = useRef<number | null>(null);
+  const pollGeneration = useRef(0);
 
   useEffect(() => {
     setFile(null);
@@ -30,6 +32,9 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
   }, [accountId]);
 
   useEffect(() => {
+    pollGeneration.current += 1;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    pollTimer.current = null;
     if (
       !session?.id ||
       !accountId ||
@@ -37,15 +42,27 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
     ) {
       return;
     }
-    const timer = window.setInterval(async () => {
+    const generation = pollGeneration.current;
+    const poll = async () => {
+      if (generation !== pollGeneration.current) return;
       try {
         const response = await api.line.getAndroidBackupSession(accountId, session.id);
-        if (response.session) setSession(response.session);
+        if (generation === pollGeneration.current && response.session) setSession(response.session);
       } catch (error) {
-        setMessage(error instanceof Error ? error.message : "復元状態の取得に失敗しました");
+        if (generation === pollGeneration.current) {
+          setMessage(error instanceof Error ? error.message : "復元状態の取得に失敗しました");
+        }
+      } finally {
+        if (generation === pollGeneration.current)
+          pollTimer.current = window.setTimeout(poll, 1000);
       }
-    }, 1000);
-    return () => window.clearInterval(timer);
+    };
+    pollTimer.current = window.setTimeout(poll, 1000);
+    return () => {
+      pollGeneration.current += 1;
+      if (pollTimer.current) window.clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+    };
   }, [accountId, session?.id, session?.status]);
 
   useEffect(() => {

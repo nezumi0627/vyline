@@ -36,6 +36,10 @@ function formatPercent(value: number): string {
   return `${value.toFixed(digits)}%`;
 }
 
+function revokeBlobUrl(value?: string): void {
+  if (value?.startsWith("blob:")) URL.revokeObjectURL(value);
+}
+
 import { Toggle, Avatar } from "@/components/vy-ui";
 import { PremiumBadge } from "@/components/premium-badge";
 import { VyThemePanel } from "@/components/vy-theme-panel";
@@ -183,6 +187,7 @@ export function SettingsSections() {
   const onPickAvatar = async (file: File | null) => {
     if (!file || (!accountId && !demoMode)) return;
     if (demoMode) {
+      revokeBlobUrl(self.avatarUrl);
       updateSelf({ avatarUrl: URL.createObjectURL(file) });
       setProfileMsg("デモアイコンを更新しました");
       return;
@@ -192,6 +197,7 @@ export function SettingsSections() {
     try {
       const buf = await file.arrayBuffer();
       const res = await api.line.updateProfileImage(accountId!, buf, file.type || "image/jpeg");
+      if (useStore.getState().accountId !== accountId) return;
       if (res.ok && res.profile?.thumbnailUrl) {
         updateSelf({ avatarUrl: `${res.profile.thumbnailUrl}?t=${Date.now()}` });
         setProfileMsg("アイコンを更新しました");
@@ -208,6 +214,7 @@ export function SettingsSections() {
   const onPickBackground = async (file: File | null) => {
     if (!file || (!accountId && !demoMode)) return;
     if (demoMode) {
+      revokeBlobUrl(self.backgroundUrl);
       updateSelf({ backgroundUrl: URL.createObjectURL(file) });
       setProfileMsg("デモ背景を更新しました");
       return;
@@ -221,6 +228,7 @@ export function SettingsSections() {
         buf,
         file.type || "image/jpeg",
       );
+      if (useStore.getState().accountId !== accountId) return;
       if (res.ok) {
         setProfileMsg("背景画像をアップロードしました");
         // カバー URL は直後に取れないことがあるのでタイムスタンプ付きヒント

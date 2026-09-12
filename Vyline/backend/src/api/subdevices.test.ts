@@ -2,12 +2,15 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { buildPairingUrl } from "./subdevices.js";
 
 const previousLanAccess = process.env.VYLINE_LAN_ACCESS;
+const previousPublicHost = process.env.VYLINE_PUBLIC_HOST;
 
 afterEach(() => {
   if (previousLanAccess === undefined) {
     // biome-ignore lint/performance/noDelete: assigning undefined leaves a literal "undefined" env value.
     delete process.env.VYLINE_LAN_ACCESS;
   } else process.env.VYLINE_LAN_ACCESS = previousLanAccess;
+  if (previousPublicHost === undefined) process.env.VYLINE_PUBLIC_HOST = undefined;
+  else process.env.VYLINE_PUBLIC_HOST = previousPublicHost;
 });
 
 describe("subdevice pairing URL", () => {
@@ -20,6 +23,7 @@ describe("subdevice pairing URL", () => {
 
   test("rewrites loopback origin only when LAN access is enabled", () => {
     process.env.VYLINE_LAN_ACCESS = "true";
+    process.env.VYLINE_PUBLIC_HOST = "192.0.2.10";
 
     const result = buildPairingUrl("http://127.0.0.1:5173", "vyp_test");
     expect(result).toMatch(/^http:\/\/[^/]+:5173\/subdevice\?pairing=vyp_test$/);

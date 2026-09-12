@@ -30,6 +30,7 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run typecheck
+      - run: bun run test:tooling
 
   lint:
     name: Lint
@@ -56,6 +57,7 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+      - run: bun run build:packages
 
   docker-build:
     name: Docker build + runtime smoke
