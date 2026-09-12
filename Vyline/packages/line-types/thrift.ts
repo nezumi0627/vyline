@@ -18905,12 +18905,15 @@ export const Thrift: LooseType = {
       struct: "ReactionType",
     },
   ],
+  PaidReactionType: [
+    { fid: 1, name: "productId", type: 11 },
+    { fid: 2, name: "emojiId", type: 11 },
+    { fid: 3, name: "resourceType", type: 8 },
+    { fid: 4, name: "version", type: 10 },
+  ],
   ReactionType: [
-    {
-      fid: 1,
-      name: "predefinedReactionType",
-      struct: "MessageReactionType",
-    },
+    { fid: 1, name: "predefinedReactionType", struct: "MessageReactionType" },
+    { fid: 2, name: "paidReactionType", struct: "PaidReactionType" },
   ],
   RecommendationDetail: [
     {
@@ -21331,6 +21334,13 @@ export const Thrift: LooseType = {
       name: "shouldShowBanner",
       type: 2,
     },
+  ],
+  SilentlyUnsendMessageRequest: [
+    { fid: 1, name: "reqSeq", type: 8 },
+    { fid: 2, name: "messageId", type: 11 },
+  ],
+  SilentlyUnsendMessageResponse: [
+    { fid: 1, name: "silentUnsend", type: 2 },
   ],
   I80_B0: [
     {
@@ -37757,6 +37767,25 @@ export const Thrift: LooseType = {
     },
   ],
   setNotificationsEnabled_result: [
+    {
+      fid: 1,
+      name: "e",
+      struct: "TalkException",
+    },
+  ],
+  silentlyUnsendMessage_args: [
+    {
+      fid: 1,
+      name: "silentlyUnsendMessageRequest",
+      struct: "SilentlyUnsendMessageRequest",
+    },
+  ],
+  silentlyUnsendMessage_result: [
+    {
+      fid: 0,
+      name: "success",
+      struct: "SilentlyUnsendMessageResponse",
+    },
     {
       fid: 1,
       name: "e",
