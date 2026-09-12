@@ -15,6 +15,9 @@ import {
   patchGroupKeyLookup,
   type VylineClient,
 } from "@vyline/protocol";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import {
   saveToken,
@@ -26,7 +29,12 @@ import {
   getProtocolTokenState,
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
-import { warmLineCache, detachFetchOps } from "../service/lineService.js";
+import {
+  warmLineCache,
+  detachFetchOps,
+  clearAccountRuntimeCaches,
+} from "../service/lineService.js";
+import { releaseAccountChatCache } from "../storage/chatStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { appendDiagnostic } from "../service/diagnosticsService.js";
 import { restoreEnabledPlugins } from "./pluginManager.js";
@@ -79,15 +87,175 @@ function restorePluginsForSession(accountId: string): void {
   );
 }
 
-/** アカウントごとの fetchOps カーソル（revision ベース） */
-const opsRevision = new Map<
-  string,
-  {
-    revision: number | bigint;
-    globalRev: number | bigint;
-    individualRev: number | bigint;
+/** アカウントごとの fetchOps カーソル（revision ベース）。永続化ファイルが正本。 */
+export type OpsRevisionCursor = {
+  revision: number | bigint;
+  globalRev: number | bigint;
+  individualRev: number | bigint;
+};
+
+const EMPTY_OPS_CURSOR: OpsRevisionCursor = { revision: 0, globalRev: 0, individualRev: 0 };
+const opsRevision = new Map<string, OpsRevisionCursor>();
+const opsRevisionLoads = new Map<string, Promise<OpsRevisionCursor>>();
+const opsRevisionWrites = new Map<string, Promise<void>>();
+
+function maxCursorValue(a: number | bigint, b: number | bigint): number | bigint {
+  return BigInt(a) >= BigInt(b) ? a : b;
+}
+
+function opsCursorPath(accountId: string): string {
+  return `${storagePathForAccount(accountId)}.ops-cursor.json`;
+}
+
+function cursorValueToJson(value: number | bigint): string {
+  return String(value);
+}
+
+function cursorValueFromJson(value: unknown): number | bigint {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = BigInt(value);
+    return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed;
   }
->();
+  throw new Error("invalid ops cursor value");
+}
+
+export async function loadOpsRevisionCursor(accountId: string): Promise<OpsRevisionCursor> {
+  const cached = opsRevision.get(accountId);
+  if (cached) return { ...cached };
+  const pending = opsRevisionLoads.get(accountId);
+  if (pending) return { ...(await pending) };
+
+  const load = (async () => {
+    try {
+      const parsed = JSON.parse(await readFile(opsCursorPath(accountId), "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const cursor = {
+        revision: cursorValueFromJson(parsed.revision),
+        globalRev: cursorValueFromJson(parsed.globalRev),
+        individualRev: cursorValueFromJson(parsed.individualRev),
+      };
+      opsRevision.set(accountId, cursor);
+      return cursor;
+    } catch (error) {
+      // A missing/corrupt cursor is safe to recover from: replay from zero is
+      // preferable to skipping events. The operation handlers are idempotent.
+      log.warn({ accountId, error }, "ops cursor unavailable; replaying from zero");
+      const cursor = { ...EMPTY_OPS_CURSOR };
+      opsRevision.set(accountId, cursor);
+      return cursor;
+    }
+  })();
+  opsRevisionLoads.set(accountId, load);
+  try {
+    return { ...(await load) };
+  } finally {
+    if (opsRevisionLoads.get(accountId) === load) opsRevisionLoads.delete(accountId);
+  }
+}
+
+export async function persistOpsRevisionCursor(
+  accountId: string,
+  cursor: OpsRevisionCursor,
+): Promise<void> {
+  const path = opsCursorPath(accountId);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  const previous = opsRevisionWrites.get(accountId) ?? Promise.resolve();
+  const write = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(dirname(path), { recursive: true });
+      let durable = { ...EMPTY_OPS_CURSOR };
+      try {
+        const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        durable = {
+          revision: cursorValueFromJson(parsed.revision),
+          globalRev: cursorValueFromJson(parsed.globalRev),
+          individualRev: cursorValueFromJson(parsed.individualRev),
+        };
+      } catch {
+        // Missing or corrupt state is safely replaced by the new snapshot.
+      }
+      const monotonic: OpsRevisionCursor = {
+        revision: maxCursorValue(durable.revision, cursor.revision),
+        globalRev: maxCursorValue(durable.globalRev, cursor.globalRev),
+        individualRev: maxCursorValue(durable.individualRev, cursor.individualRev),
+      };
+      try {
+        await writeFile(
+          temporary,
+          JSON.stringify({
+            version: 1,
+            revision: cursorValueToJson(monotonic.revision),
+            globalRev: cursorValueToJson(monotonic.globalRev),
+            individualRev: cursorValueToJson(monotonic.individualRev),
+            savedAt: new Date().toISOString(),
+          }),
+          "utf8",
+        );
+        await rename(temporary, path);
+      } catch (error) {
+        await unlink(temporary).catch(() => undefined);
+        throw error;
+      }
+    });
+  opsRevisionWrites.set(accountId, write);
+  try {
+    await write;
+  } finally {
+    if (opsRevisionWrites.get(accountId) === write) opsRevisionWrites.delete(accountId);
+  }
+}
+
+/** 同期レスポンスから次のカーソルを作る。呼び出し側が処理成功後に適用する。 */
+export function nextOpsRevisionCursor(
+  current: OpsRevisionCursor,
+  response: {
+    fullSyncResponse?: { nextRevision?: number | bigint } | null;
+    operationResponse?: {
+      globalEvents?: { lastRevision?: number | bigint } | null;
+      individualEvents?: { lastRevision?: number | bigint } | null;
+      operations?: Array<{ revision?: number | bigint }>;
+    } | null;
+  },
+): OpsRevisionCursor {
+  const next = { ...current };
+  const fullSyncRevision = response.fullSyncResponse?.nextRevision;
+  if (fullSyncRevision != null) next.revision = fullSyncRevision;
+  const operationResponse = response.operationResponse;
+  const globalRevision = operationResponse?.globalEvents?.lastRevision;
+  if (globalRevision != null) next.globalRev = globalRevision;
+  const individualRevision = operationResponse?.individualEvents?.lastRevision;
+  if (individualRevision != null) next.individualRev = individualRevision;
+  const lastRevision = operationResponse?.operations?.at(-1)?.revision;
+  if (lastRevision != null) next.revision = lastRevision;
+  return next;
+}
+
+/** Operation処理が成功した場合だけ、同期カーソルを永続化して適用する。 */
+export async function processAndCommitOpsRevision(
+  accountId: string,
+  current: OpsRevisionCursor,
+  response: Parameters<typeof nextOpsRevisionCursor>[1],
+  process: () => Promise<void>,
+  canCommit: () => boolean = () => true,
+): Promise<OpsRevisionCursor> {
+  const next = nextOpsRevisionCursor(current, response);
+  await process();
+  if (!canCommit()) return current;
+  await persistOpsRevisionCursor(accountId, next);
+  if (!canCommit()) return current;
+  const committed = opsRevision.get(accountId) ?? current;
+  const merged = {
+    revision: maxCursorValue(committed.revision, next.revision),
+    globalRev: maxCursorValue(committed.globalRev, next.globalRev),
+    individualRev: maxCursorValue(committed.individualRev, next.individualRev),
+  };
+  opsRevision.set(accountId, merged);
+  return merged;
+}
 
 /** fetchOps ループの AbortController */
 const opsAbortByAccount = new Map<string, AbortController>();
@@ -239,6 +407,9 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 
   async function loop(): Promise<void> {
     let errorStreak = 0;
+    if (!opsRevision.has(accountId)) {
+      opsRevision.set(accountId, await loadOpsRevisionCursor(accountId));
+    }
     while (!abort.signal.aborted && client.base.authToken) {
       try {
         const cursor = getCursor();
@@ -249,35 +420,25 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           individualRev: cursor.individualRev,
           timeout: POLL_TIMEOUT_MS,
         });
+        if (abort.signal.aborted) break;
 
         const opResp = resp?.operationResponse;
         const fullSync = resp?.fullSyncResponse;
-        if (fullSync?.nextRevision) {
-          opsRevision.set(accountId, { ...getCursor(), revision: fullSync.nextRevision });
-        }
-        if (opResp?.globalEvents?.lastRevision) {
-          opsRevision.set(accountId, {
-            ...getCursor(),
-            globalRev: opResp.globalEvents.lastRevision,
-          });
-        }
-        if (opResp?.individualEvents?.lastRevision) {
-          opsRevision.set(accountId, {
-            ...getCursor(),
-            individualRev: opResp.individualEvents.lastRevision,
-          });
-        }
-
         const ops = opResp?.operations ?? [];
-        if (ops.length > 0) {
-          const lastOp = ops[ops.length - 1];
-          if (lastOp?.revision != null) {
-            opsRevision.set(accountId, { ...getCursor(), revision: lastOp.revision });
-          }
-          log.debug({ accountId, count: ops.length }, "ops received");
-          const { processFetchedOperations } = await import("../service/lineService.js");
-          await processFetchedOperations(accountId, ops);
-        }
+        if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) break;
+        await processAndCommitOpsRevision(
+          accountId,
+          cursor,
+          { fullSyncResponse: fullSync, operationResponse: opResp },
+          async () => {
+            if (ops.length === 0) return;
+            log.debug({ accountId, count: ops.length }, "ops received");
+            const { processFetchedOperations } = await import("../service/lineService.js");
+            await processFetchedOperations(accountId, ops);
+          },
+          () => !abort.signal.aborted && opsAbortByAccount.get(accountId) === abort,
+        );
+        if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) break;
 
         await new Promise<void>((resolve) => {
           const t = setTimeout(resolve, ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS);
@@ -312,7 +473,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
         }
       }
     }
-    opsAbortByAccount.delete(accountId);
+    if (opsAbortByAccount.get(accountId) === abort) opsAbortByAccount.delete(accountId);
     log.info({ accountId }, "ops loop stopped");
   }
 
@@ -322,7 +483,6 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 export function stopFetchOpsLoop(accountId: string): void {
   opsAbortByAccount.get(accountId)?.abort();
   opsAbortByAccount.delete(accountId);
-  opsRevision.delete(accountId);
 }
 
 function watchAuthToken(client: VylineClient, accountId: string): void {
@@ -884,5 +1044,9 @@ export function removeClient(accountId: string): void {
   clients.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
+  clearAccountRuntimeCaches(accountId);
+  void releaseAccountChatCache(accountId).catch((err) => {
+    log.warn({ accountId, err }, "chat cache release deferred after client removal");
+  });
   log.info({ accountId }, "client removed");
 }

@@ -68,6 +68,7 @@ bun run vyline:focus-recovered -- sendMessage
 | ------------------------ | --------------------------------------------------------------------- | ---------------------------------- |
 | `VYLINE_DEVICE`          | `IOSIPAD` / `ANDROIDSECONDARY` / `DESKTOPWIN` / `DESKTOPMAC`          | `IOSIPAD`                          |
 | `VYLINE_DATA_DIR`        | backend データ（token, storage, chatdb, feature-locks, vyline-cache） | `backend/data/`                    |
+| `VYLINE_CHAT_CACHE_ACCOUNTS` | 完全履歴をメモリに保持するアカウント数（LRU、dirty時は退避しない） | `1` |
 | `VYLINE_CDN_CACHE_DIR`   | スタンプ / sticon CDN キャッシュ                                      | `backend/data/cdn-cache/`          |
 | `VYLINE_MEDIA_STORAGE_DIR` | 送信済み・取得済みメディアの永続ストレージ                     | `backend/storage/saved-media/`     |
 | `VYLINE_HOST`            | バックエンドの bind アドレス                                          | `127.0.0.1`（Docker は `0.0.0.0`） |

@@ -9,19 +9,20 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { createHash, randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import {
   exportChatDb,
-  importChatDb,
+  mergeImportedChatDb,
   listChatsWithCounts,
   type StoredChat,
   type StoredMessage,
 } from "../storage/chatStore.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
-import { safePathComponent } from "../storage/safeFile.js";
+import { safePathComponent, writeTextAtomic } from "../storage/safeFile.js";
 
 const log = childLogger("vyline-backup");
 
@@ -29,7 +30,8 @@ const _dir = dirname(fileURLToPath(import.meta.url));
 const BACKUP_DIR = process.env.VYLINE_BACKUP_DIR ?? join(_dir, "../../data/backups");
 
 const SCHEMA = "vyline-backup";
-const VERSION = 1;
+const VERSION = 2;
+const MAX_BACKUP_BYTES = 512 * 1024 * 1024;
 
 /** メディアを持ち得る contentType（E2EE で text/chunks に分解される前の分類） */
 const MEDIA_CONTENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "RICH"]);
@@ -70,6 +72,11 @@ interface Snapshot {
   chats: Record<string, StoredChat>;
   messages: Record<string, Record<string, StoredMessage>>;
   media: Array<{ chatMid: string; messageId: string; contentType: string; data: string }>;
+  /** 既読位置・同期カーソルなど。旧 v1 には存在しない。 */
+  meta?: Record<string, unknown>;
+  /** JSON本文（integrityを除く）のsha256。v2で必須。 */
+  integrity?: { algorithm: "sha256"; sha256: string; bytes: number };
+  deletedAt?: string;
 }
 
 function snapshotPath(id: string): string {
@@ -82,7 +89,7 @@ function backupAccountComponent(accountId: string): string {
 
 function idFor(accountId: string, date: Date): string {
   const stamp = date.toISOString().replace(/[:.]/g, "-");
-  return `vyline-backup-${backupAccountComponent(accountId)}-${stamp}`;
+  return `vyline-backup-${backupAccountComponent(accountId)}-${stamp}-${randomUUID().slice(0, 8)}`;
 }
 
 function asString(v: unknown): string {
@@ -96,6 +103,108 @@ function base64FromBytes(buf: Uint8Array): string {
 
 function bytesFromBase64(b64: string): Uint8Array {
   return new Uint8Array(Buffer.from(b64, "base64"));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function digestSnapshot(snapshot: Omit<Snapshot, "integrity">): {
+  body: string;
+  integrity: NonNullable<Snapshot["integrity"]>;
+} {
+  const body = JSON.stringify(snapshot);
+  return {
+    body,
+    integrity: {
+      algorithm: "sha256",
+      sha256: createHash("sha256").update(body).digest("hex"),
+      bytes: Buffer.byteLength(body),
+    },
+  };
+}
+
+function validBase64(value: unknown): value is string {
+  return (
+    typeof value === "string" && value.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(value)
+  );
+}
+
+function isSafeRecordKey(value: string): boolean {
+  return value !== "__proto__" && value !== "constructor" && value !== "prototype";
+}
+
+/** 旧形式も受け入れつつ、壊れた/別アカウントのレコードを復元対象から除外する。 */
+function normalizeSnapshot(input: unknown, accountId: string): Snapshot | null {
+  if (!isRecord(input) || input.schema !== SCHEMA || input.accountId !== accountId) return null;
+  const version = typeof input.version === "number" ? input.version : 1;
+  if (version < 1 || version > VERSION || typeof input.createdAt !== "string") return null;
+  if (!isRecord(input.chats) || !isRecord(input.messages) || !Array.isArray(input.media))
+    return null;
+
+  if (version >= 2) {
+    const integrity = input.integrity;
+    if (
+      !isRecord(integrity) ||
+      integrity.algorithm !== "sha256" ||
+      typeof integrity.sha256 !== "string"
+    )
+      return null;
+    const { integrity: _ignored, ...withoutIntegrity } = input as Snapshot &
+      Record<string, unknown>;
+    const body = JSON.stringify(withoutIntegrity);
+    if (createHash("sha256").update(body).digest("hex") !== integrity.sha256) return null;
+  }
+
+  const chats: Record<string, StoredChat> = {};
+  for (const [mid, value] of Object.entries(input.chats)) {
+    if (isSafeRecordKey(mid) && isRecord(value) && value.mid === mid) {
+      chats[mid] = value as unknown as StoredChat;
+    }
+  }
+  const messages: Record<string, Record<string, StoredMessage>> = {};
+  for (const [chatMid, value] of Object.entries(input.messages)) {
+    if (!isSafeRecordKey(chatMid) || !isRecord(value)) continue;
+    const byChat: Record<string, StoredMessage> = {};
+    for (const [messageId, message] of Object.entries(value)) {
+      if (
+        !isSafeRecordKey(messageId) ||
+        !isRecord(message) ||
+        message.id !== messageId ||
+        message.chatMid !== chatMid
+      )
+        continue;
+      byChat[messageId] = message as unknown as StoredMessage;
+    }
+    if (Object.keys(byChat).length) messages[chatMid] = byChat;
+  }
+  const media = input.media.filter(
+    (entry): entry is Snapshot["media"][number] =>
+      isRecord(entry) &&
+      typeof entry.chatMid === "string" &&
+      typeof entry.messageId === "string" &&
+      typeof entry.contentType === "string" &&
+      validBase64(entry.data) &&
+      Boolean(messages[entry.chatMid]?.[entry.messageId]),
+  );
+  return {
+    schema: SCHEMA,
+    version,
+    createdAt: input.createdAt,
+    accountId,
+    includeMedia: input.includeMedia === true,
+    chatMids: Array.isArray(input.chatMids)
+      ? input.chatMids.filter((v): v is string => typeof v === "string")
+      : null,
+    chats,
+    messages,
+    media,
+    ...(isRecord(input.meta) ? { meta: input.meta } : {}),
+    ...(isRecord(input.integrity)
+      ? { integrity: input.integrity as NonNullable<Snapshot["integrity"]> }
+      : {}),
+    ...(typeof input.deletedAt === "string" ? { deletedAt: input.deletedAt } : {}),
+  };
 }
 
 export async function ensureBackupDir(): Promise<void> {
@@ -119,20 +228,22 @@ export async function createBackup(
   const pickChats =
     options.chatMids && options.chatMids.length > 0 ? new Set(options.chatMids) : null;
 
-  const chats: Record<string, StoredChat> = {};
-  const messages: Record<string, Record<string, StoredMessage>> = {};
+  // Keep the exported containers when taking a full backup. Re-copying every
+  // message here briefly doubled the history footprint before JSON encoding.
+  const chats: Record<string, StoredChat> = pickChats ? {} : db.chats;
+  const messages: Record<string, Record<string, StoredMessage>> = pickChats ? {} : db.messages;
   let messageCount = 0;
 
   for (const [mid, chat] of Object.entries(db.chats)) {
     if (pickChats && !pickChats.has(mid)) continue;
-    chats[mid] = chat;
+    if (pickChats) chats[mid] = chat;
     const byChat = db.messages[mid] ?? {};
-    const filtered: Record<string, StoredMessage> = {};
-    for (const [id, msg] of Object.entries(byChat)) {
-      filtered[id] = msg;
-      messageCount++;
+    if (pickChats) {
+      const filtered: Record<string, StoredMessage> = {};
+      for (const [id, msg] of Object.entries(byChat)) filtered[id] = msg;
+      if (Object.keys(filtered).length > 0) messages[mid] = filtered;
     }
-    if (Object.keys(filtered).length > 0) messages[mid] = filtered;
+    messageCount += Object.keys(byChat).length;
   }
 
   // メディア同梱: 各メッセージの media-cache を messageId 単位で収集
@@ -156,7 +267,7 @@ export async function createBackup(
   }
 
   const id = idFor(accountId, new Date());
-  const snapshot: Snapshot = {
+  const unsigned: Omit<Snapshot, "integrity"> = {
     schema: SCHEMA,
     version: VERSION,
     createdAt: new Date().toISOString(),
@@ -166,10 +277,16 @@ export async function createBackup(
     chats,
     messages,
     media,
+    meta: db.meta as unknown as Record<string, unknown>,
   };
-
-  const body = JSON.stringify(snapshot);
-  await writeFile(snapshotPath(id), body, "utf8");
+  const signed = digestSnapshot(unsigned);
+  // Append integrity to the already serialized unsigned body. This avoids a
+  // second full object serialization and its duplicate temporary string.
+  const body = `${signed.body.slice(0, -1)},"integrity":${JSON.stringify(signed.integrity)}}`;
+  if (Buffer.byteLength(body) > MAX_BACKUP_BYTES) {
+    throw new Error(`バックアップが上限 ${MAX_BACKUP_BYTES} bytes を超えます`);
+  }
+  await writeTextAtomic(snapshotPath(id), body);
 
   log.info(
     { accountId, id, chatCount: Object.keys(chats).length, messageCount, mediaCount: media.length },
@@ -178,13 +295,13 @@ export async function createBackup(
 
   return {
     id,
-    createdAt: snapshot.createdAt,
+    createdAt: unsigned.createdAt,
     accountId,
     chatCount: Object.keys(chats).length,
     messageCount,
     mediaCount: media.length,
     includeMedia: options.includeMedia,
-    sizeBytes: body.length,
+    sizeBytes: Buffer.byteLength(body),
   };
 }
 
@@ -203,7 +320,8 @@ export async function listBackups(accountId: string): Promise<BackupSummary[]> {
     const id = file.replace(/\.json$/, "");
     try {
       const raw = await readFile(snapshotPath(id), "utf8");
-      const parsed = JSON.parse(raw) as Partial<Snapshot>;
+      const parsed = normalizeSnapshot(JSON.parse(raw), accountId);
+      if (!parsed || parsed.deletedAt) continue;
       const sizeBytes = (await stat(snapshotPath(id))).size;
       summaries.push({
         id,
@@ -228,14 +346,15 @@ export async function listBackups(accountId: string): Promise<BackupSummary[]> {
 }
 
 export async function readBackup(accountId: string, id: string): Promise<Snapshot | null> {
-  if (!id || id.includes("/") || id.includes("\\") || id.includes("..")) return null;
+  if (!id || id.includes("/") || id.includes("\\") || id.includes("..") || id.length > 240)
+    return null;
   const path = snapshotPath(id);
   if (!existsSync(path)) return null;
   try {
     const raw = await readFile(path, "utf8");
-    const parsed = JSON.parse(raw) as Snapshot;
-    if (parsed.schema !== SCHEMA || parsed.accountId !== accountId) return null;
-    return parsed;
+    if (Buffer.byteLength(raw) > MAX_BACKUP_BYTES) return null;
+    const snapshot = normalizeSnapshot(JSON.parse(raw), accountId);
+    return snapshot && !snapshot.deletedAt ? snapshot : null;
   } catch {
     return null;
   }
@@ -267,8 +386,14 @@ export async function restoreBackup(
     if (Object.keys(filtered).length > 0) messages[mid] = filtered;
   }
 
-  const imported = await importChatDb(accountId, {
-    meta: {},
+  // 追加マージにより、古いバックアップで現在の既読・取消し・新着本文を
+  // 巻き戻さない。新規メッセージとソフト削除フラグはそのまま保持する。
+  const imported = await mergeImportedChatDb(accountId, {
+    ...(snapshot.meta
+      ? {
+          meta: snapshot.meta as NonNullable<Parameters<typeof mergeImportedChatDb>[1]["meta"]>,
+        }
+      : {}),
     chats,
     messages,
   });
@@ -278,6 +403,7 @@ export async function restoreBackup(
     for (const entry of snapshot.media) {
       if (pickChats && !pickChats.has(entry.chatMid)) continue;
       try {
+        if (!validBase64(entry.data)) continue;
         await writeMediaStorage(
           accountId,
           entry.chatMid,
@@ -293,13 +419,19 @@ export async function restoreBackup(
   }
 
   log.info(
-    { accountId, id, chats: imported.chats, messages: imported.messages, restoredMedia },
+    {
+      accountId,
+      id,
+      chats: imported.importedChats,
+      messages: imported.importedMessages,
+      restoredMedia,
+    },
     "VylineBackup restored",
   );
 
   return {
-    restoredChats: imported.chats,
-    restoredMessages: imported.messages,
+    restoredChats: imported.importedChats,
+    restoredMessages: imported.importedMessages,
     restoredMedia,
   };
 }
@@ -308,8 +440,18 @@ export async function deleteBackup(accountId: string, id: string): Promise<boole
   const snapshot = await readBackup(accountId, id);
   if (!snapshot) return false;
   try {
-    const { unlink } = await import("node:fs/promises");
-    await unlink(snapshotPath(id));
+    const { body, integrity } = digestSnapshot({
+      ...snapshot,
+      deletedAt: new Date().toISOString(),
+      integrity: undefined,
+    } as Omit<Snapshot, "integrity">);
+    await writeTextAtomic(
+      snapshotPath(id),
+      JSON.stringify({
+        ...JSON.parse(body),
+        integrity,
+      }),
+    );
     return true;
   } catch {
     return false;

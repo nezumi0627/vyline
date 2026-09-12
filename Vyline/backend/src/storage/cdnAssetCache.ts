@@ -71,7 +71,9 @@ try {
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;
+const MEMORY_MAX_BYTES = 32 * 1024 * 1024;
 const MEMORY_TTL_MS = 30 * 60_000;
+let memoryBytes = 0;
 /** CDN から取得するレスポンスの最大サイズ（不正/巨大レスポンスからの保護） */
 const MAX_CDN_RESPONSE_BYTES = 10 * 1024 * 1024;
 
@@ -204,11 +206,18 @@ async function writeDisk(url: string, buf: Uint8Array, contentType: string): Pro
 }
 
 function remember(url: string, buf: Uint8Array, contentType: string): void {
-  if (memory.size >= MEMORY_MAX) {
+  if (buf.byteLength > MEMORY_MAX_BYTES) return;
+  const previous = memory.get(url);
+  if (previous) memoryBytes -= previous.buf.byteLength;
+  memory.delete(url);
+  while (memory.size >= MEMORY_MAX || memoryBytes + buf.byteLength > MEMORY_MAX_BYTES) {
     const oldest = [...memory.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-    if (oldest) memory.delete(oldest[0]);
+    if (!oldest) break;
+    memoryBytes -= oldest[1].buf.byteLength;
+    memory.delete(oldest[0]);
   }
   memory.set(url, { buf, contentType, at: Date.now() });
+  memoryBytes += buf.byteLength;
 }
 
 /**
@@ -224,6 +233,7 @@ export async function getCachedLineCdn(
 
   const mem = memory.get(url);
   if (mem && Date.now() - mem.at < MEMORY_TTL_MS) {
+    mem.at = Date.now();
     return { buf: mem.buf, contentType: mem.contentType, fromCache: true };
   }
 
@@ -296,6 +306,7 @@ export async function getIconCacheSize(): Promise<number> {
 
 export async function clearCdnCache(): Promise<number> {
   memory.clear();
+  memoryBytes = 0;
   return clearDir(CACHE_ROOT);
 }
 
