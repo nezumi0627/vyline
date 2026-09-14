@@ -4,6 +4,11 @@ ChatGPTの **プラグイン → 追加 → Connection: Tunnel** から登録す
 内部のtool通信はMCP SDKのStreamable HTTP。既存Vylineコンテナ内でbackendと
 OpenAI公式 `tunnel-client` を起動する。LINE操作にOpenAIの生成APIは使わない。
 
+同梱CLIはOpenAIのv0.0.14ソースを固定し、`golang.org/x/net v0.56.0`と
+OpenTelemetry SDK v1.43.0へ依存を更新してGo 1.27.1で再ビルドした
+`0.0.14-vyline.1`。公式配布バイナリの脆弱性を修正し、CLIと全toolの機能を維持する。
+依存ロックは`./tunnel-client/go.mod`と`go.sum`。GoはDockerのビルド段階だけで使用する。
+
 ## Dockerへの組み込み
 
 既存のdata/storageマウントとアカウントをそのまま使う。以下はリポジトリルートで実行。
