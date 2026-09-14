@@ -4,20 +4,24 @@
 
 ARG BUN_VERSION=1.4.0
 ARG VYLINE_VERSION=dev
-FROM debian:bookworm-slim AS openai-tunnel
+FROM --platform=$BUILDPLATFORM golang:1.27.1-bookworm AS openai-tunnel
+ARG TARGETOS
 ARG TARGETARCH
-RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
-  && rm -rf /var/lib/apt/lists/*
-# Official release checksums; pin both platforms so a rebuild cannot silently replace the binary.
-RUN case "$TARGETARCH" in \
-      amd64) checksum=15bd17e805cad39d412199115bb9e10a978dd35258a114cdf25dd2ae6681c7d3 ;; \
-      arm64) checksum=2de3fb879a18edb847e0313592c912f1983685488290a7fdba7ac403e6a4fb0a ;; \
-      *) exit 1 ;; \
-    esac \
-  && curl --fail --location --retry 3 "https://github.com/openai/tunnel-client/releases/download/v0.0.14/tunnel-client-v0.0.14-linux-${TARGETARCH}.zip" -o /tmp/tunnel.zip \
-  && echo "$checksum  /tmp/tunnel.zip" | sha256sum --check - \
-  && unzip /tmp/tunnel.zip -d /tmp/tunnel \
-  && find /tmp/tunnel -type f -name tunnel-client -exec install -m 0755 '{}' /usr/local/bin/tunnel-client \;
+WORKDIR /src/tunnel-client
+# Upstream v0.0.14 binaries contain vulnerable x/net and OpenTelemetry SDK versions.
+# Keep the complete upstream CLI, rebuilding its pinned source with patched dependency locks.
+RUN curl --fail --location --retry 3 \
+      https://codeload.github.com/openai/tunnel-client/tar.gz/0f870e50a973fa820d4c409000059e181e8d242b -o /tmp/tunnel-source.tar.gz \
+  && echo "0281b17c0979f9db1ae2b41b0b66df697d646e726995756a003c6ffc51a64c10  /tmp/tunnel-source.tar.gz" | sha256sum --check - \
+  && tar -xzf /tmp/tunnel-source.tar.gz --strip-components=1 -C /src/tunnel-client
+COPY Vyline/integrations/vyline-chatgpt/tunnel-client/go.mod Vyline/integrations/vyline-chatgpt/tunnel-client/go.sum ./
+RUN --mount=type=cache,target=/go/pkg/mod \
+    --mount=type=cache,target=/root/.cache/go-build \
+    GOTOOLCHAIN=local go mod download && go mod verify \
+  && CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} GOTOOLCHAIN=local \
+    go build -mod=readonly -trimpath -buildvcs=false \
+      -ldflags="-s -w -X github.com/openai/tunnel-client/pkg/version.semanticVersion=0.0.14-vyline.1 -X github.com/openai/tunnel-client/pkg/version.GitSHA=0f870e50a973fa820d4c409000059e181e8d242b" \
+      -o /usr/local/bin/tunnel-client ./cmd/client
 
 FROM eclipse-temurin:17-jdk-jammy AS compose-java
 

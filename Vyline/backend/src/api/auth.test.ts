@@ -84,7 +84,7 @@ describe("QR login status", () => {
       expect(sync).not.toHaveBeenCalled();
     } finally {
       clientManager.removeClient(accountId);
-      if (previousDelay === undefined) delete process.env.VYLINE_TALK_LISTEN_DELAY_MS;
+      if (previousDelay === undefined) Reflect.deleteProperty(process.env, "VYLINE_TALK_LISTEN_DELAY_MS");
       else process.env.VYLINE_TALK_LISTEN_DELAY_MS = previousDelay;
     }
   });
