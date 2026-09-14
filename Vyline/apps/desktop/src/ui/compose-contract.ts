@@ -72,7 +72,14 @@ export type KmpMessage = {
   mediaUrl?: string;
   audioSeconds?: number;
   fileName?: string;
-  reactions: { type: number; key: string; iconUrl: string; count: number; selected: boolean }[];
+  reactions: {
+    type: number;
+    key: string;
+    iconUrl: string;
+    count: number;
+    selected: boolean;
+    reactors: { id: string; name: string; atMillis: number }[];
+  }[];
   groupStart: boolean;
   groupEnd: boolean;
 };

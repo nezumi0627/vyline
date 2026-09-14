@@ -7,6 +7,7 @@ import { createPortal } from "react-dom";
 import { useControllerPortalTarget } from "@/ui/native-controller-surface";
 import {
   useStore,
+  displayName,
   formatTime,
   memberDisplayName,
   memberGlyph,
@@ -625,6 +626,38 @@ const REACTION_EMOJI: Record<number, string> = {
   7: "😲",
 };
 
+type ReactionItem = NonNullable<Message["reactions"]>[number];
+type ReactionGroup = {
+  key: string;
+  type: number;
+  emoji?: ReactionItem["emoji"];
+  count: number;
+  mine: boolean;
+  items: ReactionItem[];
+};
+
+function groupReactions(reactions: NonNullable<Message["reactions"]>, myMid?: string): ReactionGroup[] {
+  const byType = new Map<string, ReactionGroup>();
+  for (const reaction of reactions) {
+    const key = reaction.emoji
+      ? `${reaction.emoji.productId}:${reaction.emoji.emojiId}`
+      : String(reaction.type);
+    const current = byType.get(key) ?? {
+      key,
+      type: reaction.type,
+      emoji: reaction.emoji,
+      count: 0,
+      mine: false,
+      items: [],
+    };
+    current.count += 1;
+    current.mine ||= reaction.fromMid === myMid;
+    current.items.push(reaction);
+    byType.set(key, current);
+  }
+  return [...byType.values()].filter((reaction) => reaction.emoji || REACTION_EMOJI[reaction.type]);
+}
+
 /** メニュー等で使う小さなリアクション画像 */
 function ReactionGlyph({ type }: { type: number }) {
   return (
@@ -645,26 +678,19 @@ function ReactionGlyph({ type }: { type: number }) {
 }
 
 function ReactionBadges({
-  reactions,
-  myMid,
+  groups,
   onReact,
+  onDetails,
+  detailsOpen,
   side,
 }: {
-  reactions: NonNullable<Message["reactions"]>;
-  myMid?: string;
+  groups: ReactionGroup[];
   onReact: (type: number | NonNullable<Message["reactions"]>[number]["emoji"], mine: boolean) => void;
+  onDetails: () => void;
+  detailsOpen: boolean;
   side: "left" | "right";
 }) {
-  const byType = new Map<string, { type: number; emoji?: NonNullable<Message["reactions"]>[number]["emoji"]; count: number; mine: boolean }>();
-  for (const r of reactions) {
-    const key = r.emoji ? `${r.emoji.productId}:${r.emoji.emojiId}` : String(r.type);
-    const cur = byType.get(key) ?? { type: r.type, emoji: r.emoji, count: 0, mine: false };
-    cur.count += 1;
-    if (r.fromMid === myMid) cur.mine = true;
-    byType.set(key, cur);
-  }
-  const entries = [...byType.entries()].filter(([, r]) => r.emoji || REACTION_EMOJI[r.type]);
-  if (!entries.length) return null;
+  if (!groups.length) return null;
   return (
     <div
       className={cn(
@@ -672,7 +698,7 @@ function ReactionBadges({
         side === "right" ? "justify-end" : "justify-start",
       )}
     >
-      {entries.map(([key, { type, emoji, count, mine }]) => (
+      {groups.map(({ key, type, emoji, count, mine }) => (
         <button
           key={key}
           type="button"
@@ -699,6 +725,16 @@ function ReactionBadges({
           <span>{count}</span>
         </button>
       ))}
+      <button
+        type="button"
+        onClick={onDetails}
+        className="flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[0.68rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
+        aria-label="リアクションした人を表示"
+        aria-expanded={detailsOpen}
+      >
+        詳細
+        <IconChevron size={11} className={cn("transition-transform", detailsOpen && "rotate-90")} />
+      </button>
     </div>
   );
 }
@@ -780,6 +816,7 @@ export const MessageBubble = memo(
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const [partialCopyOpen, setPartialCopyOpen] = useState(false);
     const [emojiReactionOpen, setEmojiReactionOpen] = useState(false);
+    const [showReactionDetails, setShowReactionDetails] = useState(false);
     useEffect(() => {
       if (actionsOnly && !menu && !editing && !revokeRequest && !showOriginal && !showHistory && !partialCopyOpen && !emojiReactionOpen)
         onActionsClose?.();
@@ -1331,6 +1368,7 @@ export const MessageBubble = memo(
     })();
 
     const readers = messageReaders(message, chat, streamerMode);
+    const reactionGroups = groupReactions(message.reactions ?? [], self?.mid);
 
     const canReaderList =
       chat.type === "group" &&
@@ -1596,6 +1634,55 @@ export const MessageBubble = memo(
                 : "既読者はいません"}
           </span>
         )}
+      </div>
+    );
+
+    const reactionDetails = showReactionDetails && reactionGroups.length > 0 && (
+      <div className="vy-fade-in mt-1 space-y-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-1)] p-2 text-xs">
+        {reactionGroups.map((group) => (
+          <div key={group.key} className="space-y-1.5">
+            <div className="flex items-center gap-1.5 font-medium text-[var(--vy-text)]">
+              <img
+                src={reactionSticonUrl(group.type, group.emoji)}
+                alt=""
+                loading="lazy"
+                draggable={false}
+                onError={hideBrokenMedia}
+                className="h-4 w-4 object-contain"
+              />
+              <span>{REACTION_EMOJI[group.type] ?? "絵文字"}</span>
+              <span className="text-[var(--vy-text-dim)]">{group.count}件</span>
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {group.items.map((reaction) => {
+                const member = chat.members?.find((entry) => entry.id === reaction.fromMid);
+                const name = reaction.fromMid === self?.mid
+                  ? "自分"
+                  : member
+                    ? memberDisplayName(member.name, streamerMode)
+                    : chat.type === "friend"
+                      ? displayName(chat, streamerMode)
+                      : memberDisplayName(reaction.fromMid, streamerMode);
+                return (
+                  <button
+                    key={`${group.key}:${reaction.fromMid}`}
+                    type="button"
+                    data-vy-native-touch="true"
+                    onClick={(event) => {
+                      event.stopPropagation();
+                      openMemberProfile(chat.id, reaction.fromMid);
+                    }}
+                    title={`${name}・${new Date(reaction.atMillis).toLocaleString("ja-JP")}`}
+                    className="flex items-center gap-1 rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.7rem] text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+                  >
+                    <span>{name}</span>
+                    <span className="opacity-70">{formatTime(reaction.atMillis)}</span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
     );
 
@@ -2286,13 +2373,17 @@ export const MessageBubble = memo(
 
           {metaLine}
           {readerList}
-          {message.reactions && message.reactions.length > 0 && !isRevoked && (
-            <ReactionBadges
-              reactions={message.reactions}
-              myMid={self?.mid ?? ""}
-              onReact={react}
-              side={isMe ? "right" : "left"}
-            />
+          {reactionGroups.length > 0 && !isRevoked && (
+            <>
+              <ReactionBadges
+                groups={reactionGroups}
+                onReact={react}
+                onDetails={() => setShowReactionDetails((open) => !open)}
+                detailsOpen={showReactionDetails}
+                side={isMe ? "right" : "left"}
+              />
+              {reactionDetails}
+            </>
           )}
         </div>
 

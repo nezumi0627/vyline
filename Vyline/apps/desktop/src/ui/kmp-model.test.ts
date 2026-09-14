@@ -130,7 +130,10 @@ test("native text uses the existing safe URL parser without swallowing punctuati
 test("KMP consumes the same ordered messages with reply, status, grouping and reaction semantics", () => {
   const source = [
     message("10", { authorId: "me", replyToId: "9", status: "sending" }),
-    message("9", { reactions: [{ fromMid: "self", type: 3, atMillis: 10 }] }),
+    message("9", { reactions: [
+      { fromMid: "self", type: 3, atMillis: 10 },
+      { fromMid: "member", type: 3, atMillis: 20 },
+    ] }),
   ];
   const result = projectKmpMessages(source, chat, false, "self");
   expect(result.map((entry) => entry.id)).toEqual(["9", "10"]);
@@ -138,7 +141,15 @@ test("KMP consumes the same ordered messages with reply, status, grouping and re
     authorName: "あおい",
     groupStart: true,
     groupEnd: true,
-    reactions: [{ type: 3, count: 1, selected: true }],
+    reactions: [{
+      type: 3,
+      count: 2,
+      selected: true,
+      reactors: [
+        { id: "self", name: "自分", atMillis: 10 },
+        { id: "member", name: "あおい", atMillis: 20 },
+      ],
+    }],
   });
   expect(result[1]).toMatchObject({ replyText: "本文9", status: "sending", authorName: "自分" });
   expect(source.map((entry) => entry.id)).toEqual(["10", "9"]);
