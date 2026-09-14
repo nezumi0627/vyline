@@ -635,6 +635,7 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
     val mine = message.authorId == "me"
     var swipeOffset by remember(message.id) { mutableFloatStateOf(0f) }
     var linkGesture by remember(message.id) { mutableStateOf(false) }
+    var reactionDetailsVisible by remember(message.id) { mutableStateOf(false) }
     val messageFocus = remember(message.id) { FocusRequester() }
     val inputMode = LocalInputModeManager.current
     val profile = { action("reader-profile", id = message.authorId) }
@@ -717,16 +718,43 @@ private fun MessageCell(message: ChatMessage, mode: String, dark: Boolean, setti
                         mentionColor = if (mine) colors.linkOutgoing else colors.linkIncoming, onLinkPress = { linkGesture = true })
                     if (message.kind != "text" && message.text.isBlank() && message.mediaUrl == null) Label(message.fileName ?: when (message.kind) { "image" -> "画像"; "video" -> "動画"; "audio" -> "音声メッセージ"; "sticker" -> "スタンプ"; else -> "添付メッセージ" }, 14, color = contentColor)
                 }
-                if (message.reactions.isNotEmpty()) FlowRow(Modifier.padding(top = 3.dp),
-                    horizontalArrangement = Arrangement.spacedBy(4.dp, if (mine) Alignment.End else Alignment.Start),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    message.reactions.forEach { reaction -> Box(Modifier.clip(CircleShape).background(LocalAccent.current.copy(alpha = if (reaction.selected) .18f else .08f))
-                        .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.key) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
-                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            ControllerImage(reaction.iconUrl, "", Modifier.size(18.dp), ContentScale.Fit)
-                            Label("${reaction.count}", 11)
+                if (message.reactions.isNotEmpty()) {
+                    FlowRow(Modifier.padding(top = 3.dp),
+                        horizontalArrangement = Arrangement.spacedBy(4.dp, if (mine) Alignment.End else Alignment.Start),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        message.reactions.forEach { reaction -> Box(Modifier.clip(CircleShape).background(LocalAccent.current.copy(alpha = if (reaction.selected) .18f else .08f))
+                            .combinedClickable(enabled = message.canReact, role = Role.Button, onClick = { action("react", id = message.id, value = reaction.key) }).semantics { contentDescription = "${reactionName(reaction.type)} ${reaction.count}件"; selected = reaction.selected }.padding(horizontal = 7.dp, vertical = 4.dp)) {
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                                ControllerImage(reaction.iconUrl, "", Modifier.size(18.dp), ContentScale.Fit)
+                                Label("${reaction.count}", 11)
+                            }
+                        } }
+                        Box(Modifier.clip(CircleShape).background(LocalRendererColors.current.surface)
+                            .combinedClickable(role = Role.Button, onClick = { reactionDetailsVisible = !reactionDetailsVisible })
+                            .semantics { contentDescription = "リアクションした人を表示"; stateDescription = if (reactionDetailsVisible) "表示中" else "非表示" }
+                            .padding(horizontal = 8.dp, vertical = 4.dp)) {
+                            Label("詳細", 11, color = LocalSecondaryInk.current)
                         }
-                    } }
+                    }
+                    if (reactionDetailsVisible) Column(Modifier.padding(top = 6.dp).clip(RoundedCornerShape(12.dp))
+                        .background(LocalRendererColors.current.surface).padding(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        message.reactions.forEach { reaction ->
+                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                ControllerImage(reaction.iconUrl, "", Modifier.size(16.dp), ContentScale.Fit)
+                                Label("${reactionName(reaction.type)} ${reaction.count}件", 12, FontWeight.Medium)
+                            }
+                            FlowRow(horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                                reaction.reactors.forEach { reactor ->
+                                    Box(Modifier.clip(CircleShape).background(LocalRendererColors.current.raised)
+                                        .combinedClickable(role = Role.Button, onClick = { action("reader-profile", id = reactor.id) })
+                                        .semantics { contentDescription = "${reactor.name}のプロフィール" }
+                                        .padding(horizontal = 9.dp, vertical = 5.dp)) {
+                                        Label(reactor.name, 11)
+                                    }
+                                }
+                            }
+                        }
+                    }
                 }
                 if (message.edited || message.messageState == "edited") Label("編集済み", 11, color = if (mode == "apple") colors.accentText else LocalSecondaryInk.current,
                     modifier = Modifier.combinedClickable(role = Role.Button, onClick = { action("view-rich", id = message.id) }).semantics { contentDescription = "編集前のメッセージと履歴を表示" }.padding(top = 4.dp, start = 10.dp, end = 10.dp))

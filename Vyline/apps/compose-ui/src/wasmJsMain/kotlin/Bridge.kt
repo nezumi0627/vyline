@@ -24,7 +24,10 @@ data class ChatModel(val id: String, val title: String, val status: String = "",
 data class ChatMember(val id: String, val name: String, val avatar: String = "", val color: String = "", val avatarUrl: String? = null)
 
 @Serializable
-data class MessageReaction(val type: Int, val count: Int, val selected: Boolean, val key: String = type.toString(), val iconUrl: String = "")
+data class MessageReactor(val id: String, val name: String, val atMillis: Double = 0.0)
+
+@Serializable
+data class MessageReaction(val type: Int, val count: Int, val selected: Boolean, val key: String = type.toString(), val iconUrl: String = "", val reactors: List<MessageReactor> = emptyList())
 
 @Serializable
 data class MessageReader(val id: String, val name: String, val readAt: Double? = null)

@@ -1,5 +1,5 @@
 import { reactionSticonUrl } from "@/lib/reactionImages";
-import { displayName, formatTime } from "@/lib/store";
+import { displayName, formatTime, memberDisplayName } from "@/lib/store";
 import type { Chat, Message } from "@/lib/store-types";
 import { compareMessagesOldestFirst } from "@/lib/messageOrder";
 import { lineAvatarUrl, stickerAnimationUrl } from "@/utils/lineMedia";
@@ -105,15 +105,35 @@ export function createKmpMessageProjector() {
       const mine = message.authorId === "me";
       const call = message.kind === "call" ? (message.callMeta ?? { video: false, group: false, outcome: "ended" as const }) : undefined;
       const callLabel = call ? callEventLabel(call) : undefined;
-      const reactions = new Map<string, { type: number; key: string; iconUrl: string; count: number; selected: boolean }>();
+      const reactions = new Map<string, {
+        type: number;
+        key: string;
+        iconUrl: string;
+        count: number;
+        selected: boolean;
+        reactors: { id: string; name: string; atMillis: number }[];
+      }>();
       for (const reaction of message.reactions ?? []) {
         const key = reaction.emoji ? `${reaction.emoji.productId}:${reaction.emoji.emojiId}` : String(reaction.type);
         const previous = reactions.get(key);
+        const reactorMember = members.get(reaction.fromMid);
+        const reactorName = reaction.fromMid === (selfMid ?? "")
+          ? "自分"
+          : reactorMember
+            ? memberDisplayName(reactorMember.name, streamerMode)
+            : chat.type === "friend"
+              ? displayName(chat, streamerMode)
+              : memberDisplayName(reaction.fromMid, streamerMode);
         reactions.set(key, {
           key, iconUrl: reactionSticonUrl(reaction.type, reaction.emoji),
           type: reaction.type,
           count: (previous?.count ?? 0) + 1,
           selected: !!previous?.selected || reaction.fromMid === (selfMid ?? ""),
+          reactors: [...(previous?.reactors ?? []), {
+            id: reaction.fromMid,
+            name: reactorName,
+            atMillis: reaction.atMillis,
+          }],
         });
       }
       const value: KmpMessage = {
