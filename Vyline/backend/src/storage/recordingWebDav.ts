@@ -13,7 +13,7 @@ export type WebDavConnection = {
   allowPrivateNetwork?: boolean;
   allowInsecureHttp?: boolean;
 };
-function addressKind(ip: string): "public" | "private" | "blocked" {
+export function addressKind(ip: string): "public" | "private" | "blocked" {
   if (isIP(ip) === 4) {
     const [a, b] = ip.split(".").map(Number) as [number, number];
     if (

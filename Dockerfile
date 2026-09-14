@@ -4,6 +4,21 @@
 
 ARG BUN_VERSION=1.4.0
 ARG VYLINE_VERSION=dev
+FROM debian:bookworm-slim AS openai-tunnel
+ARG TARGETARCH
+RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates curl unzip \
+  && rm -rf /var/lib/apt/lists/*
+# Official release checksums; pin both platforms so a rebuild cannot silently replace the binary.
+RUN case "$TARGETARCH" in \
+      amd64) checksum=15bd17e805cad39d412199115bb9e10a978dd35258a114cdf25dd2ae6681c7d3 ;; \
+      arm64) checksum=2de3fb879a18edb847e0313592c912f1983685488290a7fdba7ac403e6a4fb0a ;; \
+      *) exit 1 ;; \
+    esac \
+  && curl --fail --location --retry 3 "https://github.com/openai/tunnel-client/releases/download/v0.0.14/tunnel-client-v0.0.14-linux-${TARGETARCH}.zip" -o /tmp/tunnel.zip \
+  && echo "$checksum  /tmp/tunnel.zip" | sha256sum --check - \
+  && unzip /tmp/tunnel.zip -d /tmp/tunnel \
+  && find /tmp/tunnel -type f -name tunnel-client -exec install -m 0755 '{}' /usr/local/bin/tunnel-client \;
+
 FROM eclipse-temurin:17-jdk-jammy AS compose-java
 
 FROM oven/bun:${BUN_VERSION} AS deps
@@ -59,7 +74,7 @@ LABEL org.opencontainers.image.title="Vyline" \
       org.opencontainers.image.version="${VYLINE_VERSION}"
 RUN apt-get update \
   && apt-get upgrade -y \
-  && apt-get install -y --no-install-recommends gosu \
+  && apt-get install -y --no-install-recommends gosu ca-certificates \
   && rm -rf /var/lib/apt/lists/*
 COPY --from=prod-deps /app/node_modules ./node_modules
 COPY --from=prod-deps /app/Vyline/backend/node_modules ./Vyline/backend/node_modules
@@ -68,6 +83,7 @@ COPY --from=build /app/openapi.yaml ./openapi.yaml
 COPY --from=build /app/Vyline/backend/src ./Vyline/backend/src
 COPY --from=build /app/Vyline/apps/desktop/dist ./Vyline/apps/desktop/dist
 COPY docker-entrypoint.sh /usr/local/bin/vyline-entrypoint
+COPY --from=openai-tunnel /usr/local/bin/tunnel-client /usr/local/bin/tunnel-client
 RUN mkdir -p /app/data /app/storage \
   && chown -R bun:bun /app/data /app/storage \
   && chmod 0755 /usr/local/bin/vyline-entrypoint

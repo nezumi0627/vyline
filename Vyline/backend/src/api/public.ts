@@ -37,7 +37,7 @@ export const publicRouter = new Hono();
 // ─── 認証ヘルパー ──────────────────────────────────
 
 /** Bearer トークン認証。失敗時は Response を返す */
-async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Response> {
+export async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Response> {
   const auth = c.req.header("authorization") ?? "";
   const tokenStr = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
   if (!tokenStr) {

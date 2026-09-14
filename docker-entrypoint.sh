@@ -6,6 +6,10 @@ STORAGE_DIR="${VYLINE_STORAGE_DIR:-/app/storage}"
 
 mkdir -p "$DATA_DIR" "$STORAGE_DIR"
 
+if [ "${VYLINE_CHATGPT_ENABLED:-false}" = "true" ] && [ -n "${VYLINE_CHATGPT_TUNNEL_PROFILE:-}" ]; then
+  set -- bun /app/Vyline/backend/src/chatgpt/supervisor.ts "$@"
+fi
+
 if [ "$(id -u)" = "0" ]; then
   # Docker bind mounts keep the host-side ownership and therefore hide the
   # ownership prepared in the image.  Vyline runs as the unprivileged `bun`

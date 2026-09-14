@@ -38,20 +38,8 @@ export type MessageKind =
   | "contact"
   | "location";
 
-export type CallMessageMeta = {
-  video: boolean;
-  group: boolean;
-  durationSec?: number;
-  outcome:
-    | "started"
-    | "ended"
-    | "unknown"
-    | "missed"
-    | "declined"
-    | "busy"
-    | "cancelled"
-    | "no-answer";
-};
+export type { CallMessageMeta } from "@vyline/types";
+import type { CallMessageMeta } from "@vyline/types";
 
 export type LinkPreview = {
   url: string;

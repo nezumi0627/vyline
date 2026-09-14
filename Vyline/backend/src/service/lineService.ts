@@ -1379,6 +1379,12 @@ function lineProfileFromVyline(c: {
   return profile;
 }
 
+/** Friend roster uses the same overridden-name/profile mapping as other contact reads. */
+export async function fetchFriends(accountId: string): Promise<LineProfile[]> {
+  const users = await requireClient(accountId).fetchUsers();
+  return users.map((user) => mapContactV3Like(user.raw as ContactV3Like, user.mid));
+}
+
 /** getContactsV3 をバッチで叩いて VylineCache に載せる（小チャンク・長め timeout・失敗時は stale 許可） */
 export async function fetchContactsBatch(
   accountId: string,
