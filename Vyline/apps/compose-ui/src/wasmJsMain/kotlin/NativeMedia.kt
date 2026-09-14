@@ -93,7 +93,7 @@ internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Un
     val source = remember(message.mediaUrl) { message.mediaUrl?.let(::safeMediaUrl)?.replace(Regex("([?&])preview=1(?=&|#|$)"), "$1preview=0") }
     var zoom by remember(message.id) { mutableFloatStateOf(1f) }
     var pan by remember(message.id) { mutableStateOf(Offset.Zero) }
-    val loaded = rememberRemoteImage(if (message.stickerAnimated) null else source, 3200, retry)
+    val loaded = rememberRemoteImage(if (message.kind == "video" || message.stickerAnimated) null else source, 3200, retry)
     val image = loaded.bitmap
     val focus = rememberNativeModalFocus(if (loaded.failed) listOf("close", "retry") else if (image != null) listOf("close", "image") else listOf("close"), message.id)
     Column(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .96f))
@@ -115,7 +115,16 @@ internal fun MediaViewer(message: ChatMessage, mode: String, onDismiss: () -> Un
                 }
             }
         }, contentAlignment = Alignment.Center) {
-            if (message.stickerAnimated && !source.isNullOrEmpty()) ClippedHtmlElementView(
+            if (message.kind == "video" && !source.isNullOrEmpty()) key(source) {
+                ClippedHtmlElementView(
+                    factory = { (document.createElement("video") as HTMLVideoElement).apply {
+                        src = source; controls = true; preload = "metadata"; setAttribute("playsinline", "")
+                        setAttribute("aria-label", message.fileName ?: "動画")
+                        style.width = "100%"; style.height = "100%"; style.objectFit = "contain"
+                    } }, modifier = Modifier.fillMaxSize(),
+                    onRelease = { it.pause(); it.removeAttribute("src"); it.load() })
+            }
+            else if (message.stickerAnimated && !source.isNullOrEmpty()) ClippedHtmlElementView(
                 factory = { (document.createElement("img") as HTMLImageElement).apply {
                     src = source; alt = message.text.ifBlank { "スタンプ" }; draggable = false
                     style.width = "100%"; style.height = "100%"; style.objectFit = "contain"

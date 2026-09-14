@@ -18,7 +18,7 @@ export function MediaLightbox({
   alt?: string;
   onClose: () => void;
 }) {
-  const url = fullSrc || src.replace(/([?&])preview=1/, "$1preview=0").replace(/\?preview=0$/, "");
+  const url = fullSrc || src.replace(/([?&])preview=1(?=&|#|$)/, "$1preview=0");
   const [view, setView] = useState({ scale: 1, x: 0, y: 0 });
   const pointers = useRef(new Map<number, { x: number; y: number }>());
   const moved = useRef(false);
