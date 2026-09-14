@@ -28,7 +28,18 @@ function define<S extends z.ZodRawShape>(
   run: (args: z.output<z.ZodObject<S>>, token: ApiToken) => Promise<unknown>,
 ) {
   const schema = z.strictObject(fields);
-  const jsonSchema = z.toJSONSchema(schema, { target: "draft-7" });
+  const jsonSchema = z.toJSONSchema(schema, {
+    target: "draft-7",
+    override: ({ zodSchema, jsonSchema }) => {
+      if (zodSchema === accountId) {
+        // Unicode property escapes are not portable across JSON Schema validators.
+        // Keep the full Unicode check in Zod at execution time, including nested IDs.
+        Reflect.deleteProperty(jsonSchema, "pattern");
+        jsonSchema.description =
+          "Exact account ID from list_accounts. Unicode letters/numbers, underscores and hyphens.";
+      }
+    },
+  });
   definitions.set(name, {
     schema,
     tool: {

@@ -12,7 +12,7 @@ const directory = await mkdtemp(join(tmpdir(), "vyline-plugin-"));
 process.env.VYLINE_DATA_DIR = directory;
 process.env.VYLINE_CHATGPT_ENABLED = "true";
 const { executeTool, listTools } = await import("./tools.js");
-const { routeTools, routeRequest } = await import("./catalog.js");
+const { routeTools, routeRequest, accountId } = await import("./catalog.js");
 const { chatgptRouter } = await import("./router.js");
 const { lineRouter } = await import("../api/line.js");
 const manager = await import("../line/clientManager.js");
@@ -61,6 +61,36 @@ test("every advertised route exists and every input schema compiles", () => {
       expect(tool.schema.shape[param[1]!]).toBeDefined();
   }
 });
+test("published account schemas are portable while Unicode validation remains enforced", () => {
+  const tools = listTools(token);
+  expect(tools).toHaveLength(171);
+  for (const tool of tools) {
+    expect(JSON.stringify(tool.inputSchema)).not.toContain("\\\\p{");
+    if (tool.name === "list_accounts") continue;
+    expect(tool.inputSchema.properties?.accountId).toMatchObject({
+      type: "string",
+      minLength: 1,
+      maxLength: 128,
+    });
+    expect(tool.inputSchema.properties?.accountId).not.toHaveProperty("pattern");
+  }
+  for (const value of ["main", "account-2", "仕事用_２"])
+    expect(accountId.safeParse(value).success).toBe(true);
+  for (const value of [
+    "",
+    "../main",
+    "main/other",
+    "a\\b",
+    "a b",
+    "main?x=1",
+    "main\n",
+    "😀",
+    "x".repeat(129),
+  ]) {
+    expect(accountId.safeParse(value).success).toBe(false);
+  }
+});
+
 test("account and scope guards run before LINE, including GET mutations", async () => {
   const request = spyOn(lineRouter, "fetch").mockImplementation(() => Response.json({ ok: true }));
   try {
