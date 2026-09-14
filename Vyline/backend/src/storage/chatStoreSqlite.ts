@@ -1153,6 +1153,31 @@ export async function getStoredChats(accountId: string): Promise<Chat[]> {
   return result;
 }
 
+/** Account database is selected before applying any caller-provided filters. */
+export async function queryPluginMessages(accountId: string, options: {
+  chatMid?: string | undefined; fromTime?: number | undefined; toTime?: number | undefined;
+  query?: string | undefined; callsOnly?: boolean | undefined;
+  before?: { time: number; chatMid: string; id: string } | undefined; limit: number;
+}): Promise<StoredMessage[]> {
+  const db = await getDb(accountId);
+  const clauses: string[] = ["1=1"];
+  const values: (string | number)[] = [];
+  if (options.chatMid) { clauses.push("chat_mid = ?"); values.push(options.chatMid); }
+  if (options.fromTime !== undefined) { clauses.push("created_time >= ?"); values.push(options.fromTime); }
+  if (options.toTime !== undefined) { clauses.push("created_time <= ?"); values.push(options.toTime); }
+  if (options.query) { clauses.push("instr(lower(coalesce(text, '')), lower(?)) > 0"); values.push(options.query); }
+  if (options.callsOnly) clauses.push("upper(content_type) IN ('CALL', '6', 'VIDEO_CALL', 'GROUP_CALL')");
+  if (options.before) {
+    clauses.push("(created_time, chat_mid, length(id), id) < (?, ?, ?, ?)");
+    values.push(options.before.time, options.before.chatMid, options.before.id.length, options.before.id);
+  }
+  // ponytail: account-wide search scans the local history; add an FTS index if measured latency warrants it.
+  const rows = db.query(`SELECT ${MESSAGE_COLUMNS} FROM messages WHERE ${clauses.join(" AND ")}
+    ORDER BY created_time DESC, chat_mid DESC, length(id) DESC, id DESC LIMIT ?`)
+    .all(...values, Math.min(101, Math.max(1, Math.floor(options.limit)))) as MessageRow[];
+  return rows.map(fromMessageRow);
+}
+
 export async function getStoredMessages(
   accountId: string,
   chatMid: string,

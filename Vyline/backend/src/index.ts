@@ -19,6 +19,7 @@ import { agentIRouter } from "./api/agentI.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
 import { publicRouter } from "./api/public.js";
+import { chatgptRouter } from "./chatgpt/router.js";
 import { lineOpenApiSpec } from "./api/openapi.line.js";
 import { getClient, restoreAllSessions } from "./line/clientManager.js";
 import { initVylineProfile } from "./vyline/profileBridge.js";
@@ -172,6 +173,11 @@ app.use("*", requestDiagnostics((c) => {
 }));
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
+app.route("/v1/chatgpt", chatgptRouter);
+// The private tunnel uses a scoped bearer grant, not OAuth. Do not serve the SPA
+// as a successful OAuth discovery document to tunnel-client's readiness probes.
+app.get("/.well-known/oauth-protected-resource", (c) => c.notFound());
+app.get("/.well-known/oauth-protected-resource/*", (c) => c.notFound());
 app.get("/api/v1/status", (c) =>
   c.json({
     ok: true,

@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const _dir = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const TOKEN_FILE = join(DATA_DIR, "api-tokens.json");
-const VALID_SCOPES = new Set(["read", "write"]);
+const VALID_SCOPES = new Set(["read", "write", "admin"]);
 const LAST_USED_PERSIST_INTERVAL_MS = 60_000;
 
 type StoredApiToken = {

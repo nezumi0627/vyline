@@ -1,0 +1,18 @@
+# Merge AFTER the existing root compose file; paths resolve relative to that file.
+services:
+  vyline:
+    image: vyline:chatgpt
+    pull_policy: never
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      VYLINE_CHATGPT_ENABLED: "true"
+      VYLINE_CHATGPT_TUNNEL_PROFILE: /app/data/chatgpt/tunnel.yaml
+      VYLINE_CHATGPT_UPLOAD_HOSTS: ${VYLINE_CHATGPT_UPLOAD_HOSTS:-files.oaiusercontent.com}
+    secrets:
+      - source: openai-tunnel-runtime-key
+        target: openai-tunnel-runtime-key
+secrets:
+  openai-tunnel-runtime-key:
+    file: ${VYLINE_OPENAI_TUNNEL_KEY_FILE:?Set an existing runtime-key file outside the repository}
