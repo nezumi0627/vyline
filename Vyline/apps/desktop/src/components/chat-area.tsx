@@ -374,17 +374,11 @@ function ChatAreaBase({
       if (!activeChatId || demoMode || latestSyncRef.current?.chatId === activeChatId) return;
       const syncingChatId = activeChatId;
       let task!: Promise<void>;
-      task = (async () => {
-        await refreshMessages(syncingChatId, { force: true }).catch(() => undefined);
-        if (latestSyncRef.current?.task !== task) return;
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            if (latestSyncRef.current?.task === task) scrollToBottom("auto");
-          });
+      task = refreshMessages(syncingChatId, { force: true })
+        .catch(() => undefined)
+        .finally(() => {
+          if (latestSyncRef.current?.task === task) latestSyncRef.current = null;
         });
-      })().finally(() => {
-        if (latestSyncRef.current?.task === task) latestSyncRef.current = null;
-      });
       latestSyncRef.current = { chatId: syncingChatId, task };
     },
     [activeChatId, demoMode, refreshMessages, scrollToBottom],
@@ -412,9 +406,6 @@ function ChatAreaBase({
       await refreshMessages(syncingChatId, { force: true }).catch(() => undefined);
       if (cancelled) return;
 
-      // キャッシュ範囲の末尾へ先に移動していた場合も、ネット取得後の真の最下端へ再整列する。
-      if (firstVisibleSync) scrollToBottom("auto");
-
       // 非フォーカスペインは表示だけ同期し、既読通知は現在操作中のペインだけ送る。
       if (useStore.getState().activeChatId !== syncingChatId) return;
       await markChatRead(syncingChatId).catch(() => undefined);
@@ -422,7 +413,7 @@ function ChatAreaBase({
     return () => {
       cancelled = true;
     };
-  }, [activeChatId, demoMode, isFocusedPane, markChatRead, refreshMessages, scrollToBottom]);
+  }, [activeChatId, demoMode, isFocusedPane, markChatRead, refreshMessages]);
 
   const syncBottomButton = useCallback(
     (element: HTMLDivElement | null = containerRef.current) => {
@@ -451,28 +442,11 @@ function ChatAreaBase({
 
   const olderBoundaryArmedRef = useRef(true);
   const lastUserScrollIntentAtRef = useRef(0);
-  const prependAnchorRef = useRef<{
-    chatMid: string;
-    messageCount: number;
-    oldestMessageId: string | null;
-    scrollHeight: number;
-    scrollTop: number;
-  } | null>(null);
-
   const requestOlderMessages = useCallback(() => {
     if (!activeChatId || olderState.loading || !olderState.hasMore) return;
-    const container = containerRef.current;
-    if (container) {
-      prependAnchorRef.current = {
-        chatMid: activeChatId,
-        messageCount: chatMessages.length,
-        oldestMessageId: chatMessages[0]?.id ?? null,
-        scrollHeight: container.scrollHeight,
-        scrollTop: container.scrollTop,
-      };
-    }
+    releaseAutoPosition();
     emitAppEvent("history:load-older", { chatMid: activeChatId });
-  }, [activeChatId, chatMessages.length, containerRef, olderState]);
+  }, [activeChatId, olderState, releaseAutoPosition]);
 
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
@@ -500,23 +474,6 @@ function ChatAreaBase({
     [olderState.hasMore, olderState.loading, onScroll, requestOlderMessages, syncBottomButton],
   );
 
-  // prepend 後も、読み込み前に見ていた位置を維持する。
-  useLayoutEffect(() => {
-    const anchor = prependAnchorRef.current;
-    if (!anchor || anchor.chatMid !== activeChatId) return;
-    if (chatMessages.length <= anchor.messageCount) return;
-    if ((chatMessages[0]?.id ?? null) === anchor.oldestMessageId) return;
-
-    const frame = requestAnimationFrame(() => {
-      const container = containerRef.current;
-      if (!container) return;
-      const addedHeight = Math.max(0, container.scrollHeight - anchor.scrollHeight);
-      container.scrollTop = anchor.scrollTop + addedHeight;
-      prependAnchorRef.current = null;
-    });
-    return () => cancelAnimationFrame(frame);
-  }, [activeChatId, chatMessages.length, containerRef]);
-
   useLayoutEffect(() => {
     const frame = requestAnimationFrame(() => syncBottomButton());
     return () => cancelAnimationFrame(frame);
@@ -534,16 +491,12 @@ function ChatAreaBase({
 
   useEffect(() => {
     olderBoundaryArmedRef.current = true;
-    prependAnchorRef.current = null;
     // 前のトークの検索語を持ち越すと、新しいトークの非一致メッセージが薄く表示される。
     setSearch({ open: false, q: "", index: 0 });
     setOlderState({ hasMore: true, loading: false });
     return onAppEvent("history:state", (detail) => {
       if (detail.chatMid !== activeChatId) return;
       const next = { hasMore: detail.hasMore, loading: detail.loading };
-      if (!next.loading && !next.hasMore && prependAnchorRef.current?.chatMid === activeChatId) {
-        prependAnchorRef.current = null;
-      }
       setOlderState(next);
     });
   }, [activeChatId]);
@@ -569,7 +522,10 @@ function ChatAreaBase({
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
     if (!highlightMessageId) return;
-    requestAnimationFrame(() => scrollToMessagePosition(highlightMessageId, { center: true }));
+    const frame = requestAnimationFrame(() =>
+      scrollToMessagePosition(highlightMessageId, { center: true }),
+    );
+    return () => cancelAnimationFrame(frame);
   }, [highlightMessageId, scrollToMessagePosition]);
 
   // 既読者一覧を開いた行が、最下部追従で画面外へ飛ばされないようにする。
@@ -580,10 +536,8 @@ function ChatAreaBase({
 
   // 検索ヒットへジャンプ
   useEffect(() => {
-    if (!matches.length) return;
-    const id = matches[search.index % matches.length];
-    scrollToMessagePosition(id, { center: true });
-  }, [search.index, matches, scrollToMessagePosition]);
+    if (activeMatchId) scrollToMessagePosition(activeMatchId, { center: true });
+  }, [activeMatchId, scrollToMessagePosition]);
 
   if (!chat) {
     return (
@@ -888,6 +842,7 @@ function ChatAreaBase({
         <div className="relative min-h-0 flex-1">
           <div
             ref={containerRef}
+            style={{ overflowAnchor: "none" }}
             onScroll={handleMessageScroll}
             onWheel={() => {
               lastUserScrollIntentAtRef.current = performance.now();
@@ -994,9 +949,10 @@ function ChatAreaBase({
       </div>
 
       {profileOpen && !isComposeMode(mode) && <ProfileDrawer chat={chat} />}
-      {isFocusedPane && memberProfile && memberProfile.chatId === chat.id && !isComposeMode(mode) && (
-        <MemberProfilePopover chat={chat} />
-      )}
+      {isFocusedPane &&
+        memberProfile &&
+        memberProfile.chatId === chat.id &&
+        !isComposeMode(mode) && <MemberProfilePopover chat={chat} />}
       {panel && (
         <MessageContextMenu
           x={panel.x}
