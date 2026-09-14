@@ -115,6 +115,13 @@ toolの正本は`backend/src/chatgpt/catalog.ts`と`tools.ts`。
 - LINE認証トークン、E2EE鍵などはtool応答に含めない。
   書き込みのタイムアウトや通信断では実行済みの可能性があるため、状態を確認してから再試行する。
 
+## コネクター作成時のスキーマエラー
+
+`Invalid MCP tool schema for tool 'get_profile'` は、旧版が公開スキーマへ
+Unicodeプロパティ正規表現を出力していた互換性問題。修正版イメージへ更新してから
+コネクターを作成し直す。アカウントの設定やトークンを作り直す必要はない。
+修正版もサーバー側のUnicode ID検証・アカウント権限検証と171 toolsを維持する。
+
 ## 無効化・ロールバック
 
 `VYLINE_CHATGPT_ENABLED=false`にするかoverlayを外し、従来イメージ・Composeで
