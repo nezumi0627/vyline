@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { cn } from "@/lib/utils";
 import { IconShield } from "@/components/icons";
 
@@ -29,16 +29,10 @@ export function setTosConsent(): void {
 export function TosConsentGate({ onConsent }: { onConsent: () => void }) {
   const [checked, setChecked] = useState(false);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Enter" && checked) agree();
-    };
-    window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [checked]);
-
+  // 同意は明示的なボタン操作でのみ確定する。本文スクロール中などの
+  // 意図しない Enter キーで同意が成立しないよう、window 全体の Enter 監視はしない。
   const agree = () => {
+    if (!checked) return;
     setTosConsent();
     onConsent();
   };

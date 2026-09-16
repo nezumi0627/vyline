@@ -1734,20 +1734,6 @@ export const useStore = create<State>()(
               return;
             }
             if (res.message) {
-              // 送信レスポンスの実証用ログ（ID・キー名のみ。トークン等は出さない）
-              try {
-                const meta = (res.message.contentMetadata ?? null) as Record<
-                  string,
-                  unknown
-                > | null;
-                console.debug("[vyline] combination sticker sent", {
-                  messageId: res.message.id,
-                  metaKeys: meta ? Object.keys(meta) : null,
-                  csstkId: typeof meta?.CSSTKID === "string" ? meta.CSSTKID : null,
-                });
-              } catch {
-                /* ignore */
-              }
               const contactCache = buildContactCache(get().chats);
               const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
               // 履歴表示は CSSTKID / メッセージID のどちらでもプレビューを引けるよう両方保存
@@ -1912,7 +1898,7 @@ export const useStore = create<State>()(
             ? { blob: file, mime: file.type || "application/octet-stream" }
             : await compressImageFile(file));
           if (blob.size > 11_000_000) {
-            window.alert(
+            get().showNotice(
               blob === file
                 ? "ファイルが大きすぎます（11MB まで）"
                 : "画像が大きすぎます（圧縮後も 11MB 超）",
@@ -2064,7 +2050,7 @@ export const useStore = create<State>()(
             });
             if (!res.ok) {
               restoreChatPreview();
-              window.alert(res.error ?? "音声メッセージの送信に失敗しました");
+              get().showNotice(res.error ?? "音声メッセージの送信に失敗しました");
               return;
             }
             const existing = refreshDebounce.get(chatId);
@@ -2078,7 +2064,7 @@ export const useStore = create<State>()(
             );
           } catch {
             restoreChatPreview();
-            window.alert("音声メッセージの送信に失敗しました");
+            get().showNotice("音声メッセージの送信に失敗しました");
           }
         })();
       },
@@ -2090,7 +2076,7 @@ export const useStore = create<State>()(
         const msg = get().messages.find((m) => m.id === id);
         // 送信中の楽観メッセージはサーバ未確定のため取り消せない
         if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
-          window.alert("送信が完了してから取り消しできます");
+          get().showNotice("送信が完了してから取り消しできます");
           return;
         }
         if (msg.messageState.startsWith("revoked") || msg.revokedSnapshot) {
@@ -2161,7 +2147,7 @@ export const useStore = create<State>()(
         } catch (err) {
           rollback();
           const detail = err instanceof Error ? err.message : String(err);
-          window.alert(`${silent ? "通知なし取り消し" : "取り消し"}に失敗しました: ${detail}`);
+          get().showNotice(`${silent ? "通知なし取り消し" : "取り消し"}に失敗しました: ${detail}`);
           return;
         }
         if (res.ok) {
@@ -2173,7 +2159,7 @@ export const useStore = create<State>()(
           if (silent && errText.includes("PREMIUM_REQUIRED")) {
             get().showNotice("通知せず取り消すには有効なLYPプレミアムが必要です");
           } else if (silent && errText.includes("SILENT_UNSEND_REJECTED")) {
-            window.alert("LINEサーバーが通知なし取り消しを確認しませんでした");
+            get().showNotice("LINEサーバーが通知なし取り消しを確認しませんでした");
           } else if (
             errText.includes("MESSAGE_NOT_DESTRUCTIBLE") ||
             errText.includes("message too old") ||
@@ -2181,7 +2167,7 @@ export const useStore = create<State>()(
           ) {
             get().showNotice("送信取り消しできません（送信取り消し可能な時間を過ぎています）");
           } else {
-            window.alert(
+            get().showNotice(
               errText || (silent ? "通知なし取り消しに失敗しました" : "取り消しに失敗しました"),
             );
           }
@@ -2194,7 +2180,7 @@ export const useStore = create<State>()(
         // 送信中の楽観メッセージは編集できない
         const msg = get().messages.find((m) => m.id === id);
         if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
-          window.alert("送信が完了してから編集できます");
+          get().showNotice("送信が完了してから編集できます");
           return;
         }
         const prevText = msg.text ?? "";
@@ -2233,7 +2219,7 @@ export const useStore = create<State>()(
                 m.id === id ? { ...m, text: prevText, edited: msg.edited } : m,
               ),
             }));
-            window.alert(res.error ?? "メッセージの編集に失敗しました");
+            get().showNotice(res.error ?? "メッセージの編集に失敗しました");
           }
         } catch (err) {
           // 失敗時はロールバック
@@ -2242,7 +2228,7 @@ export const useStore = create<State>()(
               m.id === id ? { ...m, text: prevText, edited: msg.edited } : m,
             ),
           }));
-          window.alert(`メッセージの編集に失敗しました: ${String(err)}`);
+          get().showNotice(`メッセージの編集に失敗しました: ${String(err)}`);
         }
       },
 
@@ -3471,7 +3457,7 @@ export const useStore = create<State>()(
           .reverse()
           .find((h) => h.state === "normal" || h.state === "edited");
         if (!snapshot && !lastNormal) {
-          window.alert("復元できる元のメッセージがありません");
+          get().showNotice("復元できる元のメッセージがありません");
           return;
         }
         const historyEntry = {

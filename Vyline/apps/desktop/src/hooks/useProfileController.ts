@@ -6,7 +6,8 @@ import { canStartCall } from "@/utils/callAllowlist";
 import { dismissChatMid } from "@/utils/dismissedChats";
 import { updateContactProfile } from "@/lib/contactProfileUpdate";
 import { captureAccountContext } from "@/lib/accountContext";
-const defaultConfirm = (message: string) => window.confirm(message);
+import { requestControllerConfirm } from "@/ui/controller-dialog";
+const defaultConfirm = (message: string) => requestControllerConfirm(message);
 
 type RichInfo = {
   statusMessage?: string;

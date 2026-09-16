@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import type { AccountSettings } from "@vyline/types";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { api } from "../api/client.js";
 
 const TOTAL_STEPS = 5;
@@ -95,9 +96,10 @@ export function VylineSetup({
         if (!preview.matchesCurrentAccount)
           throw new Error("この引継ぎZIPは別のLINEアカウント向けです");
         if (
-          !window.confirm(
+          !(await requestControllerConfirm(
             `${preview.manifest.source.platform}版・${new Date(preview.manifest.createdAt).toLocaleString()}の設定を統合します。\n対象: ${preview.files?.join(", ") ?? "設定"}`,
-          )
+            { title: "引継ぎ設定の統合", acceptLabel: "統合する", cancelFirst: true },
+          ))
         )
           return;
         const result = await api.handoff.import(mid, archiveBase64, "merge");

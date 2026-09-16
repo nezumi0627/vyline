@@ -228,7 +228,13 @@ function MessageInputSession({ chatId }: { chatId: string }) {
   }, []);
   useEffect(() => {
     // Web フォント読込完了後に再計測（フォールバック幅のまま固定されないように）
-    document.fonts?.ready?.then(measureSticonEm);
+    let cancelled = false;
+    void document.fonts?.ready?.then(() => {
+      if (!cancelled) measureSticonEm();
+    });
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const replyMsg = replyToId ? messages.find((m) => m.id === replyToId && m.chatId === chatId) : null;
@@ -292,7 +298,9 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       : (chat?.members?.find((m) => m.id === replyMsg?.authorId)?.name ?? "メンバー");
 
   useEffect(() => {
-    if (replyMsg) requestAnimationFrame(() => focusDomComposer(taRef.current));
+    if (!replyMsg) return;
+    const frame = requestAnimationFrame(() => focusDomComposer(taRef.current));
+    return () => cancelAnimationFrame(frame);
   }, [replyMsg?.id]);
 
   useEffect(() => {
@@ -518,7 +526,8 @@ function MessageInputSession({ chatId }: { chatId: string }) {
       if (!res.ok) {
         if (res.count == null) {
           removeOptimistic();
-          window.alert(res.error ?? "まとめて送信に失敗しました");
+          if (ownsComposer())
+            useStore.getState().showNotice(res.error ?? "まとめて送信に失敗しました");
           return;
         }
       }
@@ -538,14 +547,15 @@ function MessageInputSession({ chatId }: { chatId: string }) {
         .refreshMessages(chatId, { force: true })
         .catch(() => undefined);
       if (!allConfirmed && ownsComposer()) {
-        window.alert(
+        useStore.getState().showNotice(
           res.error ??
             `LINE履歴で確認できた送信は ${confirmedCount}/${selected.length} 件です。未確認分は送信失敗として残しました。`,
         );
       }
     } catch (err) {
       removeOptimistic();
-      if (ownsComposer()) window.alert(err instanceof Error ? err.message : String(err));
+      if (ownsComposer())
+        useStore.getState().showNotice(err instanceof Error ? err.message : String(err));
     } finally {
       accountContext.dispose();
       if (ownsComposer()) setSendingMediaBatch(false);

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import type { RecordingKind } from "@vyline/types";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { recordingClient } from "@/api/recordings";
 import { useStore } from "@/lib/store";
 import type { ActiveCall } from "@/utils/callAllowlist";
@@ -88,7 +89,12 @@ export function useCallRecording(input: Input) {
     )
       return;
     if (!consent.current) {
-      if (!window.confirm(RECORDING_CONSENT)) return;
+      const accepted = await requestControllerConfirm(RECORDING_CONSENT, {
+        title: "通話記録の確認",
+        acceptLabel: "記録を有効にする",
+        cancelFirst: true,
+      });
+      if (!accepted) return;
       consent.current = true;
     }
     const client = recordingClient(current.accountId);
@@ -212,8 +218,17 @@ export function useCallRecording(input: Input) {
     setKind,
     setAutomatic(value: boolean) {
       if (value && !consent.current) {
-        if (!window.confirm(RECORDING_CONSENT)) return;
-        consent.current = true;
+        void (async () => {
+          const accepted = await requestControllerConfirm(RECORDING_CONSENT, {
+            title: "通話記録の確認",
+            acceptLabel: "記録を有効にする",
+            cancelFirst: true,
+          });
+          if (!accepted) return;
+          consent.current = true;
+          setAutomatic(true);
+        })();
+        return;
       }
       setAutomatic(value);
     },

@@ -13,7 +13,7 @@ export function ThemeApplier() {
     const r = document.documentElement;
     r.dataset.uiMode = mode;
     r.dataset.appearance = dark ? "dark" : "light";
-    r.style.colorScheme = mode === "legacy" ? "" : dark ? "dark" : "light";
+    r.style.colorScheme = dark ? "dark" : "light";
     const map: Record<string, string> = {
       "--vy-bg": theme.bg,
       "--vy-surface": theme.surface,

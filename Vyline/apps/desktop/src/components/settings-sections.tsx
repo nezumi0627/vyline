@@ -1488,9 +1488,11 @@ function AdvancedSection() {
                   // サイドバー幅
                   if (typeof data.sidebarWidth === "number")
                     state.setSidebarWidth(data.sidebarWidth);
-                  alert("設定をインポートしました");
+                  state.showNotice("設定をインポートしました");
                 } catch {
-                  alert("インポートに失敗しました。ファイルが破損している可能性があります。");
+                  useStore.getState().showNotice(
+                    "インポートに失敗しました。ファイルが破損している可能性があります。",
+                  );
                 }
               };
               input.click();

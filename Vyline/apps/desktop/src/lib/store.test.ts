@@ -881,16 +881,17 @@ describe("accepted local sends request latest", () => {
   let restoreSpies: Array<() => void>;
   let observed: Array<{ detail: AppEventMap["chat:scroll-latest"]; state: State }>;
   let apiCalls: number;
-  let alerts: string[];
+  // Oversized-media feedback uses the store notice (FloatNotice), not window.alert.
+  const noticeText = () => useStore.getState().notice;
 
   beforeEach(() => {
     previous = useStore.getState();
     windowDescriptor = Object.getOwnPropertyDescriptor(globalThis, "window");
-    alerts = [];
     Object.defineProperty(globalThis, "window", {
       configurable: true,
-      value: { alert: (text: string) => alerts.push(text) },
+      value: {},
     });
+    useStore.setState({ notice: null });
     observed = [];
     apiCalls = 0;
     response = new Promise<SendResult>((resolve, rejectResponse) => {
@@ -933,7 +934,7 @@ describe("accepted local sends request latest", () => {
       incomingCall: null,
       readWatermarks: {},
       settings: { ...previous.settings, highQualityImages: true },
-      showNotice: () => {},
+      showNotice: (msg: string) => useStore.setState({ notice: msg }),
     });
     off = onAppEvent("chat:scroll-latest", (detail) => {
       observed.push({ detail, state: useStore.getState() });
@@ -1100,7 +1101,7 @@ describe("accepted local sends request latest", () => {
           chatId,
           new File([new Uint8Array(11_000_001)], "large.png", { type: "image/png" }),
         );
-      expect(alerts).toEqual(["ファイルが大きすぎます（11MB まで）"]);
+      expect(noticeText()).toBe("ファイルが大きすぎます（11MB まで）");
       expect(messageArrays.flat()).toHaveLength(0);
       expect(observed).toHaveLength(0);
       expect(apiCalls).toBe(0);
@@ -1121,7 +1122,7 @@ describe("accepted local sends request latest", () => {
     expect(apiCalls).toBe(1);
     finish({ ok: false, error: "synthetic rejection" });
     await operation;
-    expect(alerts).toHaveLength(0);
+    expect(noticeText()).toBeNull();
     expect(observed).toHaveLength(1);
   });
 
@@ -1189,8 +1190,8 @@ describe("accepted local sends request latest", () => {
           expect(apiCalls).toBe(0);
           expect(URL.createObjectURL).not.toHaveBeenCalled();
         }
-        expect(alerts).toEqual(
-          outcome === "oversized" ? ["画像が大きすぎます（圧縮後も 11MB 超）"] : [],
+        expect(noticeText()).toBe(
+          outcome === "oversized" ? "画像が大きすぎます（圧縮後も 11MB 超）" : null,
         );
       } finally {
         completeCompression?.(new Blob([]));

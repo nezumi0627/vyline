@@ -148,6 +148,14 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   const fetchAvatar = fetchContact;
 
+  const prefetchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(
+    () => () => {
+      if (prefetchTimer.current) clearTimeout(prefetchTimer.current);
+      prefetchTimer.current = null;
+    },
+    [],
+  );
   const prefetchContacts = useCallback(
     (mids: string[], immediateCount = 8) => {
       if (!accountId || mids.length === 0) return;
@@ -157,7 +165,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       const tail = unique.slice(immediateCount);
       for (const mid of head) fetchContact(mid);
       if (tail.length === 0) return;
-      window.setTimeout(() => {
+      if (prefetchTimer.current) clearTimeout(prefetchTimer.current);
+      const owner = accountId;
+      prefetchTimer.current = setTimeout(() => {
+        prefetchTimer.current = null;
+        if (accountIdRef.current !== owner) return;
         for (const mid of tail) fetchContact(mid);
       }, 250);
     },

@@ -43,6 +43,7 @@ import { buildPreviewMap, filterChatList } from "@/lib/chatListPresentation";
 import { useDesignSystemStore } from "@/ui/design-system-store";
 import { onAppEvent } from "@/lib/appEvents";
 import { setContactBlocked } from "@/lib/chatActions";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -118,6 +119,14 @@ function SidebarBase() {
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
+  useEffect(() => {
+    if (!sortOpen) return;
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setSortOpen(false);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [sortOpen]);
   const [wideLayoutAvailable, setWideLayoutAvailable] = useState(() =>
     typeof window === "undefined" ? false : window.matchMedia("(min-width: 768px)").matches,
   );
@@ -316,14 +325,22 @@ function SidebarBase() {
           danger: !isChatLocked,
           onClick: () => {
             if (!menu) return;
-            if (
-              !isChatLocked &&
-              !window.confirm(`「${displayName(menu.chat, false)}」をロックしますか？`)
-            )
-              return;
-            void setChatLocked(menu.chat.id, !isChatLocked).then((ok) => {
-              if (!ok) window.alert("チャットのロック変更に失敗しました");
-            });
+            const chatId = menu.chat.id;
+            const chatName = displayName(menu.chat, false);
+            const nextLocked = !isChatLocked;
+            void (async () => {
+              if (
+                nextLocked &&
+                !(await requestControllerConfirm(`「${chatName}」をロックしますか？`, {
+                  title: "チャットロックの確認",
+                  acceptLabel: "ロックする",
+                  cancelFirst: true,
+                }))
+              )
+                return;
+              const ok = await setChatLocked(chatId, nextLocked);
+              if (!ok) showNotice("チャットのロック変更に失敗しました");
+            })();
           },
         },
         ...(wideLayoutAvailable
@@ -413,13 +430,25 @@ function SidebarBase() {
                   if (!accountId || blockBusy) return;
                   const mid = menu.chat.id;
                   const name = displayName(menu.chat, false);
-                  if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
-                  setBlockBusy(true);
-                  void setContactBlocked(mid, !isBlocked)
-                    .then((result) => {
-                      if (!result.ok && result.error) window.alert(result.error);
-                    })
-                    .finally(() => setBlockBusy(false));
+                  const nextBlocked = !isBlocked;
+                  void (async () => {
+                    if (
+                      nextBlocked &&
+                      !(await requestControllerConfirm(`「${name}」をブロックしますか？`, {
+                        title: "ブロックの確認",
+                        acceptLabel: "ブロックする",
+                        cancelFirst: true,
+                      }))
+                    )
+                      return;
+                    setBlockBusy(true);
+                    try {
+                      const result = await setContactBlocked(mid, nextBlocked);
+                      if (!result.ok && result.error) showNotice(result.error);
+                    } finally {
+                      setBlockBusy(false);
+                    }
+                  })();
                 },
               },
             ]

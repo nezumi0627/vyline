@@ -4,6 +4,7 @@ import { ChatShell } from "@/components/chat-shell";
 import { SettingsSections } from "@/components/settings-sections";
 import { ThemeApplier } from "@/components/theme-applier";
 import { FloatNotice } from "@/components/float-notice";
+import { LegacyControllerDialogHost } from "@/components/legacy-controller-dialog";
 import { demoChats, demoSelf, demoSettings, demoTimeline } from "@/demo/demoData";
 import { isComposeMode, useDesignSystemStore } from "@/ui/design-system-store";
 
@@ -66,6 +67,7 @@ export function PrDemoPage() {
         </div>
         {screen === "settings" && !compose && <SettingsSections />}
       </div>
+      <LegacyControllerDialogHost />
     </main>
   );
 }

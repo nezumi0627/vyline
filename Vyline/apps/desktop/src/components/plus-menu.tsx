@@ -789,7 +789,7 @@ function LadderModal({
           await api.line.ladder.message(accountId, chatId, r.ladderHash);
         }
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "あみだくじの作成に失敗しました");
+        useStore.getState().showNotice(e instanceof Error ? e.message : "あみだくじの作成に失敗しました");
       }
     })();
   };
@@ -920,7 +920,7 @@ function ScheduleModal({
           "イベントを作成しました。日程を回答してください。",
         );
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "イベントの作成に失敗しました");
+        useStore.getState().showNotice(e instanceof Error ? e.message : "イベントの作成に失敗しました");
       }
     })();
   };
@@ -1043,10 +1043,10 @@ function PollModal({
           throw new Error("アンケートを作成しましたが、共有用 ID を取得できませんでした");
         const a = await api.line.poll.announce(accountId, chatId, questionId);
         if (!a.ok) {
-          window.alert("アンケートを作成しましたが、共有に失敗しました（再度共有してください）");
+          useStore.getState().showNotice("アンケートを作成しましたが、共有に失敗しました（再度共有してください）");
         }
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "アンケートの作成に失敗しました");
+        useStore.getState().showNotice(e instanceof Error ? e.message : "アンケートの作成に失敗しました");
       }
     })();
   };

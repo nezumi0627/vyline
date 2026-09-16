@@ -822,6 +822,14 @@ export const MessageBubble = memo(
         onActionsClose?.();
     }, [actionsOnly, menu, editing, revokeRequest, showOriginal, showHistory, partialCopyOpen, emojiReactionOpen, onActionsClose]);
     const [swipeOffset, setSwipeOffset] = useState(0);
+    // Long-press fires from a raw timer (not an effect), so clear it on unmount.
+    useEffect(() => {
+      const timer = longPressTimer;
+      return () => {
+        if (timer.current) clearTimeout(timer.current);
+        timer.current = null;
+      };
+    }, []);
     const [combinationStickerPreview, setCombinationStickerPreview] = useState<string | null>(null);
     const partialCopyRef = useRef<HTMLTextAreaElement>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1048,7 +1056,7 @@ export const MessageBubble = memo(
 
     const react = (type: number | NonNullable<Message["reactions"]>[number]["emoji"], mine: boolean) => {
       void reactToMessage(message.id, type, mine).then((result) => {
-        if (!result.ok && result.error) window.alert(result.error);
+        if (!result.ok && result.error) useStore.getState().showNotice(result.error);
       });
     };
     const handleAnnounce = () => {
@@ -1081,7 +1089,7 @@ export const MessageBubble = memo(
               createdTime: Date.now(),
             });
           } else {
-            window.alert("アナウンスに失敗しました");
+            useStore.getState().showNotice("アナウンスに失敗しました");
           }
         })
         .catch(() => undefined);

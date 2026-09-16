@@ -11,6 +11,7 @@ import {
 import { api } from "@/api/client";
 import { looksLikeMid } from "@/lib/mappers";
 import { canDirectCall } from "@/utils/callAllowlist";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
 import { IconClose, IconChat, IconPhone, IconVideo, IconUsers } from "@/components/icons";
@@ -142,15 +143,31 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const placeCall = (kind: "voice" | "video") => {
     if (!canDirectCall(member.id)) return;
     const label = kind === "video" ? "ビデオ通話" : "音声通話";
-    if (!window.confirm(`${name} に${label}を発信しますか？`)) return;
-    close();
-    useStore.getState().requestCall(member.id, kind);
+    const memberId = member.id;
+    void (async () => {
+      const confirmed = await requestControllerConfirm(`${name} に${label}を発信しますか？`, {
+        title: `${label}の確認`,
+        acceptLabel: "発信する",
+        cancelFirst: true,
+      });
+      if (!confirmed) return;
+      close();
+      useStore.getState().requestCall(memberId, kind);
+    })();
   };
 
   const blockMember = async () => {
     if (!accountId || busy) return;
     const isBlocked = useStore.getState().blockedMids.includes(member.id);
-    if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
+    if (
+      !isBlocked &&
+      !(await requestControllerConfirm(`「${name}」をブロックしますか？`, {
+        title: "ブロックの確認",
+        acceptLabel: "ブロックする",
+        cancelFirst: true,
+      }))
+    )
+      return;
     setBusy(true);
     setMsg(null);
     try {

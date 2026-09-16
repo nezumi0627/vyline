@@ -55,10 +55,13 @@ function ask(text: string, prompt: boolean, value = "", options?: ControllerConf
 }
 export async function requestControllerConfirm(text: string, options?: ControllerConfirmOptions, signal?: AbortSignal): Promise<boolean> {
   if (signal?.aborted) return false;
-  if (!isComposeMode(useDesignSystemStore.getState().mode)) return window.confirm(text) && !signal?.aborted;
+  // DOM modes render the same snapshot via LegacyControllerDialogHost; Compose
+  // modes render it in Kotlin. Never fall back to blocking window.confirm here:
+  // callers already run inside the mode-appropriate UI runtime.
+  if (!isComposeMode(useDesignSystemStore.getState().mode))
+    return await ask(text, false, "", options, signal) !== null && !signal?.aborted;
   return await ask(text, false, "", options, signal) !== null;
 }
 export function requestControllerPrompt(text: string, value = ""): Promise<string | null> {
-  if (!isComposeMode(useDesignSystemStore.getState().mode)) return Promise.resolve(window.prompt(text, value));
   return ask(text, true, value);
 }

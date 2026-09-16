@@ -286,21 +286,27 @@ describe("controller dialog", () => {
     `);
   });
 
-  test("non-Compose modes retain browser confirm and prompt behavior", () => {
+  test("DOM modes queue a snapshot for the in-app dialog instead of browser confirm", () => {
     isolatedDialogTest(`
       for (mode of ["legacy", "nezu"]) {
-        confirmResult = true;
-        expect(await requestControllerConfirm("Browser?", { title: "Title", acceptLabel: "Go", cancelFirst: true })).toBe(true);
-        confirmResult = false;
-        expect(await requestControllerConfirm("Cancel?")).toBe(false);
-        promptResult = "browser input";
-        expect(await requestControllerPrompt("Name?", "Initial")).toBe("browser input");
-        promptResult = null;
-        expect(await requestControllerPrompt("Name?")).toBeNull();
+        let settled = false;
+        const pending = requestControllerConfirm("Continue?", { title: "Title", acceptLabel: "Go", cancelFirst: true }).then(value => { settled = true; return value; });
+        const dialog = useControllerDialogSnapshot();
+        expect(dialog).not.toBeNull();
+        expect(dialog.text).toBe("Continue?");
+        await Promise.resolve();
+        expect(settled).toBe(false);
+        closeControllerDialog(dialog.id, "");
+        expect(await pending).toBe(true);
+        expect(useControllerDialogSnapshot()).toBeNull();
+        const input = requestControllerPrompt("Name?", "Initial");
+        expect(useControllerDialogSnapshot()).toEqual({ id: dialog.id.replace(/\\d+/, (n) => String(Number(n) + 1)), text: "Name?", prompt: true, value: "Initial" });
+        closeControllerDialog(useControllerDialogSnapshot().id, "typed");
+        expect(await input).toBe("typed");
         expect(useControllerDialogSnapshot()).toBeNull();
       }
-      expect(confirmCalls).toEqual(["Browser?", "Cancel?", "Browser?", "Cancel?"]);
-      expect(promptCalls).toEqual([["Name?", "Initial"], ["Name?", ""], ["Name?", "Initial"], ["Name?", ""]]);
+      expect(confirmCalls).toEqual([]);
+      expect(promptCalls).toEqual([]);
     `);
   });
 });

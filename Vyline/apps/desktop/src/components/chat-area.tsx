@@ -44,6 +44,7 @@ import { useDesignTheme } from "@/ui/design-theme";
 import { isComposeMode } from "@/ui/design-system-store";
 import { compareMessagesOldestFirst } from "@/lib/messageOrder";
 import { announcementMessageId, removeChatAnnouncement } from "@/lib/chatActions";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -181,9 +182,20 @@ function ChatAreaBase({
   );
   const joinGroupCall = useCallback(() => {
     if (!chat || !groupCall || callRequest || useStore.getState().accountId !== accountId) return;
-    const label = groupCall.kind === "video" ? "ビデオ通話" : "音声通話";
-    if (!window.confirm(`${displayName(chat, streamerMode)} の${label}に参加しますか？`)) return;
-    requestCall(chat.id, groupCall.kind, true);
+    const chatId = chat.id;
+    const kind = groupCall.kind;
+    const label = kind === "video" ? "ビデオ通話" : "音声通話";
+    const name = displayName(chat, streamerMode);
+    void (async () => {
+      const confirmed = await requestControllerConfirm(
+        `${name} の${label}に参加しますか？通話がない場合は開始します。`,
+        { title: `${label}の確認`, acceptLabel: "参加 / 開始する", cancelFirst: true },
+      );
+      if (!confirmed) return;
+      if (useStore.getState().accountId !== accountId || useStore.getState().callRequest)
+        return;
+      requestCall(chatId, kind, true);
+    })();
   }, [accountId, callRequest, chat, groupCall, requestCall, streamerMode]);
 
   const matches = useMemo(() => {

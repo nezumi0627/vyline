@@ -6,6 +6,7 @@ import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { ChatShell } from "../components/chat-shell.js";
 import { FloatNotice } from "../components/float-notice.js";
+import { LegacyControllerDialogHost } from "../components/legacy-controller-dialog.js";
 import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
 import { VylineSetup } from "../components/vyline-setup.js";
 import { startSerialPoll } from "../lib/serialPoll.js";
@@ -184,6 +185,7 @@ export function VylineApp() {
           </Suspense>
         </div>
       )}
+      <LegacyControllerDialogHost />
     </main>
   );
 }

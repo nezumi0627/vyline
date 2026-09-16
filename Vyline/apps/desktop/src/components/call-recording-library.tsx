@@ -6,6 +6,7 @@ import {
   type RecordingSettingsResponse,
 } from "@/api/recordings";
 import { useStore } from "@/lib/store";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { startSerialPoll } from "@/lib/serialPoll";
 import { RecordingSettings } from "./recording-settings";
 
@@ -232,15 +233,19 @@ function Library({ owner }: { owner: string }) {
                   className={`${button} text-[var(--vy-danger)]`}
                   disabled={busy || item.state === "recording"}
                   onClick={() => {
-                    if (
-                      window.confirm(
-                        `「${item.title || "通話記録"}」を完全に削除しますか？ WebDAV上のコピーも削除され、元に戻せません。`,
-                      )
-                    )
-                      void run(async () => {
-                        await client.remove(item.id);
-                        setItems((previous) => previous.filter((row) => row.id !== item.id));
+                    const recordingId = item.id;
+                    const recordingTitle = item.title || "通話記録";
+                    void (async () => {
+                      const confirmed = await requestControllerConfirm(
+                        `「${recordingTitle}」を完全に削除しますか？ WebDAV上のコピーも削除され、元に戻せません。`,
+                        { title: "記録の削除", acceptLabel: "削除する", cancelFirst: true },
+                      );
+                      if (!confirmed) return;
+                      await run(async () => {
+                        await client.remove(recordingId);
+                        setItems((previous) => previous.filter((row) => row.id !== recordingId));
                       });
+                    })();
                   }}
                 >
                   記録を削除

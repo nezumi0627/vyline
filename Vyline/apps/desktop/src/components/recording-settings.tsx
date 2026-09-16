@@ -1,5 +1,6 @@
 import { useId, useState } from "react";
 import type { recordingClient, RecordingSettingsResponse } from "@/api/recordings";
+import { requestControllerConfirm } from "@/ui/controller-dialog";
 import { RECORDING_CONSENT } from "@/utils/callRecording";
 import { RecordingPathInput } from "./recording-path-input";
 
@@ -65,8 +66,22 @@ export function RecordingSettings({
             checked={preferences.automatic}
             onChange={(event) => {
               const automatic = event.target.checked;
-              if (automatic && !preferences.consentAccepted && !window.confirm(RECORDING_CONSENT))
+              if (automatic && !preferences.consentAccepted) {
+                void (async () => {
+                  const accepted = await requestControllerConfirm(RECORDING_CONSENT, {
+                    title: "通話記録の確認",
+                    acceptLabel: "記録を有効にする",
+                    cancelFirst: true,
+                  });
+                  if (!accepted) return;
+                  setPreferences((current) => ({
+                    ...current,
+                    automatic: true,
+                    consentAccepted: true,
+                  }));
+                })();
                 return;
+              }
               setPreferences({
                 ...preferences,
                 automatic,
@@ -171,17 +186,21 @@ export function RecordingSettings({
                 className={button}
                 disabled={busy}
                 onClick={() => {
-                  if (
-                    window.confirm(
-                      `保存先「${item.name}」を削除しますか？ 記録が残っている保存先は削除できません。`,
-                    )
-                  )
-                    void run(async () => {
-                      await client.removeTarget(item.id);
+                  const targetId = item.id;
+                  const targetName = item.name;
+                  void (async () => {
+                    const confirmed = await requestControllerConfirm(
+                      `保存先「${targetName}」を削除しますか？ 記録が残っている保存先は削除できません。`,
+                      { title: "保存先の削除", acceptLabel: "削除する", cancelFirst: true },
+                    );
+                    if (!confirmed) return;
+                    await run(async () => {
+                      await client.removeTarget(targetId);
                       const next = await client.settings();
                       setPreferences(next.preferences);
                       await reload();
                     }, "保存先を削除しました");
+                  })();
                 }}
               >
                 保存先を削除
