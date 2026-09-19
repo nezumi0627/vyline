@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test";
-import { buildPairingUrl } from "./subdevices.js";
+import { buildPairingUrl, subdeviceRouter } from "./subdevices.js";
 
 const previousLanAccess = process.env.VYLINE_LAN_ACCESS;
 const previousPublicHost = process.env.VYLINE_PUBLIC_HOST;
@@ -37,5 +37,21 @@ describe("subdevice pairing URL", () => {
     expect(buildPairingUrl("http://192.0.2.10:5173", "vyp_test")).toBe(
       "http://192.0.2.10:5173/subdevice?pairing=vyp_test",
     );
+  });
+});
+
+describe("subdevice management authorization", () => {
+  test("does not treat a bearer session as a local owner request", async () => {
+    process.env.VYLINE_LAN_ACCESS = "true";
+    const response = await subdeviceRouter.request("/pairing", {
+      method: "POST",
+      headers: {
+        authorization: "Bearer paired-session",
+        "x-vyline-local-request": "1",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ accountId: "u11111111111111111111111111111111" }),
+    });
+    expect(response.status).toBe(403);
   });
 });

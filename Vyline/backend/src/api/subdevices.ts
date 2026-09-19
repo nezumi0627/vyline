@@ -21,8 +21,11 @@ function isLanAccessEnabled() {
   return process.env.VYLINE_LAN_ACCESS === "true";
 }
 
-function isLocalRequest(c: Context) {
-  return c.req.header("x-vyline-local-request") === "1";
+function canManageSubdevices(c: Context) {
+  // A paired browser must not gain owner permissions by combining a bearer
+  // session with the local-request marker.
+  if (bearer(c)) return false;
+  return !isLanAccessEnabled() || c.req.header("x-vyline-local-request") === "1";
 }
 
 function getLanHost(): string | null {
@@ -74,7 +77,7 @@ function installationId(c: { req: { header(name: string): string | undefined } }
 }
 
 subdeviceRouter.post("/pairing", async (c) => {
-  if (!isLocalRequest(c)) {
+  if (!canManageSubdevices(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
 
@@ -125,7 +128,7 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
 });
 
 subdeviceRouter.get("/", async (c) => {
-  if (!isLocalRequest(c)) {
+  if (!canManageSubdevices(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   return c.json({ ok: true, devices: await listSubdevices() });
@@ -137,7 +140,7 @@ subdeviceRouter.post("/heartbeat", async (c) => {
 });
 
 subdeviceRouter.delete("/:id", async (c) => {
-  if (!isLocalRequest(c)) {
+  if (!canManageSubdevices(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   const ok = await removeSubdevice(c.req.param("id"));
@@ -145,7 +148,7 @@ subdeviceRouter.delete("/:id", async (c) => {
 });
 
 subdeviceRouter.post("/:id/block", async (c) => {
-  if (!isLocalRequest(c)) {
+  if (!canManageSubdevices(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   const ok = await setSubdeviceBlocked(c.req.param("id"), true);
@@ -153,7 +156,7 @@ subdeviceRouter.post("/:id/block", async (c) => {
 });
 
 subdeviceRouter.delete("/:id/block", async (c) => {
-  if (!isLocalRequest(c)) {
+  if (!canManageSubdevices(c)) {
     return c.json({ ok: false, error: "local request required" }, 403);
   }
   const ok = await setSubdeviceBlocked(c.req.param("id"), false);
