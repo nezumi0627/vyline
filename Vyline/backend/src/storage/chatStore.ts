@@ -684,7 +684,20 @@ export function mergeStoredReadState(
 ): Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readAtBy"> {
   const readBy = [...new Set([...(previous?.readBy ?? []), ...(incoming.readBy ?? [])])];
   const readCount = Math.max(previous?.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
-  const readAtBy = { ...(previous?.readAtBy ?? {}), ...(incoming.readAtBy ?? {}) };
+  const readAtBy = { ...(previous?.readAtBy ?? {}) };
+  for (const [readerMid, incomingAt] of Object.entries(incoming.readAtBy ?? {})) {
+    const previousAt = readAtBy[readerMid];
+    if (!previousAt) {
+      readAtBy[readerMid] = incomingAt;
+      continue;
+    }
+    const previousMs = Date.parse(previousAt);
+    const incomingMs = Date.parse(incomingAt);
+    // Preserve the first-read timestamp; later syncs can only confirm the same read.
+    if (Number.isFinite(incomingMs) && Number.isFinite(previousMs) && incomingMs < previousMs) {
+      readAtBy[readerMid] = incomingAt;
+    }
+  }
   return {
     ...(previous?.seen === true || incoming.seen === true ? { seen: true } : {}),
     ...(readCount > 0 ? { readCount } : {}),

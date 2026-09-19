@@ -27,6 +27,22 @@ describe("mergeStoredReadState", () => {
   test("never rolls a persisted seen flag back to unread", () => {
     expect(mergeStoredReadState({ seen: true }, { seen: false })).toEqual({ seen: true });
   });
+
+  test("preserves the earliest persisted reader timestamp", () => {
+    const reader = "u-reader-1";
+    expect(
+      mergeStoredReadState(
+        { readAtBy: { [reader]: "2026-09-19T10:00:00.000Z" } },
+        { readAtBy: { [reader]: "2026-09-19T11:00:00.000Z" } },
+      ).readAtBy,
+    ).toEqual({ [reader]: "2026-09-19T10:00:00.000Z" });
+    expect(
+      mergeStoredReadState(
+        { readAtBy: { [reader]: "2026-09-19T10:00:00.000Z" } },
+        { readAtBy: { [reader]: "2026-09-19T09:00:00.000Z" } },
+      ).readAtBy,
+    ).toEqual({ [reader]: "2026-09-19T09:00:00.000Z" });
+  });
 });
 
 describe("applyLocalReadWatermark", () => {
