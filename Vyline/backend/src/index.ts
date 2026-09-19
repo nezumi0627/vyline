@@ -13,7 +13,7 @@ import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
 import { authRouter } from "./api/auth.js";
-import { lineRouter } from "./api/line.js";
+import { lineRouter } from "./api/lineMediaCompat.js";
 import { agentIRouter } from "./api/agentI.js";
 import { debugRouter } from "./api/debug.js";
 import { cdnRouter } from "./api/cdn.js";
