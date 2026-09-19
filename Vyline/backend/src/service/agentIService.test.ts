@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { buildAgentIBody, extractAgentIText } from "./agentIService.js";
+import { buildAgentIBody, extractAgentIText, readBoundedAgentIResponse } from "./agentIService.js";
 
 describe("Agent I request contract", () => {
   test("builds a bounded multi-turn request without raw LINE metadata", () => {
@@ -57,5 +57,22 @@ describe("Agent I request contract", () => {
     ].join("");
 
     expect(extractAgentIText(sse)).toBe("こんにちは世界");
+  });
+
+  test("bounds declared and streamed SSE response bytes", async () => {
+    await expect(
+      readBoundedAgentIResponse(new Response("x", { headers: { "content-length": "9" } }), 8),
+    ).rejects.toThrow("response too large");
+
+    const streamed = new Response(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(new TextEncoder().encode("12345678"));
+          controller.enqueue(new TextEncoder().encode("9"));
+          controller.close();
+        },
+      }),
+    );
+    await expect(readBoundedAgentIResponse(streamed, 8)).rejects.toThrow("response exceeded");
   });
 });
