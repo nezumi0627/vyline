@@ -42,6 +42,7 @@ import {
 import { resolveCorsOrigin } from "./api/corsPolicy.js";
 import { maintainCallRecordings } from "./service/callRecordingService.js";
 import { CALL_VIDEO_MAX_BYTES } from "@vyline/types";
+import { requestDiagnostics } from "./service/requestDiagnostics.js";
 
 void maintainCallRecordings().catch(() => undefined);
 setInterval(() => { void maintainCallRecordings().catch(() => undefined); }, 60_000).unref();
@@ -181,6 +182,16 @@ app.use("/auth/*", async (c, next) => {
   if (!isSubdeviceAuthRequest(c.req.path)) return requireLocalOnLan(c, next);
   return requireLanSubdevice(c, next);
 });
+
+app.use(
+  "*",
+  requestDiagnostics((c) => {
+    const scope = scopedAccount(c.req.path);
+    if (scope?.kind === "mid") return scope.value;
+    if (scope?.kind === "accountId") return getClient(scope.value)?.base.profile?.mid;
+    return undefined;
+  }),
+);
 
 app.get("/healthz", (c) => c.json({ ok: true, status: "ready" }));
 app.get("/api/v1/status", (c) =>
