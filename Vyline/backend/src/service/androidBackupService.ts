@@ -167,6 +167,42 @@ function queueRestore(
   return session;
 }
 
+async function writeRequestBodyToFile(request: Request, targetPath: string): Promise<number> {
+  const body = request.body;
+  if (!body) return 0;
+
+  const reader = body.getReader();
+  const file = await open(targetPath, "w", 0o600);
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (!value || value.byteLength === 0) continue;
+
+      total += value.byteLength;
+      if (total > MAX_UPLOAD_BYTES) {
+        await reader.cancel("Android backup upload exceeded size limit").catch(() => undefined);
+        throw new Error(
+          `Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`,
+        );
+      }
+
+      let offset = 0;
+      while (offset < value.byteLength) {
+        const { bytesWritten } = await file.write(value, offset, value.byteLength - offset);
+        if (bytesWritten <= 0) throw new Error("Androidバックアップの保存に失敗しました");
+        offset += bytesWritten;
+      }
+    }
+    await file.sync();
+    return total;
+  } finally {
+    reader.releaseLock();
+    await file.close();
+  }
+}
+
 export async function startAndroidBackupRestore(
   accountId: string,
   sourceName: string,
@@ -184,7 +220,7 @@ export async function startAndroidBackupRestore(
   const workDir = await mkdtemp(join(tmpdir(), `vyline-android-${session.id}-`));
   const sourcePath = join(workDir, "source.bin");
   try {
-    const written = await Bun.write(sourcePath, await request.arrayBuffer());
+    const written = await writeRequestBodyToFile(request, sourcePath);
     if (written <= 0) throw new Error("アップロードされたファイルが空です");
     if (written > MAX_UPLOAD_BYTES) {
       throw new Error(`Androidバックアップが大きすぎます（上限 ${formatBytes(MAX_UPLOAD_BYTES)}）`);
