@@ -6,6 +6,15 @@ import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
 export const SETUP_TOTAL_STEPS = 5;
+const writes = new Map<string, Promise<unknown>>();
+
+function serialize<T>(mid: string, work: () => Promise<T>): Promise<T> {
+  const next = (writes.get(mid) ?? Promise.resolve()).catch(() => undefined).then(work);
+  writes.set(mid, next);
+  return next.finally(() => {
+    if (writes.get(mid) === next) writes.delete(mid);
+  });
+}
 
 export function defaultAccountSettings(): AccountSettings {
   return {
@@ -57,7 +66,7 @@ export async function loadAccountSettings(mid: string): Promise<AccountSettings>
   }
 }
 
-export async function saveAccountSettings(
+async function saveAccountSettingsUnlocked(
   mid: string,
   patch: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
@@ -66,21 +75,30 @@ export async function saveAccountSettings(
   return next;
 }
 
+export function saveAccountSettings(
+  mid: string,
+  patch: Partial<AccountSettings>,
+): Promise<AccountSettings> {
+  return serialize(mid, () => saveAccountSettingsUnlocked(mid, patch));
+}
+
 export async function updateSetup(
   mid: string,
   step: number,
   patch: Partial<AccountSettings>,
 ): Promise<AccountSettings> {
-  const current = await loadAccountSettings(mid);
-  const completed = step >= SETUP_TOTAL_STEPS;
-  return saveAccountSettings(mid, {
-    ...patch,
-    setup: {
-      ...current.setup,
-      step: Math.max(0, Math.min(step, SETUP_TOTAL_STEPS)),
-      completed,
-      ...(completed ? { completedAt: new Date().toISOString() } : {}),
-    },
+  return serialize(mid, async () => {
+    const current = await loadAccountSettings(mid);
+    const completed = step >= SETUP_TOTAL_STEPS;
+    return saveAccountSettingsUnlocked(mid, {
+      ...patch,
+      setup: {
+        ...current.setup,
+        step: Math.max(0, Math.min(step, SETUP_TOTAL_STEPS)),
+        completed,
+        ...(completed ? { completedAt: new Date().toISOString() } : {}),
+      },
+    });
   });
 }
 
