@@ -1602,11 +1602,13 @@ lineRouter.get("/:accountId/getMessageReadRange/:chatMid", async (c) => {
           return payload;
         })();
         readReceiptInflight.set(inflightKey, p);
-        void p.finally(() => {
-          if (readReceiptInflight.get(inflightKey) === p) {
-            readReceiptInflight.delete(inflightKey);
-          }
-        });
+        void p
+          .finally(() => {
+            if (readReceiptInflight.get(inflightKey) === p) {
+              readReceiptInflight.delete(inflightKey);
+            }
+          })
+          .catch(() => undefined);
         return p;
       })();
     const { receipts, peerReadUpTo, memberReadWatermarks, memberMids } = await task;
