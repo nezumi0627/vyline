@@ -28,6 +28,8 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 | セキュリティ | サブデバイス境界、非 root 実行、OS 更新、LIFF 資格情報、feature lock、pairing 原子的消費 | #178–#184 |
 | 資格情報 | 壊れたアカウントの隔離、tokenStore の並行更新・削除競合防止 | #185、#187 |
 | メディア | 古い動画プレビューキャッシュの除去（プレビューは保持） | #186 |
+| 既読 / 同期 | read-receipt の inflight 拒否処理、同期台帳の更新 | #188–#190 |
+| プラグインツール | CLI / create-plugin / vyl の型チェックを TypeScript に統一 | #191 |
 | API 信頼性 | read-receipts の inflight cleanup rejection を隔離 | #189 |
 
 各 PR は必須 CI（型チェック、lint、build、Docker smoke、ドキュメント、OSV）を確認してから squash merge し、元ブランチを削除済みです。
