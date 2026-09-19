@@ -71,6 +71,12 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 - Android バックアップ復元の履歴・リアクション走査もストリーム化済み（#228）。SQLite の大規模復元時のメモリ使用量を抑えます。
 - UI / Compose UI のupstream差分は引き続き同期対象外です。独立したセキュリティ・API・ストレージ修正は引き続き小さなPRへ分割します。
 
+### 同期完了監査（2026-09-19）
+
+- `tqmane/main` の最新バックエンド候補を再確認しました。動画プレビューキャッシュ修正（`32a5b50`）は現行の `3ae8b7f` に同等実装があり、LIFF資格情報スコープ、壊れたアカウント隔離、feature lock、pairing token の各修正も現行mainへ別コミットで取り込み済みです。
+- `40549f1` 以降の Compose / Desktop UI、reaction member 表示、MediaViewer 改修は同期対象外です。ChatGPT tunnel、通話録画・WebDAV・group-call は現行mainにない前提API・認証・protocol依存を含むため、独立した安全なPRへ分割できる状態ではありません。
+- 以上により、UIを保持したまま単独適用できるupstream差分は #228 まで取り込み済みです。今後は新しいupstreamコミットが追加された時点で同じ監査を再開します。
+
 ---
 
 ## 0.8.0-beta の振り返り（2026-08-27）
