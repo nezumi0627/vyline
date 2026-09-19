@@ -68,6 +68,7 @@ bun run vyline:focus-recovered -- sendMessage
 | ------------------------ | --------------------------------------------------------------------- | ---------------------------------- |
 | `VYLINE_DEVICE`          | `IOSIPAD` / `ANDROIDSECONDARY` / `DESKTOPWIN` / `DESKTOPMAC`          | `IOSIPAD`                          |
 | `VYLINE_DATA_DIR`        | backend データ（token, storage, chatdb, feature-locks, vyline-cache） | `backend/data/`                    |
+| `VYLINE_STORAGE_DIR`     | 永続ストレージ（保存メディア、バックアップ等）                         | `backend/storage/`                 |
 | `VYLINE_CHAT_CACHE_ACCOUNTS` | 完全履歴をメモリに保持するアカウント数（LRU、dirty時は退避しない） | `1` |
 | `VYLINE_CDN_CACHE_DIR`   | スタンプ / sticon CDN キャッシュ                                      | `backend/data/cdn-cache/`          |
 | `VYLINE_MEDIA_STORAGE_DIR` | 送信済み・取得済みメディアの永続ストレージ                     | `backend/storage/saved-media/`     |
@@ -81,6 +82,10 @@ bun run vyline:focus-recovered -- sendMessage
 
 > セルフホストの詳細は [selfhosting.md](./selfhosting.md) を参照。
 > サブデバイスのQR接続は [サブデバイス接続ガイド](./subdevices.md) を参照。
+
+ストレージ表示の「Vyline 使用量」は、キャッシュや保存メディアだけでなく、
+`VYLINE_DATA_DIR` と `VYLINE_STORAGE_DIR` 配下の永続データも合算します。
+両方が同じパスを指す場合は二重計上しません。
 
 `VYLINE_MEDIA_CACHE_DIR` も旧設定として読み込まれますが、新規環境では
 `VYLINE_MEDIA_STORAGE_DIR` を使用してください。
