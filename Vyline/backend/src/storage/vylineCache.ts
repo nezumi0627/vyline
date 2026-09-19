@@ -241,11 +241,12 @@ export function vylineProfileNeedsRefresh(entry: VylineProfileLite | null | unde
 export function vylineGroupNeedsRefresh(entry: VylineGroupLite | null | undefined): boolean {
   if (!entry) return true;
   if (!entry.memberMids.length) return true;
-  // メンバー名がすべてMIDのままなら再取得（前回の取得失敗を示す）
-  const resolvedCount = entry.members.filter(
-    (m) => !/^[ucr][0-9a-f]{32}$/i.test(m.displayName),
-  ).length;
-  if (resolvedCount === 0 && entry.members.length > 0) return true;
+  // 一部だけプロフィール取得に失敗したキャッシュも再取得する。
+  // 「全員MID」の場合だけを弾くと、数人だけ未解決の状態がTTL中ずっと残る。
+  if (entry.members.length < entry.memberMids.length) return true;
+  if (entry.members.some((member) => !member.displayName || looksLikeMid(member.displayName))) {
+    return true;
+  }
   return !isFresh(entry.updatedAt, GROUP_TTL_MS);
 }
 
