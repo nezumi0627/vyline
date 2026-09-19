@@ -172,7 +172,9 @@ function attachSessionEvents(call: ManagedCall) {
   });
   call.session.on("ended", (reason) => {
     log.info({ sessionId: call.sessionId, reason }, "call ended");
-    cleanupCall(call.sessionId);
+    // Notify connected clients before removing the session from the registry.
+    broadcastState(call);
+    setTimeout(() => cleanupCall(call.sessionId), 300);
   });
   call.session.on("error", (err) => {
     call.error = CALL_CLIENT_ERROR;
@@ -213,9 +215,13 @@ async function runCallStart(call: ManagedCall): Promise<void> {
 }
 
 async function startMediaLoops(call: ManagedCall) {
-  call.sendTask = call.session
-    .sendStream(micSource(call))
-    .catch((err) => log.warn({ err, sessionId: call.sessionId }, "sendStream ended"));
+  call.sendTask = call.session.sendStream(micSource(call)).catch((err) => {
+    log.warn({ err, sessionId: call.sessionId }, "sendStream ended");
+    // A closed transport can leave the session in-call unless we end it.
+    if (call.session.state === "in-call") {
+      void call.session.end("media-error").catch(() => undefined);
+    }
+  });
 
   call.recvTask = (async () => {
     for await (const frame of call.session.received()) {
@@ -225,7 +231,16 @@ async function startMediaLoops(call: ManagedCall) {
       );
       broadcastPcm(call, buf as ArrayBuffer);
     }
-  })().catch((err) => log.warn({ err, sessionId: call.sessionId }, "receive loop ended"));
+    // Normal receive-loop completion means the remote transport ended.
+    if (call.session.state === "in-call") {
+      await call.session.end("remote-ended").catch(() => undefined);
+    }
+  })().catch((err) => {
+    log.warn({ err, sessionId: call.sessionId }, "receive loop ended");
+    if (call.session.state === "in-call") {
+      void call.session.end("remote-ended").catch(() => undefined);
+    }
+  });
 }
 
 export async function startManagedCall(opts: {
