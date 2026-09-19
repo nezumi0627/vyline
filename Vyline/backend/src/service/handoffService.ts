@@ -15,7 +15,7 @@ import { loadAccountSettings } from "./accountSettingsService.js";
 import { anonymousId } from "./redaction.js";
 
 const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
-const MAX_EXTRACTED_BYTES = 10 * 1024 * 1024;
+const MAX_EXTRACTED_BYTES = 5 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 16;
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
 
@@ -43,6 +43,12 @@ function parseHandoff(archiveBase64: string): ParsedHandoff {
   const entries = unzipSync(archive, {
     filter(file) {
       entryCount++;
+      if (!/^[-a-zA-Z0-9_.]+$/.test(file.name) || file.name.includes("..")) {
+        throw new Error("unsafe handoff path");
+      }
+      if (!Number.isSafeInteger(file.originalSize) || file.originalSize < 0) {
+        throw new Error("invalid handoff entry size");
+      }
       extractedBytes += file.originalSize;
       if (entryCount > MAX_ARCHIVE_ENTRIES || extractedBytes > MAX_EXTRACTED_BYTES) {
         throw new Error("handoff archive expands beyond safe limits");
@@ -50,12 +56,24 @@ function parseHandoff(archiveBase64: string): ParsedHandoff {
       return true;
     },
   });
+  const actualExtractedBytes = Object.values(entries).reduce(
+    (total, entry) => total + entry.byteLength,
+    0,
+  );
+  if (actualExtractedBytes > MAX_EXTRACTED_BYTES) {
+    throw new Error("handoff archive expands beyond safe limits");
+  }
   const manifestBytes = entries["manifest.json"];
   if (!manifestBytes) throw new Error("manifest.json is required");
   const manifest = JSON.parse(strFromU8(manifestBytes)) as HandoffManifest;
   if (manifest.format !== HANDOFF_FORMAT || manifest.version !== HANDOFF_VERSION)
     throw new Error("unsupported handoff format");
-  if (!manifest.handoffId || !Array.isArray(manifest.files) || manifest.encryption?.mode !== "none")
+  if (
+    !manifest.handoffId ||
+    !manifest.account?.midHash ||
+    !Array.isArray(manifest.files) ||
+    manifest.encryption?.mode !== "none"
+  )
     throw new Error("invalid handoff manifest");
   for (const file of manifest.files) {
     if (!/^[-a-zA-Z0-9_.]+$/.test(file.path) || file.path.includes(".."))
@@ -118,6 +136,7 @@ export async function importHandoff(
 ): Promise<{ manifest: HandoffManifest; imported: string[] }> {
   if (mode === "cancel") throw new Error("import cancelled");
   const { manifest, entries } = parseHandoff(archiveBase64);
+  if (manifest.account.midHash !== anonymousId(mid)) throw new Error("handoff account mismatch");
   const settingsData = entries["settings.json"];
   if (!settingsData) throw new Error("settings.json is required");
   const incoming = JSON.parse(strFromU8(settingsData)) as Record<string, unknown>;
