@@ -97,4 +97,35 @@ describe("tokenStore account isolation and handoff", () => {
     ).toBeUndefined();
     expect(await readFile(protocolPath, "utf8")).toContain("keep-me");
   }, 20_000);
+
+  test("a corrupt credential file does not hide later healthy accounts", async () => {
+    const isolatedDir = await mkdtemp(join(tmpdir(), "vyline-token-store-corrupt-"));
+    const previousDataDir = process.env.VYLINE_DATA_DIR;
+    try {
+      await mkdir(join(isolatedDir, "accounts", "aaa-broken"), { recursive: true });
+      await writeFile(
+        join(isolatedDir, "accounts", "aaa-broken", "credentials.json"),
+        "{broken",
+        "utf8",
+      );
+      await mkdir(join(isolatedDir, "accounts", "zzz-healthy"), { recursive: true });
+      await writeFile(
+        join(isolatedDir, "accounts", "zzz-healthy", "credentials.json"),
+        JSON.stringify({
+          authToken: "healthy-token",
+          storageFile: "",
+          savedAt: "2026-09-05T00:00:00.000Z",
+        }),
+        "utf8",
+      );
+      process.env.VYLINE_DATA_DIR = isolatedDir;
+      const isolatedStore = await import(`./tokenStore.ts?corrupt=${crypto.randomUUID()}`);
+
+      expect((await isolatedStore.loadTokens())["zzz-healthy"]?.authToken).toBe("healthy-token");
+    } finally {
+      if (previousDataDir == null) Reflect.deleteProperty(process.env, "VYLINE_DATA_DIR");
+      else process.env.VYLINE_DATA_DIR = previousDataDir;
+      await rm(isolatedDir, { recursive: true, force: true });
+    }
+  });
 });
