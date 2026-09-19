@@ -1,6 +1,6 @@
 # Vyline タスク状況ボード
 
-最終更新: 2026-08-27
+最終更新: 2026-09-19
 規則: **git push/commit しない** / **連絡先へ勝手送信しない**
 
 ---
@@ -30,6 +30,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 | メディア | 古い動画プレビューキャッシュの除去（プレビューは保持） | #186 |
 | 既読 / 同期 | read-receipt の inflight 拒否処理、同期台帳の更新 | #188–#190 |
 | プラグインツール | CLI / create-plugin / vyl の型チェックを TypeScript に統一 | #191 |
+| コンテナCI | amd64/arm64のネイティブ分離ビルド、digest manifest統合、キャッシュ分離 | #193 |
 | API 信頼性 | read-receipts の inflight cleanup rejection を隔離 | #189 |
 
 各 PR は必須 CI（型チェック、lint、build、Docker smoke、ドキュメント、OSV）を確認してから squash merge し、元ブランチを削除済みです。
@@ -39,6 +40,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 - UI と Compose UI の変更は同期対象外です。
 - 通話録画、ChatGPT トンネル、グループ動画など、現行 main に前提実装がない機能は、依存順に小さな PR へ分割して取り込みます。
 - 取り込み前に現行の安全性・アカウント分離・既存 API 互換を確認し、丸ごとの upstream 同期は行いません。
+- 現在残るupstream差分は、未導入の通話録画・ChatGPT統合・グループ通話基盤、またはprotocolサブモジュール更新を伴うため、前提実装を先に監査します。
 
 ---
 
