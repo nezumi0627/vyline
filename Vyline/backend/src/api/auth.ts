@@ -51,6 +51,10 @@ const emailLoginState = new Map<
   string,
   { status: EmailLoginStatus; pincode: string | null; error: string | null }
 >();
+
+async function deleteAccountCredentials(accountId: string): Promise<void> {
+  await Promise.all([deleteToken(accountId), deleteToken(`${accountId}:content`)]);
+}
 const WINDOWS_TOKEN_SCAN_TTL_MS = 2 * 60 * 1000;
 const windowsTokenScans = new Map<
   string,
@@ -474,8 +478,8 @@ authRouter.get("/sessions", async (c) => {
 authRouter.delete("/sessions/:id", async (c) => {
   const accountId = c.req.param("id");
   const alsoLogout = c.req.query("logout") === "1" || c.req.query("logout") === "true";
-  await deleteToken(accountId);
   if (alsoLogout) removeClient(accountId);
+  await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });
 
@@ -485,6 +489,6 @@ authRouter.delete("/sessions/:id", async (c) => {
 authRouter.delete("/accounts/:id", async (c) => {
   const accountId = c.req.param("id");
   removeClient(accountId);
-  await deleteToken(accountId);
+  await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });
