@@ -16,6 +16,11 @@ function serialize<T>(mid: string, work: () => Promise<T>): Promise<T> {
   });
 }
 
+/** Run a settings-file transaction without racing normal account updates. */
+export function withAccountSettingsWrite<T>(mid: string, work: () => Promise<T>): Promise<T> {
+  return serialize(mid, work);
+}
+
 export function defaultAccountSettings(): AccountSettings {
   return {
     schemaVersion: 1,

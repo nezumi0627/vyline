@@ -11,7 +11,7 @@ import {
 } from "@vyline/types";
 import { accountFile, accountDir } from "../storage/accountDirs.js";
 import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
-import { loadAccountSettings } from "./accountSettingsService.js";
+import { loadAccountSettings, withAccountSettingsWrite } from "./accountSettingsService.js";
 import { anonymousId } from "./redaction.js";
 
 const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
@@ -140,27 +140,29 @@ export async function importHandoff(
   const settingsData = entries["settings.json"];
   if (!settingsData) throw new Error("settings.json is required");
   const incoming = JSON.parse(strFromU8(settingsData)) as Record<string, unknown>;
-  const current = await loadAccountSettings(mid);
-  const next = mode === "merge" ? { ...current, ...incoming } : incoming;
-  const dir = accountDir(mid);
-  await mkdir(dir, { recursive: true });
-  const backup = join(
-    DATA_DIR,
-    "accounts",
-    `${safePathComponent(mid)}.handoff-backup-${Date.now()}`,
-  );
-  const currentPath = accountFile(mid, "settings.json");
-  if (existsSync(currentPath)) await rename(currentPath, backup);
-  try {
-    await writeJsonAtomic(currentPath, next);
-  } catch (error) {
-    if (existsSync(backup)) await rename(backup, currentPath).catch(() => undefined);
-    throw error;
-  }
-  await rm(backup, { force: true }).catch(() => undefined);
-  await writeFile(
-    accountFile(mid, "handoff.json"),
-    JSON.stringify({ handoffId: manifest.handoffId, importedAt: new Date().toISOString() }),
-  );
-  return { manifest, imported: ["settings.json"] };
+  return withAccountSettingsWrite(mid, async () => {
+    const current = await loadAccountSettings(mid);
+    const next = mode === "merge" ? { ...current, ...incoming } : incoming;
+    const dir = accountDir(mid);
+    await mkdir(dir, { recursive: true });
+    const backup = join(
+      DATA_DIR,
+      "accounts",
+      `${safePathComponent(mid)}.handoff-backup-${Date.now()}`,
+    );
+    const currentPath = accountFile(mid, "settings.json");
+    if (existsSync(currentPath)) await rename(currentPath, backup);
+    try {
+      await writeJsonAtomic(currentPath, next);
+    } catch (error) {
+      if (existsSync(backup)) await rename(backup, currentPath).catch(() => undefined);
+      throw error;
+    }
+    await rm(backup, { force: true }).catch(() => undefined);
+    await writeFile(
+      accountFile(mid, "handoff.json"),
+      JSON.stringify({ handoffId: manifest.handoffId, importedAt: new Date().toISOString() }),
+    );
+    return { manifest, imported: ["settings.json"] };
+  });
 }
