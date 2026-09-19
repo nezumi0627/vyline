@@ -33,6 +33,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 | コンテナCI | amd64/arm64のネイティブ分離ビルド、digest manifest統合、キャッシュ分離 | #193 |
 | 引継ぎセキュリティ | ZIPエントリの実サイズ・パス検証、アカウントhash一致確認 | #195 |
 | Agent I セキュリティ | SSE応答の宣言サイズ・ストリーム実測サイズを制限 | #197 |
+| アカウント分離 | ディレクトリ衝突防止、レジストリ直列化、旧データ所有者検証 | #199 |
 | API 信頼性 | read-receipts の inflight cleanup rejection を隔離 | #189 |
 
 各 PR は必須 CI（型チェック、lint、build、Docker smoke、ドキュメント、OSV）を確認してから squash merge し、元ブランチを削除済みです。
