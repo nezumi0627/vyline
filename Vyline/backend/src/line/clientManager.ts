@@ -67,6 +67,7 @@ interface ManagedClient {
   accountId: string;
   qrUrl: string | null;
   qrExpired: boolean;
+  qrError: string | null;
   pincode: string | null;
   loggedInAt: number | null;
 }
@@ -640,6 +641,7 @@ export async function loginWithEmail(
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: Date.now(),
   });
@@ -668,6 +670,7 @@ export async function loginWithQRCode(
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: null,
   };
@@ -692,6 +695,7 @@ export async function loginWithQRCode(
           log.info({ accountId }, "QR URL received");
           managed.qrUrl = url;
           managed.qrExpired = false;
+          managed.qrError = null;
           onQrUrl(url);
         },
         onPincodeRequest(pin: string) {
@@ -705,6 +709,7 @@ export async function loginWithQRCode(
     managed.client = client;
     managed.qrUrl = null;
     managed.qrExpired = false;
+    managed.qrError = null;
     managed.pincode = null;
     managed.loggedInAt = Date.now();
     watchAuthToken(client, accountId);
@@ -716,11 +721,14 @@ export async function loginWithQRCode(
     if (isExpiredError(err)) {
       log.info({ accountId }, "QR expired — waiting for user to regenerate");
       managed.qrExpired = true;
+      managed.qrError = null;
       managed.qrUrl = null;
       managed.pincode = null;
       throw err;
     }
-    clients.delete(accountId);
+    managed.qrError = "QR login failed";
+    managed.qrUrl = null;
+    managed.pincode = null;
     throw err;
   }
 }
@@ -757,6 +765,7 @@ async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: Date.now(),
   });
@@ -803,6 +812,7 @@ export async function loginWithAuthToken(
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: Date.now(),
   });
@@ -998,7 +1008,9 @@ export function getContentQrState(accountId: string): {
 }
 
 export function listAccounts(): string[] {
-  return [...clients.keys()];
+  return [...clients.entries()]
+    .filter(([, managed]) => managed.loggedInAt !== null && Boolean(managed.client))
+    .map(([accountId]) => accountId);
 }
 
 export function getQrState(accountId: string): {
@@ -1007,15 +1019,17 @@ export function getQrState(accountId: string): {
   pincode: string | null;
   /** QR ログイン処理がメモリ上で進行中か */
   inProgress: boolean;
+  error: string | null;
 } {
   const m = clients.get(accountId);
-  if (!m) return { url: null, expired: false, pincode: null, inProgress: false };
-  const inProgress = m.loggedInAt === null && !m.qrExpired;
+  if (!m) return { url: null, expired: false, pincode: null, inProgress: false, error: null };
+  const inProgress = m.loggedInAt === null && !m.qrExpired && !m.qrError;
   return {
     url: m.qrUrl,
     expired: m.qrExpired,
     pincode: m.pincode,
     inProgress,
+    error: m.qrError,
   };
 }
 
