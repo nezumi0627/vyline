@@ -11,7 +11,7 @@
 
 import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -184,6 +184,50 @@ export async function readMediaStorage(
   const contentType = contentTypeFromFilename(hit);
   remember(memKey, buf, contentType);
   return { buf, contentType };
+}
+
+type StoredMediaType = "image" | "video" | "audio" | "file";
+
+async function findStoredMediaPaths(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<Array<{ path: string; mediaType: StoredMediaType }>> {
+  const h = key(accountId, chatMid, messageId);
+  const roots = (Object.keys(typeRoots(storageRoot())) as StoredMediaType[]).map((type) => ({
+    root: accountTypeRoot(accountId, type),
+    mediaType: type,
+  }));
+  const found: Array<{ path: string; mediaType: StoredMediaType }> = [];
+  for (const { root, mediaType } of roots) {
+    try {
+      const file = (await readdir(join(root, h.slice(0, 2)))).find((name) => name.startsWith(h));
+      if (file) found.push({ path: join(root, h.slice(0, 2), file), mediaType });
+    } catch {
+      // A missing type directory is a cache miss.
+    }
+  }
+  return found;
+}
+
+export async function statMediaStorage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<{ mediaType: StoredMediaType } | null> {
+  const [hit] = await findStoredMediaPaths(accountId, chatMid, messageId);
+  return hit ? { mediaType: hit.mediaType } : null;
+}
+
+export async function removeMediaStorageEntry(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<void> {
+  for (const hit of await findStoredMediaPaths(accountId, chatMid, messageId)) {
+    await unlink(hit.path).catch(() => undefined);
+  }
+  memory.delete(`${accountId}:${chatMid}:${messageId}`);
 }
 
 function remember(memKey: string, buf: Uint8Array, contentType: string): void {
