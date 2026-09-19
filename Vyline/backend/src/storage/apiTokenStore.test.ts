@@ -59,6 +59,11 @@ describe("apiTokenStore account scoping", () => {
     const created = await apiTokenStore.createToken("concurrent-client", ["account-a"], ["read"]);
     const rawToken = created.token!;
 
+    const firstUse = await apiTokenStore.validateToken(rawToken);
+    const firstUsedAt = firstUse?.lastUsedAt;
+    expect(firstUsedAt).toBeTruthy();
+    expect((await apiTokenStore.validateToken(rawToken))?.lastUsedAt).toBe(firstUsedAt);
+
     await Promise.all(Array.from({ length: 32 }, () => apiTokenStore.validateToken(rawToken)));
 
     for (let i = 0; i < 32; i += 1) {
