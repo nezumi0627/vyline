@@ -54,6 +54,13 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 - 取り込み前に現行の安全性・アカウント分離・既存 API 互換を確認し、丸ごとの upstream 同期は行いません。
 - 現在残るupstream差分は、未導入の通話録画・ChatGPT統合・グループ通話基盤、またはprotocolサブモジュール更新を伴うため、前提実装を先に監査します。
 
+### 同期監査チェックポイント（2026-09-19）
+
+- SQLite chat store 移行（`chatStoreCore` / `chatStoreSqlite` / `storageUsageRefs`）は相互依存するため、既存のJSONチャットストアを維持したまま単独投入しません。
+- 通話録画・WebDAV・グループ通話は call session / protocol / 型定義を含む依存チェーンで、UIを除外した一部だけでは動作契約を満たしません。
+- ChatGPT tunnel と大規模メディアストリーミングは現行mainにない前提API・認証境界を要求します。
+- UI / Compose UI のupstream差分は引き続き同期対象外です。独立したセキュリティ・API・ストレージ修正は引き続き小さなPRへ分割します。
+
 ---
 
 ## 0.8.0-beta の振り返り（2026-08-27）
