@@ -44,6 +44,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 | QRログイン | QR失敗時の内部エラーを隠し、汎用failed状態として安全にポーリング | #213 |
 | メディアRange | 録画APIのRFC 7233 Range解析で空・複数・範囲外指定を拒否 | #215 |
 | CDNセキュリティ | CDNリダイレクト各hopの許可ホスト検証と回帰テスト | #217 |
+| 通話 WebSocket セキュリティ | Upgrade 前に Origin を検証し、TLS終端リバースプロキシの同一Originだけを許可 | #220 |
 
 各 PR は必須 CI（型チェック、lint、build、Docker smoke、ドキュメント、OSV）を確認してから squash merge し、元ブランチを削除済みです。
 
@@ -59,6 +60,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 - SQLite chat store 移行（`chatStoreCore` / `chatStoreSqlite` / `storageUsageRefs`）は相互依存するため、既存のJSONチャットストアを維持したまま単独投入しません。
 - 通話録画・WebDAV・グループ通話は call session / protocol / 型定義を含む依存チェーンで、UIを除外した一部だけでは動作契約を満たしません。
 - ChatGPT tunnel と大規模メディアストリーミングは現行mainにない前提API・認証境界を要求します。
+- 通話 WebSocket の Origin 検証は独立して取り込み済み（#220）。録音・グループ通話の本体は依存チェーンの監査を継続します。
 - UI / Compose UI のupstream差分は引き続き同期対象外です。独立したセキュリティ・API・ストレージ修正は引き続き小さなPRへ分割します。
 
 ---
