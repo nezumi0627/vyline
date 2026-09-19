@@ -43,6 +43,7 @@ import { resolveCorsOrigin } from "./api/corsPolicy.js";
 import { maintainCallRecordings } from "./service/callRecordingService.js";
 import { CALL_VIDEO_MAX_BYTES } from "@vyline/types";
 import { requestDiagnostics } from "./service/requestDiagnostics.js";
+import { isAllowedWebSocketOrigin } from "./remoteAccess.js";
 
 void maintainCallRecordings().catch(() => undefined);
 setInterval(() => { void maintainCallRecordings().catch(() => undefined); }, 60_000).unref();
@@ -460,6 +461,9 @@ export default {
     const url = new URL(request.url);
     const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
     if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
+      if (!isAllowedWebSocketOrigin(request, CORS_ORIGINS)) {
+        return new Response("websocket origin not allowed", { status: 403 });
+      }
       let accountId: string;
       try {
         accountId = decodeURIComponent(m[1]!);
