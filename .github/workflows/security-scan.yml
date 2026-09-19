@@ -71,8 +71,17 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - name: Build image
-        run: docker build --pull -t vyline-security-scan:${{ github.sha }} .
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image with shared architecture cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          load: true
+          tags: vyline-security-scan:${{ github.sha }}
+          cache-from: type=gha,scope=container-amd64
+          cache-to: type=gha,scope=container-amd64,mode=max
       - name: Run Trivy image scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
