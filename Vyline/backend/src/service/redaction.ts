@@ -2,7 +2,22 @@ import { createHash } from "node:crypto";
 
 const SECRET_KEY = /(token|cookie|password|passwd|secret|session|private.?key|access.?key|auth)/i;
 const PII_KEY =
-  /(account.?id|mid|gid|email|phone|display.?name|message|content|text|url|ip|device.?id)/i;
+  /(account.?id|mid|gid|email|phone|display.?name|message|content|text|url|device.?id)/i;
+const NETWORK_ADDRESS_KEYS = new Set([
+  "ip",
+  "ipv4",
+  "ipv6",
+  "voip",
+  "host",
+  "hostname",
+  "address",
+  "addr",
+]);
+
+function isNetworkAddressKey(key: string): boolean {
+  const normalized = key.replace(/([a-z0-9])([A-Z])/g, "$1_$2").toLowerCase();
+  return normalized.split(/[^a-z0-9]+/).some((part) => NETWORK_ADDRESS_KEYS.has(part));
+}
 
 export function anonymousId(value: string): string {
   return createHash("sha256").update(value).digest("hex").slice(0, 16);
@@ -34,7 +49,7 @@ export function sanitizeStringValue(value: string): string {
 
 export function redactForDiagnostics(input: unknown, key = ""): unknown {
   if (SECRET_KEY.test(key)) return "[REDACTED_SECRET]";
-  if (PII_KEY.test(key)) return "[REDACTED_PII]";
+  if (PII_KEY.test(key) || isNetworkAddressKey(key)) return "[REDACTED_PII]";
   if (Array.isArray(input)) return input.slice(0, 100).map((value) => redactForDiagnostics(value));
   if (input && typeof input === "object") {
     return Object.fromEntries(

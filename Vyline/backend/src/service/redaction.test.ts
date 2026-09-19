@@ -44,4 +44,24 @@ describe("diagnostic redaction", () => {
     expect(value).not.toContain("eyJhbGciOiJIUzI1NiJ9");
     expect(value).toContain("[REDACTED_SECRET]");
   });
+
+  test("redacts structured network address fields", () => {
+    const redacted = redactForDiagnostics({
+      remoteIp: "192.0.2.10",
+      ipv6: "2001:db8::10",
+      host: "call.example.test",
+      serverHostName: "internal.example.test",
+      address: "10.0.0.4",
+      label: "keep this context",
+    });
+
+    expect(redacted).toEqual({
+      remoteIp: "[REDACTED_PII]",
+      ipv6: "[REDACTED_PII]",
+      host: "[REDACTED_PII]",
+      serverHostName: "[REDACTED_PII]",
+      address: "[REDACTED_PII]",
+      label: "keep this context",
+    });
+  });
 });
