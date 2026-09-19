@@ -88,6 +88,7 @@ import {
   getMessageHistory,
   warmAccountCache,
   saveBoxOrder,
+  shouldPreserveResolvedLastMessagePreview,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
@@ -2900,6 +2901,18 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   tail.sort((a, b) => a.name.localeCompare(b.name, "ja"));
   result.push(...tail);
+
+  // Keep a previously decrypted preview when the latest box response only
+  // contains an encrypted placeholder for the same message.
+  const storedPreviewChats = await getStoredChats(accountId);
+  const storedByMid = new Map(storedPreviewChats.map((chat) => [chat.mid, chat]));
+  for (const chat of result) {
+    const stored = storedByMid.get(chat.mid);
+    const preview = stored?.lastMessagePreview;
+    if (stored && preview && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
+      chat.lastMessagePreview = preview;
+    }
+  }
 
   // 公式（BOT）判定: userByMid に無い直接トーク相手は getContactsV3 で userType を取得
   // （fetchUsers はユーザー友達のみで、公式/ボットは含まれない）

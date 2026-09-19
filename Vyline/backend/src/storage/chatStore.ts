@@ -155,6 +155,39 @@ function previewForMessage(message: StoredMessage): string {
   }
 }
 
+export const ENCRYPTED_LAST_MESSAGE_PREVIEW = "暗号化メッセージ";
+
+export function isUnresolvedLastMessagePreview(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toUpperCase();
+  return (
+    !normalized ||
+    normalized === ENCRYPTED_LAST_MESSAGE_PREVIEW.toUpperCase() ||
+    normalized === "E2EE_UNAVAILABLE" ||
+    normalized === "UNSENT" ||
+    normalized === "UNSEND" ||
+    normalized === "CHATEVENT" ||
+    normalized === "NONE" ||
+    normalized === "0"
+  );
+}
+
+export function shouldPreserveResolvedLastMessagePreview(
+  existing: Pick<StoredChat, "lastMessageId" | "lastMessageTime" | "lastMessagePreview">,
+  incoming: Pick<StoredChat, "lastMessageId" | "lastMessageTime" | "lastMessagePreview">,
+): boolean {
+  const sameMessage =
+    existing.lastMessageId && incoming.lastMessageId
+      ? existing.lastMessageId === incoming.lastMessageId
+      : (existing.lastMessageTime ?? 0) > 0 &&
+        existing.lastMessageTime === incoming.lastMessageTime;
+  return Boolean(
+    sameMessage &&
+      existing.lastMessagePreview &&
+      !isUnresolvedLastMessagePreview(existing.lastMessagePreview) &&
+      isUnresolvedLastMessagePreview(incoming.lastMessagePreview),
+  );
+}
+
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
 const dirtyVersion = new Map<string, number>();
@@ -1360,6 +1393,16 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
     const latest = ordered.at(-1);
     if (!latest) continue;
     const existing = target.chats[chatMid];
+    const preview = previewForMessage(latest);
+    const preservedPreview =
+      existing &&
+      shouldPreserveResolvedLastMessagePreview(existing, {
+        lastMessageId: latest.id,
+        lastMessageTime: latest.createdTime,
+        lastMessagePreview: preview,
+      })
+        ? existing.lastMessagePreview
+        : preview;
     target.chats[chatMid] = {
       mid: chatMid,
       name: existing?.name || chatMid,
@@ -1367,7 +1410,7 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
       hasMessages: true,
       lastMessageTime: latest.createdTime,
       lastMessageId: latest.id,
-      lastMessagePreview: previewForMessage(latest),
+      ...(preservedPreview ? { lastMessagePreview: preservedPreview } : {}),
       ...(existing?.thumbnailUrl ? { thumbnailUrl: existing.thumbnailUrl } : {}),
       ...(existing?.unreadCount != null ? { unreadCount: existing.unreadCount } : {}),
       ...(existing?.isOfficial != null ? { isOfficial: existing.isOfficial } : {}),
