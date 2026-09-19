@@ -21,7 +21,7 @@
   "files": ["src", "README.md", "package.json"],
   "scripts": {
     "dev": "bun src/index.ts",
-    "typecheck": "bun -e \"const source=await Bun.file('src/index.ts').text(); new Bun.Transpiler({ loader: 'ts', target: 'bun' }).transformSync(source)\"",
+    "typecheck": "node ../../backend/node_modules/typescript/bin/tsc --noEmit --target ESNext --module ESNext --moduleResolution bundler --strict --skipLibCheck --types bun src/index.ts",
     "prepublishOnly": "bun run typecheck"
   },
   "publishConfig": {
