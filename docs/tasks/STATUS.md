@@ -36,6 +36,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 | アカウント分離 | ディレクトリ衝突防止、レジストリ直列化、旧データ所有者検証 | #199 |
 | APIトークン運用 | `lastUsedAt`の永続化を毎分へ制限し、書き込み洪水を抑制 | #201 |
 | API 信頼性 | read-receipts の inflight cleanup rejection を隔離 | #189 |
+| グループキャッシュ | 部分解決・MID残存のメンバーキャッシュを再取得して表示欠落を防止 | #203 |
 
 各 PR は必須 CI（型チェック、lint、build、Docker smoke、ドキュメント、OSV）を確認してから squash merge し、元ブランチを削除済みです。
 
