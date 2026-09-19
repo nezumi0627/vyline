@@ -638,6 +638,10 @@ function parseAndroidMediaEntry(name: string): { chatMid: string; fileName: stri
 export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAndroidDatabase {
   const db = new Database(dbPath, { readonly: true, safeIntegers: true, strict: true });
   try {
+    db.exec("PRAGMA cache_size = -2048");
+    db.exec("PRAGMA mmap_size = 0");
+    db.exec("PRAGMA temp_store = FILE");
+
     const tables = new Set(
       (db.query("SELECT name FROM sqlite_master WHERE type = 'table'").all() as AndroidRow[])
         .map((row) => asString(row.name))
@@ -655,15 +659,17 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
     const chatRows = tables.has("chat")
       ? (db.query("SELECT * FROM chat").all() as AndroidRow[])
       : [];
-    const historyRows = db.query("SELECT * FROM chat_history").all() as AndroidRow[];
+    const historyRows = db
+      .query("SELECT * FROM chat_history")
+      .iterate() as IterableIterator<AndroidRow>;
     const groupRows = tables.has("groups")
       ? (db.query("SELECT * FROM groups").all() as AndroidRow[])
       : [];
     const contactRows = tables.has("contacts")
       ? (db.query("SELECT * FROM contacts").all() as AndroidRow[])
       : [];
-    const reactionRows = tables.has("reactions")
-      ? (db.query("SELECT * FROM reactions").all() as AndroidRow[])
+    const reactionRows: Iterable<AndroidRow> = tables.has("reactions")
+      ? (db.query("SELECT * FROM reactions").iterate() as IterableIterator<AndroidRow>)
       : [];
 
     const groupNames = new Map<string, string>();
@@ -689,6 +695,8 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
     const savedAt = new Date().toISOString();
     const messages: Record<string, Record<string, StoredMessage>> = {};
     const mediaRefsByMessage = new Map<string, AndroidMediaRef>();
+    const latestByChat = new Map<string, StoredMessage>();
+    const messageCountsByChat = new Map<string, number>();
 
     for (const row of historyRows) {
       const chatMid = asString(row.chat_id);
@@ -744,7 +752,22 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
         savedAt,
       };
       const byChat = (messages[chatMid] ??= {});
-      byChat[messageId] = mergeAndroidDuplicateMessage(byChat[messageId], message);
+      const previous = byChat[messageId];
+      const mergedMessage = mergeAndroidDuplicateMessage(previous, message);
+      byChat[messageId] = mergedMessage;
+      if (!previous) {
+        messageCountsByChat.set(chatMid, (messageCountsByChat.get(chatMid) ?? 0) + 1);
+      }
+      const currentLatest = latestByChat.get(chatMid);
+      if (
+        !currentLatest ||
+        mergedMessage.createdTime > currentLatest.createdTime ||
+        (mergedMessage.createdTime === currentLatest.createdTime &&
+          compareId(mergedMessage.id, currentLatest.id) > 0) ||
+        currentLatest.id === mergedMessage.id
+      ) {
+        latestByChat.set(chatMid, mergedMessage);
+      }
 
       if (MEDIA_CONTENT_TYPES.has(contentType)) {
         mediaRefsByMessage.set(`${chatMid}:${messageId}`, {
@@ -766,20 +789,18 @@ export function parseAndroidDatabase(dbPath: string, selfMid: string): ParsedAnd
     const allChatMids = new Set([...chatRowsByMid.keys(), ...Object.keys(messages)]);
     for (const chatMid of allChatMids) {
       const row = chatRowsByMid.get(chatMid);
-      const byChat = Object.values(messages[chatMid] ?? {}).sort(
-        (a, b) => a.createdTime - b.createdTime || compareId(a.id, b.id),
-      );
-      const latest = byChat.at(-1);
+      const parsedMessageCount = messageCountsByChat.get(chatMid) ?? 0;
+      const latest = latestByChat.get(chatMid);
       const declaredName = row ? asString(row.chat_name) : "";
       const name = declaredName || groupNames.get(chatMid) || contactNames.get(chatMid) || chatMid;
-      const messageCount = row ? asNumber(row.message_count) : byChat.length;
+      const messageCount = row ? asNumber(row.message_count) : parsedMessageCount;
       const readMessageCount = row ? asNumber(row.read_message_count) : messageCount;
       const unreadCount = Math.max(0, messageCount - readMessageCount);
       chats[chatMid] = {
         mid: chatMid,
         name,
         kind: androidChatKind(chatMid, row ? asNumber(row.type) : 0),
-        hasMessages: byChat.length > 0,
+        hasMessages: parsedMessageCount > 0,
         restoredHistory: true,
         ...(latest
           ? {
@@ -948,7 +969,7 @@ export function androidContentType(historyType: number, attachmentType: number):
   }
 }
 
-function parseAndroidReactions(rows: AndroidRow[]): {
+function parseAndroidReactions(rows: Iterable<AndroidRow>): {
   byMessage: Map<string, MessageReaction[]>;
   unsupportedByMessage: Map<
     string,
