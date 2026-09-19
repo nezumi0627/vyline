@@ -51,6 +51,8 @@ const CDN_HOSTS = new Set([
   "shop.line-scdn.net",
   "static.line-scdn.net",
 ]);
+const CDN_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_CDN_REDIRECTS = 3;
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ROOT = join(_dir, "../../data/cdn-cache");
@@ -157,9 +159,42 @@ export function isAllowedLineCdnUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
     if (u.protocol !== "https:") return false;
-    return ALLOWED_HOSTS.has(u.hostname);
+    if (u.username || u.password) return false;
+    if (u.port && u.port !== "443") return false;
+    return ALLOWED_HOSTS.has(u.hostname.toLowerCase().replace(/\.$/, ""));
   } catch {
     return false;
+  }
+}
+
+/** Follow only a short chain of redirects that remains on the CDN allowlist. */
+async function fetchAllowedLineCdn(url: string): Promise<Response> {
+  let currentUrl = url;
+  for (let redirects = 0; ; redirects += 1) {
+    if (!isAllowedLineCdnUrl(currentUrl)) throw new Error("cdn redirect target not allowed");
+    const response = await fetch(currentUrl, {
+      redirect: "manual",
+      headers: {
+        "user-agent": "Vyline/1.0",
+        accept: "image/*,application/json,*/*",
+      },
+    });
+    if (!CDN_REDIRECT_STATUSES.has(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location || redirects >= MAX_CDN_REDIRECTS) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("cdn redirect rejected");
+    }
+    let nextUrl: string;
+    try {
+      nextUrl = new URL(location, currentUrl).toString();
+    } catch {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("cdn redirect rejected");
+    }
+    await response.body?.cancel().catch(() => undefined);
+    if (!isAllowedLineCdnUrl(nextUrl)) throw new Error("cdn redirect target not allowed");
+    currentUrl = nextUrl;
   }
 }
 
@@ -252,12 +287,7 @@ export async function getCachedLineCdn(
   }
 
   const netPromise = (async () => {
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": "Vyline/1.0",
-        accept: "image/*,application/json,*/*",
-      },
-    });
+    const res = await fetchAllowedLineCdn(url);
     if (res.status === 404) {
       throw new CdnNotFoundError(url);
     }
