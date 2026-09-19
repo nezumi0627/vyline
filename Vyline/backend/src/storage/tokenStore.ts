@@ -8,36 +8,36 @@
  */
 
 import { join, dirname } from "node:path";
-import { copyFile, mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import {
+  chmod,
+  copyFile,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  unlink,
+  writeFile,
+} from "node:fs/promises";
+import { existsSync, type Dirent } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import { protectSecret, unprotectSecret } from "./secureStore.js";
+import { writeJsonAtomic } from "./safeFile.js";
 
 const log = childLogger("tokenStore");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DATA_DIR = join(_dir, "..", "..", "data");
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const TOKENS_FILE = join(DATA_DIR, "tokens.json");
+const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
 const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
+const PRIVATE_DIRECTORY_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+const credentialMutationTails = new Map<string, Promise<void>>();
+const credentialDeletionGeneration = new Map<string, number>();
 
-function dataDir(): string {
-  return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
-}
-
-function tokensFile(): string {
-  return join(dataDir(), "tokens.json");
-}
-
-function accountsDir(): string {
-  return join(dataDir(), "accounts");
-}
-
-/**
- * Account IDs are used as storage keys.  Keep the accepted form deliberately
- * narrow so a malformed ID can never escape the accounts directory.
- */
 export function assertSafeAccountId(accountId: string): string {
   if (
     typeof accountId !== "string" ||
@@ -50,18 +50,6 @@ export function assertSafeAccountId(accountId: string): string {
     throw new Error("invalid accountId");
   }
   return accountId;
-}
-
-function accountDir(accountId: string): string {
-  return join(accountsDir(), encodeURIComponent(assertSafeAccountId(accountId)));
-}
-
-function accountTokenFile(accountId: string): string {
-  return join(accountDir(accountId), "credentials.json");
-}
-
-export function storagePathForAccount(accountId: string): string {
-  return join(accountDir(accountId), "protocol.json");
 }
 
 export async function getProtocolTokenState(accountId: string): Promise<{
@@ -84,6 +72,56 @@ export async function getProtocolTokenState(accountId: string): Promise<{
     return { hasRefreshToken: false };
   }
 }
+let legacyTokenMutationTail: Promise<void> = Promise.resolve();
+
+async function withCredentialMutation<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const previous = credentialMutationTails.get(accountId) ?? Promise.resolve();
+  const result = previous.catch(() => undefined).then(work);
+  const tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  credentialMutationTails.set(accountId, tail);
+  try {
+    return await result;
+  } finally {
+    if (credentialMutationTails.get(accountId) === tail) credentialMutationTails.delete(accountId);
+  }
+}
+
+async function removeLegacyToken(accountId: string): Promise<void> {
+  const run = legacyTokenMutationTail
+    .catch(() => undefined)
+    .then(async () => {
+      if (!existsSync(TOKENS_FILE)) return;
+      try {
+        const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+        if (!Object.prototype.hasOwnProperty.call(parsed, accountId)) return;
+        delete parsed[accountId];
+        await writeJsonAtomic(TOKENS_FILE, parsed);
+        await hardenCredentialFile(TOKENS_FILE, true);
+      } catch (error) {
+        log.warn({ error, accountId }, "failed to remove legacy token entry");
+      }
+    });
+  legacyTokenMutationTail = run.then(
+    () => undefined,
+    () => undefined,
+  );
+  await run;
+}
+
+function accountDir(accountId: string): string {
+  return join(ACCOUNTS_DIR, encodeURIComponent(assertSafeAccountId(accountId)));
+}
+
+function accountTokenFile(accountId: string): string {
+  return join(accountDir(accountId), "credentials.json");
+}
+
+export function storagePathForAccount(accountId: string): string {
+  return join(accountDir(accountId), "protocol.json");
+}
 
 export interface TokenEntry {
   authToken: string;
@@ -97,7 +135,7 @@ export interface TokenEntry {
   statusMessage?: string;
   /** セッション発行時のデバイス種別。復元時に別端末種別へ化けるのを防ぐ。 */
   deviceMode?: string;
-  /** access token が失効し、同じ accountId で再認証が必要な状態。 */
+  /** access tokenが期限切れで、同じaccountIdの再認証が必要。 */
   reauthRequired?: boolean;
   premium?: {
     active: boolean;
@@ -127,14 +165,41 @@ export type SessionMeta = {
   };
 };
 
-async function ensureDataDir(): Promise<void> {
-  const root = dataDir();
-  const accounts = accountsDir();
-  if (!existsSync(root)) {
-    await mkdir(root, { recursive: true });
-    log.debug({ dir: root }, "created data dir");
+async function correctPrivateMode(
+  path: string,
+  mode: number,
+  kind: "directory" | "credential file",
+  required: boolean,
+): Promise<void> {
+  // POSIX modes are not an ACL boundary on Windows. Preserve the existing
+  // DPAPI + user-profile ACL behavior instead of pretending chmod secures it.
+  if (process.platform === "win32") return;
+  try {
+    await chmod(path, mode);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+    if (required) throw error;
+    log.warn({ error, path }, `could not tighten existing ${kind} permissions`);
   }
-  await mkdir(accounts, { recursive: true });
+}
+
+async function ensurePrivateDirectory(path: string): Promise<void> {
+  await mkdir(path, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  await correctPrivateMode(path, PRIVATE_DIRECTORY_MODE, "directory", true);
+}
+
+async function hardenCredentialFile(path: string, required = false): Promise<void> {
+  if (!existsSync(path)) return;
+  await correctPrivateMode(path, PRIVATE_FILE_MODE, "credential file", required);
+}
+
+async function ensureDataDir(): Promise<void> {
+  const created = !existsSync(DATA_DIR);
+  await ensurePrivateDirectory(DATA_DIR);
+  if (created) {
+    log.debug({ dir: DATA_DIR }, "created data dir");
+  }
+  await ensurePrivateDirectory(ACCOUNTS_DIR);
 }
 
 async function decodePersistedEntry(
@@ -142,14 +207,18 @@ async function decodePersistedEntry(
   entry: TokenEntry,
 ): Promise<TokenEntry | undefined> {
   const targetStorage = storagePathForAccount(accountId);
+  await ensurePrivateDirectory(accountDir(accountId));
+  await hardenCredentialFile(accountTokenFile(accountId));
+  await hardenCredentialFile(targetStorage);
   if (
     entry?.storageFile &&
     entry.storageFile !== targetStorage &&
     existsSync(entry.storageFile) &&
     !existsSync(targetStorage)
   ) {
-    await mkdir(accountDir(accountId), { recursive: true });
+    await hardenCredentialFile(entry.storageFile);
     await copyFile(entry.storageFile, targetStorage);
+    await hardenCredentialFile(targetStorage, true);
     log.info({ accountId }, "migrated protocol storage into account directory");
   }
   if (entry?.authTokenProtected && typeof entry.authTokenProtected === "string") {
@@ -163,35 +232,37 @@ async function decodePersistedEntry(
 }
 
 async function persistAccount(accountId: string, entry: TokenEntry): Promise<void> {
-  await mkdir(accountDir(accountId), { recursive: true });
+  await ensurePrivateDirectory(accountDir(accountId));
   const { authToken: _plain, ...safeEntry } = entry;
   const persisted = entry.authTokenProtected ? safeEntry : entry;
-  await writeFile(accountTokenFile(accountId), JSON.stringify(persisted, null, 2), "utf8");
+  const path = accountTokenFile(accountId);
+  await writeJsonAtomic(path, persisted);
+  await hardenCredentialFile(path, true);
 }
 
 export async function loadTokens(): Promise<TokenMap> {
+  return readTokens(true);
+}
+
+// Writers already hold their account queue. They may read legacy metadata, but
+// must not enqueue a nested migration that waits for the writer itself.
+async function readTokens(migrateLegacy: boolean): Promise<TokenMap> {
   await ensureDataDir();
   const cleaned: TokenMap = {};
-  const accounts = accountsDir();
-  const legacyTokens = tokensFile();
-  let accountDirs: Array<{ isDirectory(): boolean; name: string }> = [];
+  let accountDirs: Dirent[] = [];
   try {
-    accountDirs = await readdir(accounts, { withFileTypes: true, encoding: "utf8" });
+    accountDirs = await readdir(ACCOUNTS_DIR, { withFileTypes: true });
   } catch (err) {
     log.warn({ err }, "failed to list account credential files");
   }
   for (const dir of accountDirs) {
     try {
       if (!dir.isDirectory()) continue;
-      let id: string;
-      try {
-        id = assertSafeAccountId(decodeURIComponent(dir.name));
-      } catch {
-        log.warn({ directory: dir.name }, "ignored unsafe account directory");
-        continue;
-      }
+      const id = assertSafeAccountId(decodeURIComponent(dir.name));
       const path = accountTokenFile(id);
       if (!existsSync(path)) continue;
+      await ensurePrivateDirectory(accountDir(id));
+      await hardenCredentialFile(path);
       const entry = JSON.parse(await readFile(path, "utf8")) as TokenEntry;
       const decoded = await decodePersistedEntry(id, entry);
       if (decoded) cleaned[id] = decoded;
@@ -202,21 +273,40 @@ export async function loadTokens(): Promise<TokenMap> {
 
   // Legacy shared tokens.json remains readable. Account files win, and a legacy
   // entry is migrated lazily without deleting the recoverable source file.
-  if (existsSync(legacyTokens)) {
+  if (existsSync(TOKENS_FILE)) {
     try {
-      const parsed = JSON.parse(await readFile(legacyTokens, "utf8")) as TokenMap;
+      await hardenCredentialFile(TOKENS_FILE);
+      const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
-        try {
-          assertSafeAccountId(id);
-        } catch {
-          log.warn({ accountId: id }, "ignored unsafe legacy account id");
-          continue;
-        }
         if (cleaned[id]) continue;
+        const deletionGeneration = credentialDeletionGeneration.get(id) ?? 0;
         const decoded = await decodePersistedEntry(id, entry);
         if (decoded) {
-          cleaned[id] = decoded;
-          await persistAccount(id, decoded);
+          if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) continue;
+          if (!migrateLegacy) {
+            cleaned[id] = decoded;
+            continue;
+          }
+          const migrated = await withCredentialMutation(id, async () => {
+            if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) return;
+            // A new login may have saved credentials while this legacy read was
+            // pending. Its account file takes precedence over the old snapshot.
+            if (existsSync(accountTokenFile(id))) {
+              return decodePersistedEntry(
+                id,
+                JSON.parse(await readFile(accountTokenFile(id), "utf8")) as TokenEntry,
+              );
+            }
+            const currentLegacy = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+            if (!Object.prototype.hasOwnProperty.call(currentLegacy, id)) return;
+            if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) return;
+            await persistAccount(id, decoded);
+            return decoded;
+          });
+          // Deletion uses the same queue and will remove a preceding migration.
+          // Never unlink outside it: that could remove a subsequent fresh login.
+          if (migrated && (credentialDeletionGeneration.get(id) ?? 0) === deletionGeneration)
+            cleaned[id] = migrated;
         }
       }
     } catch (err) {
@@ -244,64 +334,66 @@ export async function saveToken(
   authToken: unknown,
   meta?: SessionMeta,
 ): Promise<void> {
-  assertSafeAccountId(accountId);
   const token = normalizeAuthToken(authToken);
   if (!token) {
     log.warn({ accountId }, "skip token save — empty authToken");
     return;
   }
 
-  await ensureDataDir();
-  const tokens = await loadTokens();
-  const existing = tokens[accountId];
-  const entry: TokenEntry = {
-    authToken: token,
-    storageFile: storagePathForAccount(accountId),
-    savedAt: new Date().toISOString(),
-  };
-  try {
-    entry.authTokenProtected = await protectSecret(token);
-  } catch (error) {
-    if (process.platform === "win32") throw error;
-    entry.authToken = token;
-    log.warn("OS secure storage unavailable; token is stored only for local development");
-  }
-  const mid = meta?.mid ?? existing?.mid;
-  const displayName = meta?.displayName ?? existing?.displayName;
-  const picturePath = meta?.picturePath ?? existing?.picturePath;
-  const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
-  const deviceMode = meta?.deviceMode ?? existing?.deviceMode;
-  const premium = meta?.premium ?? existing?.premium;
-  if (mid) entry.mid = mid;
-  if (displayName) entry.displayName = displayName;
-  if (picturePath) entry.picturePath = picturePath;
-  if (statusMessage) entry.statusMessage = statusMessage;
-  if (deviceMode) entry.deviceMode = deviceMode;
-  // saveToken は認証成功後にだけ呼ばれるため、期限切れ状態はここで解除する。
-  entry.reauthRequired = meta?.reauthRequired ?? false;
-  if (premium) entry.premium = premium;
-  tokens[accountId] = entry;
-  await persistAccount(accountId, entry);
-  log.info(
-    { accountId, hasDisplayName: Boolean(entry.displayName), hasMid: Boolean(entry.mid) },
-    "token saved",
-  );
+  await withCredentialMutation(accountId, async () => {
+    await ensureDataDir();
+    const tokens = await readTokens(false);
+    const existing = tokens[accountId];
+    const entry: TokenEntry = {
+      authToken: token,
+      storageFile: storagePathForAccount(accountId),
+      savedAt: new Date().toISOString(),
+    };
+    try {
+      entry.authTokenProtected = await protectSecret(token);
+    } catch (error) {
+      if (process.platform === "win32") throw error;
+      entry.authToken = token;
+      log.warn("OS secure storage unavailable; token is stored only for local development");
+    }
+    const mid = meta?.mid ?? existing?.mid;
+    const displayName = meta?.displayName ?? existing?.displayName;
+    const picturePath = meta?.picturePath ?? existing?.picturePath;
+    const statusMessage = meta?.statusMessage ?? existing?.statusMessage;
+    const deviceMode = meta?.deviceMode ?? existing?.deviceMode;
+    const premium = meta?.premium ?? existing?.premium;
+    if (mid) entry.mid = mid;
+    if (displayName) entry.displayName = displayName;
+    if (picturePath) entry.picturePath = picturePath;
+    if (statusMessage) entry.statusMessage = statusMessage;
+    if (deviceMode) entry.deviceMode = deviceMode;
+    // saveTokenは認証成功後だけ呼ばれるため、期限切れ状態を解除する。
+    entry.reauthRequired = meta?.reauthRequired ?? false;
+    if (premium) entry.premium = premium;
+    tokens[accountId] = entry;
+    await persistAccount(accountId, entry);
+    log.info(
+      { accountId, hasDisplayName: Boolean(entry.displayName), hasMid: Boolean(entry.mid) },
+      "token saved",
+    );
+  });
 }
 
 export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {
-  assertSafeAccountId(accountId);
-  const tokens = await loadTokens();
-  const existing = tokens[accountId];
-  if (!existing) return;
-  if (meta.mid != null) existing.mid = meta.mid;
-  if (meta.displayName != null) existing.displayName = meta.displayName;
-  if (meta.picturePath != null) existing.picturePath = meta.picturePath;
-  if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
-  if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
-  if (meta.reauthRequired != null) existing.reauthRequired = meta.reauthRequired;
-  if (meta.premium != null) existing.premium = meta.premium;
-  existing.savedAt = new Date().toISOString();
-  await persistAccount(accountId, existing);
+  await withCredentialMutation(accountId, async () => {
+    const tokens = await readTokens(false);
+    const existing = tokens[accountId];
+    if (!existing) return;
+    if (meta.mid != null) existing.mid = meta.mid;
+    if (meta.displayName != null) existing.displayName = meta.displayName;
+    if (meta.picturePath != null) existing.picturePath = meta.picturePath;
+    if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
+    if (meta.deviceMode != null) existing.deviceMode = meta.deviceMode;
+    if (meta.reauthRequired != null) existing.reauthRequired = meta.reauthRequired;
+    if (meta.premium != null) existing.premium = meta.premium;
+    existing.savedAt = new Date().toISOString();
+    await persistAccount(accountId, existing);
+  });
 }
 
 export async function saveRefreshToken(
@@ -310,32 +402,41 @@ export async function saveRefreshToken(
   expire?: number,
 ): Promise<void> {
   if (!refreshToken.trim()) throw new Error("refresh token is empty");
-  await ensureDataDir();
-  const path = storagePathForAccount(accountId);
-  let protocol: Record<string, unknown> = {};
-  if (existsSync(path)) {
-    try {
-      protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
-    } catch {
-      protocol = {};
+  await withCredentialMutation(accountId, async () => {
+    await ensureDataDir();
+    const path = storagePathForAccount(accountId);
+    let protocol: Record<string, unknown> = {};
+    if (existsSync(path)) {
+      try {
+        protocol = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+      } catch {
+        protocol = {};
+      }
     }
-  }
-  protocol.refreshToken = refreshToken.trim();
-  if (typeof expire === "number" && Number.isFinite(expire)) protocol.expire = expire;
-  await mkdir(accountDir(accountId), { recursive: true });
-  const temporary = `${path}.${randomUUID()}.tmp`;
-  await writeFile(temporary, JSON.stringify(protocol), "utf8");
-  await rename(temporary, path);
+    protocol.refreshToken = refreshToken.trim();
+    if (typeof expire === "number" && Number.isFinite(expire)) protocol.expire = expire;
+    await ensurePrivateDirectory(accountDir(accountId));
+    const temporary = `${path}.${randomUUID()}.tmp`;
+    await writeFile(temporary, JSON.stringify(protocol), "utf8");
+    await rename(temporary, path);
+    await hardenCredentialFile(path, true);
+  });
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
-  assertSafeAccountId(accountId);
-  try {
-    await unlink(accountTokenFile(accountId));
-  } catch {
-    // already absent
-  }
-  log.info({ accountId }, "token deleted");
+  credentialDeletionGeneration.set(
+    accountId,
+    (credentialDeletionGeneration.get(accountId) ?? 0) + 1,
+  );
+  await withCredentialMutation(accountId, async () => {
+    try {
+      await unlink(accountTokenFile(accountId));
+    } catch {
+      // already absent
+    }
+    await removeLegacyToken(accountId);
+    log.info({ accountId }, "token deleted");
+  });
 }
 
 export interface CredentialHandoffBundle {
@@ -359,11 +460,11 @@ export async function exportCredentialHandoff(
   accountId: string,
   passphrase: string,
 ): Promise<CredentialHandoffBundle> {
-  assertSafeAccountId(accountId);
   const entry = await getToken(accountId);
   if (!entry) throw new Error("保存済みセッションがありません");
   let protocol: Record<string, unknown> = {};
   if (existsSync(entry.storageFile)) {
+    await hardenCredentialFile(entry.storageFile);
     protocol = JSON.parse(await readFile(entry.storageFile, "utf8")) as Record<string, unknown>;
   }
   const payload = JSON.stringify({
@@ -418,15 +519,14 @@ export async function importCredentialHandoff(
     meta?: SessionMeta;
     protocol?: Record<string, unknown>;
   };
-  assertSafeAccountId(targetAccountId);
   await saveToken(targetAccountId, payload.authToken, payload.meta);
   const target = storagePathForAccount(targetAccountId);
-  await mkdir(accountDir(targetAccountId), { recursive: true });
-  await writeFile(target, JSON.stringify(payload.protocol ?? {}), "utf8");
+  await ensurePrivateDirectory(accountDir(targetAccountId));
+  await writeJsonAtomic(target, payload.protocol ?? {});
+  await hardenCredentialFile(target, true);
 }
 
 export async function getToken(accountId: string): Promise<TokenEntry | undefined> {
-  assertSafeAccountId(accountId);
   const tokens = await loadTokens();
   return tokens[accountId];
 }
@@ -441,44 +541,35 @@ export async function listSavedSessions(): Promise<
     picturePath?: string;
     statusMessage?: string;
     reauthRequired?: boolean;
-    hasRefreshToken?: boolean;
-    tokenRefreshAt?: number;
     hasToken: boolean;
   }>
 > {
   const tokens = await loadTokens();
-  return Promise.all(
-    Object.entries(tokens)
-      .filter(([accountId]) => !accountId.endsWith(":content"))
-      .map(async ([accountId, entry]) => {
-        const protocolState = await getProtocolTokenState(accountId);
-        const row: {
-          accountId: string;
-          savedAt: string;
-          mid?: string;
-          displayName?: string;
-          picturePath?: string;
-          statusMessage?: string;
-          reauthRequired?: boolean;
-          hasRefreshToken?: boolean;
-          tokenRefreshAt?: number;
-          premium?: TokenEntry["premium"];
-          hasToken: boolean;
-        } = {
-          accountId,
-          savedAt: entry.savedAt,
-          hasToken: Boolean(entry.authToken || entry.authTokenProtected),
-        };
-        if (entry.mid) row.mid = entry.mid;
-        if (entry.displayName) row.displayName = entry.displayName;
-        if (entry.picturePath) row.picturePath = entry.picturePath;
-        if (entry.statusMessage) row.statusMessage = entry.statusMessage;
-        if (entry.reauthRequired) row.reauthRequired = true;
-        row.hasRefreshToken = protocolState.hasRefreshToken;
-        if (typeof protocolState.expire === "number")
-          row.tokenRefreshAt = protocolState.expire * 1000;
-        if (entry.premium) row.premium = entry.premium;
-        return row;
-      }),
-  ).then((rows) => rows.sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1)));
+  return Object.entries(tokens)
+    .filter(([accountId]) => !accountId.endsWith(":content"))
+    .map(([accountId, entry]) => {
+      const row: {
+        accountId: string;
+        savedAt: string;
+        mid?: string;
+        displayName?: string;
+        picturePath?: string;
+        statusMessage?: string;
+        reauthRequired?: boolean;
+        premium?: TokenEntry["premium"];
+        hasToken: boolean;
+      } = {
+        accountId,
+        savedAt: entry.savedAt,
+        hasToken: Boolean(entry.authToken || entry.authTokenProtected),
+      };
+      if (entry.mid) row.mid = entry.mid;
+      if (entry.displayName) row.displayName = entry.displayName;
+      if (entry.picturePath) row.picturePath = entry.picturePath;
+      if (entry.statusMessage) row.statusMessage = entry.statusMessage;
+      if (entry.reauthRequired) row.reauthRequired = true;
+      if (entry.premium) row.premium = entry.premium;
+      return row;
+    })
+    .sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }

@@ -1,5 +1,4 @@
 import { mkdir, rename, unlink, writeFile } from "node:fs/promises";
-import { randomUUID } from "node:crypto";
 import { dirname, join } from "node:path";
 
 export function safePathComponent(value: string, fallback = "unknown"): string {
@@ -14,7 +13,7 @@ export async function writeTextAtomic(path: string, content: string, mode = 0o60
   await mkdir(dirname(path), { recursive: true });
   const temp = join(
     dirname(path),
-    `.${safePathComponent(path.split(/[\\/]/).pop() ?? "data")}.${process.pid}.${Date.now()}.${randomUUID()}.tmp`,
+    `.${safePathComponent(path.split(/[\\/]/).pop() ?? "data")}.${process.pid}.${Date.now()}.tmp`,
   );
   try {
     await writeFile(temp, content, { encoding: "utf8", mode });
