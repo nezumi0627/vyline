@@ -33,6 +33,7 @@
 - 上記の追加変更は PR #242〜#287 として作成済みだが、監査時点では未マージ。main に統合されるまでリリース完了とは扱わない。
 - 認証済み NezuUI の実ブラウザ smoke（ログイン、アカウント切替、送受信、バックアップ復元）は、保存セッションが無効なため未実施。
 - Windows installer / portable EXE の実機 install・upgrade・uninstall、データ保持、起動後 backend health はCIだけでは証明できない。
+- ローカル `dist/windows/Vyline/` には standalone EXE があるが、監査時点のファイルバージョンは `0.6.0.0`。GitHub Releaseは未作成のため、最新版の配布完了を示す証拠にはしない。
 - メッセージ取得〜E2EE復号の実測プロファイル（CPU、heap、復号待ち時間）と長時間 soak は未取得。
 - `/metrics` の値取得は確認済みだが、実アカウントを用いた長時間 soak と閾値判定は未実施。
 
