@@ -488,7 +488,7 @@ authRouter.get("/sessions", async (c) => {
 authRouter.delete("/sessions/:id", async (c) => {
   const accountId = c.req.param("id");
   const alsoLogout = c.req.query("logout") === "1" || c.req.query("logout") === "true";
-  if (alsoLogout) removeClient(accountId);
+  if (alsoLogout) await removeClient(accountId);
   await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });
@@ -498,7 +498,7 @@ authRouter.delete("/sessions/:id", async (c) => {
 // ─────────────────────────────────────────────
 authRouter.delete("/accounts/:id", async (c) => {
   const accountId = c.req.param("id");
-  removeClient(accountId);
+  await removeClient(accountId);
   await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });

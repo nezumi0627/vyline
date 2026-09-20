@@ -889,7 +889,7 @@ async function restoreAllSessionsImpl(): Promise<void> {
         }
         const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
         if (expiredDevice) {
-          removeClient(id);
+          await removeClient(id);
           await updateSessionMeta(id, { reauthRequired: true });
           log.warn({ accountId: id }, "saved session expired; reauthentication required");
           return;
@@ -902,7 +902,7 @@ async function restoreAllSessionsImpl(): Promise<void> {
           msg.includes("logged out");
         if (authFailed) {
           await deleteToken(id);
-          removeClient(id);
+          await removeClient(id);
           log.warn({ accountId: id }, "cleared invalid saved token");
         } else {
           log.warn({ accountId: id, err }, "failed to restore session");
@@ -1047,7 +1047,7 @@ export function getLoggedInAt(accountId: string): number | null {
   return clients.get(accountId)?.loggedInAt ?? null;
 }
 
-export function removeClient(accountId: string): void {
+export async function removeClient(accountId: string): Promise<void> {
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);
   const tokenWatch = tokenWatchIntervals.get(accountId);
@@ -1059,11 +1059,11 @@ export function removeClient(accountId: string): void {
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
   clearAccountRuntimeCaches(accountId);
-  void deactivatePluginsForAccount(accountId).catch((err) => {
+  await deactivatePluginsForAccount(accountId).catch((err) => {
     log.warn({ accountId, err }, "account plugins could not be deactivated");
   });
-  void releaseAccountChatCache(accountId).catch((err) => {
-    log.warn({ accountId, err }, "chat cache release deferred after client removal");
+  await releaseAccountChatCache(accountId).catch((err) => {
+    log.warn({ accountId, err }, "chat cache release failed after client removal");
   });
   log.info({ accountId }, "client removed");
 }
