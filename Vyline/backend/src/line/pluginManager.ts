@@ -8,7 +8,7 @@
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import type { PluginManifest } from "@vyline/plugin-sdk";
+import type { PluginManifest, PluginPermission } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
 import { getDataDir, getPluginDir } from "./pluginPaths.js";
 import {
@@ -19,6 +19,20 @@ import {
 } from "./pluginRuntime.js";
 
 const log = childLogger("plugins");
+const SUPPORTED_PERMISSIONS = new Set<PluginPermission>([
+  "messages:read",
+  "messages:send",
+  "chats:read",
+  "media:read",
+  "media:write",
+  "storage:read",
+  "storage:write",
+  "notifications:send",
+  "ui:extend",
+  "network:request",
+  "settings:read",
+  "settings:write",
+]);
 
 function statesPath(): string {
   return join(getDataDir(), "plugin-states.json");
@@ -56,7 +70,10 @@ export function listPlugins(): PluginEntry[] {
   const pluginDir = getPluginDir();
   if (!existsSync(pluginDir)) return [];
   const out: PluginEntry[] = [];
-  for (const entry of readdirSync(pluginDir, { withFileTypes: true })) {
+  const seenIds = new Set<string>();
+  for (const entry of readdirSync(pluginDir, { withFileTypes: true }).sort((a, b) =>
+    a.name.localeCompare(b.name),
+  )) {
     if (!entry.isDirectory()) continue;
     const manifestPath = join(pluginDir, entry.name, "manifest.json");
     if (!existsSync(manifestPath)) continue;
@@ -65,12 +82,24 @@ export function listPlugins(): PluginEntry[] {
         main?: string;
       };
       if (!raw.id || !raw.name) continue;
+      if (seenIds.has(raw.id)) {
+        log.warn({ pluginId: raw.id, plugin: entry.name }, "duplicate plugin id ignored");
+        continue;
+      }
+      const permissions = Array.isArray(raw.permissions) ? raw.permissions : [];
+      if (
+        permissions.some((permission) => !SUPPORTED_PERMISSIONS.has(permission as PluginPermission))
+      ) {
+        log.warn({ pluginId: raw.id, plugin: entry.name }, "plugin has unsupported permission");
+        continue;
+      }
+      seenIds.add(raw.id);
       out.push({
         id: raw.id,
         name: raw.name,
         version: raw.version ?? "0.0.0",
         ...(raw.description ? { description: raw.description } : {}),
-        permissions: Array.isArray(raw.permissions) ? raw.permissions : [],
+        permissions: permissions as PluginPermission[],
         dir: entry.name,
         loadable: resolvePluginEntry(entry.name, raw.main) != null,
         ...(raw.main ? { main: raw.main } : {}),
