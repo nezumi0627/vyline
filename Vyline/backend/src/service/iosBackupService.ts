@@ -66,6 +66,20 @@ export interface IosBackupSession {
 }
 
 const sessions = new Map<string, IosBackupSession>();
+const MAX_IOS_BACKUP_SESSIONS = 32;
+const IOS_BACKUP_COMPLETED_SESSION_TTL_MS = 30 * 60_000;
+
+/** Keep finished restore results available for polling without retaining them forever. */
+export function pruneIosBackupSessions(now = Date.now()): void {
+  for (const [id, session] of sessions) {
+    if (
+      session.completedAt !== null &&
+      now - session.completedAt >= IOS_BACKUP_COMPLETED_SESSION_TTL_MS
+    ) {
+      sessions.delete(id);
+    }
+  }
+}
 
 function backupRoots(): string[] {
   const configured = process.env.IOS_BACKUP_ROOT?.trim();
@@ -125,6 +139,12 @@ export async function startIosBackupRestore(
 ): Promise<IosBackupSession> {
   if (!accountId) throw new Error("accountId が必要です");
   if (!password) throw new Error("暗号化バックアップのパスワードが必要です");
+  pruneIosBackupSessions();
+  if (sessions.size >= MAX_IOS_BACKUP_SESSIONS) {
+    throw new Error(
+      "iOSバックアップ復元の実行数が上限に達しています。完了済み処理を待ってください",
+    );
+  }
   const device = (await findBackups()).find((item) => item.udid === udid);
   if (!device) throw new Error("指定された iOS バックアップが見つかりません");
 
@@ -145,6 +165,7 @@ export async function startIosBackupRestore(
 }
 
 export function getIosBackupSession(accountId: string, id: string): IosBackupSession | null {
+  pruneIosBackupSessions();
   const session = sessions.get(id);
   return session?.accountId === accountId ? session : null;
 }
