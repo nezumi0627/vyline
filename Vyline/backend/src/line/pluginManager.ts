@@ -19,17 +19,12 @@ import {
 } from "./pluginRuntime.js";
 
 const log = childLogger("plugins");
+// Keep this list aligned with the capabilities actually exposed by PluginContext.
+// Declaring a permission here is an API promise: accepting a permission that has
+// no corresponding context method would make a plugin appear authorized while
+// silently doing nothing at runtime.
 const SUPPORTED_PERMISSIONS = new Set<PluginPermission>([
   "messages:read",
-  "messages:send",
-  "chats:read",
-  "media:read",
-  "media:write",
-  "storage:read",
-  "storage:write",
-  "notifications:send",
-  "ui:extend",
-  "network:request",
   "settings:read",
   "settings:write",
 ]);
