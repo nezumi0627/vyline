@@ -19,6 +19,8 @@ export interface UpdateInfo {
   hasUpdate: boolean;
   url: string | null;
   downloadUrl: string | null;
+  /** GitHub's SHA-256 digest for the installer, when the release provides it. */
+  downloadDigest: string | null;
   body: string | null;
   error: string | null;
 }
@@ -58,6 +60,11 @@ export function isNewerVersion(latest: string, current: string): boolean {
   return false;
 }
 
+export function isTrustedInstallerUrl(value: string, tag: string): boolean {
+  const prefix = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${tag}/`;
+  return value.startsWith(prefix) && value === `${prefix}VylineSetup-${tag}.exe`;
+}
+
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = UPDATE_NOTES.version;
   try {
@@ -71,6 +78,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
         hasUpdate: false,
         url: null,
         downloadUrl: null,
+        downloadDigest: null,
         body: null,
         error: `GitHub API returned ${res.status}`,
       };
@@ -79,19 +87,25 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       tag_name?: string;
       html_url?: string;
       body?: string;
-      assets?: Array<{ name?: string; browser_download_url?: string }>;
+      assets?: Array<{ name?: string; browser_download_url?: string; digest?: string }>;
     };
     const tag = release.tag_name?.replace(/^v/, "") ?? null;
     const hasUpdate = tag != null && isNewerVersion(tag, current);
+    const installer = release.assets?.find((asset) => asset.name === `VylineSetup-${tag}.exe`);
+    const candidateUrl = installer?.browser_download_url ?? null;
     const downloadUrl =
-      release.assets?.find((asset) => asset.name === `VylineSetup-${tag}.exe`)
-        ?.browser_download_url ?? null;
+      candidateUrl && tag && isTrustedInstallerUrl(candidateUrl, tag) ? candidateUrl : null;
+    const downloadDigest =
+      downloadUrl && /^sha256:[0-9a-f]{64}$/i.test(installer?.digest ?? "")
+        ? installer!.digest!.toLowerCase()
+        : null;
     return {
       currentVersion: current,
       latestVersion: tag,
       hasUpdate,
       url: release.html_url ?? null,
       downloadUrl,
+      downloadDigest,
       body: release.body ?? null,
       error: null,
     };
@@ -102,6 +116,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       hasUpdate: false,
       url: null,
       downloadUrl: null,
+      downloadDigest: null,
       body: null,
       error: err instanceof Error ? err.message : String(err),
     };
