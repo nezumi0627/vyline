@@ -6,9 +6,16 @@ import {
   activePluginIdsFor,
   deactivatePlugin,
   isPluginActive,
+  withPluginLifecycleTimeout,
 } from "./pluginRuntime.js";
 
 describe("plugin runtime lifecycle", () => {
+  it("bounds a stuck plugin lifecycle without waiting forever", async () => {
+    await expect(withPluginLifecycleTimeout(() => new Promise<void>(() => {}), 1)).rejects.toThrow(
+      "plugin lifecycle timed out",
+    );
+  });
+
   it("keeps the activation context and calls deactivate when disabled", async () => {
     const accountId = `test-account-${crypto.randomUUID()}`;
     const pluginId = `test-plugin-${crypto.randomUUID()}`;

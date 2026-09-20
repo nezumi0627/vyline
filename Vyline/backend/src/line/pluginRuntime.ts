@@ -23,6 +23,39 @@ import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 import { getDataDir, getPluginDir } from "./pluginPaths.js";
 
 const log = childLogger("plugins");
+const PLUGIN_LIFECYCLE_TIMEOUT_MS = Number(
+  process.env.VYLINE_PLUGIN_LIFECYCLE_TIMEOUT_MS ?? 10_000,
+);
+
+/**
+ * A plugin is local code, but its lifecycle still sits on the login/logout
+ * critical path. Bound it so one stuck plugin cannot stall the whole account.
+ * The underlying JavaScript cannot be forcefully cancelled; the timeout only
+ * releases Vyline's lifecycle wait and keeps the plugin isolated.
+ */
+export function withPluginLifecycleTimeout<T>(
+  work: () => Promise<T>,
+  timeoutMs = PLUGIN_LIFECYCLE_TIMEOUT_MS,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`plugin lifecycle timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    Promise.resolve()
+      .then(work)
+      .then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+  });
+}
 
 function settingsDir(): string {
   return join(getDataDir(), "plugin-settings");
@@ -169,12 +202,7 @@ export async function activatePlugin(
       },
     };
 
-    // activate 自体も隔離（タイムアウトは不要 — 同期的な初期化を想定）
-    await Promise.resolve()
-      .then(() => plugin!.activate(ctx))
-      .catch((err) => {
-        throw err;
-      });
+    await withPluginLifecycleTimeout(() => Promise.resolve(plugin!.activate(ctx)));
 
     active.set(k, {
       accountId,
@@ -202,7 +230,7 @@ export async function deactivatePlugin(accountId: string, pluginId: string): Pro
   if (!entry) return;
   active.delete(k);
   try {
-    await entry.plugin.deactivate(entry.context);
+    await withPluginLifecycleTimeout(() => Promise.resolve(entry.plugin.deactivate(entry.context)));
   } catch (error) {
     log.warn({ accountId, pluginId, error }, "plugin deactivation failed (isolated)");
   }
