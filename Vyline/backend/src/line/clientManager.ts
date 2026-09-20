@@ -37,7 +37,7 @@ import {
 import { releaseAccountChatCache } from "../storage/chatStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { appendDiagnostic } from "../service/diagnosticsService.js";
-import { restoreEnabledPlugins } from "./pluginManager.js";
+import { deactivatePluginsForAccount, restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
 const TOKEN_REFRESH_CHECK_INTERVAL_MS = 60 * 1000;
@@ -1059,6 +1059,9 @@ export function removeClient(accountId: string): void {
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
   clearAccountRuntimeCaches(accountId);
+  void deactivatePluginsForAccount(accountId).catch((err) => {
+    log.warn({ accountId, err }, "account plugins could not be deactivated");
+  });
   void releaseAccountChatCache(accountId).catch((err) => {
     log.warn({ accountId, err }, "chat cache release deferred after client removal");
   });

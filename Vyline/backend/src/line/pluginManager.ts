@@ -11,7 +11,12 @@ import { join } from "node:path";
 import type { PluginManifest } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
 import { getDataDir, getPluginDir } from "./pluginPaths.js";
-import { activatePlugin, deactivatePlugin, resolvePluginEntry } from "./pluginRuntime.js";
+import {
+  activatePlugin,
+  activePluginIdsFor,
+  deactivatePlugin,
+  resolvePluginEntry,
+} from "./pluginRuntime.js";
 
 const log = childLogger("plugins");
 
@@ -137,5 +142,12 @@ export async function restoreEnabledPlugins(accountId: string): Promise<void> {
     } catch (error) {
       log.warn({ accountId, pluginId: plugin.id, error }, "saved plugin was not restored");
     }
+  }
+}
+
+/** Stop all in-memory plugin handlers before an account session is removed. */
+export async function deactivatePluginsForAccount(accountId: string): Promise<void> {
+  for (const pluginId of activePluginIdsFor(accountId)) {
+    await deactivatePlugin(accountId, pluginId);
   }
 }

@@ -1,6 +1,12 @@
 import { describe, expect, it } from "bun:test";
 import type { PluginContext, VylinePlugin } from "@vyline/plugin-sdk";
-import { activatePlugin, deactivatePlugin, isPluginActive } from "./pluginRuntime.js";
+import { deactivatePluginsForAccount } from "./pluginManager.js";
+import {
+  activatePlugin,
+  activePluginIdsFor,
+  deactivatePlugin,
+  isPluginActive,
+} from "./pluginRuntime.js";
 
 describe("plugin runtime lifecycle", () => {
   it("keeps the activation context and calls deactivate when disabled", async () => {
@@ -25,5 +31,20 @@ describe("plugin runtime lifecycle", () => {
 
     expect(isPluginActive(accountId, pluginId)).toBeFalse();
     expect(deactivatedContext).toBe(activatedContext);
+  });
+
+  it("lists only active plugins for an account so logout can release them", async () => {
+    const accountId = `test-account-${crypto.randomUUID()}`;
+    const pluginId = `test-plugin-${crypto.randomUUID()}`;
+    const plugin: VylinePlugin = {
+      manifest: { id: pluginId, name: "Active list test", version: "1.0.0" },
+      activate() {},
+      deactivate() {},
+    };
+
+    expect(await activatePlugin(accountId, pluginId, "unused", [], plugin)).toBeTrue();
+    expect(activePluginIdsFor(accountId)).toEqual([pluginId]);
+    await deactivatePluginsForAccount(accountId);
+    expect(activePluginIdsFor(accountId)).toEqual([]);
   });
 });
