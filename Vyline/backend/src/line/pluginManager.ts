@@ -34,6 +34,11 @@ const SUPPORTED_PERMISSIONS = new Set<PluginPermission>([
   "settings:write",
 ]);
 
+const MAX_PLUGIN_ID_LENGTH = 128;
+const MAX_PLUGIN_NAME_LENGTH = 128;
+const MAX_PLUGIN_VERSION_LENGTH = 64;
+const MAX_PLUGIN_DESCRIPTION_LENGTH = 1024;
+
 function statesPath(): string {
   return join(getDataDir(), "plugin-states.json");
 }
@@ -81,7 +86,23 @@ export function listPlugins(): PluginEntry[] {
       const raw = JSON.parse(readFileSync(manifestPath, "utf8")) as Partial<PluginManifest> & {
         main?: string;
       };
-      if (!raw.id || !raw.name) continue;
+      if (
+        typeof raw.id !== "string" ||
+        typeof raw.name !== "string" ||
+        typeof raw.version !== "string" ||
+        raw.id.length === 0 ||
+        raw.name.length === 0 ||
+        raw.version.length === 0 ||
+        raw.id.length > MAX_PLUGIN_ID_LENGTH ||
+        raw.name.length > MAX_PLUGIN_NAME_LENGTH ||
+        raw.version.length > MAX_PLUGIN_VERSION_LENGTH ||
+        (raw.description !== undefined &&
+          (typeof raw.description !== "string" ||
+            raw.description.length > MAX_PLUGIN_DESCRIPTION_LENGTH))
+      ) {
+        log.warn({ plugin: entry.name }, "invalid plugin manifest fields");
+        continue;
+      }
       if (seenIds.has(raw.id)) {
         log.warn({ pluginId: raw.id, plugin: entry.name }, "duplicate plugin id ignored");
         continue;
