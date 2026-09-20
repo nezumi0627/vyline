@@ -1605,7 +1605,18 @@ export const api = {
     },
   },
   debug: {
-    health: () => request<{ ok: boolean; uptime: number }>("GET", "/debug/health"),
+    health: () =>
+      request<{
+        ok: boolean;
+        uptime: number;
+        memory: {
+          rssBytes: number;
+          heapUsedBytes: number;
+          externalBytes: number;
+          arrayBuffersBytes: number;
+        };
+        cpu: { userSeconds: number; systemSeconds: number };
+      }>("GET", "/debug/health"),
 
     tokens: () => request<{ ok: boolean; tokens: Record<string, unknown> }>("GET", "/debug/tokens"),
   },
