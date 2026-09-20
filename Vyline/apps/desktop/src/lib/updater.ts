@@ -12,6 +12,7 @@ import { UPDATE_NOTES } from "./store";
 const REPO_OWNER = "nezumi0627";
 const REPO_NAME = "Vyline";
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
+const UPDATE_CHECK_TIMEOUT_MS = 8_000;
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -67,9 +68,12 @@ export function isTrustedInstallerUrl(value: string, tag: string): boolean {
 
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = UPDATE_NOTES.version;
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
   try {
     const res = await fetch(RELEASES_API, {
       headers: { Accept: "application/vnd.github.v3+json" },
+      signal: controller.signal,
     });
     if (!res.ok) {
       return {
@@ -118,8 +122,14 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       downloadUrl: null,
       downloadDigest: null,
       body: null,
-      error: err instanceof Error ? err.message : String(err),
+      error: controller.signal.aborted
+        ? `update check timed out after ${UPDATE_CHECK_TIMEOUT_MS}ms`
+        : err instanceof Error
+          ? err.message
+          : String(err),
     };
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
 }
 
