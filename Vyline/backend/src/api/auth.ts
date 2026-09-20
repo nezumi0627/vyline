@@ -10,6 +10,7 @@
  * POST /auth/switch/:id     — アカウント切替（未ログインなら restore）
  * GET  /auth/accounts       — ログイン中 + 保存セッション一覧
  * GET  /auth/sessions       — 保存済みセッション詳細
+ * POST /auth/logout/:id     — この端末のメモリ上のセッションだけ終了
  * DELETE /auth/sessions/:id — 保存セッション削除
  * DELETE /auth/accounts/:id — アカウント削除
  */
@@ -479,6 +480,16 @@ authRouter.get("/sessions", async (c) => {
     active: active.has(s.accountId),
   }));
   return c.json({ ok: true, sessions });
+});
+
+// ─────────────────────────────────────────────
+// POST /auth/logout/:id — この端末のセッションだけ終了
+// ─────────────────────────────────────────────
+// 通常のログアウトでは保存済み資格情報を残し、次回のアカウント切替・復元に使えるようにする。
+authRouter.post("/logout/:id", async (c) => {
+  const accountId = c.req.param("id");
+  await removeClient(accountId);
+  return c.json({ ok: true, accountId });
 });
 
 // ─────────────────────────────────────────────
