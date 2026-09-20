@@ -34,4 +34,31 @@ describe("plugin manager manifest compatibility", () => {
       }),
     );
   });
+
+  it("rejects unknown permissions and keeps the first duplicate id deterministic", async () => {
+    const duplicate = join(pluginRoot, "zzz-duplicate");
+    await mkdir(duplicate, { recursive: true });
+    await Bun.write(
+      join(duplicate, "manifest.json"),
+      JSON.stringify({ id: "generated-plugin", name: "Duplicate", version: "1.0.0" }),
+    );
+    await Bun.write(join(duplicate, "index.ts"), "export default {};\n");
+
+    const unsupported = join(pluginRoot, "unsupported-permission");
+    await mkdir(unsupported, { recursive: true });
+    await Bun.write(
+      join(unsupported, "manifest.json"),
+      JSON.stringify({
+        id: "unsupported-permission",
+        name: "Unsupported",
+        version: "1.0.0",
+        permissions: ["raw:token"],
+      }),
+    );
+    await Bun.write(join(unsupported, "index.ts"), "export default {};\n");
+
+    const plugins = listPlugins();
+    expect(plugins.filter((plugin) => plugin.id === "generated-plugin")).toHaveLength(1);
+    expect(plugins.some((plugin) => plugin.id === "unsupported-permission")).toBe(false);
+  });
 });
