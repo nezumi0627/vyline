@@ -1,6 +1,6 @@
 # Vyline タスク状況ボード
 
-最終更新: 2026-09-19
+最終更新: 2026-09-20
 規則: **git push/commit しない** / **連絡先へ勝手送信しない**
 
 ---
@@ -17,6 +17,22 @@
 | 4     | Telegram 風 UI                                  | ✅ Beta の日常利用機能を実装済・継続改善中 |
 | 5     | 品質・速度・stack                               | ✅ 同期／仮想リストの安定化済・継続改善中 |
 | 6     | Beta 公開準備                                   | 🔧 0.8.0-beta の検証・配布準備中 |
+
+## 2026-09-20 品質・配布監査
+
+### 実装済み（各PRのCIで確認済み）
+
+- プラグイン: 設定書き込み直列化、ライフサイクル timeout / dedupe / state 遷移、handler・state・設定サイズ上限、manifest identity / realpath 検証、未実装権限の拒否。
+- メモリ・CPU: account 削除時の runtime / media / profile cache 解放、遅延 listener の解除、message-log stream の後始末、rate limiter の上限、静的ファイルの `Bun.file` streaming。
+- アカウント・データ: logout 時の呼び出し停止、account 境界の一時 cache 破棄、backup restore の session TTL / 上限、削除アカウントの plugin data 清掃。
+- 配布: Windows standalone / portable ZIP、installer upgrade 時の古い web bundle 清掃、updater の timeout・tag 検証・check cache、installer SHA-256 sidecar。
+
+### 未検証・統合待ち
+
+- 上記の追加変更は PR #242〜#287 として作成済みだが、監査時点では未マージ。main に統合されるまでリリース完了とは扱わない。
+- 認証済み NezuUI の実ブラウザ smoke（ログイン、アカウント切替、送受信、バックアップ復元）は、保存セッションが無効なため未実施。
+- Windows installer / portable EXE の実機 install・upgrade・uninstall、データ保持、起動後 backend health はCIだけでは証明できない。
+- メッセージ取得〜E2EE復号の実測プロファイル（CPU、heap、復号待ち時間）と長時間 soak は未取得。
 
 ## tqmane/vyline 同期実績（2026-09-19）
 
@@ -144,10 +160,11 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 
 ## 次（優先順）
 
-1. オープンチャットの RPC 調査と読み取り専用の統合設計
-2. 実通信での引継ぎ・既読・複数アカウント・サブデバイスの回帰検証
-3. 通話品質と UI 細部の改善
-4. stack RPC の Desktop 準拠への段階的置換
+1. PR #242〜#287 のレビュー・統合後に main で typecheck / lint / build / smoke を再実行
+2. 認証済み環境で NezuUI のログイン・切替・送受信・バックアップ復元を確認
+3. Windows installer / portable の install → upgrade → uninstall を実機確認
+4. メッセージ同期・復号・media cache の heap / CPU / latency を計測し、閾値を記録
+5. オープンチャットの RPC 調査と読み取り専用の統合設計
 
 ---
 
@@ -155,7 +172,7 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 
 | 機能                 | 内容                                                                    | 方針メモ                                          |
 | -------------------- | ----------------------------------------------------------------------- | ------------------------------------------------- |
-| **プラグイン API**   | ES Modules で UI・挙動を動的拡張                                        | `docs/plugin-api.md` に設計メモあり。現状は未対応 |
+| **プラグイン API**   | ES Modules で UI・挙動を動的拡張                                        | runtime 実装済み。SDK の将来権限型と実装済み権限の整合を別途確認 |
 | **オープンチャット** | LINE オープンチャット（不明な相手と交流するチャットルーム）の閲覧・参加 | 実装未着手。UI に導線は無し。RPC 調査が先         |
 
 ---
