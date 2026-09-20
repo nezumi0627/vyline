@@ -34,7 +34,11 @@ import {
   tooLargeContentLength,
 } from "./requestLimits.js";
 import { childLogger } from "../logger.js";
-import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
+import {
+  readMediaStorage,
+  removeMediaStorageEntry,
+  writeMediaStorage,
+} from "../storage/mediaStorage.js";
 import { rebuildAccountChatDb } from "../storage/chatStore.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
@@ -1031,7 +1035,9 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   try {
     // サーバー側の永続保存を優先（端末乗り換え後もメディアを保持）
     const cached = await readMediaStorage(accountId, chatMid, messageId);
-    if (cached) {
+    // Older versions stored video thumbnails under the original media key.
+    // An explicit original request must not serve that image as the video.
+    if (cached && !(preview === false && cached.contentType.startsWith("image/"))) {
       return new Response(cached.buf as unknown as BodyInit, {
         status: 200,
         headers: {
@@ -1040,6 +1046,9 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
           "X-Vyline-Media-Cache": "HIT",
         },
       });
+    }
+    if (cached && !preview && cached.contentType.startsWith("image/")) {
+      await removeMediaStorageEntry(accountId, chatMid, messageId);
     }
     const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
     void writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
