@@ -580,12 +580,18 @@ export const useStore = create<State>()(
         const accountChanged = id !== currentAccountId;
         const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
         if (accountChanged) {
+          for (const timer of refreshDebounce.values()) clearTimeout(timer);
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
+          pollIncomingInflight.clear();
           myMessageIdsByChat.clear();
+          refreshDebounce.clear();
           lastDeltaPollAt.clear();
+          messageReactionCache.clear();
+          recentlyReadAt.clear();
           sessionOpenedChats.clear();
+          eventPollCursor.delete(String(currentAccountId));
           eventPollCursor.delete(String(id));
         }
         if (accountChanged && currentAccountId !== null) {
