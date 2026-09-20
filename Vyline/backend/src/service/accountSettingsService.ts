@@ -4,7 +4,10 @@ import { join } from "node:path";
 import type { AccountSettings, LogLevel } from "@vyline/types";
 import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+const DEFAULT_DATA_DIR = join(import.meta.dir, "..", "..", "data");
+function dataDir(): string {
+  return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
+}
 export const SETUP_TOTAL_STEPS = 5;
 const writes = new Map<string, Promise<unknown>>();
 
@@ -39,7 +42,7 @@ export function defaultAccountSettings(): AccountSettings {
 }
 
 function pathFor(mid: string): string {
-  return join(DATA_DIR, "accounts", safePathComponent(mid), "settings.json");
+  return join(dataDir(), "accounts", safePathComponent(mid), "settings.json");
 }
 
 function migrate(value: Partial<AccountSettings>): AccountSettings {
