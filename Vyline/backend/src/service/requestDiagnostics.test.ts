@@ -1,8 +1,9 @@
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { Hono } from "hono";
-import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { anonymousId } from "./redaction.js";
 
 const mid = "u11111111111111111111111111111111";
 const otherMid = "u22222222222222222222222222222222";
@@ -67,7 +68,10 @@ describe("HTTP diagnostic collection", () => {
     const exported = await (await app.request(`/api/diagnostics/${mid}/export`)).json();
     expect(JSON.parse(exported.content)).toHaveLength(2);
     expect(exported.content).not.toMatch(/private|secret|Bearer|u111111/);
-    const raw = await readFile(join(dataDir, "logs", `diagnostics-${mid}.jsonl`), "utf8");
+    const raw = await readFile(
+      join(dataDir, "logs", `diagnostics-${anonymousId(mid)}.jsonl`),
+      "utf8",
+    );
     expect(raw).not.toMatch(/private|secret|Bearer/);
     expect(await diagnostics.listDiagnostics(otherMid)).toEqual([]);
     await app.request(`/api/diagnostics/${mid}`, { method: "DELETE" });
@@ -90,7 +94,8 @@ describe("HTTP diagnostic collection", () => {
     await settings.saveAccountSettings(mid, {
       debug: { ...settings.defaultAccountSettings().debug, retentionDays: 1 },
     });
-    const path = join(dataDir, "logs", `diagnostics-${mid}.jsonl`);
+    const path = join(dataDir, "logs", `diagnostics-${anonymousId(mid)}.jsonl`);
+    await mkdir(join(dataDir, "logs"), { recursive: true });
     const old = JSON.stringify({
       at: new Date(Date.now() - 2 * 86400000).toISOString(),
       marker: "expired",

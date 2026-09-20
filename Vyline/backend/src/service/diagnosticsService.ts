@@ -1,5 +1,5 @@
 import { existsSync } from "node:fs";
-import { appendFile, mkdir, readFile, rename, rm, stat } from "node:fs/promises";
+import { appendFile, mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { DebugContext, LogLevel } from "@vyline/types";
 import { loadAccountSettings, saveAccountSettings } from "./accountSettingsService.js";
@@ -8,6 +8,7 @@ import { safePathComponent } from "../storage/safeFile.js";
 import { listSavedSessions } from "../storage/tokenStore.js";
 
 const MAX_LOG_BYTES = 1024 * 1024;
+const MAX_ROTATED_ENTRIES = 500;
 const LEVEL_WEIGHT: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 };
 
 function logDir(): string {
@@ -46,6 +47,9 @@ async function maintainLog(mid: string, retentionDays: number, incomingBytes = 0
   if (existsSync(path) && (await stat(path)).size + incomingBytes > MAX_LOG_BYTES) {
     await rm(rotated, { force: true });
     await rename(path, rotated);
+    const contents = await readFile(rotated, "utf8").catch(() => "");
+    const lines = contents.split("\n").filter(Boolean).slice(-MAX_ROTATED_ENTRIES);
+    await writeFile(rotated, lines.length > 0 ? `${lines.join("\n")}\n` : "", "utf8");
   }
 }
 
@@ -72,6 +76,7 @@ export async function listDiagnostics(mid: string, limit = 200): Promise<unknown
   await maintainLog(mid, settings.debug.retentionDays);
   const path = logPath(mid);
   const rotated = `${path}.1`;
+  const safeLimit = Number.isFinite(limit) ? Math.trunc(limit) : 200;
   const chunks = await Promise.all(
     [rotated, path].map(async (candidate) =>
       existsSync(candidate) ? readFile(candidate, "utf8").catch(() => "") : "",
@@ -81,7 +86,7 @@ export async function listDiagnostics(mid: string, limit = 200): Promise<unknown
     .join("\n")
     .split("\n")
     .filter(Boolean)
-    .slice(-Math.max(1, Math.min(limit, 1000)));
+    .slice(-Math.max(1, Math.min(safeLimit, 1000)));
   return lines.flatMap((line) => {
     try {
       return [JSON.parse(line)];
