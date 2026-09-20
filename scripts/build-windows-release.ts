@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { cp, mkdir, readFile, rename, rm } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { join, resolve } from "node:path";
 const root = resolve(import.meta.dir, "..");
 const { version } = JSON.parse(await readFile(join(root, "package.json"), "utf8")) as {
@@ -20,6 +20,7 @@ function findIscc() {
   for (const p of [
     "C:\\Program Files (x86)\\Inno Setup 6\\ISCC.exe",
     "C:\\Program Files\\Inno Setup 6\\ISCC.exe",
+    join(process.env.LOCALAPPDATA ?? "", "Programs", "Inno Setup 6", "ISCC.exe"),
     "iscc",
   ])
     if (p === "iscc" || existsSync(p)) return p;
@@ -61,3 +62,10 @@ try {
   if (existsSync(previousDir) && !existsSync(releaseDir)) await rename(previousDir, releaseDir);
   throw error;
 }
+
+const installerName = `VylineSetup-${version}.exe`;
+const installerPath = join(releaseDir, installerName);
+const installerDigest = createHash("sha256")
+  .update(await readFile(installerPath))
+  .digest("hex");
+await Bun.write(`${installerPath}.sha256`, `${installerDigest}  ${installerName}\n`);
