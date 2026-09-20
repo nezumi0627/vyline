@@ -10,7 +10,7 @@ import {
   startManagedCall,
 } from "./callManager.js";
 
-function fakeSession() {
+function fakeSession(options: { holdReceive?: boolean } = {}) {
   let state: "idle" | "in-call" | "ended" = "idle";
   const listeners = new Map<string, (...values: unknown[]) => void>();
   return {
@@ -29,7 +29,12 @@ function fakeSession() {
       listeners.get("ended")?.("user-ended");
     },
     async sendStream() {},
-    async *received() {},
+    async *received() {
+      while (options.holdReceive && state === "in-call") {
+        await Bun.sleep(5);
+        yield { samples: new Int16Array(0), sampleRate: 48_000 };
+      }
+    },
   };
 }
 
@@ -57,7 +62,7 @@ test("managed calls are isolated by account and can be ended through the scoped 
 });
 
 test("video websocket validates and relays VP8 packets without buffering them", async () => {
-  const session = fakeSession();
+  const session = fakeSession({ holdReceive: true });
   const create = spyOn(sessionFactory, "createDirectCallSession").mockResolvedValue({
     session: session as never,
     transportKind: "planet",
@@ -79,6 +84,11 @@ test("video websocket validates and relays VP8 packets without buffering them", 
       to: "u-peer",
       kind: "VIDEO",
     });
+    for (let attempt = 0; attempt < 20; attempt++) {
+      if (getCallSnapshotForAccount(accountId, created.sessionId)?.state === "in-call") break;
+      await Bun.sleep(0);
+    }
+    expect(getCallSnapshotForAccount(accountId, created.sessionId)?.state).toBe("in-call");
     for (const socket of sockets) socket.data.sessionId = created.sessionId;
     const manager = await import("./callManager.js");
     manager.attachCallWebSocket(sockets[0] as never);
