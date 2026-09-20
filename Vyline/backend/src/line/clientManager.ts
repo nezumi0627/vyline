@@ -1058,7 +1058,9 @@ export async function removeClient(accountId: string): Promise<void> {
   clients.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
-  clearAccountRuntimeCaches(accountId);
+  await clearAccountRuntimeCaches(accountId).catch((err) => {
+    log.warn({ accountId, err }, "account runtime caches could not be released");
+  });
   await deactivatePluginsForAccount(accountId).catch((err) => {
     log.warn({ accountId, err }, "account plugins could not be deactivated");
   });

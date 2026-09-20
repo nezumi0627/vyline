@@ -45,6 +45,7 @@ import {
   vylinePutProfile,
   vylinePutProfiles,
   vylineResolvedNameMap,
+  vylineReleaseCache,
 } from "../storage/vylineCache.js";
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
@@ -774,7 +775,7 @@ const DELTA_RPC_TIMEOUT_MS = Number(process.env.VYLINE_DELTA_RPC_TIMEOUT_MS ?? 1
 const TALK_FETCH_TIMEOUT_MS = Number(process.env.VYLINE_TALK_FETCH_TIMEOUT_MS ?? 45_000);
 
 /** アカウント切替・ログアウト時に揮発キャッシュをまとめて解放する。 */
-export function clearAccountRuntimeCaches(accountId: string): void {
+export async function clearAccountRuntimeCaches(accountId: string): Promise<void> {
   chatsCache.delete(accountId);
   for (const key of readRangeBgAt.keys()) {
     if (key.startsWith(`${accountId}:`)) readRangeBgAt.delete(key);
@@ -791,7 +792,7 @@ export function clearAccountRuntimeCaches(accountId: string): void {
       if (key.startsWith(`${accountId}:`)) cache.delete(key);
     }
   }
-  void readRangeStorage.release(accountId);
+  await Promise.all([readRangeStorage.release(accountId), vylineReleaseCache(accountId)]);
 }
 
 function isTimeoutError(err: unknown): boolean {
