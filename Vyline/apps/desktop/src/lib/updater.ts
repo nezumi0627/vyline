@@ -23,6 +23,41 @@ export interface UpdateInfo {
   error: string | null;
 }
 
+/** Return true only when the release is newer than the installed version. */
+export function isNewerVersion(latest: string, current: string): boolean {
+  const parse = (value: string) => {
+    const withoutBuild = value.replace(/^v/i, "").split("+", 1)[0];
+    const [core, ...pre] = (withoutBuild ?? "").split("-");
+    const numbers = (core ?? "").split(".").map((part) => Number.parseInt(part, 10));
+    if (numbers.length !== 3 || numbers.some((part) => !Number.isSafeInteger(part) || part < 0)) {
+      return null;
+    }
+    return { numbers, pre };
+  };
+  const left = parse(latest);
+  const right = parse(current);
+  if (!left || !right) return false;
+  for (let i = 0; i < 3; i++) {
+    if (left.numbers[i] !== right.numbers[i]) return left.numbers[i]! > right.numbers[i]!;
+  }
+  if (left.pre.length === 0 || right.pre.length === 0) {
+    return left.pre.length === 0 && right.pre.length > 0;
+  }
+  for (let i = 0; i < Math.max(left.pre.length, right.pre.length); i++) {
+    const a = left.pre[i];
+    const b = right.pre[i];
+    if (a === undefined) return true;
+    if (b === undefined) return false;
+    if (a === b) continue;
+    const aNum = /^\d+$/.test(a);
+    const bNum = /^\d+$/.test(b);
+    if (aNum && bNum) return Number(a) > Number(b);
+    if (aNum !== bNum) return !aNum;
+    return a > b;
+  }
+  return false;
+}
+
 export async function checkForUpdates(): Promise<UpdateInfo> {
   const current = UPDATE_NOTES.version;
   try {
@@ -47,7 +82,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       assets?: Array<{ name?: string; browser_download_url?: string }>;
     };
     const tag = release.tag_name?.replace(/^v/, "") ?? null;
-    const hasUpdate = tag != null && tag !== current;
+    const hasUpdate = tag != null && isNewerVersion(tag, current);
     const downloadUrl =
       release.assets?.find((asset) => asset.name === `VylineSetup-${tag}.exe`)
         ?.browser_download_url ?? null;
