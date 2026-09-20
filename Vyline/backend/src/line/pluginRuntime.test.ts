@@ -47,4 +47,31 @@ describe("plugin runtime lifecycle", () => {
     await deactivatePluginsForAccount(accountId);
     expect(activePluginIdsFor(accountId)).toEqual([]);
   });
+
+  it("serializes concurrent settings updates for one plugin", async () => {
+    const accountId = `test-account-${crypto.randomUUID()}`;
+    const pluginId = `test-plugin-${crypto.randomUUID()}`;
+    let context: PluginContext | undefined;
+    const plugin: VylinePlugin = {
+      manifest: { id: pluginId, name: "Settings lock test", version: "1.0.0" },
+      activate(next) {
+        context = next;
+      },
+      deactivate() {},
+    };
+
+    expect(
+      await activatePlugin(
+        accountId,
+        pluginId,
+        "unused",
+        ["settings:read", "settings:write"],
+        plugin,
+      ),
+    ).toBeTrue();
+    await Promise.all([context!.settings.set("first", 1), context!.settings.set("second", 2)]);
+    await expect(context!.settings.get("first", 0)).resolves.toBe(1);
+    await expect(context!.settings.get("second", 0)).resolves.toBe(2);
+    await deactivatePlugin(accountId, pluginId);
+  });
 });
