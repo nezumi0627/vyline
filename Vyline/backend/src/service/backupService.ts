@@ -27,7 +27,10 @@ import { safePathComponent, writeTextAtomic } from "../storage/safeFile.js";
 const log = childLogger("vyline-backup");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const BACKUP_DIR = process.env.VYLINE_BACKUP_DIR ?? join(_dir, "../../data/backups");
+const DEFAULT_BACKUP_DIR = join(_dir, "../../data/backups");
+function backupDir(): string {
+  return process.env.VYLINE_BACKUP_DIR ?? DEFAULT_BACKUP_DIR;
+}
 
 const SCHEMA = "vyline-backup";
 const VERSION = 2;
@@ -80,7 +83,7 @@ interface Snapshot {
 }
 
 function snapshotPath(id: string): string {
-  return join(BACKUP_DIR, `${id}.json`);
+  return join(backupDir(), `${id}.json`);
 }
 
 function backupAccountComponent(accountId: string): string {
@@ -208,7 +211,7 @@ function normalizeSnapshot(input: unknown, accountId: string): Snapshot | null {
 }
 
 export async function ensureBackupDir(): Promise<void> {
-  await mkdir(BACKUP_DIR, { recursive: true });
+  await mkdir(backupDir(), { recursive: true });
 }
 
 /** チャット一覧 + メッセージ件数（フロントの選択 UI 用） */
@@ -310,7 +313,7 @@ export async function listBackups(accountId: string): Promise<BackupSummary[]> {
   const prefix = `vyline-backup-${backupAccountComponent(accountId)}-`;
   let files: string[] = [];
   try {
-    files = await readdir(BACKUP_DIR);
+    files = await readdir(backupDir());
   } catch {
     return [];
   }
