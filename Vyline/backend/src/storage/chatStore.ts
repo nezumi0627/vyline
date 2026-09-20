@@ -241,6 +241,12 @@ const SQLITE_SCHEMA = `
     ON messages(chat_mid, message_state);
 `;
 
+function closeSqlite(sqlite: Database): void {
+  // Bun's force-close finalizes transient statements before Windows tries to
+  // remove an account directory during logout or test cleanup.
+  sqlite.close(true);
+}
+
 function openSqlite(accountId: string): Database {
   mkdirSync(dirname(dbPath(accountId)), { recursive: true });
   const sqlite = new Database(dbPath(accountId));
@@ -304,7 +310,7 @@ function readMessagesSqlite(
       }
     });
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
 }
 
@@ -325,7 +331,7 @@ function readMessageSqlite(
       return null;
     }
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
 }
 
@@ -352,7 +358,7 @@ function upsertMessagesSqlite(accountId: string, messages: StoredMessage[]): voi
       }
     })();
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
 }
 
@@ -382,7 +388,7 @@ function readSqliteDb(accountId: string): ChatDb {
     // is brought into memory.
     return { meta, chats, messages: {} };
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
 }
 
@@ -437,7 +443,7 @@ function writeSqliteDb(accountId: string, db: ChatDb): void {
     });
     transaction();
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
 }
 
@@ -473,7 +479,7 @@ function readAllMessages(accountId: string): Record<string, Record<string, Store
     }
     return result;
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
 }
 
@@ -930,7 +936,7 @@ export async function markStoredMessagesReadThrough(
         [chatMid, messageId],
       );
     } finally {
-      sqlite.close();
+      closeSqlite(sqlite);
     }
   }
   scheduleSave(accountId);
@@ -1101,7 +1107,7 @@ export async function findStoredMessageById(
       .get(messageId) as { chat_mid: string; payload: string } | null;
     if (row) return { chatMid: row.chat_mid, message: JSON.parse(row.payload) as StoredMessage };
   } finally {
-    sqlite.close();
+    closeSqlite(sqlite);
   }
   return null;
 }
@@ -1500,7 +1506,7 @@ export async function listChatsWithCounts(
     .prepare("SELECT chat_mid, COUNT(*) AS count FROM messages GROUP BY chat_mid")
     .all() as Array<{ chat_mid: string; count: number }>;
   const counts = new Map<string, number>(countRows.map((row) => [row.chat_mid, row.count]));
-  sqlite.close();
+  closeSqlite(sqlite);
   return Object.keys(db.chats).map((mid) => {
     const chat = db.chats[mid];
     const messageCount = counts.get(mid) ?? 0;

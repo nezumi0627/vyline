@@ -65,7 +65,9 @@ test("original video request evicts a legacy preview image cached under the medi
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("video/mp4");
   expect(fetchMedia).toHaveBeenCalledTimes(1);
-  expect(await mediaStorage.statMediaStorage(accountId, chatMid, messageId)).toBeNull();
+  expect(await mediaStorage.statMediaStorage(accountId, chatMid, messageId)).toEqual({
+    mediaType: "video",
+  });
 });
 
 test("preview request keeps the legacy thumbnail until an original video is requested", async () => {
