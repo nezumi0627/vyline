@@ -33,6 +33,9 @@ const SUPPORTED_PERMISSIONS = new Set<PluginPermission>([
   "settings:read",
   "settings:write",
 ]);
+const MAX_PLUGIN_STATE_BYTES = 1 * 1024 * 1024;
+const MAX_STATE_ACCOUNTS = 256;
+const MAX_STATE_PLUGINS_PER_ACCOUNT = 256;
 
 function statesPath(): string {
   return join(getDataDir(), "plugin-states.json");
@@ -51,7 +54,25 @@ type PluginStates = Record<string, Record<string, boolean>>;
 
 function loadStates(): PluginStates {
   try {
-    return JSON.parse(readFileSync(statesPath(), "utf8")) as PluginStates;
+    const raw = readFileSync(statesPath(), "utf8");
+    if (Buffer.byteLength(raw) > MAX_PLUGIN_STATE_BYTES) {
+      log.warn("plugin state file exceeds the size limit");
+      return {};
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const states: PluginStates = {};
+    for (const [accountId, rawPlugins] of Object.entries(parsed)) {
+      if (Object.keys(states).length >= MAX_STATE_ACCOUNTS) break;
+      if (!rawPlugins || typeof rawPlugins !== "object" || Array.isArray(rawPlugins)) continue;
+      const plugins: Record<string, boolean> = {};
+      for (const [pluginId, enabled] of Object.entries(rawPlugins)) {
+        if (Object.keys(plugins).length >= MAX_STATE_PLUGINS_PER_ACCOUNT) break;
+        if (typeof enabled === "boolean") plugins[pluginId] = enabled;
+      }
+      states[accountId] = plugins;
+    }
+    return states;
   } catch {
     return {};
   }
