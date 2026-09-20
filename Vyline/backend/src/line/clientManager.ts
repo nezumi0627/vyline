@@ -389,6 +389,9 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
   }
   const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
   setTimeout(() => {
+    // Logout/account switch may happen during the startup delay. Do not
+    // resurrect a listener for a client that is no longer current.
+    if (clients.get(accountId)?.client !== client) return;
     startFetchOpsLoop(client, accountId);
     log.info({ accountId, delayMs }, "ops loop started");
   }, delayMs);
