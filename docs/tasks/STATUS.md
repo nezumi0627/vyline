@@ -26,6 +26,7 @@
 - メモリ・CPU: account 削除時の runtime / media / profile cache 解放、遅延 listener の解除、message-log stream の後始末、rate limiter の上限、静的ファイルの `Bun.file` streaming。
 - アカウント・データ: logout 時の呼び出し停止、account 境界の一時 cache 破棄、backup restore の session TTL / 上限、削除アカウントの plugin data 清掃。
 - 配布: Windows standalone / portable ZIP、installer upgrade 時の古い web bundle 清掃、updater の timeout・tag 検証・check cache、installer SHA-256 sidecar。
+- 計測: `/metrics` と `/debug/health` で uptime、RSS、heap、external、ArrayBuffer、CPU user/system 累積値を取得可能。分離worktreeの実行時 smoke で値を確認済み（PR #290）。
 
 ### 未検証・統合待ち
 
@@ -33,6 +34,7 @@
 - 認証済み NezuUI の実ブラウザ smoke（ログイン、アカウント切替、送受信、バックアップ復元）は、保存セッションが無効なため未実施。
 - Windows installer / portable EXE の実機 install・upgrade・uninstall、データ保持、起動後 backend health はCIだけでは証明できない。
 - メッセージ取得〜E2EE復号の実測プロファイル（CPU、heap、復号待ち時間）と長時間 soak は未取得。
+- `/metrics` の値取得は確認済みだが、実アカウントを用いた長時間 soak と閾値判定は未実施。
 
 ## tqmane/vyline 同期実績（2026-09-19）
 
