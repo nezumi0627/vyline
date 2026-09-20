@@ -7,9 +7,11 @@
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import type { PluginManifest, PluginPermission } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
+import { safePathComponent } from "../storage/safeFile.js";
 import { getDataDir, getPluginDir } from "./pluginPaths.js";
 import {
   activatePlugin,
@@ -138,6 +140,29 @@ function findPluginDir(pluginId: string): string | null {
 
 export function getPluginStates(accountId: string): Record<string, boolean> {
   return loadStates()[accountId] ?? {};
+}
+
+/** Remove persisted plugin state/settings when a saved account is deleted. */
+export async function removePluginAccountData(accountId: string): Promise<void> {
+  const states = loadStates();
+  if (Object.hasOwn(states, accountId)) {
+    delete states[accountId];
+    saveStates(states);
+  }
+
+  const settingsRoot = join(getDataDir(), "plugin-settings");
+  const prefix = `${safePathComponent(accountId, "account")}.`;
+  try {
+    for (const name of await readdir(settingsRoot)) {
+      if (name.startsWith(prefix) && name.endsWith(".json")) {
+        await rm(join(settingsRoot, name), { force: true });
+      }
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
+      log.warn({ accountId, error }, "failed to remove plugin account data");
+    }
+  }
 }
 
 async function applyPluginState(

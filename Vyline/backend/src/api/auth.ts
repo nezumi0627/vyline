@@ -43,6 +43,7 @@ import {
   inspectWindowsLineTokens,
   type WindowsLineTokenInventory,
 } from "../service/windowsLineTokenService.js";
+import { removePluginAccountData } from "../line/pluginManager.js";
 
 const log = childLogger("api:auth");
 export const authRouter = new Hono();
@@ -53,7 +54,11 @@ const emailLoginState = new Map<
 >();
 
 async function deleteAccountCredentials(accountId: string): Promise<void> {
-  await Promise.all([deleteToken(accountId), deleteToken(`${accountId}:content`)]);
+  await Promise.all([
+    deleteToken(accountId),
+    deleteToken(`${accountId}:content`),
+    removePluginAccountData(accountId),
+  ]);
 }
 const WINDOWS_TOKEN_SCAN_TTL_MS = 2 * 60 * 1000;
 const windowsTokenScans = new Map<
