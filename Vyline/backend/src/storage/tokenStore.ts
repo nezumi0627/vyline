@@ -28,9 +28,16 @@ import { writeJsonAtomic } from "./safeFile.js";
 const log = childLogger("tokenStore");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
-const TOKENS_FILE = join(DATA_DIR, "tokens.json");
-const ACCOUNTS_DIR = join(DATA_DIR, "accounts");
+const DEFAULT_DATA_DIR = join(_dir, "..", "..", "data");
+function dataDir(): string {
+  return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
+}
+function tokensFile(): string {
+  return join(dataDir(), "tokens.json");
+}
+function accountsDir(): string {
+  return join(dataDir(), "accounts");
+}
 const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
@@ -93,13 +100,14 @@ async function removeLegacyToken(accountId: string): Promise<void> {
   const run = legacyTokenMutationTail
     .catch(() => undefined)
     .then(async () => {
-      if (!existsSync(TOKENS_FILE)) return;
+      const legacyFile = tokensFile();
+      if (!existsSync(legacyFile)) return;
       try {
-        const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+        const parsed = JSON.parse(await readFile(legacyFile, "utf8")) as TokenMap;
         if (!Object.prototype.hasOwnProperty.call(parsed, accountId)) return;
         delete parsed[accountId];
-        await writeJsonAtomic(TOKENS_FILE, parsed);
-        await hardenCredentialFile(TOKENS_FILE, true);
+        await writeJsonAtomic(legacyFile, parsed);
+        await hardenCredentialFile(legacyFile, true);
       } catch (error) {
         log.warn({ error, accountId }, "failed to remove legacy token entry");
       }
@@ -112,7 +120,7 @@ async function removeLegacyToken(accountId: string): Promise<void> {
 }
 
 function accountDir(accountId: string): string {
-  return join(ACCOUNTS_DIR, encodeURIComponent(assertSafeAccountId(accountId)));
+  return join(accountsDir(), encodeURIComponent(assertSafeAccountId(accountId)));
 }
 
 function accountTokenFile(accountId: string): string {
@@ -194,12 +202,13 @@ async function hardenCredentialFile(path: string, required = false): Promise<voi
 }
 
 async function ensureDataDir(): Promise<void> {
-  const created = !existsSync(DATA_DIR);
-  await ensurePrivateDirectory(DATA_DIR);
+  const root = dataDir();
+  const created = !existsSync(root);
+  await ensurePrivateDirectory(root);
   if (created) {
-    log.debug({ dir: DATA_DIR }, "created data dir");
+    log.debug({ dir: root }, "created data dir");
   }
-  await ensurePrivateDirectory(ACCOUNTS_DIR);
+  await ensurePrivateDirectory(accountsDir());
 }
 
 async function decodePersistedEntry(
@@ -251,7 +260,7 @@ async function readTokens(migrateLegacy: boolean): Promise<TokenMap> {
   const cleaned: TokenMap = {};
   let accountDirs: Dirent[] = [];
   try {
-    accountDirs = await readdir(ACCOUNTS_DIR, { withFileTypes: true });
+    accountDirs = await readdir(accountsDir(), { withFileTypes: true });
   } catch (err) {
     log.warn({ err }, "failed to list account credential files");
   }
@@ -273,10 +282,11 @@ async function readTokens(migrateLegacy: boolean): Promise<TokenMap> {
 
   // Legacy shared tokens.json remains readable. Account files win, and a legacy
   // entry is migrated lazily without deleting the recoverable source file.
-  if (existsSync(TOKENS_FILE)) {
+  const legacyFile = tokensFile();
+  if (existsSync(legacyFile)) {
     try {
-      await hardenCredentialFile(TOKENS_FILE);
-      const parsed = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+      await hardenCredentialFile(legacyFile);
+      const parsed = JSON.parse(await readFile(legacyFile, "utf8")) as TokenMap;
       for (const [id, entry] of Object.entries(parsed)) {
         if (cleaned[id]) continue;
         const deletionGeneration = credentialDeletionGeneration.get(id) ?? 0;
@@ -297,7 +307,7 @@ async function readTokens(migrateLegacy: boolean): Promise<TokenMap> {
                 JSON.parse(await readFile(accountTokenFile(id), "utf8")) as TokenEntry,
               );
             }
-            const currentLegacy = JSON.parse(await readFile(TOKENS_FILE, "utf8")) as TokenMap;
+            const currentLegacy = JSON.parse(await readFile(legacyFile, "utf8")) as TokenMap;
             if (!Object.prototype.hasOwnProperty.call(currentLegacy, id)) return;
             if ((credentialDeletionGeneration.get(id) ?? 0) !== deletionGeneration) return;
             await persistAccount(id, decoded);
