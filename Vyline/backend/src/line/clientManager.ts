@@ -38,6 +38,8 @@ import { releaseAccountChatCache } from "../storage/chatStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { appendDiagnostic } from "../service/diagnosticsService.js";
 import { deactivatePluginsForAccount, restoreEnabledPlugins } from "./pluginManager.js";
+import { endManagedCallsForAccount } from "../call/callManager.js";
+import { resetIncomingCalls } from "../call/incomingCallRegistry.js";
 
 const log = childLogger("clientManager");
 const TOKEN_REFRESH_CHECK_INTERVAL_MS = 60 * 1000;
@@ -1050,6 +1052,10 @@ export function getLoggedInAt(accountId: string): number | null {
 export async function removeClient(accountId: string): Promise<void> {
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);
+  resetIncomingCalls(accountId);
+  await endManagedCallsForAccount(accountId).catch((err) => {
+    log.warn({ accountId, err }, "account calls could not be ended during client removal");
+  });
   const tokenWatch = tokenWatchIntervals.get(accountId);
   if (tokenWatch) {
     clearInterval(tokenWatch);
