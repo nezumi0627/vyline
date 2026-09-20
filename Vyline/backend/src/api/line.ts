@@ -1051,7 +1051,9 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
       await removeMediaStorageEntry(accountId, chatMid, messageId);
     }
     const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
-    void writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
+    // Finish the durable write before returning so logout/backup cannot race
+    // the background file handle or observe a partially persisted attachment.
+    await writeMediaStorage(accountId, chatMid, messageId, bytes, contentType);
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
