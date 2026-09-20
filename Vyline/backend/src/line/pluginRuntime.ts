@@ -9,7 +9,7 @@
  * - すべての操作はアカウントスコープ（accountId バウンド）
  */
 
-import { existsSync } from "node:fs";
+import { existsSync, realpathSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type {
@@ -61,12 +61,22 @@ export function isPluginActive(accountId: string, pluginId: string): boolean {
 /** プラグインのエントリポイントファイルを解決する（index.ts → index.js → main） */
 export function resolvePluginEntry(pluginDirName: string, manifestMain?: string): string | null {
   const dir = resolve(getPluginDir(), pluginDirName);
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return null;
+  }
   const candidates = manifestMain
     ? [resolve(dir, manifestMain)]
     : [resolve(dir, "index.ts"), resolve(dir, "index.js")];
   for (const candidate of candidates) {
     if (!isInside(dir, candidate)) continue;
-    if (existsSync(candidate)) return candidate;
+    if (!existsSync(candidate)) continue;
+    try {
+      if (!isInside(realDir, realpathSync(candidate))) continue;
+      return candidate;
+    } catch {}
   }
   return null;
 }
