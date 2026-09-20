@@ -37,6 +37,7 @@ import {
 import { releaseAccountChatCache } from "../storage/chatStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { appendDiagnostic } from "../service/diagnosticsService.js";
+import { resetAgentISession } from "../service/agentIService.js";
 import { deactivatePluginsForAccount, restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
@@ -1058,6 +1059,7 @@ export async function removeClient(accountId: string): Promise<void> {
   clients.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
+  resetAgentISession(accountId);
   clearAccountRuntimeCaches(accountId);
   await deactivatePluginsForAccount(accountId).catch((err) => {
     log.warn({ accountId, err }, "account plugins could not be deactivated");
