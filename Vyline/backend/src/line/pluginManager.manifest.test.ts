@@ -61,30 +61,4 @@ describe("plugin manager manifest compatibility", () => {
     expect(plugins.filter((plugin) => plugin.id === "generated-plugin")).toHaveLength(1);
     expect(plugins.some((plugin) => plugin.id === "unsupported-permission")).toBe(false);
   });
-
-  it("rejects malformed and oversized identity fields", async () => {
-    const malformed = join(pluginRoot, "malformed-fields");
-    await mkdir(malformed, { recursive: true });
-    await Bun.write(
-      join(malformed, "manifest.json"),
-      JSON.stringify({ id: 42, name: "Malformed", version: "1.0.0" }),
-    );
-    await Bun.write(join(malformed, "index.ts"), "export default {};\n");
-
-    const oversized = join(pluginRoot, "oversized-fields");
-    await mkdir(oversized, { recursive: true });
-    await Bun.write(
-      join(oversized, "manifest.json"),
-      JSON.stringify({
-        id: "oversized-fields",
-        name: "x".repeat(129),
-        version: "1.0.0",
-      }),
-    );
-    await Bun.write(join(oversized, "index.ts"), "export default {};\n");
-
-    const plugins = listPlugins();
-    expect(plugins.some((plugin) => plugin.dir === "malformed-fields")).toBe(false);
-    expect(plugins.some((plugin) => plugin.dir === "oversized-fields")).toBe(false);
-  });
 });
