@@ -1,6 +1,6 @@
 # PHASES — フェーズ詳細
 
-最終更新: 2026-08-27
+最終更新: 2026-09-20
 進捗ボード: [STATUS.md](./STATUS.md)
 
 各 Phase の目標・受け入れ条件・主要コードパスを定義する。受け入れ条件を満たしたら STATUS のチェックを更新する。
@@ -155,6 +155,11 @@ Phase 1 のメッセージ送受信・復号表示が安定していること。
 - [x] 個人情報をマスキングした診断ログを利用者が確認・出力・削除できる
 - [ ] 実アカウントを用いる長時間・複数端末回帰テストを継続する
 
+### 2026-09-20 監査補足
+
+- account / plugin / media / static-file の保持量を抑える変更は実装済みだが、PR #242〜#287 のmain統合待ち。
+- 実アカウントの長時間 soak、heap / CPU / latency の数値取得、認証済み NezuUI smoke は未完了。
+
 ---
 
 ## Phase 6 — Beta 配布とアカウント安全性
@@ -171,6 +176,13 @@ Phase 1 のメッセージ送受信・復号表示が安定していること。
 - [x] サブデバイスをブラウザ単位のランダムなインストール ID へ結び付けられる
 - [x] Tailscale を優先する遠隔アクセス案内がある
 - [ ] リリースタグと Windows 配布物の最終スモークテストを完了する
+
+### 配布・更新の追加条件
+
+- [x] portable ZIP と installer を release workflow から生成する
+- [x] installer upgrade 時に古い hashed web bundle を削除する
+- [x] updater の timeout・tag 検証・release-check cache がある
+- [ ] 実機で install → upgrade → uninstall とユーザーデータ保持を確認する
 
 ### 関連コマンド
 

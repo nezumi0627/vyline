@@ -11,7 +11,7 @@
 **Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/protocol`) を持ちます。
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
-- **ライセンス**: MIT
+- **ライセンス**: MIT License（`logo/` のブランド資産は `logo/LICENCE` に従う CC BY 4.0）
 - **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
 
@@ -327,6 +327,14 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - `desktop-e2ee-keys.json` / tokens / session / `Vyline/backend/data/` は **gitignore・コミット禁止**
 - PR・チャット・docs に鍵・トークン実値を貼らない
 
+## ロゴ・ブランド資産の扱い
+
+- `logo/` 以下の Vyline ロゴは、ソースコード本体のライセンスとは別に **Creative Commons Attribution 4.0 International (CC BY 4.0)** で提供される。
+- 著作権表示は **Copyright © 2026 y2mc**。正式なライセンス表記は `logo/LICENCE` を正本とする。
+- ロゴをコピー・再配布・改変・README / Web / アプリ / 配布物などで利用する場合は、CC BY 4.0 の条件に従い適切なクレジットを維持する。`logo/LICENCE` では帰属先を **"Project Vyline"** としてよい。
+- `logo/` の画像を、リポジトリ本体のライセンスだけが適用される素材として扱わない。ロゴを含む配布物・派生物では `logo/LICENCE` を削除したり、ライセンス情報を失わせたりしない。
+- ロゴの差し替え・新規ブランド資産の追加時は、作者・利用許諾・ライセンス互換性を確認し、必要なら対象ディレクトリに独立したライセンス/クレジット情報を置く。
+
 ## Pull Request ルール（AI・人間共通）
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
@@ -397,3 +405,11 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - **BFF 層**: HTTP 入出力のみ → `service/lineService.ts` に委譲
 - **コード正本**: `backend/src/service/lineService.ts` と `apps/desktop/src/lib/store.ts`
 - **新機能追加**: CONTRIBUTING.md のフローに従う (辞書→Desktop→domain→BFF)
+
+## 作者クレジットについて
+
+- Vyline 本体のソフトウェアライセンスは標準の MIT License とし、追加の帰属条件は課さない。
+- 再配布・改変・紹介時には、可能であれば原作者 **nezumi0627** および Project Vyline へのクレジット表記をお願いする。ただし、これはライセンス上の追加義務ではない。
+- MIT License が要求する著作権表示および許諾表示の保持は必要。
+- `logo/` 以下のブランド資産にはこの扱いを適用せず、必ず `logo/LICENCE` の CC BY 4.0 条件に従う。
+
