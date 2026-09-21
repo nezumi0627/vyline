@@ -51,6 +51,21 @@ export interface PluginEntry extends PluginManifest {
 }
 
 type PluginStates = Record<string, Record<string, boolean>>;
+const pluginStateWrites = new Map<string, Promise<void>>();
+
+/** Serialize per-account state transitions and their read-modify-write. */
+export function withPluginStateLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const previous = pluginStateWrites.get(accountId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(work);
+  const marker = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  pluginStateWrites.set(accountId, marker);
+  return next.finally(() => {
+    if (pluginStateWrites.get(accountId) === marker) pluginStateWrites.delete(accountId);
+  });
+}
 
 function loadStates(): PluginStates {
   try {
@@ -140,7 +155,7 @@ export function getPluginStates(accountId: string): Record<string, boolean> {
   return loadStates()[accountId] ?? {};
 }
 
-async function applyPluginState(
+async function applyPluginStateNow(
   accountId: string,
   entry: PluginEntry,
   enabled: boolean,
@@ -166,6 +181,14 @@ async function applyPluginState(
   states[accountId] = states[accountId] ?? {};
   states[accountId]![pluginId] = enabled;
   saveStates(states);
+}
+
+async function applyPluginState(
+  accountId: string,
+  entry: PluginEntry,
+  enabled: boolean,
+): Promise<void> {
+  await withPluginStateLock(accountId, () => applyPluginStateNow(accountId, entry, enabled));
 }
 
 /**
