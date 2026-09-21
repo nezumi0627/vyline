@@ -13,11 +13,59 @@ jobs:
     name: Delete merged PR branches
     runs-on: ubuntu-latest
     steps:
-      - name: Delete same-repository merged PR branches
+      - name: Delete integrated branches
         uses: actions/github-script@v7
         with:
           script: |
             const { owner, repo } = context.repo;
+
+            async function deleteExactRef(ref, expectedSha, label) {
+              let current;
+              try {
+                current = await github.rest.git.getRef({
+                  owner,
+                  repo,
+                  ref: `heads/${ref}`,
+                });
+              } catch (error) {
+                if (error.status === 404) return;
+                throw error;
+              }
+
+              if (current.data.object.sha !== expectedSha) {
+                core.warning(
+                  `Keeping ${ref}: expected ${expectedSha}, found ${current.data.object.sha}`,
+                );
+                return;
+              }
+
+              try {
+                await github.rest.git.deleteRef({
+                  owner,
+                  repo,
+                  ref: `heads/${ref}`,
+                });
+                core.info(`Deleted ${label}: ${ref}`);
+              } catch (error) {
+                if (error.status !== 404 && error.status !== 422) throw error;
+              }
+            }
+
+            // One-time cleanup for old integration/archive refs audited against
+            // main. Exact SHAs make this safe if any branch is reused.
+            const integratedStaleBranches = new Map([
+              ["archive/nezuui-2026-09-06", "dbc11fd07c8093e09f82b82d5e685146cc46f0c6"],
+              ["codex/integration-scratch", "80f10d7bc33d285c449617471aa9c10a66d2c7de"],
+              ["codex/nezuui-catalog", "41254427f58b69d0b4976a5b02aae4dd149e789f"],
+              ["codex/profile-note-album-ui", "0e813d9dca408e8877a758aadae1217e5d72e22c"],
+              ["codex/security-lan-followup", "74a359444cad4ddda85e789223762598c90880ac"],
+              ["import-tqmane-protocol", "0c3afea519d82d1aac818f3b753d0f527de37748"],
+            ]);
+
+            for (const [ref, sha] of integratedStaleBranches) {
+              await deleteExactRef(ref, sha, "audited integrated branch");
+            }
+
             const pulls = await github.paginate(github.rest.pulls.list, {
               owner,
               repo,
@@ -32,30 +80,5 @@ jobs:
               if (pr.head.repo?.full_name !== `${owner}/${repo}`) continue;
               if (!pr.head.ref || pr.head.ref === "main") continue;
 
-              let current;
-              try {
-                current = await github.rest.git.getRef({
-                  owner,
-                  repo,
-                  ref: `heads/${pr.head.ref}`,
-                });
-              } catch (error) {
-                if (error.status === 404) continue;
-                throw error;
-              }
-
-              // A closed PR can outlive a reused branch. Delete only when the
-              // branch still points at the exact commit that was merged.
-              if (current.data.object.sha !== pr.head.sha) continue;
-
-              try {
-                await github.rest.git.deleteRef({
-                  owner,
-                  repo,
-                  ref: `heads/${pr.head.ref}`,
-                });
-                core.info(`Deleted merged branch: ${pr.head.ref}`);
-              } catch (error) {
-                if (error.status !== 404 && error.status !== 422) throw error;
-              }
+              await deleteExactRef(pr.head.ref, pr.head.sha, "merged branch");
             }
