@@ -151,6 +151,18 @@ export async function readBoundedAgentIResponse(
 const cookieCache = new Map<string, { cookie: string; at: number }>();
 const sessionHistory = new Map<string, AgentIHistoryItem[]>();
 const COOKIE_TTL_MS = 30 * 60_000;
+const MAX_SESSION_HISTORY_ACCOUNTS = 128;
+
+function pruneAgentICaches(now = Date.now()): void {
+  for (const [accountId, cached] of cookieCache) {
+    if (now - cached.at >= COOKIE_TTL_MS) cookieCache.delete(accountId);
+  }
+  while (sessionHistory.size > MAX_SESSION_HISTORY_ACCOUNTS) {
+    const oldest = sessionHistory.keys().next().value as string | undefined;
+    if (oldest === undefined) break;
+    sessionHistory.delete(oldest);
+  }
+}
 
 async function mintAnonymousCookie(): Promise<string> {
   const response = await fetch(AGENT_I_CHAT_URL, {
@@ -164,6 +176,7 @@ async function mintAnonymousCookie(): Promise<string> {
 }
 
 async function getCookie(accountId: string): Promise<string> {
+  pruneAgentICaches();
   const cached = cookieCache.get(accountId);
   if (cached && Date.now() - cached.at < COOKIE_TTL_MS) return cached.cookie;
   const cookie = await mintAnonymousCookie();
@@ -201,7 +214,9 @@ export async function askAgentI(
     { role: "user" as const, text: body.chats.at(-1)!.contents[0].text },
     { role: "assistant" as const, text },
   ];
+  sessionHistory.delete(accountId);
   sessionHistory.set(accountId, trimHistory(nextHistory));
+  pruneAgentICaches();
   return { text };
 }
 
@@ -220,4 +235,5 @@ export const agentILimits = {
   MAX_CONTEXT_ITEMS,
   MAX_CONTEXT_TEXT,
   MAX_RESPONSE_BYTES,
+  MAX_SESSION_HISTORY_ACCOUNTS,
 } as const;

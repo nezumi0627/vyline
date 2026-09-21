@@ -367,9 +367,9 @@ function cleanupCall(sessionId: string) {
   }
   call.videoClients.clear();
   sessions.delete(sessionId);
-  const accountSessions = byAccount.get(call.accountId);
-  accountSessions?.delete(sessionId);
-  if (accountSessions?.size === 0) byAccount.delete(call.accountId);
+  const accountCalls = byAccount.get(call.accountId);
+  accountCalls?.delete(sessionId);
+  if (accountCalls?.size === 0) byAccount.delete(call.accountId);
 }
 
 export function getCallSnapshot(sessionId: string): CallSessionSnapshot | null {
