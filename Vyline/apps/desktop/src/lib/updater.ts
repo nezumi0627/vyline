@@ -13,6 +13,10 @@ const REPO_OWNER = "nezumi0627";
 const REPO_NAME = "Vyline";
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
 export const UPDATE_CHECK_TIMEOUT_MS = 8_000;
+const UPDATE_CHECK_CACHE_MS = 5 * 60_000;
+
+let cachedUpdate: { at: number; info: UpdateInfo } | null = null;
+let updateCheckInflight: Promise<UpdateInfo> | null = null;
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -73,7 +77,7 @@ export function normalizeReleaseTag(value: unknown): string | null {
   return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag) ? tag : null;
 }
 
-export async function checkForUpdates(): Promise<UpdateInfo> {
+async function fetchUpdateInfo(): Promise<UpdateInfo> {
   const current = UPDATE_NOTES.version;
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
@@ -134,6 +138,30 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
   } finally {
     globalThis.clearTimeout(timeout);
   }
+}
+
+/** Avoid repeating the same release request while settings is revisited. */
+export async function checkForUpdates(): Promise<UpdateInfo> {
+  const now = Date.now();
+  if (cachedUpdate && now - cachedUpdate.at < UPDATE_CHECK_CACHE_MS) {
+    return cachedUpdate.info;
+  }
+  if (updateCheckInflight) return updateCheckInflight;
+
+  const task = fetchUpdateInfo();
+  updateCheckInflight = task;
+  try {
+    const info = await task;
+    cachedUpdate = { at: Date.now(), info };
+    return info;
+  } finally {
+    if (updateCheckInflight === task) updateCheckInflight = null;
+  }
+}
+
+/** Used by tests and explicit user-triggered rechecks. */
+export function clearUpdateCheckCache(): void {
+  cachedUpdate = null;
 }
 
 /** 現在のバージョン文字列を取得 */
