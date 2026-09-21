@@ -773,24 +773,43 @@ const BOX_CURSOR_MISS_MS = Number(process.env.VYLINE_BOX_CURSOR_MISS_MS ?? 15_00
 const DELTA_RPC_TIMEOUT_MS = Number(process.env.VYLINE_DELTA_RPC_TIMEOUT_MS ?? 12_000);
 const TALK_FETCH_TIMEOUT_MS = Number(process.env.VYLINE_TALK_FETCH_TIMEOUT_MS ?? 45_000);
 
+function deleteAccountPrefixed(
+  cache: { keys(): IterableIterator<string>; delete(key: string): unknown },
+  accountId: string,
+): void {
+  const prefix = `${accountId}:`;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
+}
+
 /** アカウント切替・ログアウト時に揮発キャッシュをまとめて解放する。 */
 export function clearAccountRuntimeCaches(accountId: string): void {
+  deleteAccountPrefixed(homeBackgroundCache, accountId);
+  deleteAccountPrefixed(readRangeBgAt, accountId);
   chatsCache.delete(accountId);
-  for (const key of readRangeBgAt.keys()) {
-    if (key.startsWith(`${accountId}:`)) readRangeBgAt.delete(key);
-  }
   messageBoxesCache.delete(messageBoxesCacheKey(accountId, true));
   messageBoxesCache.delete(messageBoxesCacheKey(accountId, false));
-  for (const cache of [boxCursorCache, boxCursorMiss]) {
-    for (const key of cache.keys()) {
-      if (key.startsWith(`${accountId}:`)) cache.delete(key);
-    }
-  }
-  for (const cache of [chatNameCache, mediaFlowCache]) {
-    for (const key of cache.keys()) {
-      if (key.startsWith(`${accountId}:`)) cache.delete(key);
-    }
-  }
+  deleteAccountPrefixed(boxCursorCache, accountId);
+  deleteAccountPrefixed(boxCursorMiss, accountId);
+  deleteAccountPrefixed(chatNameCache, accountId);
+  deleteAccountPrefixed(mediaFlowCache, accountId);
+  deleteAccountPrefixed(contactProfileCache, accountId);
+  deleteAccountPrefixed(contactProfileInflight, accountId);
+  deleteAccountPrefixed(contactProfileMiss, accountId);
+  deleteAccountPrefixed(groupProfileMiss, accountId);
+  deleteAccountPrefixed(mediaFailedAt, accountId);
+  myProfileCache.delete(accountId);
+  myMidCache.delete(accountId);
+  premiumStatusCache.delete(accountId);
+  e2eeIdentityEnsuredAt.delete(accountId);
+  blockedCache.delete(accountId);
+  blockedInflight.delete(accountId);
+  blockVerificationLastRun.delete(accountId);
+  blockVerificationInflight.delete(accountId);
+  blockVerificationLastResults.delete(accountId);
+  catalogCache.delete(accountId);
+  clearGroupCallStatus(accountId);
   void readRangeStorage.release(accountId);
 }
 
