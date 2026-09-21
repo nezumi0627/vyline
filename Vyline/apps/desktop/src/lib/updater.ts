@@ -133,7 +133,11 @@ async function fetchUpdateInfo(): Promise<UpdateInfo> {
       downloadUrl: null,
       downloadDigest: null,
       body: null,
-      error: err instanceof Error ? err.message : String(err),
+      error: controller.signal.aborted
+        ? `update check timed out after ${UPDATE_CHECK_TIMEOUT_MS}ms`
+        : err instanceof Error
+          ? err.message
+          : String(err),
     };
   } finally {
     globalThis.clearTimeout(timeout);
