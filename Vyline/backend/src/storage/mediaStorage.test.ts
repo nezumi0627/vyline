@@ -103,5 +103,4 @@ describe("media storage", () => {
 
     expect(await readMediaStorage(account, chat, message)).toBeNull();
   });
-
 });
