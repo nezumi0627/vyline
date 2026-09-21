@@ -45,6 +45,7 @@ import {
   vylinePutProfile,
   vylinePutProfiles,
   vylineResolvedNameMap,
+  vylineReleaseCache,
 } from "../storage/vylineCache.js";
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
@@ -791,7 +792,7 @@ function deleteAccountPrefixed(
 }
 
 /** アカウント切替・ログアウト時に揮発キャッシュをまとめて解放する。 */
-export function clearAccountRuntimeCaches(accountId: string): void {
+export async function clearAccountRuntimeCaches(accountId: string): Promise<void> {
   deleteAccountPrefixed(homeBackgroundCache, accountId);
   deleteAccountPrefixed(readRangeBgAt, accountId);
   chatsCache.delete(accountId);
@@ -822,7 +823,7 @@ export function clearAccountRuntimeCaches(accountId: string): void {
   blockVerificationLastResults.delete(accountId);
   catalogCache.delete(accountId);
   clearGroupCallStatus(accountId);
-  void readRangeStorage.release(accountId);
+  await Promise.all([readRangeStorage.release(accountId), vylineReleaseCache(accountId)]);
 }
 
 function isTimeoutError(err: unknown): boolean {
