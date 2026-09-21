@@ -12,6 +12,7 @@ const stagingDir = join(root, "dist", `windows-staging-${randomUUID()}`);
 const previousDir = join(root, "dist", "windows.previous");
 const packageDir = join(stagingDir, "Vyline");
 const webDir = join(packageDir, "web");
+const skipInstaller = Bun.argv.includes("--skip-installer") || Bun.argv.includes("--portable");
 function run(command: string, args: string[]) {
   const r = Bun.spawnSync([command, ...args], { cwd: root, stdout: "inherit", stderr: "inherit" });
   if (r.exitCode !== 0) throw new Error(`${command} failed`);
@@ -52,12 +53,14 @@ run("bun", [
   join(root, "Vyline", "backend", "src", "index.ts"),
 ]);
 run("bun", [...args, join(packageDir, "Vyline.exe"), join(root, "scripts", "windows-launcher.ts")]);
-run(findIscc(), [
-  `/DAppVersion=${version}`,
-  `/DSourceDir=${packageDir}`,
-  `/DOutputDir=${stagingDir}`,
-  join(root, "installer", "Vyline.iss"),
-]);
+if (!skipInstaller) {
+  run(findIscc(), [
+    `/DAppVersion=${version}`,
+    `/DSourceDir=${packageDir}`,
+    `/DOutputDir=${stagingDir}`,
+    join(root, "installer", "Vyline.iss"),
+  ]);
+}
 
 // Keep the last successful package recoverable until the new package is complete.
 await rm(previousDir, { recursive: true, force: true });
@@ -69,7 +72,11 @@ try {
   throw error;
 }
 
-const installerName = `VylineSetup-${version}.exe`;
-const installerPath = join(releaseDir, installerName);
-const installerDigest = await sha256File(installerPath);
-await Bun.write(`${installerPath}.sha256`, `${installerDigest}  ${installerName}\n`);
+if (skipInstaller) {
+  console.log(`Portable Windows package created at ${join(releaseDir, "Vyline")}`);
+} else {
+  const installerName = `VylineSetup-${version}.exe`;
+  const installerPath = join(releaseDir, installerName);
+  const installerDigest = await sha256File(installerPath);
+  await Bun.write(`${installerPath}.sha256`, `${installerDigest}  ${installerName}\n`);
+}
