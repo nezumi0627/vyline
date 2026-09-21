@@ -8,7 +8,7 @@ const dataRoot = await mkdtemp(join(tmpdir(), "vyline-plugin-data-test-"));
 process.env.VYLINE_PLUGIN_DIR = pluginRoot;
 process.env.VYLINE_DATA_DIR = dataRoot;
 
-const { listPlugins, withPluginStateLock } = await import("./pluginManager.js");
+const { getPluginStates, listPlugins, withPluginStateLock } = await import("./pluginManager.js");
 
 it("plugin state locks serialize concurrent account writes", async () => {
   const order: string[] = [];
@@ -81,5 +81,20 @@ describe("plugin manager manifest compatibility", () => {
     const plugins = listPlugins();
     expect(plugins.filter((plugin) => plugin.id === "generated-plugin")).toHaveLength(1);
     expect(plugins.some((plugin) => plugin.id === "unsupported-permission")).toBe(false);
+  });
+
+  it("ignores oversized or malformed persisted state without throwing", async () => {
+    await Bun.write(join(dataRoot, "plugin-states.json"), `{"broken":${"x".repeat(1_100_000)}}`);
+    expect(getPluginStates("broken")).toEqual({});
+
+    await Bun.write(
+      join(dataRoot, "plugin-states.json"),
+      JSON.stringify({
+        valid: { "generated-plugin": true, malformed: "yes" },
+        malformed: ["not-an-object"],
+      }),
+    );
+    expect(getPluginStates("valid")).toEqual({ "generated-plugin": true });
+    expect(getPluginStates("malformed")).toEqual({});
   });
 });
