@@ -11,7 +11,7 @@
 **Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/protocol`) を持ちます。
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
-- **ライセンス**: Apache License 2.0（`logo/` のブランド資産は `logo/LICENCE` に従う CC BY 4.0）
+- **ライセンス**: MIT License（`logo/` のブランド資産は `logo/LICENCE` に従う CC BY 4.0）
 - **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
 
@@ -397,3 +397,11 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - **BFF 層**: HTTP 入出力のみ → `service/lineService.ts` に委譲
 - **コード正本**: `backend/src/service/lineService.ts` と `apps/desktop/src/lib/store.ts`
 - **新機能追加**: CONTRIBUTING.md のフローに従う (辞書→Desktop→domain→BFF)
+
+## 作者クレジットについて
+
+- Vyline 本体のソフトウェアライセンスは標準の MIT License とし、追加の帰属条件は課さない。
+- 再配布・改変・紹介時には、可能であれば原作者 **nezumi0627** および Project Vyline へのクレジット表記をお願いする。ただし、これはライセンス上の追加義務ではない。
+- MIT License が要求する著作権表示および許諾表示の保持は必要。
+- `logo/` 以下のブランド資産にはこの扱いを適用せず、必ず `logo/LICENCE` の CC BY 4.0 条件に従う。
+
