@@ -123,6 +123,15 @@ export function appendMessageLog(entry: MessageLogEntry): void {
   }
 }
 
+/** Close and forget the account-scoped stream during logout/account removal. */
+export async function releaseAccountMessageLog(accountId: string): Promise<void> {
+  const stream = streams.get(accountId);
+  if (stream) await new Promise<void>((resolve) => stream.end(() => resolve()));
+  if (streams.get(accountId) === stream) streams.delete(accountId);
+  rotatedBytes.delete(accountId);
+  writtenBytes.delete(accountId);
+}
+
 /** 直近 N 行を読み返す（デバッグ・復元用） */
 export async function readRecentMessageLog(
   accountId: string,

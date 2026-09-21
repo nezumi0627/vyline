@@ -253,3 +253,8 @@ export function vylineGroupNeedsRefresh(entry: VylineGroupLite | null | undefine
 export async function vylineFlush(accountId: string): Promise<void> {
   await storage.flush(accountId);
 }
+
+/** Flush and release the account-scoped profile/group cache on logout. */
+export async function vylineReleaseCache(accountId: string): Promise<void> {
+  await storage.release(accountId);
+}
