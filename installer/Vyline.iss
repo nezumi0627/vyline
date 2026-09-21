@@ -26,6 +26,10 @@ RestartApplications=no
 Uninstallable=yes
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
+[InstallDelete]
+; Vite asset names are content-hashed. Remove obsolete bundles on upgrade,
+; while leaving the separate user data directory untouched.
+Type: filesandordirs; Name: "{app}\web"
 [Files]
 Source: "{#SourceDir}\Vyline.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\VylineBackend.exe"; DestDir: "{app}"; Flags: ignoreversion
