@@ -23,7 +23,22 @@ const log = childLogger("api:debug");
 export const debugRouter = new Hono();
 
 debugRouter.get("/health", (c) => {
-  return c.json({ ok: true, uptime: process.uptime() });
+  const memory = process.memoryUsage();
+  const cpu = process.cpuUsage();
+  return c.json({
+    ok: true,
+    uptime: process.uptime(),
+    memory: {
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+      arrayBuffersBytes: memory.arrayBuffers,
+    },
+    cpu: {
+      userSeconds: cpu.user / 1_000_000,
+      systemSeconds: cpu.system / 1_000_000,
+    },
+  });
 });
 
 /**

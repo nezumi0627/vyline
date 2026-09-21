@@ -206,6 +206,7 @@ app.get("/api/v1/status", (c) =>
 
 // 軽量メトリクス: リクエストカウンタ + プロセス統計のみ（重い集計は行わない）
 const metricsState = { requests: 0, errors: 0 };
+const cpuBaseline = process.cpuUsage();
 app.use("*", async (c, next) => {
   await next();
   if (c.req.path === "/metrics") return;
@@ -214,6 +215,7 @@ app.use("*", async (c, next) => {
 });
 app.get("/metrics", (c) => {
   const mem = process.memoryUsage();
+  const cpu = process.cpuUsage(cpuBaseline);
   const body = [
     "# TYPE vyline_requests_total counter",
     `vyline_requests_total ${metricsState.requests}`,
@@ -225,6 +227,14 @@ app.get("/metrics", (c) => {
     `vyline_memory_rss_bytes ${mem.rss}`,
     "# TYPE vyline_memory_heap_used_bytes gauge",
     `vyline_memory_heap_used_bytes ${mem.heapUsed}`,
+    "# TYPE vyline_memory_external_bytes gauge",
+    `vyline_memory_external_bytes ${mem.external}`,
+    "# TYPE vyline_memory_array_buffers_bytes gauge",
+    `vyline_memory_array_buffers_bytes ${mem.arrayBuffers}`,
+    "# TYPE vyline_process_cpu_user_seconds_total counter",
+    `vyline_process_cpu_user_seconds_total ${cpu.user / 1_000_000}`,
+    "# TYPE vyline_process_cpu_system_seconds_total counter",
+    `vyline_process_cpu_system_seconds_total ${cpu.system / 1_000_000}`,
   ].join("\n");
   return new Response(body, {
     status: 200,
