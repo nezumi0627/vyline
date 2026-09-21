@@ -1,4 +1,4 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
@@ -618,8 +618,10 @@ function PluginsSection() {
   const [loading, setLoading] = useState(true);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const loadGeneration = useRef(0);
 
   const load = async () => {
+    const generation = ++loadGeneration.current;
     if (!accountId) {
       setPlugins([]);
       setLoading(false);
@@ -629,11 +631,13 @@ function PluginsSection() {
     setMessage(null);
     try {
       const result = await api.line.plugins(accountId);
+      if (generation !== loadGeneration.current) return;
       setPlugins(result.plugins ?? []);
     } catch (error) {
+      if (generation !== loadGeneration.current) return;
       setMessage(error instanceof Error ? error.message : "プラグイン一覧を取得できませんでした");
     } finally {
-      setLoading(false);
+      if (generation === loadGeneration.current) setLoading(false);
     }
   };
 
