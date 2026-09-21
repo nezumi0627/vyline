@@ -129,6 +129,12 @@ function clearAccountMemory(accountId: string): void {
   }
 }
 
+/** Drop only the process-local media cache for an account; persisted media stays intact. */
+export function releaseMediaStorageCache(accountId: string): void {
+  if (!accountId) return;
+  clearAccountMemory(accountId);
+}
+
 function diskPath(accountId: string, chatMid: string, messageId: string, ct: string): string {
   const h = key(accountId, chatMid, messageId);
   const type = ct.toLowerCase().startsWith("image/")

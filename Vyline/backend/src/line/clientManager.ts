@@ -35,6 +35,7 @@ import {
   clearAccountRuntimeCaches,
 } from "../service/lineService.js";
 import { releaseAccountChatCache } from "../storage/chatStore.js";
+import { releaseMediaStorageCache } from "../storage/mediaStorage.js";
 import { releaseAccountMessageLog } from "../storage/messageLog.js";
 import { releaseAccountChatLocks } from "../storage/chatLockStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
@@ -1096,5 +1097,6 @@ export async function removeClient(accountId: string): Promise<void> {
   await releaseAccountChatLocks(accountId).catch((err) => {
     log.warn({ accountId, err }, "chat lock release failed after client removal");
   });
+  releaseMediaStorageCache(accountId);
   log.info({ accountId }, "client removed");
 }
