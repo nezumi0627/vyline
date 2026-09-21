@@ -35,8 +35,11 @@ import {
   clearAccountRuntimeCaches,
 } from "../service/lineService.js";
 import { releaseAccountChatCache } from "../storage/chatStore.js";
+import { releaseAccountMessageLog } from "../storage/messageLog.js";
+import { releaseAccountChatLocks } from "../storage/chatLockStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { appendDiagnostic } from "../service/diagnosticsService.js";
+import { resetAgentISession } from "../service/agentIService.js";
 import { deactivatePluginsForAccount, restoreEnabledPlugins } from "./pluginManager.js";
 
 const log = childLogger("clientManager");
@@ -81,6 +84,7 @@ const contentQrState = new Map<
   { url: string | null; expired: boolean; pincode: string | null; inProgress: boolean }
 >();
 const contentTokenId = (accountId: string) => `${accountId}:content`;
+const opsListenerStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 function restorePluginsForSession(accountId: string): void {
   void restoreEnabledPlugins(accountId).catch((error) =>
@@ -388,10 +392,17 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
     return;
   }
   const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
-  setTimeout(() => {
+  const previous = opsListenerStartTimers.get(accountId);
+  if (previous) clearTimeout(previous);
+  const timer = setTimeout(() => {
+    opsListenerStartTimers.delete(accountId);
+    // Logout can happen during the startup delay. Do not resurrect an ops
+    // loop for a client that is no longer the active account session.
+    if (clients.get(accountId)?.client !== client) return;
     startFetchOpsLoop(client, accountId);
     log.info({ accountId, delayMs }, "ops loop started");
   }, delayMs);
+  opsListenerStartTimers.set(accountId, timer);
 }
 
 function startFetchOpsLoop(client: VylineClient, accountId: string): void {
@@ -1048,6 +1059,11 @@ export function getLoggedInAt(accountId: string): number | null {
 }
 
 export async function removeClient(accountId: string): Promise<void> {
+  const listenerStartTimer = opsListenerStartTimers.get(accountId);
+  if (listenerStartTimer) {
+    clearTimeout(listenerStartTimer);
+    opsListenerStartTimers.delete(accountId);
+  }
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);
   const tokenWatch = tokenWatchIntervals.get(accountId);
@@ -1058,12 +1074,19 @@ export async function removeClient(accountId: string): Promise<void> {
   clients.delete(accountId);
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
+  resetAgentISession(accountId);
   clearAccountRuntimeCaches(accountId);
   await deactivatePluginsForAccount(accountId).catch((err) => {
     log.warn({ accountId, err }, "account plugins could not be deactivated");
   });
   await releaseAccountChatCache(accountId).catch((err) => {
     log.warn({ accountId, err }, "chat cache release failed after client removal");
+  });
+  await releaseAccountMessageLog(accountId).catch((err) => {
+    log.warn({ accountId, err }, "message log release failed after client removal");
+  });
+  await releaseAccountChatLocks(accountId).catch((err) => {
+    log.warn({ accountId, err }, "chat lock release failed after client removal");
   });
   log.info({ accountId }, "client removed");
 }

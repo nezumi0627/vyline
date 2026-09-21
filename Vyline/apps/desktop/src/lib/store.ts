@@ -580,19 +580,21 @@ export const useStore = create<State>()(
         const accountChanged = id !== currentAccountId;
         const lastOpenedChatId = id ? readLastOpenedChat(id) : null;
         if (accountChanged) {
-          for (const timer of refreshDebounce.values()) clearTimeout(timer);
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
-          pollIncomingInflight.clear();
           myMessageIdsByChat.clear();
-          refreshDebounce.clear();
-          lastDeltaPollAt.clear();
+          // These are process-local and not persisted. Drop them on every
+          // account boundary so stale cursors, timers, or reactions cannot
+          // affect the next account or retain old account data.
+          eventPollCursor.clear();
+          pollIncomingInflight.clear();
           messageReactionCache.clear();
           recentlyReadAt.clear();
+          for (const timer of refreshDebounce.values()) clearTimeout(timer);
+          refreshDebounce.clear();
+          lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
-          eventPollCursor.delete(String(currentAccountId));
-          eventPollCursor.delete(String(id));
         }
         if (accountChanged && currentAccountId !== null) {
           revokeMessageObjectUrls(get().messages);
@@ -628,6 +630,12 @@ export const useStore = create<State>()(
           revokeMessageObjectUrls(st.messages);
           revokeObjectUrl(st.self.avatarUrl);
           revokeObjectUrl(st.self.backgroundUrl);
+          eventPollCursor.clear();
+          pollIncomingInflight.clear();
+          messageReactionCache.clear();
+          recentlyReadAt.clear();
+          for (const timer of refreshDebounce.values()) clearTimeout(timer);
+          refreshDebounce.clear();
           return {
             chats: [],
             messages: [],
