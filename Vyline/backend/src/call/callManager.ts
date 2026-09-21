@@ -397,6 +397,17 @@ export async function endManagedCallForAccount(
   return true;
 }
 
+/** Stop all media loops before an account session is removed. */
+export async function endManagedCallsForAccount(
+  accountId: string,
+  reason = "account-removed",
+): Promise<number> {
+  const sessionIds = [...(byAccount.get(accountId) ?? [])];
+  await Promise.all(sessionIds.map((sessionId) => endManagedCall(sessionId, reason)));
+  if (byAccount.get(accountId)?.size === 0) byAccount.delete(accountId);
+  return sessionIds.length;
+}
+
 export function listAccountCalls(accountId: string): CallSessionSnapshot[] {
   const ids = byAccount.get(accountId);
   if (!ids) return [];
