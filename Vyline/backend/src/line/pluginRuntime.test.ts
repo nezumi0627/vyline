@@ -4,6 +4,7 @@ import { deactivatePluginsForAccount } from "./pluginManager.js";
 import {
   activatePlugin,
   activePluginIdsFor,
+  dispatchPluginMessage,
   deactivatePlugin,
   isPluginActive,
 } from "./pluginRuntime.js";
@@ -46,6 +47,35 @@ describe("plugin runtime lifecycle", () => {
     expect(activePluginIdsFor(accountId)).toEqual([pluginId]);
     await deactivatePluginsForAccount(accountId);
     expect(activePluginIdsFor(accountId)).toEqual([]);
+  });
+
+  it("isolates rejected async message handlers", async () => {
+    const accountId = `test-account-${crypto.randomUUID()}`;
+    const pluginId = `test-plugin-${crypto.randomUUID()}`;
+    let handled = false;
+    const plugin: VylinePlugin = {
+      manifest: { id: pluginId, name: "Async handler test", version: "1.0.0" },
+      activate(context) {
+        context.messages.on("message", async () => {
+          handled = true;
+          throw new Error("expected plugin failure");
+        });
+      },
+      deactivate() {},
+    };
+
+    expect(
+      await activatePlugin(accountId, pluginId, "unused", ["messages:read"], plugin),
+    ).toBeTrue();
+    dispatchPluginMessage(accountId, {
+      id: "message-1",
+      chatId: "chat-1",
+      contentType: "NONE",
+      createdAt: Date.now(),
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(handled).toBeTrue();
+    await deactivatePlugin(accountId, pluginId);
   });
 
   it("serializes concurrent settings updates for one plugin", async () => {

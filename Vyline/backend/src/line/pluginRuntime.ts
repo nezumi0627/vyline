@@ -32,7 +32,7 @@ interface ActivePlugin {
   accountId: string;
   pluginId: string;
   permissions: Set<string>;
-  messageHandlers: Set<(m: PluginMessageSnapshot) => void>;
+  messageHandlers: Set<(m: PluginMessageSnapshot) => void | Promise<void>>;
   plugin: VylinePlugin;
   context: PluginContext;
 }
@@ -156,7 +156,7 @@ export async function activatePlugin(
 
     const perms = new Set<string>(permissions);
     const logger = await makeLogger(pluginId);
-    const handlers = new Set<(m: PluginMessageSnapshot) => void>();
+    const handlers = new Set<(m: PluginMessageSnapshot) => void | Promise<void>>();
 
     const ctx: PluginContext = {
       accountId,
@@ -243,7 +243,19 @@ export function dispatchPluginMessage(accountId: string, message: PluginMessageS
     if (entry.accountId !== accountId) continue;
     for (const handler of entry.messageHandlers) {
       try {
-        handler(message);
+        const result = handler(message);
+        if (result && typeof result.then === "function") {
+          void result.catch((err: unknown) => {
+            log.warn(
+              {
+                accountId,
+                pluginId: entry.pluginId,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "async plugin message handler crashed (isolated)",
+            );
+          });
+        }
       } catch (err) {
         log.warn(
           {
