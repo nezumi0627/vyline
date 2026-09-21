@@ -23,6 +23,7 @@ import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 import { getDataDir, getPluginDir } from "./pluginPaths.js";
 
 const log = childLogger("plugins");
+const MAX_PLUGIN_MESSAGE_HANDLERS = 64;
 const PLUGIN_LIFECYCLE_TIMEOUT_MS = Number(
   process.env.VYLINE_PLUGIN_LIFECYCLE_TIMEOUT_MS ?? 10_000,
 );
@@ -200,6 +201,12 @@ async function activatePluginNow(
           // 権限強制: messages:read が無い場合は何も購読させない
           if (!perms.has("messages:read")) {
             logger.warn("messages.on ignored: missing permission messages:read");
+            return () => {};
+          }
+          if (handlers.size >= MAX_PLUGIN_MESSAGE_HANDLERS) {
+            logger.warn(
+              `messages.on ignored: handler limit (${MAX_PLUGIN_MESSAGE_HANDLERS}) reached`,
+            );
             return () => {};
           }
           handlers.add(handler);

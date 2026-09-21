@@ -110,6 +110,36 @@ describe("plugin runtime lifecycle", () => {
     await deactivatePlugin(accountId, pluginId);
   });
 
+  it("bounds message handler registrations per plugin", async () => {
+    const accountId = `test-account-${crypto.randomUUID()}`;
+    const pluginId = `test-plugin-${crypto.randomUUID()}`;
+    let calls = 0;
+    const plugin: VylinePlugin = {
+      manifest: { id: pluginId, name: "Handler limit test", version: "1.0.0" },
+      activate(context) {
+        for (let i = 0; i < 65; i += 1) {
+          context.messages.on("message", () => {
+            calls += 1;
+          });
+        }
+      },
+      deactivate() {},
+    };
+
+    expect(
+      await activatePlugin(accountId, pluginId, "unused", ["messages:read"], plugin),
+    ).toBeTrue();
+    dispatchPluginMessage(accountId, {
+      id: "message-1",
+      chatId: "chat-1",
+      contentType: "text",
+      createdAt: Date.now(),
+    });
+
+    expect(calls).toBe(64);
+    await deactivatePlugin(accountId, pluginId);
+  });
+
   it("serializes concurrent settings updates for one plugin", async () => {
     const accountId = `test-account-${crypto.randomUUID()}`;
     const pluginId = `test-plugin-${crypto.randomUUID()}`;
