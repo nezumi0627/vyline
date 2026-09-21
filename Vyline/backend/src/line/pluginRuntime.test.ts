@@ -41,6 +41,31 @@ describe("plugin runtime lifecycle", () => {
     expect(deactivatedContext).toBe(activatedContext);
   });
 
+  it("shares concurrent activation for the same account and plugin", async () => {
+    const accountId = `test-account-${crypto.randomUUID()}`;
+    const pluginId = `test-plugin-${crypto.randomUUID()}`;
+    let activateCount = 0;
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const plugin: VylinePlugin = {
+      manifest: { id: pluginId, name: "Concurrent activation test", version: "1.0.0" },
+      async activate() {
+        activateCount += 1;
+        await gate;
+      },
+      deactivate() {},
+    };
+
+    const first = activatePlugin(accountId, pluginId, "unused", [], plugin);
+    const second = activatePlugin(accountId, pluginId, "unused", [], plugin);
+    release();
+    expect(await Promise.all([first, second])).toEqual([true, true]);
+    expect(activateCount).toBe(1);
+    await deactivatePlugin(accountId, pluginId);
+  });
+
   it("lists only active plugins for an account so logout can release them", async () => {
     const accountId = `test-account-${crypto.randomUUID()}`;
     const pluginId = `test-plugin-${crypto.randomUUID()}`;

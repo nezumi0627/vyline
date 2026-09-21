@@ -166,7 +166,7 @@ async function withSettingsLock<T>(
  * プラグインを有効化して activate を呼ぶ。
  * 失敗しても例外を投げず false を返す（本体は絶対に落とさない）。
  */
-export async function activatePlugin(
+async function activatePluginNow(
   accountId: string,
   pluginId: string,
   pluginDirName: string,
@@ -249,6 +249,38 @@ export async function activatePlugin(
       "plugin activation failed",
     );
     return false;
+  }
+}
+
+const activationInflight = new Map<string, Promise<boolean>>();
+
+/** Share concurrent enables for the same account/plugin pair. */
+export async function activatePlugin(
+  accountId: string,
+  pluginId: string,
+  pluginDirName: string,
+  permissions: string[],
+  loaded?: VylinePlugin,
+  manifestMain?: string,
+): Promise<boolean> {
+  const k = key(accountId, pluginId);
+  if (active.has(k)) return true;
+  const pending = activationInflight.get(k);
+  if (pending) return pending;
+
+  const task = activatePluginNow(
+    accountId,
+    pluginId,
+    pluginDirName,
+    permissions,
+    loaded,
+    manifestMain,
+  );
+  activationInflight.set(k, task);
+  try {
+    return await task;
+  } finally {
+    if (activationInflight.get(k) === task) activationInflight.delete(k);
   }
 }
 
