@@ -19,20 +19,18 @@ import {
 } from "./pluginRuntime.js";
 
 const log = childLogger("plugins");
+// Keep this list aligned with the capabilities actually exposed by PluginContext.
+// Declaring a permission here is an API promise: accepting a permission that has
+// no corresponding context method would make a plugin appear authorized while
+// silently doing nothing at runtime.
 const SUPPORTED_PERMISSIONS = new Set<PluginPermission>([
   "messages:read",
-  "messages:send",
-  "chats:read",
-  "media:read",
-  "media:write",
-  "storage:read",
-  "storage:write",
-  "notifications:send",
-  "ui:extend",
-  "network:request",
   "settings:read",
   "settings:write",
 ]);
+const MAX_PLUGIN_STATE_BYTES = 1 * 1024 * 1024;
+const MAX_STATE_ACCOUNTS = 256;
+const MAX_STATE_PLUGINS_PER_ACCOUNT = 256;
 
 function statesPath(): string {
   return join(getDataDir(), "plugin-states.json");
@@ -48,10 +46,43 @@ export interface PluginEntry extends PluginManifest {
 }
 
 type PluginStates = Record<string, Record<string, boolean>>;
+const pluginStateWrites = new Map<string, Promise<void>>();
+
+/** Serialize per-account state transitions and their read-modify-write. */
+export function withPluginStateLock<T>(accountId: string, work: () => Promise<T>): Promise<T> {
+  const previous = pluginStateWrites.get(accountId) ?? Promise.resolve();
+  const next = previous.catch(() => undefined).then(work);
+  const marker = next.then(
+    () => undefined,
+    () => undefined,
+  );
+  pluginStateWrites.set(accountId, marker);
+  return next.finally(() => {
+    if (pluginStateWrites.get(accountId) === marker) pluginStateWrites.delete(accountId);
+  });
+}
 
 function loadStates(): PluginStates {
   try {
-    return JSON.parse(readFileSync(statesPath(), "utf8")) as PluginStates;
+    const raw = readFileSync(statesPath(), "utf8");
+    if (Buffer.byteLength(raw) > MAX_PLUGIN_STATE_BYTES) {
+      log.warn("plugin state file exceeds the size limit");
+      return {};
+    }
+    const parsed: unknown = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    const states: PluginStates = {};
+    for (const [accountId, rawPlugins] of Object.entries(parsed)) {
+      if (Object.keys(states).length >= MAX_STATE_ACCOUNTS) break;
+      if (!rawPlugins || typeof rawPlugins !== "object" || Array.isArray(rawPlugins)) continue;
+      const plugins: Record<string, boolean> = {};
+      for (const [pluginId, enabled] of Object.entries(rawPlugins)) {
+        if (Object.keys(plugins).length >= MAX_STATE_PLUGINS_PER_ACCOUNT) break;
+        if (typeof enabled === "boolean") plugins[pluginId] = enabled;
+      }
+      states[accountId] = plugins;
+    }
+    return states;
   } catch {
     return {};
   }
@@ -119,7 +150,7 @@ export function getPluginStates(accountId: string): Record<string, boolean> {
   return loadStates()[accountId] ?? {};
 }
 
-async function applyPluginState(
+async function applyPluginStateNow(
   accountId: string,
   entry: PluginEntry,
   enabled: boolean,
@@ -145,6 +176,14 @@ async function applyPluginState(
   states[accountId] = states[accountId] ?? {};
   states[accountId]![pluginId] = enabled;
   saveStates(states);
+}
+
+async function applyPluginState(
+  accountId: string,
+  entry: PluginEntry,
+  enabled: boolean,
+): Promise<void> {
+  await withPluginStateLock(accountId, () => applyPluginStateNow(accountId, entry, enabled));
 }
 
 /**

@@ -12,6 +12,11 @@ import { UPDATE_NOTES } from "./store";
 const REPO_OWNER = "nezumi0627";
 const REPO_NAME = "Vyline";
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases/latest`;
+export const UPDATE_CHECK_TIMEOUT_MS = 8_000;
+const UPDATE_CHECK_CACHE_MS = 5 * 60_000;
+
+let cachedUpdate: { at: number; info: UpdateInfo } | null = null;
+let updateCheckInflight: Promise<UpdateInfo> | null = null;
 
 export interface UpdateInfo {
   currentVersion: string;
@@ -65,11 +70,21 @@ export function isTrustedInstallerUrl(value: string, tag: string): boolean {
   return value.startsWith(prefix) && value === `${prefix}VylineSetup-${tag}.exe`;
 }
 
-export async function checkForUpdates(): Promise<UpdateInfo> {
+/** Keep release metadata untrusted until it matches the version format we ship. */
+export function normalizeReleaseTag(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const tag = value.replace(/^v/i, "");
+  return /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/.test(tag) ? tag : null;
+}
+
+async function fetchUpdateInfo(): Promise<UpdateInfo> {
   const current = UPDATE_NOTES.version;
+  const controller = new AbortController();
+  const timeout = globalThis.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
   try {
     const res = await fetch(RELEASES_API, {
       headers: { Accept: "application/vnd.github.v3+json" },
+      signal: controller.signal,
     });
     if (!res.ok) {
       return {
@@ -89,7 +104,7 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       body?: string;
       assets?: Array<{ name?: string; browser_download_url?: string; digest?: string }>;
     };
-    const tag = release.tag_name?.replace(/^v/, "") ?? null;
+    const tag = normalizeReleaseTag(release.tag_name);
     const hasUpdate = tag != null && isNewerVersion(tag, current);
     const installer = release.assets?.find((asset) => asset.name === `VylineSetup-${tag}.exe`);
     const candidateUrl = installer?.browser_download_url ?? null;
@@ -120,7 +135,33 @@ export async function checkForUpdates(): Promise<UpdateInfo> {
       body: null,
       error: err instanceof Error ? err.message : String(err),
     };
+  } finally {
+    globalThis.clearTimeout(timeout);
   }
+}
+
+/** Avoid repeating the same release request while settings is revisited. */
+export async function checkForUpdates(): Promise<UpdateInfo> {
+  const now = Date.now();
+  if (cachedUpdate && now - cachedUpdate.at < UPDATE_CHECK_CACHE_MS) {
+    return cachedUpdate.info;
+  }
+  if (updateCheckInflight) return updateCheckInflight;
+
+  const task = fetchUpdateInfo();
+  updateCheckInflight = task;
+  try {
+    const info = await task;
+    cachedUpdate = { at: Date.now(), info };
+    return info;
+  } finally {
+    if (updateCheckInflight === task) updateCheckInflight = null;
+  }
+}
+
+/** Used by tests and explicit user-triggered rechecks. */
+export function clearUpdateCheckCache(): void {
+  cachedUpdate = null;
 }
 
 /** 現在のバージョン文字列を取得 */
