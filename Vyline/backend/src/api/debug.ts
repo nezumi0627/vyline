@@ -3,7 +3,7 @@
  *
  * 開発時のみ有効なデバッグエンドポイント
  *
- * GET /debug/tokens   — 保存済みトークン一覧（秘密値は返さない）
+ * GET /debug/tokens   — 保存済みトークンの状態一覧（秘密値・パスは返さない）
  * GET /debug/accounts — アクティブアカウント一覧
  * GET /debug/health   — ヘルスチェック
  */
@@ -23,7 +23,22 @@ const log = childLogger("api:debug");
 export const debugRouter = new Hono();
 
 debugRouter.get("/health", (c) => {
-  return c.json({ ok: true, uptime: process.uptime() });
+  const memory = process.memoryUsage();
+  const cpu = process.cpuUsage();
+  return c.json({
+    ok: true,
+    uptime: process.uptime(),
+    memory: {
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+      arrayBuffersBytes: memory.arrayBuffers,
+    },
+    cpu: {
+      userSeconds: cpu.user / 1_000_000,
+      systemSeconds: cpu.system / 1_000_000,
+    },
+  });
 });
 
 /**
@@ -114,13 +129,13 @@ debugRouter.get("/e2ee/status/:accountId", async (c) => {
 
 debugRouter.get("/tokens", async (c) => {
   const tokens = await loadTokens();
-  // authToken はprefixを含め一切返さず、存在情報だけを返す。
+  // トークンの一部や保存先パスも、ログ・ブラウザ履歴・遠隔デバッグ経由で
+  // 漏れると攻撃材料になるため返さない。診断に必要な存在フラグだけ残す。
   const safe = Object.fromEntries(
     Object.entries(tokens).map(([id, entry]) => [
       id,
       {
         hasAuthToken: Boolean(entry.authToken),
-        storageFile: entry.storageFile,
         savedAt: entry.savedAt,
       },
     ]),

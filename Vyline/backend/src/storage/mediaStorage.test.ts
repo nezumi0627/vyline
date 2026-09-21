@@ -12,6 +12,7 @@ const {
   clearMediaStorageForAccount,
   clearMediaStorageType,
   readMediaStorage,
+  releaseMediaStorageCache,
   restoreMediaStorage,
   writeMediaStorage,
 } = await import("./mediaStorage.js");
@@ -77,5 +78,29 @@ describe("media storage", () => {
       buf: accountBytes,
       contentType: "image/png",
     });
+  });
+  it("releases account memory without deleting persisted media", async () => {
+    const account = "account";
+    const chat = "chat";
+    const message = "release-me";
+    const bytes = new Uint8Array([13, 14, 15]);
+    await writeMediaStorage(account, chat, message, bytes, "image/png");
+
+    releaseMediaStorageCache(account);
+    const mediaHash = createHash("sha256").update(`${account}:${chat}:${message}`).digest("hex");
+    const accountHash = createHash("sha256").update(account).digest("hex");
+    await rm(
+      join(
+        storageRoot,
+        "accounts",
+        accountHash,
+        "images",
+        mediaHash.slice(0, 2),
+        `${mediaHash}.png`,
+      ),
+      { force: true },
+    );
+
+    expect(await readMediaStorage(account, chat, message)).toBeNull();
   });
 });

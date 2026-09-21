@@ -129,6 +129,12 @@ function clearAccountMemory(accountId: string): void {
   }
 }
 
+/** Drop only the process-local media cache for an account; persisted media stays intact. */
+export function releaseMediaStorageCache(accountId: string): void {
+  if (!accountId) return;
+  clearAccountMemory(accountId);
+}
+
 function diskPath(accountId: string, chatMid: string, messageId: string, ct: string): string {
   const h = key(accountId, chatMid, messageId);
   const type = ct.toLowerCase().startsWith("image/")
@@ -227,14 +233,19 @@ export async function removeMediaStorageEntry(
   for (const hit of await findStoredMediaPaths(accountId, chatMid, messageId)) {
     await unlink(hit.path).catch(() => undefined);
   }
-  memory.delete(`${accountId}:${chatMid}:${messageId}`);
+  forgetMemory(`${accountId}:${chatMid}:${messageId}`);
+}
+
+function forgetMemory(memKey: string): void {
+  const entry = memory.get(memKey);
+  if (!entry) return;
+  memoryBytes -= entry.buf.byteLength;
+  memory.delete(memKey);
 }
 
 function remember(memKey: string, buf: Uint8Array, contentType: string): void {
   if (buf.byteLength > MEMORY_MAX_BYTES) return;
-  const previous = memory.get(memKey);
-  if (previous) memoryBytes -= previous.buf.byteLength;
-  memory.delete(memKey);
+  forgetMemory(memKey);
   while (memory.size >= MEMORY_MAX || memoryBytes + buf.byteLength > MEMORY_MAX_BYTES) {
     const oldest = [...memory.entries()].sort((a, b) => a[1].at - b[1].at)[0];
     if (!oldest) break;
