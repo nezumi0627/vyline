@@ -100,6 +100,24 @@ interface ExtractedAndroidZip {
 }
 
 const sessions = new Map<string, AndroidBackupSession>();
+const BACKUP_SESSION_TTL_MS = 6 * 60 * 60 * 1_000;
+const MAX_BACKUP_SESSIONS = 128;
+
+function pruneSessions(now = Date.now()): void {
+  for (const [id, session] of sessions) {
+    if (session.completedAt !== null && now - session.completedAt >= BACKUP_SESSION_TTL_MS) {
+      sessions.delete(id);
+    }
+  }
+  if (sessions.size <= MAX_BACKUP_SESSIONS) return;
+  const finished = [...sessions.values()]
+    .filter((session) => session.completedAt !== null)
+    .sort((left, right) => (left.completedAt ?? 0) - (right.completedAt ?? 0));
+  for (const session of finished) {
+    if (sessions.size <= MAX_BACKUP_SESSIONS) break;
+    sessions.delete(session.id);
+  }
+}
 
 interface AndroidBackupChunkUpload {
   id: string;
@@ -162,6 +180,7 @@ function queueRestore(
     total: 1,
     message: "復元処理を開始しています",
   };
+  pruneSessions();
   sessions.set(session.id, session);
   void runRestore(session, sourcePath, workDir);
   return session;
@@ -354,6 +373,7 @@ export function getAndroidBackupSession(
   accountId: string,
   id: string,
 ): AndroidBackupSession | null {
+  pruneSessions();
   const session = sessions.get(id);
   return session?.accountId === accountId ? session : null;
 }
