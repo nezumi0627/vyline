@@ -48,10 +48,24 @@ import {
 const log = childLogger("api:auth");
 export const authRouter = new Hono();
 type EmailLoginStatus = "idle" | "pending" | "completed" | "failed";
-const emailLoginState = new Map<
-  string,
-  { status: EmailLoginStatus; pincode: string | null; error: string | null }
->();
+const EMAIL_LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
+type EmailLoginState = {
+  status: EmailLoginStatus;
+  pincode: string | null;
+  error: string | null;
+  expiresAt: number;
+};
+const emailLoginState = new Map<string, EmailLoginState>();
+
+function pruneEmailLoginState(now = Date.now()): void {
+  for (const [accountId, state] of emailLoginState) {
+    if (state.expiresAt <= now) emailLoginState.delete(accountId);
+  }
+}
+
+function setEmailLoginState(accountId: string, state: Omit<EmailLoginState, "expiresAt">): void {
+  emailLoginState.set(accountId, { ...state, expiresAt: Date.now() + EMAIL_LOGIN_STATE_TTL_MS });
+}
 
 async function deleteAccountCredentials(accountId: string): Promise<void> {
   await Promise.all([deleteToken(accountId), deleteToken(`${accountId}:content`)]);
@@ -159,15 +173,16 @@ authRouter.post("/login/email", async (c) => {
   }
 
   // E2EE 暗号化と表示 PIN は必ず同一。食い違うと decryptKeyChain が Invalid type: 0 になる
+  pruneEmailLoginState();
   const pincode = random6DigitPin();
-  emailLoginState.set(body.accountId, { status: "pending", pincode, error: null });
+  setEmailLoginState(body.accountId, { status: "pending", pincode, error: null });
 
   loginWithEmail(
     body.accountId,
     body.email,
     body.password,
     (pin) => {
-      emailLoginState.set(body.accountId, { status: "pending", pincode: pin, error: null });
+      setEmailLoginState(body.accountId, { status: "pending", pincode: pin, error: null });
       log.info(
         { accountId: body.accountId, pin: Boolean(pin) },
         "PINCODE REQUIRED — enter on LINE app",
@@ -177,7 +192,7 @@ authRouter.post("/login/email", async (c) => {
   )
     .then(() => {
       const current = emailLoginState.get(body.accountId);
-      emailLoginState.set(body.accountId, {
+      setEmailLoginState(body.accountId, {
         status: "completed",
         pincode: current?.pincode ?? null,
         error: null,
@@ -198,7 +213,7 @@ authRouter.post("/login/email", async (c) => {
         userError = "PIN 認証に失敗しました。表示された PIN をそのまま入力して再試行してください。";
       }
 
-      emailLoginState.set(body.accountId, { status: "failed", pincode: null, error: userError });
+      setEmailLoginState(body.accountId, { status: "failed", pincode: null, error: userError });
       log.error({ accountId: body.accountId, err }, "email login failed");
     });
 
@@ -210,6 +225,7 @@ authRouter.post("/login/email", async (c) => {
 });
 
 authRouter.get("/login/email/:id", (c) => {
+  pruneEmailLoginState();
   const accountId = c.req.param("id");
   const state = emailLoginState.get(accountId) ?? {
     status: "idle" as EmailLoginStatus,
@@ -500,6 +516,7 @@ authRouter.delete("/sessions/:id", async (c) => {
   const accountId = c.req.param("id");
   const alsoLogout = c.req.query("logout") === "1" || c.req.query("logout") === "true";
   if (alsoLogout) await removeClient(accountId);
+  emailLoginState.delete(accountId);
   await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });
@@ -510,6 +527,7 @@ authRouter.delete("/sessions/:id", async (c) => {
 authRouter.delete("/accounts/:id", async (c) => {
   const accountId = c.req.param("id");
   await removeClient(accountId);
+  emailLoginState.delete(accountId);
   await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });
