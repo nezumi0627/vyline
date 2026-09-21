@@ -398,6 +398,12 @@ export const api = {
 
     sessions: () => request<SessionsResponse>("GET", "/auth/sessions"),
 
+    logout: (accountId: string) =>
+      request<{ ok: boolean; accountId?: string }>(
+        "POST",
+        `/auth/logout/${encodeURIComponent(accountId)}`,
+      ),
+
     deleteSession: (accountId: string, opts?: { logout?: boolean }) =>
       request<{ ok: boolean }>(
         "DELETE",
