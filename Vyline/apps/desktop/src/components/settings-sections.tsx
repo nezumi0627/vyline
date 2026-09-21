@@ -2300,6 +2300,14 @@ function InfoSection() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
 
+  const check = () => {
+    setChecking(true);
+    void checkForUpdates().then((info) => {
+      setUpdateInfo(info);
+      setChecking(false);
+    });
+  };
+
   useEffect(() => {
     let cancelled = false;
     setChecking(true);
@@ -2336,10 +2344,27 @@ function InfoSection() {
               rel="noopener noreferrer"
               className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
             >
-              更新あり: v{updateInfo.latestVersion}（インストーラー）
+              更新あり: v{updateInfo.latestVersion}
+              {updateInfo.downloadUrl ? "（インストーラー）" : "（リリースページ）"}
             </a>
           )}
-          {checking && <p className="mt-3 text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
+          {updateInfo && !updateInfo.hasUpdate && !updateInfo.error && !checking && (
+            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">最新バージョンです</p>
+          )}
+          {updateInfo?.error && (
+            <p className="mt-3 text-xs text-[var(--vy-danger)]">更新確認に失敗しました</p>
+          )}
+          <div className="mt-3 flex items-center justify-center gap-2">
+            {checking && <p className="text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
+            <button
+              type="button"
+              onClick={check}
+              disabled={checking}
+              className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
+            >
+              再確認
+            </button>
+          </div>
           <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
             LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
           </p>

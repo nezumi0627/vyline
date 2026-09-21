@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isNewerVersion, isTrustedInstallerUrl } from "./updater";
+import {
+  clearUpdateCheckCache,
+  isNewerVersion,
+  isTrustedInstallerUrl,
+  normalizeReleaseTag,
+} from "./updater";
 
 describe("isNewerVersion", () => {
   test("orders stable releases after prereleases", () => {
@@ -36,4 +41,20 @@ describe("isTrustedInstallerUrl", () => {
       ),
     ).toBe(false);
   });
+});
+
+describe("normalizeReleaseTag", () => {
+  test("accepts semver release tags with an optional v prefix", () => {
+    expect(normalizeReleaseTag("v0.8.0-beta")).toBe("0.8.0-beta");
+    expect(normalizeReleaseTag("0.8.0")).toBe("0.8.0");
+  });
+
+  test("rejects arbitrary release metadata", () => {
+    expect(normalizeReleaseTag("latest")).toBeNull();
+    expect(normalizeReleaseTag(undefined)).toBeNull();
+  });
+});
+
+test("clearUpdateCheckCache is safe before a release check", () => {
+  expect(() => clearUpdateCheckCache()).not.toThrow();
 });
