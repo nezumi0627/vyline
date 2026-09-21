@@ -10,7 +10,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile } from "node:fs/promises";
+import { mkdir, readFile, stat } from "node:fs/promises";
 import { join, relative, resolve } from "node:path";
 import type {
   PluginContext,
@@ -24,6 +24,8 @@ import { getDataDir, getPluginDir } from "./pluginPaths.js";
 
 const log = childLogger("plugins");
 const MAX_PLUGIN_MESSAGE_HANDLERS = 64;
+const MAX_PLUGIN_SETTINGS_BYTES = 256 * 1024;
+const MAX_PLUGIN_SETTING_KEY_LENGTH = 128;
 const PLUGIN_LIFECYCLE_TIMEOUT_MS = Number(
   process.env.VYLINE_PLUGIN_LIFECYCLE_TIMEOUT_MS ?? 10_000,
 );
@@ -123,10 +125,12 @@ async function readSettingsFile(
   pluginId: string,
 ): Promise<Record<string, unknown>> {
   try {
-    return JSON.parse(await readFile(settingsPath(accountId, pluginId), "utf8")) as Record<
-      string,
-      unknown
-    >;
+    const path = settingsPath(accountId, pluginId);
+    if ((await stat(path)).size > MAX_PLUGIN_SETTINGS_BYTES) {
+      log.warn({ accountId, pluginId }, "plugin settings file exceeds size limit");
+      return {};
+    }
+    return JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   } catch {
     return {};
   }
@@ -137,6 +141,10 @@ async function writeSettingsFile(
   pluginId: string,
   data: Record<string, unknown>,
 ): Promise<void> {
+  const serialized = `${JSON.stringify(data, null, 2)}\n`;
+  if (Buffer.byteLength(serialized, "utf8") > MAX_PLUGIN_SETTINGS_BYTES) {
+    throw new Error(`plugin settings exceed ${MAX_PLUGIN_SETTINGS_BYTES} bytes`);
+  }
   await mkdir(settingsDir(), { recursive: true });
   await writeJsonAtomic(settingsPath(accountId, pluginId), data);
 }
@@ -228,6 +236,11 @@ async function activatePluginNow(
           if (!perms.has("settings:write")) {
             logger.warn(`settings.set('${keyName}') ignored: missing permission settings:write`);
             return;
+          }
+          if (keyName.length > MAX_PLUGIN_SETTING_KEY_LENGTH) {
+            throw new Error(
+              `plugin setting key exceeds ${MAX_PLUGIN_SETTING_KEY_LENGTH} characters`,
+            );
           }
           await withSettingsLock(accountId, pluginId, async () => {
             const data = await readSettingsFile(accountId, pluginId);
