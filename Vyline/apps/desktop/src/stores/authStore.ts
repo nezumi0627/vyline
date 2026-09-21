@@ -283,7 +283,8 @@ export const useAuthStore = create<AuthState>()(
           return;
         }
 
-        await api.auth.deleteAccount(accountId);
+        const result = await api.auth.logout(accountId);
+        if (!result.ok) throw new Error("logout failed");
         await get().refreshAccounts();
         if (get().activeAccountId === accountId) {
           set({ activeAccountId: get().accounts[0] ?? null });
