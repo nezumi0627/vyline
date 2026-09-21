@@ -58,6 +58,7 @@ export function LoginPage() {
   const [emailStatus, setEmailStatus] = useState<EmailStatus>("idle");
   const [emailPincode, setEmailPincode] = useState<string | null>(null);
   const emailPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const emailPollInFlight = useRef(false);
 
   const [qrAccountId, setQrAccountId] = useState(pendingLoginAccountId ?? "main");
   const [qrUrl, setQrUrl] = useState<string | null>(null);
@@ -65,6 +66,7 @@ export function LoginPage() {
   const [qrExpired, setQrExpired] = useState(false);
   const [pincode, setPincode] = useState<string | null>(null);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const qrPollInFlight = useRef(false);
 
   const [tokenAccountId, setTokenAccountId] = useState(pendingLoginAccountId ?? "main");
   const [authToken, setAuthToken] = useState("");
@@ -164,20 +166,27 @@ export function LoginPage() {
     // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ
     if (pollRef.current) clearInterval(pollRef.current);
     if (emailPollRef.current) clearInterval(emailPollRef.current);
+    emailPollInFlight.current = false;
     emailPollRef.current = setInterval(async () => {
-      const polled = await api.auth.loginEmailPoll(accountId);
-      if (!polled.ok) return;
-      if (polled.pincode) setEmailPincode(polled.pincode);
-      if (polled.status === "failed") {
-        setEmailStatus("failed");
-        setEmailMsg(polled.error ?? "メールログインに失敗しました。");
-        if (emailPollRef.current) clearInterval(emailPollRef.current);
-        return;
-      }
-      if (polled.status === "completed") {
-        setEmailStatus("completed");
-        if (emailPollRef.current) clearInterval(emailPollRef.current);
-        await goHome(accountId);
+      if (emailPollInFlight.current) return;
+      emailPollInFlight.current = true;
+      try {
+        const polled = await api.auth.loginEmailPoll(accountId);
+        if (!polled.ok) return;
+        if (polled.pincode) setEmailPincode(polled.pincode);
+        if (polled.status === "failed") {
+          setEmailStatus("failed");
+          setEmailMsg(polled.error ?? "メールログインに失敗しました。");
+          if (emailPollRef.current) clearInterval(emailPollRef.current);
+          return;
+        }
+        if (polled.status === "completed") {
+          setEmailStatus("completed");
+          if (emailPollRef.current) clearInterval(emailPollRef.current);
+          await goHome(accountId);
+        }
+      } finally {
+        emailPollInFlight.current = false;
       }
     }, 1200);
   };
@@ -241,29 +250,36 @@ export function LoginPage() {
     // 他のログイン方式のポーリングを止めて二重 goHome を防ぐ
     if (emailPollRef.current) clearInterval(emailPollRef.current);
     if (pollRef.current) clearInterval(pollRef.current);
+    qrPollInFlight.current = false;
     const start = await loginQrStart(qrAccountId);
     if (!start.ok) {
       setQrExpired(true);
       return;
     }
     pollRef.current = setInterval(async () => {
-      const res = await api.auth.loginQrPoll(qrAccountId);
-      if (!res.ok) return;
-      if (res.status === "expired" || res.status === "idle") {
-        setQrExpired(true);
-        setPincode(null);
-        if (pollRef.current) clearInterval(pollRef.current);
-        return;
-      }
-      if (res.qrUrl) {
-        setQrUrl(res.qrUrl);
-        setQrExpired(false);
-      }
-      if (res.pincode) setPincode(res.pincode);
-      if (res.status === "completed") {
-        setQrStatus("completed");
-        if (pollRef.current) clearInterval(pollRef.current);
-        await goHome(qrAccountId);
+      if (qrPollInFlight.current) return;
+      qrPollInFlight.current = true;
+      try {
+        const res = await api.auth.loginQrPoll(qrAccountId);
+        if (!res.ok) return;
+        if (res.status === "expired" || res.status === "idle") {
+          setQrExpired(true);
+          setPincode(null);
+          if (pollRef.current) clearInterval(pollRef.current);
+          return;
+        }
+        if (res.qrUrl) {
+          setQrUrl(res.qrUrl);
+          setQrExpired(false);
+        }
+        if (res.pincode) setPincode(res.pincode);
+        if (res.status === "completed") {
+          setQrStatus("completed");
+          if (pollRef.current) clearInterval(pollRef.current);
+          await goHome(qrAccountId);
+        }
+      } finally {
+        qrPollInFlight.current = false;
       }
     }, 1500);
   }, [qrAccountId, loginQrStart, goHome]);
@@ -272,6 +288,8 @@ export function LoginPage() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
       if (emailPollRef.current) clearInterval(emailPollRef.current);
+      qrPollInFlight.current = false;
+      emailPollInFlight.current = false;
     };
   }, []);
 

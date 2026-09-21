@@ -8,7 +8,7 @@ import { Hono, type Context } from "hono";
 import { cors } from "hono/cors";
 
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join, normalize } from "node:path";
 import { fileURLToPath } from "node:url";
 import { logger } from "./logger.js";
@@ -338,10 +338,15 @@ async function serveStaticFile(path: string) {
     return new Response("forbidden", { status: 403 });
   }
   const file = join(STATIC_DIR, normalized === "/" ? "index.html" : normalized);
-  if (!existsSync(file)) return null;
-  const buf = await readFile(file);
+  let fileInfo;
+  try {
+    fileInfo = await stat(file);
+  } catch {
+    return null;
+  }
+  if (!fileInfo.isFile()) return null;
   const ext = file.slice(file.lastIndexOf(".")).toLowerCase();
-  return new Response(buf, {
+  return new Response(Bun.file(file), {
     status: 200,
     headers: {
       "Content-Type": MIME[ext] ?? "application/octet-stream",
