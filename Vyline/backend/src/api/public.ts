@@ -30,7 +30,20 @@ import {
 const log = childLogger("public-api");
 const RATE_LIMIT_WINDOW_MS = 60_000;
 const RATE_LIMIT_MAX_REQUESTS = 300;
+const RATE_LIMIT_MAX_KEYS = 4_096;
 const rateWindows = new Map<string, { startedAt: number; count: number }>();
+
+function pruneRateWindows(now: number): void {
+  if (rateWindows.size <= RATE_LIMIT_MAX_KEYS) return;
+  for (const [key, window] of rateWindows) {
+    if (now - window.startedAt >= RATE_LIMIT_WINDOW_MS) rateWindows.delete(key);
+  }
+  if (rateWindows.size <= RATE_LIMIT_MAX_KEYS) return;
+  const oldest = [...rateWindows.entries()]
+    .sort(([, left], [, right]) => left.startedAt - right.startedAt)
+    .slice(0, rateWindows.size - RATE_LIMIT_MAX_KEYS);
+  for (const [key] of oldest) rateWindows.delete(key);
+}
 
 export const publicRouter = new Hono();
 
@@ -49,6 +62,7 @@ async function requireToken(c: Context<any>): Promise<{ token: ApiToken } | Resp
   }
   const rateKey = apiToken.tokenHash ?? apiToken.name;
   const now = Date.now();
+  pruneRateWindows(now);
   const current = rateWindows.get(rateKey);
   if (!current || now - current.startedAt >= RATE_LIMIT_WINDOW_MS) {
     rateWindows.set(rateKey, { startedAt: now, count: 1 });
