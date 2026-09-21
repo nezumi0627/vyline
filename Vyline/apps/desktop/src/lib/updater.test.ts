@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isNewerVersion, isTrustedInstallerUrl, normalizeReleaseTag } from "./updater";
+import {
+  clearUpdateCheckCache,
+  isNewerVersion,
+  isTrustedInstallerUrl,
+  normalizeReleaseTag,
+} from "./updater";
 
 describe("isNewerVersion", () => {
   test("orders stable releases after prereleases", () => {
@@ -48,4 +53,8 @@ describe("normalizeReleaseTag", () => {
     expect(normalizeReleaseTag("latest")).toBeNull();
     expect(normalizeReleaseTag(undefined)).toBeNull();
   });
+});
+
+test("clearUpdateCheckCache is safe before a release check", () => {
+  expect(() => clearUpdateCheckCache()).not.toThrow();
 });
