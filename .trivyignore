@@ -1,0 +1,3 @@
+# Docker starts as root only long enough for docker-entrypoint.sh to repair bind-mount ownership.
+# The entrypoint validates writability and execs the backend as the unprivileged `bun` user via gosu.
+AVD-DS-0002
