@@ -140,6 +140,27 @@ describe("plugin runtime lifecycle", () => {
     await deactivatePlugin(accountId, pluginId);
   });
 
+  it("rejects oversized plugin settings before writing them", async () => {
+    const accountId = `test-account-${crypto.randomUUID()}`;
+    const pluginId = `test-plugin-${crypto.randomUUID()}`;
+    let context: PluginContext | undefined;
+    const plugin: VylinePlugin = {
+      manifest: { id: pluginId, name: "Settings limit test", version: "1.0.0" },
+      activate(next) {
+        context = next;
+      },
+      deactivate() {},
+    };
+
+    expect(
+      await activatePlugin(accountId, pluginId, "unused", ["settings:write"], plugin),
+    ).toBeTrue();
+    await expect(context!.settings.set("large", "x".repeat(256 * 1024))).rejects.toThrow(
+      "plugin settings exceed",
+    );
+    await deactivatePlugin(accountId, pluginId);
+  });
+
   it("serializes concurrent settings updates for one plugin", async () => {
     const accountId = `test-account-${crypto.randomUUID()}`;
     const pluginId = `test-plugin-${crypto.randomUUID()}`;
