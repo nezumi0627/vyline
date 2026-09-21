@@ -11,7 +11,7 @@
 **Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/protocol`) を持ちます。
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
-- **ライセンス**: MIT
+- **ライセンス**: Apache License 2.0（`logo/` のブランド資産は `logo/LICENCE` に従う CC BY 4.0）
 - **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
 
