@@ -79,7 +79,6 @@ describe("media storage", () => {
       contentType: "image/png",
     });
   });
-
   it("releases account memory without deleting persisted media", async () => {
     const account = "account";
     const chat = "chat";
@@ -104,4 +103,5 @@ describe("media storage", () => {
 
     expect(await readMediaStorage(account, chat, message)).toBeNull();
   });
+
 });

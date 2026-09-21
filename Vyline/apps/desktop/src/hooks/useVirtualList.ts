@@ -26,6 +26,8 @@ export function useVirtualList<T>({
   const heights = useRef(new Map<string, number>());
   const [measuredVersion, setMeasuredVersion] = useState(0);
   const tickScheduled = useRef(false);
+  const measureFrame = useRef<number | null>(null);
+  const positionFrame = useRef<number | null>(null);
   const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const observers = useRef(new Map<string, ResizeObserver>());
   const anchorRef = useRef<{ key: string; center: boolean } | null>(null);
@@ -112,10 +114,14 @@ export function useVirtualList<T>({
         // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
         if (tickScheduled.current) return;
         tickScheduled.current = true;
-        requestAnimationFrame(() => {
+        measureFrame.current = requestAnimationFrame(() => {
+          measureFrame.current = null;
           tickScheduled.current = false;
           setMeasuredVersion((version) => version + 1);
-          requestAnimationFrame(preserveInitialPosition);
+          positionFrame.current = requestAnimationFrame(() => {
+            positionFrame.current = null;
+            preserveInitialPosition();
+          });
         });
       }
     },
@@ -176,7 +182,15 @@ export function useVirtualList<T>({
 
   useEffect(() => {
     return () => {
+      if (measureFrame.current !== null) cancelAnimationFrame(measureFrame.current);
+      if (positionFrame.current !== null) cancelAnimationFrame(positionFrame.current);
+      measureFrame.current = null;
+      positionFrame.current = null;
+      tickScheduled.current = false;
       for (const observer of observers.current.values()) observer.disconnect();
+      observers.current.clear();
+      refCache.current.clear();
+      heights.current.clear();
     };
   }, []);
 
