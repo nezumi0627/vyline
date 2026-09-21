@@ -1,0 +1,39 @@
+name: Branch Cleanup
+
+on:
+  push:
+    branches: [main]
+
+permissions:
+  contents: write
+
+jobs:
+  cleanup-merged-codex-branches:
+    name: Delete merged Codex branches
+    runs-on: ubuntu-latest
+    steps:
+      - name: Delete merged branch refs
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+
+          while IFS=$'\t' read -r head_repo ref; do
+            [ "$head_repo" = "$GITHUB_REPOSITORY" ] || continue
+            case "$ref" in
+              codex/*) ;;
+              *) continue ;;
+            esac
+
+            echo "Deleting merged branch: $ref"
+            gh api --method DELETE "repos/$GITHUB_REPOSITORY/git/refs/heads/$ref" >/dev/null 2>&1 || true
+          done < <(
+            gh api --paginate "repos/$GITHUB_REPOSITORY/pulls?state=closed&per_page=100" \
+              --jq '.[] | select(.merged_at != null) | [.head.repo.full_name, .head.ref] | @tsv'
+          )
+
+          # PR #275 was closed because its change was already merged through #253.
+          gh api --method DELETE \
+            "repos/$GITHUB_REPOSITORY/git/refs/heads/codex/cancel-stale-talk-listener" \
+            >/dev/null 2>&1 || true
