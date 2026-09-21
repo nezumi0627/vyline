@@ -5,6 +5,7 @@ import * as sessionFactory from "./sessionFactory.js";
 import {
   endManagedCall,
   endManagedCallForAccount,
+  endManagedCallsForAccount,
   getCallSnapshotForAccount,
   listAccountCalls,
   startManagedCall,
@@ -37,6 +38,31 @@ function fakeSession(options: { holdReceive?: boolean } = {}) {
     },
   };
 }
+
+test("account cleanup ends active calls without touching another account", async () => {
+  const sessions = [fakeSession(), fakeSession()];
+  const create = spyOn(sessionFactory, "createDirectCallSession").mockImplementation(
+    async () =>
+      ({
+        session: sessions.shift() as never,
+        transportKind: "planet",
+        wire: { deviceDetails: { device: "DESKTOPWIN" } },
+      }) as never,
+  );
+  const accountId = `call-cleanup-${crypto.randomUUID()}`;
+  const otherAccountId = `${accountId}-other`;
+  try {
+    await startManagedCall({ accountId, client: {} as never, to: "u-one" });
+    await startManagedCall({ accountId: otherAccountId, client: {} as never, to: "u-two" });
+    await endManagedCallsForAccount(accountId);
+    expect(listAccountCalls(accountId)).toHaveLength(0);
+    expect(listAccountCalls(otherAccountId)).toHaveLength(1);
+  } finally {
+    await endManagedCallsForAccount(accountId);
+    await endManagedCallsForAccount(otherAccountId);
+    create.mockRestore();
+  }
+});
 
 test("managed calls are isolated by account and can be ended through the scoped API", async () => {
   const session = fakeSession();
