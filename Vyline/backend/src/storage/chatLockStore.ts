@@ -47,3 +47,11 @@ export async function setChatLocked(
 export async function isChatLocked(accountId: string, chatMid: string): Promise<boolean> {
   return (await loadLockedChats(accountId)).includes(chatMid);
 }
+
+/** Release the per-account write chain after logout without racing a pending write. */
+export async function releaseAccountChatLocks(accountId: string): Promise<void> {
+  const pending = writes.get(accountId);
+  if (!pending) return;
+  await pending.catch(() => undefined);
+  if (writes.get(accountId) === pending) writes.delete(accountId);
+}
