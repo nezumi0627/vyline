@@ -11,7 +11,7 @@ const url = `http://127.0.0.1:${port}`;
 
 async function isRunning(): Promise<boolean> {
   try {
-    return (await fetch(`${url}/healthz`)).ok;
+    return (await fetch(`${url}/healthz`, { signal: AbortSignal.timeout(1_000) })).ok;
   } catch {
     return false;
   }
