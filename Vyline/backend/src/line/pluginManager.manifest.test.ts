@@ -83,6 +83,23 @@ describe("plugin manager manifest compatibility", () => {
     expect(plugins.some((plugin) => plugin.id === "unsupported-permission")).toBe(false);
   });
 
+  it("rejects permissions whose runtime capability is not implemented", async () => {
+    const unsupported = join(pluginRoot, "send-permission");
+    await mkdir(unsupported, { recursive: true });
+    await Bun.write(
+      join(unsupported, "manifest.json"),
+      JSON.stringify({
+        id: "send-permission",
+        name: "Send Permission",
+        version: "1.0.0",
+        permissions: ["messages:send"],
+      }),
+    );
+    await Bun.write(join(unsupported, "index.ts"), "export default {};");
+
+    expect(listPlugins().some((plugin) => plugin.id === "send-permission")).toBe(false);
+  });
+
   it("ignores oversized or malformed persisted state without throwing", async () => {
     await Bun.write(join(dataRoot, "plugin-states.json"), `{"broken":${"x".repeat(1_100_000)}}`);
     expect(getPluginStates("broken")).toEqual({});
