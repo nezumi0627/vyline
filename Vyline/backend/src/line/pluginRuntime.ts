@@ -38,6 +38,9 @@ interface ActivePlugin {
 }
 
 const active = new Map<string, ActivePlugin>();
+// Settings updates are read-modify-write transactions. Serialize only the
+// same account/plugin pair so concurrent plugins cannot overwrite each other.
+const settingsLocks = new Map<string, Promise<void>>();
 
 function key(accountId: string, pluginId: string): string {
   return `${accountId}:${pluginId}`;
@@ -104,6 +107,28 @@ async function writeSettingsFile(
   await writeJsonAtomic(settingsPath(accountId, pluginId), data);
 }
 
+async function withSettingsLock<T>(
+  accountId: string,
+  pluginId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const lockKey = key(accountId, pluginId);
+  const previous = settingsLocks.get(lockKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chain = previous.then(() => current);
+  settingsLocks.set(lockKey, chain);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (settingsLocks.get(lockKey) === chain) settingsLocks.delete(lockKey);
+  }
+}
+
 /**
  * プラグインを有効化して activate を呼ぶ。
  * 失敗しても例外を投げず false を返す（本体は絶対に落とさない）。
@@ -154,17 +179,21 @@ export async function activatePlugin(
             logger.warn(`settings.get('${keyName}') ignored: missing permission settings:read`);
             return fallback;
           }
-          const data = await readSettingsFile(accountId, pluginId);
-          return (data[keyName] as T | undefined) ?? fallback;
+          return withSettingsLock(accountId, pluginId, async () => {
+            const data = await readSettingsFile(accountId, pluginId);
+            return (data[keyName] as T | undefined) ?? fallback;
+          });
         },
         async set<T>(keyName: string, value: T): Promise<void> {
           if (!perms.has("settings:write")) {
             logger.warn(`settings.set('${keyName}') ignored: missing permission settings:write`);
             return;
           }
-          const data = await readSettingsFile(accountId, pluginId);
-          data[keyName] = value;
-          await writeSettingsFile(accountId, pluginId, data);
+          await withSettingsLock(accountId, pluginId, async () => {
+            const data = await readSettingsFile(accountId, pluginId);
+            data[keyName] = value;
+            await writeSettingsFile(accountId, pluginId, data);
+          });
         },
       },
     };
