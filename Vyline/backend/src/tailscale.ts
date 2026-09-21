@@ -3,6 +3,7 @@ import { logger } from "./logger.js";
 
 const TAILSCALE_LOG_INTERVAL_MS = 30_000;
 let lastLoggedIp: string | null = null;
+let watcherStarted = false;
 
 async function tryTailscaleCli(): Promise<string | null> {
   try {
@@ -47,6 +48,8 @@ export async function detectTailscaleIp(): Promise<string | null> {
 }
 
 export function startTailscaleWatcher(port: number): void {
+  if (watcherStarted) return;
+  watcherStarted = true;
   const checkAndLog = async () => {
     const ip = await detectTailscaleIp();
     if (ip && ip !== lastLoggedIp) {
@@ -62,5 +65,5 @@ export function startTailscaleWatcher(port: number): void {
   };
 
   void checkAndLog();
-  setInterval(() => void checkAndLog(), TAILSCALE_LOG_INTERVAL_MS);
+  setInterval(() => void checkAndLog(), TAILSCALE_LOG_INTERVAL_MS).unref();
 }
