@@ -612,6 +612,9 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
       void persist("token-refresh");
     }
   }, TOKEN_REFRESH_CHECK_INTERVAL_MS);
+  // 再ログインで同じ accountId のウォッチャーが張り直されても古い interval を残さない。
+  const previous = tokenWatchIntervals.get(accountId);
+  if (previous) clearInterval(previous);
   tokenWatchIntervals.set(accountId, interval);
 }
 

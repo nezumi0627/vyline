@@ -181,8 +181,9 @@ async function runRestore(
     total: 1,
     message: "バックアップを準備しています",
   };
-  const outputDir = await mkdtemp(join(tmpdir(), `vyline-ios-${session.id}-`));
+  let outputDir: string | null = null;
   try {
+    outputDir = await mkdtemp(join(tmpdir(), `vyline-ios-${session.id}-`));
     const result = await extractAndParseLineHistory(
       device.backupRoot,
       device.udid,
@@ -254,7 +255,7 @@ async function runRestore(
       "iOS backup restore failed",
     );
   } finally {
-    await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+    if (outputDir) await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
