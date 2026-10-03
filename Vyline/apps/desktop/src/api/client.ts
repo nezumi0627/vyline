@@ -94,6 +94,17 @@ function isBackendDown(err: unknown): boolean {
   );
 }
 
+/** サブデバイス認証ヘッダ。raw fetch する箇所（バイナリ送受信・DL）でも同じ認証を通す。 */
+function authHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {};
+  const sessionToken =
+    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
+  const installationId = getSubdeviceInstallationId();
+  if (sessionToken) headers.Authorization = `Bearer ${sessionToken}`;
+  if (installationId) headers["X-Vyline-Installation-Id"] = installationId;
+  return headers;
+}
+
 async function request<T>(
   method: string,
   path: string,
@@ -101,16 +112,12 @@ async function request<T>(
   extraHeaders?: HeadersInit,
 ): Promise<T> {
   let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
       headers: {
         ...(body ? { "Content-Type": "application/json" } : {}),
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
+        ...authHeaders(),
         ...(extraHeaders ?? {}),
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -140,16 +147,12 @@ async function request<T>(
 
 async function uploadBinary<T>(path: string, body: Blob, extraHeaders?: HeadersInit): Promise<T> {
   let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
   try {
     res = await fetch(`${BASE}${path}`, {
       method: "POST",
       headers: {
         "Content-Type": "application/octet-stream",
-        ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-        ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
+        ...authHeaders(),
         ...(extraHeaders ?? {}),
       },
       body,
@@ -241,15 +244,11 @@ async function uploadAndroidBackupChunked(
 }
 
 async function requestBlob<T>(method: string, path: string, blob: Blob): Promise<T> {
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
-  const installationId = getSubdeviceInstallationId();
   const res = await fetch(`${BASE}${path}`, {
     method,
     headers: {
       "Content-Type": blob.type || "application/octet-stream",
-      ...(sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {}),
-      ...(installationId ? { "X-Vyline-Installation-Id": installationId } : {}),
+      ...authHeaders(),
     },
     body: blob,
   });
@@ -464,6 +463,7 @@ export const api = {
     exportChat: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
       const res = await fetch(
         `${BASE}/line/${accountId}/export/${encodeURIComponent(chatMid)}?format=${format}`,
+        { headers: authHeaders() },
       );
       if (!res.ok) {
         const err = (await res.json().catch(() => null)) as { error?: string } | null;
@@ -781,7 +781,7 @@ export const api = {
     updateProfileImage: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
       fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/image`, {
         method: "POST",
-        headers: { "Content-Type": mime },
+        headers: { "Content-Type": mime, ...authHeaders() },
         body: bytes,
       }).then(async (res) => {
         const text = await res.text();
@@ -791,7 +791,7 @@ export const api = {
     updateProfileBackground: (accountId: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
       fetch(`${BASE}/line/${encodeURIComponent(accountId)}/profile/background`, {
         method: "POST",
-        headers: { "Content-Type": mime },
+        headers: { "Content-Type": mime, ...authHeaders() },
         body: bytes,
       }).then(async (res) => {
         const text = await res.text();
