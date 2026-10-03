@@ -2054,7 +2054,7 @@ export const useStore = create<State>()(
             const restored = new Set(getRestoredChatMids(accountId));
             set((st) => ({
               chats: res
-                .chats!.filter((c) => !dismissed.has(c.mid) || restored.has(c.mid))
+                .chats!.filter((c) => (!dismissed.has(c.mid) || restored.has(c.mid)) && !c.left)
                 .map((c) => {
                   const base = mapChat(c, hidden.has(c.mid));
                   const prev = st.chats.find((p) => p.id === c.mid);
