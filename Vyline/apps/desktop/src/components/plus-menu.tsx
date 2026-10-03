@@ -8,6 +8,10 @@ import { IconClose } from "@/components/icons";
 import { lineCdnProxy, lineStickerUrl } from "@/utils/lineMedia";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 
+/** ストアに members が無いときの安定参照。毎レンダー新しい [] を返すと
+ *  useEffect の依存が毎回変わり、取得ループになる。 */
+const NO_MEMBERS: Member[] = [];
+
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> => {
   return new Promise((resolve) => {
     const t = setTimeout(() => resolve("timeout" as const), ms);
@@ -1133,7 +1137,7 @@ function LadderModal({
   onClose: () => void;
 }) {
   const chat = useStore((s) => s.chats.find((c) => c.id === chatId));
-  const storeMembers = chat?.members ?? [];
+  const storeMembers = chat?.members ?? NO_MEMBERS;
   // 参加者一覧はグループと同じ処理（VylineCache + バッチプロフィール）で取得する。
   // ストアの members が空/未解決の場合は専用 API で取得して安定化する。
   const [members, setMembers] = useState<Member[]>(storeMembers);
