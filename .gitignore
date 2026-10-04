@@ -79,7 +79,6 @@ tools/data/
 .agents/skills/handoff/
 
 # ── Backend runtime caches (never commit) ────────────────────────
-Vyline/backend/storage/cache/
-Vyline/backend/storage/saved-media/
+Vyline/backend/storage/
 
 dist-api-docs/

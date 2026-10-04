@@ -87,22 +87,45 @@ export const BLOCK_PAD: Record<
   },
 };
 
+/**
+ * 遠隔 Flex が指定する長さの上限。
+ *
+ * 受信側 Flex は信頼できない入力で、`paddingAll: "10000000px"` のような値が届くと
+ * 行の高さがそのまま 2000 万 px になり、仮想リストのスペーサー計算が桁外れになって
+ * スクロール位置が飛ぶ。実用上ありえない大きさは丸める。
+ * bubble 最大幅は 300px なので 1000px でも十分に余裕がある。
+ */
+const MAX_SPACING_PX = 1000;
+const MAX_SPACING_PERCENT = 1000;
+const MAX_FONT_PX = 200;
+const MAX_FONT_PERCENT = 200;
+
+/** px は負値（offset の -Npx 等）を許すが、% は 0 以上に丸める。 */
+function clampLength(num: number, unit: "px" | "%", max: number): string {
+  const min = unit === "px" ? -max : 0;
+  return `${Math.min(Math.max(num, min), max)}${unit}`;
+}
+
 export function spacingCss(value?: string | null): string | undefined {
   if (value == null || value === "") return undefined;
   if (SPACING[value] != null) return SPACING[value];
-  if (/^-?\d+(\.\d+)?(px|%)?$/.test(value)) {
-    return value.endsWith("px") || value.endsWith("%") ? value : `${value}px`;
-  }
-  return value;
+  const m = /^(-?\d+(?:\.\d+)?)(px|%)?$/.exec(value);
+  if (!m) return value;
+  const num = Number(m[1]);
+  return m[2] === "%"
+    ? clampLength(num, "%", MAX_SPACING_PERCENT)
+    : clampLength(num, "px", MAX_SPACING_PX);
 }
 
 export function fontSizeCss(value?: string | null): string | undefined {
   if (value == null || value === "") return undefined;
   if (FONT[value] != null) return FONT[value];
-  if (/^\d+(\.\d+)?(px|%)?$/.test(value)) {
-    return value.endsWith("px") || value.endsWith("%") ? value : `${value}px`;
-  }
-  return value;
+  const m = /^(\d+(?:\.\d+)?)(px|%)?$/.exec(value);
+  if (!m) return value;
+  const num = Number(m[1]);
+  return m[2] === "%"
+    ? clampLength(num, "%", MAX_FONT_PERCENT)
+    : clampLength(num, "px", MAX_FONT_PX);
 }
 
 /** image size → 幅（公式 MdImg.Ex*）。size 未指定時は md=100px */
