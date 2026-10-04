@@ -513,6 +513,7 @@ export const MessageBubble = memo(
     showName,
     highlight,
     mediaGroup,
+    isNew,
     onOpenPostNotification,
   }: {
     message: Message;
@@ -521,10 +522,15 @@ export const MessageBubble = memo(
     showName: boolean;
     highlight?: string;
     mediaGroup?: Message[];
+    /** 直近に届いたメッセージだけ入場アニメを再生する（履歴は静止） */
+    isNew?: boolean;
     onOpenPostNotification: (target: PostNotificationTarget) => void;
   }) {
     const isMe = message.authorId === "me";
     const settings = useStore((s) => s.settings);
+    // 履歴の再マウント（仮想リストの出入り）でアニメが再生されないようにする。
+    // 設定でアニメ無効なら常に静止。
+    const animate = Boolean(isNew) && settings.animationMode !== "none";
     const streamerMode = settings.streamerMode;
     const revokeMessage = useStore((s) => s.revokeMessage);
     const restoreRevokedMessage = useStore((s) => s.restoreRevokedMessage);
@@ -995,7 +1001,8 @@ export const MessageBubble = memo(
     const metaLine = !isRevoked && (
       <div
         className={cn(
-          "mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
+          // 既読表示・「既読者」ボタンが後から増えても行高が変わらないよう最小高を確保する。
+          "mt-1 flex min-h-[16px] items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
           isMe ? "flex-row-reverse" : "flex-row",
         )}
       >
@@ -1095,7 +1102,8 @@ export const MessageBubble = memo(
         return (
           <div
             className={cn(
-              "vy-pop-in cursor-default",
+              "cursor-default",
+              animate && "vy-pop-in",
               target.stickerSticky && "relative flex w-full justify-center py-2",
             )}
             aria-label="スタンプ"
@@ -1105,24 +1113,36 @@ export const MessageBubble = memo(
                 くっつき
               </span>
             )}
-            {isStickerImageSrc(target.sticker) ? (
-              <img
-                src={target.stickerAnimated ? stickerAnimationUrl(target.sticker) : target.sticker}
-                alt="スタンプ"
-                onError={hideBrokenMedia}
-                className={cn("h-32 w-32 object-contain", target.stickerSticky && "drop-shadow-md")}
-                draggable={false}
-              />
-            ) : (
-              <span className="text-7xl leading-none">{target.sticker || "🎴"}</span>
-            )}
+            <span className="grid h-32 w-32 place-items-center">
+              {isStickerImageSrc(target.sticker) ? (
+                <img
+                  src={
+                    target.stickerAnimated ? stickerAnimationUrl(target.sticker) : target.sticker
+                  }
+                  alt="スタンプ"
+                  loading="lazy"
+                  decoding="async"
+                  onError={hideBrokenMedia}
+                  className={cn(
+                    "h-32 w-32 object-contain",
+                    target.stickerSticky && "drop-shadow-md",
+                  )}
+                  draggable={false}
+                />
+              ) : (
+                <span className="text-7xl leading-none">{target.sticker || "🎴"}</span>
+              )}
+            </span>
           </div>
         );
       }
 
       if (target.kind === "emoji") {
         return (
-          <div className="vy-pop-in cursor-default text-6xl leading-none" aria-label="絵文字">
+          <div
+            className={cn("cursor-default text-6xl leading-none", animate && "vy-pop-in")}
+            aria-label="絵文字"
+          >
             {target.sticons?.length ? (
               <Highlighted
                 text={target.text ?? ""}
@@ -1158,7 +1178,12 @@ export const MessageBubble = memo(
 
       if (target.kind === "location") {
         return (
-          <div className="vy-msg-enter max-w-[280px] overflow-hidden rounded-msg shadow-sm">
+          <div
+            className={cn(
+              "max-w-[280px] overflow-hidden rounded-msg shadow-sm",
+              animate && "vy-msg-enter",
+            )}
+          >
             {target.location?.latitude != null && target.location?.longitude != null ? (
               <a
                 href={`https://www.google.com/maps/search/?api=1&query=${target.location.latitude},${target.location.longitude}`}
@@ -1198,7 +1223,12 @@ export const MessageBubble = memo(
 
       if (target.kind === "contact") {
         return (
-          <div className="vy-msg-enter w-[240px] overflow-hidden rounded-msg shadow-sm">
+          <div
+            className={cn(
+              "w-[240px] overflow-hidden rounded-msg shadow-sm",
+              animate && "vy-msg-enter",
+            )}
+          >
             <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
               {target.contact?.thumbnailUrl ? (
                 <img
@@ -1224,7 +1254,8 @@ export const MessageBubble = memo(
       return (
         <div
           className={cn(
-            "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            "vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            animate && "vy-msg-enter",
           )}
           style={{
             background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -1243,18 +1274,18 @@ export const MessageBubble = memo(
                 video={target.kind === "video"}
               />
             ) : target.kind === "video" ? (
-              <div className="relative overflow-hidden rounded-xl">
+              <div className="relative aspect-video w-[260px] overflow-hidden rounded-xl bg-black/5">
                 <video
                   src={target.imageSrc.replace(/preview=1/, "preview=0")}
                   controls
                   preload="metadata"
-                  className="h-auto w-[260px] max-w-full object-cover"
+                  className="h-full w-full object-contain"
                 />
               </div>
             ) : (
               <button
                 type="button"
-                className="group relative block overflow-hidden rounded-xl text-left"
+                className="group relative grid max-h-[360px] min-h-[140px] max-w-[240px] min-w-[120px] place-items-center overflow-hidden rounded-xl text-left"
                 onClick={(e) => {
                   e.stopPropagation();
                   setLightbox(true);
@@ -1264,6 +1295,8 @@ export const MessageBubble = memo(
                 <img
                   src={target.imageSrc}
                   alt="送信された画像"
+                  loading="lazy"
+                  decoding="async"
                   onError={hideBrokenMedia}
                   className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
                 />
@@ -1389,7 +1422,8 @@ export const MessageBubble = memo(
               type="button"
               {...pressHandlers}
               className={cn(
-                "vy-pop-in cursor-default",
+                "cursor-default",
+                animate && "vy-pop-in",
                 message.stickerSticky && "relative flex w-full justify-center py-2",
               )}
               aria-label="スタンプ"
@@ -1400,32 +1434,36 @@ export const MessageBubble = memo(
                   くっつき
                 </span>
               )}
-              {isStickerImageSrc(message.sticker) ? (
-                <img
-                  src={
-                    message.sticker
-                      ? message.stickerAnimated
-                        ? stickerAnimationUrl(message.sticker)
-                        : message.sticker
-                      : ""
-                  }
-                  alt="スタンプ"
-                  onError={hideBrokenMedia}
-                  className={cn(
-                    "h-32 w-32 object-contain",
-                    message.stickerSticky && "drop-shadow-md",
-                  )}
-                  draggable={false}
-                />
-              ) : (
-                <span className="text-7xl leading-none">{message.sticker || "🧩"}</span>
-              )}
+              <span className="grid h-32 w-32 place-items-center">
+                {isStickerImageSrc(message.sticker) ? (
+                  <img
+                    src={
+                      message.sticker
+                        ? message.stickerAnimated
+                          ? stickerAnimationUrl(message.sticker)
+                          : message.sticker
+                        : ""
+                    }
+                    alt="スタンプ"
+                    loading="lazy"
+                    decoding="async"
+                    onError={hideBrokenMedia}
+                    className={cn(
+                      "h-32 w-32 object-contain",
+                      message.stickerSticky && "drop-shadow-md",
+                    )}
+                    draggable={false}
+                  />
+                ) : (
+                  <span className="text-7xl leading-none">{message.sticker || "🧩"}</span>
+                )}
+              </span>
             </button>
           ) : message.kind === "emoji" ? (
             <button
               type="button"
               {...pressHandlers}
-              className="vy-pop-in cursor-default text-6xl leading-none"
+              className={cn("cursor-default text-6xl leading-none", animate && "vy-pop-in")}
               aria-label="絵文字"
             >
               {replyQuote}
@@ -1440,7 +1478,10 @@ export const MessageBubble = memo(
               )}
             </button>
           ) : message.kind === "flex" ? (
-            <div {...pressHandlers} className="vy-msg-enter max-w-[min(100%,340px)]">
+            <div
+              {...pressHandlers}
+              className={cn("max-w-[min(100%,340px)]", animate && "vy-msg-enter")}
+            >
               {replyQuote}
               {message.flexJson ? (
                 <FlexMessageView
@@ -1455,7 +1496,7 @@ export const MessageBubble = memo(
               <FlexActions flexJson={message.flexJson} chatId={chat.id} />
             </div>
           ) : message.kind === "rich" ? (
-            <div {...pressHandlers} className="vy-msg-enter">
+            <div {...pressHandlers} className={cn(animate && "vy-msg-enter")}>
               {replyQuote}
               <RichMessageView
                 imageUrl={message.richImageUrl}
@@ -1466,7 +1507,10 @@ export const MessageBubble = memo(
           ) : message.kind === "location" ? (
             <div
               {...pressHandlers}
-              className="vy-msg-enter max-w-[280px] overflow-hidden rounded-msg shadow-sm"
+              className={cn(
+                "max-w-[280px] overflow-hidden rounded-msg shadow-sm",
+                animate && "vy-msg-enter",
+              )}
             >
               {replyQuote}
               {message.location?.latitude != null && message.location?.longitude != null ? (
@@ -1505,7 +1549,10 @@ export const MessageBubble = memo(
           ) : message.kind === "file" ? (
             <div
               {...pressHandlers}
-              className="vy-msg-enter w-[260px] overflow-hidden rounded-msg shadow-sm"
+              className={cn(
+                "w-[260px] overflow-hidden rounded-msg shadow-sm",
+                animate && "vy-msg-enter",
+              )}
             >
               {replyQuote}
               <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
@@ -1541,7 +1588,10 @@ export const MessageBubble = memo(
           ) : message.kind === "contact" ? (
             <div
               {...pressHandlers}
-              className="vy-msg-enter w-[240px] overflow-hidden rounded-msg shadow-sm"
+              className={cn(
+                "w-[240px] overflow-hidden rounded-msg shadow-sm",
+                animate && "vy-msg-enter",
+              )}
             >
               {replyQuote}
               <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
@@ -1569,7 +1619,8 @@ export const MessageBubble = memo(
             <div
               {...pressHandlers}
               className={cn(
-                "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                "vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                animate && "vy-msg-enter",
               )}
               style={{
                 background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
@@ -1630,18 +1681,18 @@ export const MessageBubble = memo(
                     video={message.kind === "video"}
                   />
                 ) : message.kind === "video" ? (
-                  <div className="relative overflow-hidden rounded-xl">
+                  <div className="relative aspect-video w-[260px] overflow-hidden rounded-xl bg-black/5">
                     <video
                       src={message.imageSrc.replace(/preview=1/, "preview=0")}
                       controls
                       preload="metadata"
-                      className="h-auto w-[260px] max-w-full object-cover"
+                      className="h-full w-full object-contain"
                     />
                   </div>
                 ) : (
                   <button
                     type="button"
-                    className="group relative block overflow-hidden rounded-xl text-left"
+                    className="group relative grid max-h-[360px] min-h-[140px] max-w-[240px] min-w-[120px] place-items-center overflow-hidden rounded-xl text-left"
                     onClick={(e) => {
                       e.stopPropagation();
                       setLightboxMedia(message);
@@ -1652,6 +1703,8 @@ export const MessageBubble = memo(
                     <img
                       src={message.imageSrc}
                       alt="送信された画像"
+                      loading="lazy"
+                      decoding="async"
                       onError={hideBrokenMedia}
                       className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
                     />
@@ -1789,6 +1842,8 @@ export const MessageBubble = memo(
     // 同じなら再レンダーしない（大量メッセージ表示時の不要な再描画を防ぐ）
     return (
       prev.message === next.message &&
+      prev.mediaGroup === next.mediaGroup &&
+      prev.isNew === next.isNew &&
       prev.showAvatar === next.showAvatar &&
       prev.showName === next.showName &&
       prev.highlight === next.highlight &&

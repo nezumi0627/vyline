@@ -35,3 +35,18 @@ describe("findFirstUnreadMessage", () => {
     expect(result?.id).toBe("10");
   });
 });
+
+// 区切り契約: 戻り値 id はそのまま「ここから未読」のアンカー、undefined は末尾表示。
+describe("unread divider contract", () => {
+  it("uses the returned id as the divider anchor shown right before that message", () => {
+    const messages = [message("10", 10, true), message("20", 20, false), message("30", 30, false)];
+    const anchor = findFirstUnreadMessage(messages);
+
+    expect(anchor?.id).toBe("20");
+    expect(messages.findIndex((m) => m.id === anchor?.id)).toBe(1);
+  });
+
+  it("yields no divider when everything is read", () => {
+    expect(findFirstUnreadMessage([message("10", 10, true)])).toBeUndefined();
+  });
+});

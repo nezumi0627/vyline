@@ -49,6 +49,7 @@ function dayLabel(ts: number): string {
 
 type MsgRow =
   | { key: string; kind: "day"; label: string }
+  | { key: string; kind: "unread"; messageId: string }
   | {
       key: string;
       kind: "msg";
@@ -60,6 +61,8 @@ type MsgRow =
       isMatch: boolean;
       isActive: boolean;
       flash: boolean;
+      /** 直近に届いたメッセージだけ入場アニメを付ける（履歴は静止描画） */
+      isNew: boolean;
       searching: boolean;
       highlight?: string;
     };
@@ -145,6 +148,9 @@ function ChatAreaBase() {
     let lastDay = "";
     const searching = search.open && search.q.trim().length > 0;
     const q = search.q.trim();
+    // 既読無効時は開いた時点のアンカーを優先し、区切りを次回まで残す。
+    const dividerId = initialChatScrollMessageId ?? firstUnreadMessageId;
+    const now = Date.now();
     for (let i = 0; i < chatMessages.length; i++) {
       const m = chatMessages[i]!;
       const dl = dayLabel(m.createdAt);
@@ -176,6 +182,12 @@ function ChatAreaBase() {
       const sameAuthorAsPrev =
         prev && prev.authorId === primaryMessage.authorId && dayLabel(prev.createdAt) === lastDay;
       const groupIds = mediaGroup?.map((item) => item.id) ?? [primaryMessage.id];
+      if (dividerId && groupIds.includes(dividerId)) {
+        out.push({
+          key: `unread-${dividerId}`,
+          item: { key: `unread-${dividerId}`, kind: "unread", messageId: dividerId },
+        });
+      }
       out.push({
         key: `msg-${primaryMessage.id}`,
         item: {
@@ -189,16 +201,27 @@ function ChatAreaBase() {
           isMatch: groupIds.some((id) => matches.includes(id)),
           isActive: groupIds.includes(activeMatchId ?? ""),
           flash: groupIds.includes(highlightMessageId ?? ""),
+          isNew: now - primaryMessage.createdAt < 5_000,
           searching,
           highlight: searching ? q : undefined,
         },
       });
     }
     return out;
-  }, [chatMessages, matches, search.open, search.q, activeMatchId, highlightMessageId]);
+  }, [
+    chatMessages,
+    matches,
+    search.open,
+    search.q,
+    activeMatchId,
+    highlightMessageId,
+    initialChatScrollMessageId,
+    firstUnreadMessageId,
+  ]);
 
   const estimateMsgHeight = useCallback((row: MsgRow): number => {
     if (row.kind === "day") return 40;
+    if (row.kind === "unread") return 34;
     if (row.mediaGroup && row.mediaGroup.length > 1) {
       return row.mediaGroup.length <= 2 ? 210 : 300;
     }
@@ -332,13 +355,13 @@ function ChatAreaBase() {
         ? (initialChatScrollMessageId ?? firstUnreadMessageId)
         : null;
     const key = targetMessageId ? `msg-${targetMessageId}` : null;
-    if (key && !rows.some((row) => row.key === key)) {
-      // 初回取得中は、未読位置が分かるまでスクロール位置を確定しない。
-      if (loadingMessages) return;
-    }
+    // 初期取得中は、未読位置が分かるまでスクロール位置を確定しない。
+    if (key && !rows.some((row) => row.key === key) && loadingMessages) return;
+    // 未読位置が読み込み済みの範囲に無い（古い履歴がトリミング済み等）なら末尾へ。
+    const missingTarget = Boolean(key) && !rows.some((row) => row.key === key);
     const frame = requestAnimationFrame(() => {
       openedChatRef.current = activeChatId;
-      if (targetMessageId) {
+      if (targetMessageId && !missingTarget) {
         scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true });
       } else scrollToBottom("auto");
     });
@@ -356,9 +379,12 @@ function ChatAreaBase() {
   ]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
+  // 仮想リストでは smooth と triple-rAF 補正が競合して往復するため auto で一気に合わせる。
   useEffect(() => {
     if (!highlightMessageId) return;
-    requestAnimationFrame(() => scrollToMessagePosition(highlightMessageId, { center: true }));
+    requestAnimationFrame(() =>
+      scrollToMessagePosition(highlightMessageId, { center: true, behavior: "auto" }),
+    );
   }, [highlightMessageId, scrollToMessagePosition]);
 
   // 検索ヒットへジャンプ
@@ -661,6 +687,20 @@ function ChatAreaBase() {
                     {item.label}
                   </span>
                 </div>
+              ) : item.kind === "unread" ? (
+                <div
+                  key={key}
+                  ref={rowRef(key)}
+                  role="separator"
+                  aria-label="ここから未読"
+                  className="my-2 flex items-center gap-2 px-2"
+                >
+                  <span className="h-0.5 flex-1 rounded-full bg-[var(--vy-accent)]" aria-hidden />
+                  <span className="shrink-0 text-[0.7rem] font-semibold text-[var(--vy-accent)]">
+                    ここから未読
+                  </span>
+                  <span className="h-0.5 flex-1 rounded-full bg-[var(--vy-accent)]" aria-hidden />
+                </div>
               ) : (
                 <div
                   key={key}
@@ -681,6 +721,7 @@ function ChatAreaBase() {
                     showAvatar={!item.sameAuthorAsNext}
                     showName={!item.sameAuthorAsPrev}
                     highlight={item.searching ? (item.highlight as string) : undefined}
+                    isNew={item.isNew}
                     onOpenPostNotification={openPostNotification}
                   />
                 </div>

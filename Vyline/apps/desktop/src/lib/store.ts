@@ -370,6 +370,8 @@ type State = {
   indexing: { active: boolean; label: string } | null;
   /** 個別チャットの「既読を無効化」設定（mid → 無効化） */
   readDisabledMids: Record<string, boolean>;
+  /** 既読無効時に次回も区切りを復元するための未読先頭アンカー（chatId → messageId） */
+  unreadAnchors: Record<string, string>;
   /** ブロック中のユーザー MID 一覧（送信抑止・UI 表示に使用） */
   blockedMids: string[];
   /** 誤操作防止のため操作を禁止するチャット MID 一覧 */
@@ -565,6 +567,7 @@ export const useStore = create<State>()(
       loadingMessages: false,
       indexing: null,
       readDisabledMids: {},
+      unreadAnchors: {},
       blockedMids: [],
       lockedChatMids: [],
       notice: null,
@@ -613,6 +616,7 @@ export const useStore = create<State>()(
             readWatermarks: {},
             announcements: {},
             readDisabledMids: {},
+            unreadAnchors: {},
             blockedMids: [],
             lockedChatMids: [],
           });
@@ -721,23 +725,32 @@ export const useStore = create<State>()(
         const firstUnread = findFirstUnreadMessage(
           state.messages.filter((message) => message.chatId === id),
         );
-        const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread);
-        set((st) => ({
+        // 既読無効時はライブの未読が消えても区切りを残すため、開いた時点の先頭を保持する。
+        const anchorId = state.unreadAnchors[id];
+        const targetId = firstUnread?.id ?? anchorId ?? null;
+        const hasUnread = (chat?.unread ?? 0) > 0 || Boolean(firstUnread) || Boolean(anchorId);
+        set({
           screen: "chat",
           activeChatId: id,
-          initialChatScrollMessageId: firstUnread?.id ?? null,
+          initialChatScrollMessageId: targetId,
           initialChatScrollMode: hasUnread ? "unread" : "bottom",
           profileDrawerOpen: false,
-          chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
-        }));
-        const { accountId, settings, chats, demoMode, readDisabledMids } = get();
-        if (demoMode) return;
-        if (accountId && settings.readReceipts && !readDisabledMids[id]) {
+        });
+        const { accountId, settings, demoMode, readDisabledMids } = get();
+        // ローカルの既読反映はサーバ送信の可否と独立。無効化されていなければ適用する。
+        const readEnabled = settings.readReceipts && !readDisabledMids[id];
+        if (readEnabled) {
+          // 既読送信できるときだけバッジを消し、未読フラグを既読にする。
+          set((st) => ({ chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)) }));
           void get().markChatRead(id);
+        } else if (firstUnread) {
+          // 既読無効時はバッジ・フラグを残し、次回開いたときの区切りアンカーだけ記録する。
+          set((st) => ({ unreadAnchors: { ...st.unreadAnchors, [id]: firstUnread.id } }));
         }
+        if (demoMode) return;
         if (accountId) {
           void api.line.getContact(accountId, id).catch(() => undefined);
-          const chat = chats.find((c) => c.id === id);
+          const chat = get().chats.find((c) => c.id === id);
           const mids =
             chat?.type === "group" ? (chat.members?.slice(0, 6).map((m) => m.id) ?? []) : [];
           for (const mid of mids) {
@@ -1832,7 +1845,10 @@ export const useStore = create<State>()(
       },
 
       markChatRead: async (id, requestedMessageId) => {
-        const { accountId, messages, settings, readDisabledMids, demoMode } = get();
+        const { accountId, messages, settings, readDisabledMids } = get();
+        // 全体無効（設定）または個別無効（右クリック）なら、ローカル状態もサーバも動かさない。
+        // 未読フラグ・バッジ・区切りをそのまま残し、次回も同じ位置から再開する。
+        if (!settings.readReceipts || readDisabledMids[id]) return;
         const received = messages
           .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
           .sort((a, b) => {
@@ -1850,10 +1866,19 @@ export const useStore = create<State>()(
           ? received.find((message) => message.id === requestedMessageId)
           : undefined;
         const last = requested ?? received[0];
+        const lastId = last?.id;
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => ({
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
+          // 既読したので区切りアンカーを解除する。
+          unreadAnchors: Object.fromEntries(
+            Object.entries(st.unreadAnchors).filter(([chatId]) => chatId !== id),
+          ),
+          // 開いているチャットの区切り表示も即座に消す。
+          ...(st.activeChatId === id && st.initialChatScrollMessageId
+            ? { initialChatScrollMessageId: null }
+            : {}),
           messages: st.messages.map((m) => {
             // 自分の送信メッセージの read は相手側の既読状態。
             // チャットを開いただけで自分の最新送信まで既読にしてはいけない。
@@ -1866,11 +1891,8 @@ export const useStore = create<State>()(
             return { ...m, read: true, status: "read" };
           }),
         }));
-        if (demoMode) return;
-        // 全体無効（設定）または個別無効（右クリック）なら送信しない
-        if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
-        const lastId = last?.id;
-        // 同じ最終メッセージへの既読は再送しない
+        if (!accountId) return;
+        // 同じ最終メッセージへの既読は再送しない。
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
         if (lastId && prev === lastId) return;
@@ -1907,6 +1929,10 @@ export const useStore = create<State>()(
         set((st) => ({
           chats: st.chats.map((chat) =>
             unreadChatIds.includes(chat.id) ? { ...chat, unread: 0 } : chat,
+          ),
+          // 既読にしたチャットの区切りアンカーを解除する。
+          unreadAnchors: Object.fromEntries(
+            Object.entries(st.unreadAnchors).filter(([chatId]) => !unreadChatIds.includes(chatId)),
           ),
           messages: st.messages.map((message) =>
             unreadChatIds.includes(message.chatId) && message.authorId !== "me"
@@ -2290,6 +2316,7 @@ export const useStore = create<State>()(
             });
             if (
               get().settings.readReceipts &&
+              !get().readDisabledMids[chatId] &&
               get().activeChatId === chatId &&
               sessionOpenedChats.has(chatId)
             ) {
@@ -2566,7 +2593,9 @@ export const useStore = create<State>()(
         });
 
         if (activeChatId === chatId && !silent && sessionOpenedChats.has(chatId)) {
-          if (get().settings.readReceipts) void get().markChatRead(chatId);
+          if (get().settings.readReceipts && !get().readDisabledMids[chatId]) {
+            void get().markChatRead(chatId);
+          }
           for (const m of fresh) {
             const contactKey = accountChatKey(accountId, m.authorId);
             if (m.authorId !== "me" && !contactFetched.has(contactKey)) {
@@ -2863,6 +2892,7 @@ export const useStore = create<State>()(
         draftMentions: s.draftMentions,
         seenUpdateVersion: s.seenUpdateVersion,
         readDisabledMids: s.readDisabledMids,
+        unreadAnchors: s.unreadAnchors,
         blockedMids: s.blockedMids,
         lockedChatMids: s.lockedChatMids,
         activeChatId: s.activeChatId,
@@ -2880,6 +2910,8 @@ export const useStore = create<State>()(
       onRehydrateStorage: () => (state) => {
         if (!state) return;
         state.settings.animationMode ??= "vyline";
+        // 旧バージョンの永続データには無いフィールドを補完する。
+        state.unreadAnchors ??= {};
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
         if (state.theme) {
