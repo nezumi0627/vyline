@@ -1875,10 +1875,6 @@ export const useStore = create<State>()(
           unreadAnchors: Object.fromEntries(
             Object.entries(st.unreadAnchors).filter(([chatId]) => chatId !== id),
           ),
-          // 開いているチャットの区切り表示も即座に消す。
-          ...(st.activeChatId === id && st.initialChatScrollMessageId
-            ? { initialChatScrollMessageId: null }
-            : {}),
           messages: st.messages.map((m) => {
             // 自分の送信メッセージの read は相手側の既読状態。
             // チャットを開いただけで自分の最新送信まで既読にしてはいけない。

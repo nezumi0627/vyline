@@ -373,6 +373,14 @@ function ChatAreaBase() {
       if (targetMessageId && targetRow && !missingTarget) {
         scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true }, targetRow.key);
       } else scrollToBottom("auto");
+      // Keep the target through markChatRead(); consume it only after the opening jump is queued.
+      if (targetMessageId) {
+        useStore.setState((state) =>
+          state.initialChatScrollMessageId === targetMessageId
+            ? { initialChatScrollMessageId: null }
+            : {},
+        );
+      }
     });
     return () => cancelAnimationFrame(frame);
   }, [

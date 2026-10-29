@@ -238,7 +238,7 @@ describe("useStore unread divider", () => {
     expect(state.initialChatScrollMode).toBe("bottom");
   });
 
-  it("clears the divider and the anchor once read receipts are sent", async () => {
+  it("clears read state and the persistent anchor but keeps the opening scroll target", async () => {
     useStore.setState({
       settings: { ...useStore.getState().settings, readReceipts: true },
       accountId: "account-1",
@@ -257,7 +257,7 @@ describe("useStore unread divider", () => {
     const state = useStore.getState();
     expect(state.messages[0]!.read).toBe(true);
     expect(state.chats[0]!.unread).toBe(0);
-    expect(state.initialChatScrollMessageId).toBeNull();
+    expect(state.initialChatScrollMessageId).toBe("900");
     expect(state.unreadAnchors["chat-enabled"]).toBeUndefined();
   });
 });
