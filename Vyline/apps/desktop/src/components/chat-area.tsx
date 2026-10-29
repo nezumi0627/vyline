@@ -354,15 +354,24 @@ function ChatAreaBase() {
       initialChatScrollMode === "unread"
         ? (initialChatScrollMessageId ?? firstUnreadMessageId)
         : null;
-    const key = targetMessageId ? `msg-${targetMessageId}` : null;
-    // 初期取得中は、未読位置が分かるまでスクロール位置を確定しない。
-    if (key && !rows.some((row) => row.key === key) && loadingMessages) return;
+    const targetRow = targetMessageId
+      ? rows.find(
+          (row) =>
+            row.item.kind === "msg" &&
+            (row.item.message.id === targetMessageId ||
+              row.item.mediaGroup?.some((message) => message.id === targetMessageId)),
+        )
+      : undefined;
+    // 未読数だけが先に届き、本文の読み込みが続いている間は最下部に確定しない。
+    if (initialChatScrollMode === "unread" && !targetMessageId && loadingMessages) return;
+    // 未読が画像グループ内にある場合も、そのグループの代表行へ移動する。
+    if (targetMessageId && !targetRow && loadingMessages) return;
     // 未読位置が読み込み済みの範囲に無い（古い履歴がトリミング済み等）なら末尾へ。
-    const missingTarget = Boolean(key) && !rows.some((row) => row.key === key);
+    const missingTarget = Boolean(targetMessageId) && !targetRow;
     const frame = requestAnimationFrame(() => {
       openedChatRef.current = activeChatId;
-      if (targetMessageId && !missingTarget) {
-        scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true });
+      if (targetMessageId && targetRow && !missingTarget) {
+        scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true }, targetRow.key);
       } else scrollToBottom("auto");
     });
     return () => cancelAnimationFrame(frame);

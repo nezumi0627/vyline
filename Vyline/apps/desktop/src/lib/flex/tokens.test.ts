@@ -16,14 +16,16 @@ describe("spacingCss", () => {
   it("clamps a remote padding that would blow up the row height", () => {
     // 受信 Flex に paddingAll:"10000000px" が来ると 2000 万 px の行になり、
     // 仮想リストのスクロール位置が飛ぶため上限で丸める。
-    expect(spacingCss("10000000px")).toBe("1000px");
-    expect(spacingCss("99999")).toBe("1000px");
-    expect(spacingCss("-10000000px")).toBe("-1000px");
-    expect(spacingCss("50000%")).toBe("1000%");
+    expect(spacingCss("10000000px")).toBe("300px");
+    expect(spacingCss("99999")).toBe("300px");
+    expect(spacingCss("-10000000px")).toBe("-300px");
+    expect(spacingCss("50000%")).toBe("100%");
   });
 
-  it("passes through non-numeric values such as calc()", () => {
-    expect(spacingCss("calc(100% - 8px)")).toBe("calc(100% - 8px)");
+  it("rejects non-literal CSS lengths that could bypass the clamp", () => {
+    expect(spacingCss("calc(10000000px)")).toBeUndefined();
+    expect(spacingCss("var(--untrusted-size)")).toBeUndefined();
+    expect(fontSizeCss("calc(10000000px)")).toBeUndefined();
   });
 });
 

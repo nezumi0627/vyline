@@ -93,10 +93,10 @@ export const BLOCK_PAD: Record<
  * 受信側 Flex は信頼できない入力で、`paddingAll: "10000000px"` のような値が届くと
  * 行の高さがそのまま 2000 万 px になり、仮想リストのスペーサー計算が桁外れになって
  * スクロール位置が飛ぶ。実用上ありえない大きさは丸める。
- * bubble 最大幅は 300px なので 1000px でも十分に余裕がある。
+ * bubble 最大幅は 300px のため、寸法は 300px / 100% を上限とする。
  */
-const MAX_SPACING_PX = 1000;
-const MAX_SPACING_PERCENT = 1000;
+const MAX_SPACING_PX = 300;
+const MAX_SPACING_PERCENT = 100;
 const MAX_FONT_PX = 200;
 const MAX_FONT_PERCENT = 200;
 
@@ -110,7 +110,7 @@ export function spacingCss(value?: string | null): string | undefined {
   if (value == null || value === "") return undefined;
   if (SPACING[value] != null) return SPACING[value];
   const m = /^(-?\d+(?:\.\d+)?)(px|%)?$/.exec(value);
-  if (!m) return value;
+  if (!m) return undefined;
   const num = Number(m[1]);
   return m[2] === "%"
     ? clampLength(num, "%", MAX_SPACING_PERCENT)
@@ -121,7 +121,7 @@ export function fontSizeCss(value?: string | null): string | undefined {
   if (value == null || value === "") return undefined;
   if (FONT[value] != null) return FONT[value];
   const m = /^(\d+(?:\.\d+)?)(px|%)?$/.exec(value);
-  if (!m) return value;
+  if (!m) return undefined;
   const num = Number(m[1]);
   return m[2] === "%"
     ? clampLength(num, "%", MAX_FONT_PERCENT)
