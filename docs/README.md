@@ -25,6 +25,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [api/openapi.md](./api/openapi.md)                      | OpenAPI / Swagger ルートと仕様の管理方法                 |
 | [api/media-batch.md](./api/media-batch.md)              | 複数メディア一括送信 API                                 |
 | [deployment/docker.md](./deployment/docker.md)          | Docker / Docker Compose デプロイ                         |
+| [deployment/linux-macos.md](./deployment/linux-macos.md) | Linux / macOS 起動・ポート・LAN設定                     |
 | [developers/index.md](./developers/index.md)                             | 開発者ガイド（読む順序・人間向け入口）     |
 | [developers/for-ai.md](./developers/for-ai.md)                           | AI エージェント向け指示書                 |
 | [developers/plugin-system.md](./developers/plugin-system.md)              | プラグインシステム（ユーザーガイド）       |

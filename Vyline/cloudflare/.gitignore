@@ -1,0 +1,4 @@
+/.build-context/
+/node_modules/
+/.dev.vars
+/worker-configuration.d.ts

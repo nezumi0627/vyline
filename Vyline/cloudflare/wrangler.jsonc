@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "vyline",
+  "main": "./worker.ts",
+  "compatibility_date": "2026-10-11",
+  "workers_dev": false,
+  "preview_urls": false,
+  "vars": {
+    "R2_ACCOUNT_ID": "replace-with-cloudflare-account-id",
+    "R2_BUCKET_NAME": "vyline-data"
+  },
+  "observability": { "enabled": true },
+  "containers": [
+    {
+      "class_name": "VylineContainer",
+      "image": "./Dockerfile",
+      "instance_type": "standard-1",
+      "max_instances": 1
+    }
+  ],
+  "durable_objects": {
+    "bindings": [{ "name": "VYLINE_CONTAINER", "class_name": "VylineContainer" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["VylineContainer"] }]
+}

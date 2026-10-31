@@ -16,6 +16,8 @@
     "dev": "bun run --parallel --no-orphans dev:backend dev:frontend",
     "dev:backend": "bun --watch Vyline/backend/src/index.ts",
     "server": "bun Vyline/backend/src/index.ts",
+    "cli": "bun Vyline/backend/src/cli.ts",
+    "mcp": "bun Vyline/backend/src/mcp.ts",
     "dev:frontend": "bun --cwd Vyline/apps/desktop ./node_modules/vite/bin/vite.js",
     "build": "bun run --cwd Vyline/apps/desktop build",
     "build:packages": "bun run --cwd Vyline/packages/ios-backup build",

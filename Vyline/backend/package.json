@@ -9,6 +9,7 @@
     "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit"
   },
   "dependencies": {
+    "@modelcontextprotocol/server": "^2.4.0",
     "@vyline/ios-backup": "workspace:*",
     "@vyline/plugin-sdk": "workspace:*",
     "@vyline/protocol": "workspace:*",
