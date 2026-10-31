@@ -2,6 +2,23 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
+const backendTarget = process.env.VYLINE_BACKEND_URL ??
+  `http://127.0.0.1:${process.env.VYLINE_BACKEND_PORT ?? process.env.PORT ?? 3001}`;
+
+function proxyConfig(ws = false) {
+  return {
+    target: backendTarget,
+    ...(ws ? { ws: true } : {}),
+    configure(proxy: { on: (event: string, handler: (proxyReq: { setHeader: (name: string, value: string) => void }, req: { socket: { remoteAddress?: string } }) => void) => void }) {
+      proxy.on("proxyReq", (proxyReq, req) => {
+        if (req.socket.remoteAddress) {
+          proxyReq.setHeader("x-vyline-proxy-client-address", req.socket.remoteAddress);
+        }
+      });
+    },
+  };
+}
+
 export default defineConfig({
   plugins: [react()],
   resolve: {
@@ -12,15 +29,16 @@ export default defineConfig({
   },
   server: {
     host: process.env.VYLINE_LAN_ACCESS === "true" ? "0.0.0.0" : "127.0.0.1",
-    // preview_start (autoPort) は PORT 環境変数で空きポートを渡す。未設定なら通常どおり 5173
-    port: process.env.PORT ? Number(process.env.PORT) : 5173,
+    // Frontend and backend use separate ports. Vite picks the next free port by default.
+    port: process.env.VITE_PORT ? Number(process.env.VITE_PORT) : 5173,
     proxy: {
-      // backend へのプロキシ (CORS 回避)
+      // Same-origin proxies also carry the real client address so LAN auth does not trust Vite as localhost.
       "/api": {
-        target: "http://127.0.0.1:3001",
+        ...proxyConfig(true),
         rewrite: (path) => path.replace(/^\/api/, ""),
         timeout: 60_000,
       },
+      "/line": proxyConfig(true),
     },
   },
 });

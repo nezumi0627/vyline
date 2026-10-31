@@ -1,28 +1,23 @@
-/**
- * VylineStorage — Vyline ブランドの永続 JSON ストレージ
- *
- * data/vyline-{namespace}-{accountId}.json に debounce 書き込み。
- * メモリ優先・ディスクは起動時 hydrate / 定期 flush。
- */
+/** Key-addressable persistent cache storage backed by SQLite. */
 
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
-import { accountDir, readAccountJson } from "./accountDirs.js";
+import { accountDir } from "./accountDirs.js";
+import { migrateOnce, sqlite } from "./sqlite.js";
 
 const log = childLogger("VylineStorage");
-const _dir = dirname(fileURLToPath(import.meta.url));
+const _dir = fileURLToPath(new URL(".", import.meta.url));
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 
-const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CACHE_SAVE_MS ?? 350);
+type Row = { key: string; payload: string };
+type RecordValue = Record<string, unknown>;
 
 export class VylineStorage<T extends object> {
   readonly namespace: string;
   private readonly memory = new Map<string, T>();
-  private readonly dirty = new Set<string>();
-  private readonly timers = new Map<string, ReturnType<typeof setTimeout>>();
   private readonly factory: () => T;
 
   constructor(namespace: string, empty: () => T) {
@@ -30,11 +25,98 @@ export class VylineStorage<T extends object> {
     this.factory = empty;
   }
 
-  private path(accountId: string): string {
-    return join(accountDir(accountId), `vyline-${this.namespace}.json`);
+  private ensureSchema(): void {
+    sqlite.exec(`CREATE TABLE IF NOT EXISTS vyline_kv (
+      namespace TEXT NOT NULL,
+      account_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      PRIMARY KEY (namespace, account_id, key)
+    );`);
   }
-  private legacyPath(accountId: string): string {
-    return join(DATA_DIR, `vyline-${this.namespace}-${accountId}.json`);
+
+  private legacyPaths(accountId: string): string[] {
+    return [
+      join(accountDir(accountId), `vyline-${this.namespace}.json`),
+      join(DATA_DIR, `vyline-${this.namespace}-${accountId}.json`),
+      join(DATA_DIR, `nezu-${this.namespace}-${accountId}.json`),
+    ];
+  }
+
+  private encode(data: T): Row[] {
+    const obj = data as RecordValue;
+    const rows: Row[] = [];
+    if (this.namespace === "cache") {
+      if (obj.version !== undefined) rows.push({ key: "$version", payload: JSON.stringify(obj.version) });
+      for (const bucket of ["profiles", "groups"] as const) {
+        const entries = obj[bucket];
+        if (entries && typeof entries === "object") {
+          for (const [id, value] of Object.entries(entries as RecordValue)) {
+            rows.push({ key: `${bucket}:${id}`, payload: JSON.stringify(value) });
+          }
+        }
+      }
+      return rows;
+    }
+    return Object.entries(obj).map(([key, value]) => ({ key, payload: JSON.stringify(value) }));
+  }
+
+  private decode(rows: Row[]): T {
+    const result = this.factory() as RecordValue;
+    if (this.namespace === "cache") {
+      result.profiles = {};
+      result.groups = {};
+      for (const row of rows) {
+        if (row.key === "$version") result.version = JSON.parse(row.payload);
+        else if (row.key.startsWith("profiles:")) {
+          (result.profiles as RecordValue)[row.key.slice(9)] = JSON.parse(row.payload);
+        } else if (row.key.startsWith("groups:")) {
+          (result.groups as RecordValue)[row.key.slice(7)] = JSON.parse(row.payload);
+        }
+      }
+      return result as T;
+    }
+    for (const row of rows) result[row.key] = JSON.parse(row.payload);
+    return result as T;
+  }
+
+  private async ensureMigrated(accountId: string): Promise<void> {
+    this.ensureSchema();
+    const migrationName = `vyline-storage-json-v2:${this.namespace}:${accountId}`;
+    const migrated = sqlite.query("SELECT 1 FROM app_migrations WHERE name = ?").get(migrationName);
+    if (migrated) return;
+    const legacyPath = this.legacyPaths(accountId).find(existsSync);
+    if (!legacyPath) return;
+    try {
+      const source = JSON.parse(await readFile(legacyPath, "utf8")) as T;
+      const rows = this.encode(source);
+      migrateOnce(migrationName, () => {
+        const insert = sqlite.query(`INSERT OR IGNORE INTO vyline_kv (namespace, account_id, key, payload)
+          VALUES (?, ?, ?, ?)`);
+        for (const row of rows) insert.run(this.namespace, accountId, row.key, row.payload);
+      });
+    } catch (err) {
+      log.error({ accountId, namespace: this.namespace, err }, "legacy cache import failed; source retained");
+      throw err;
+    }
+  }
+
+  private writeDiff(accountId: string, before: T, after: T): void {
+    this.ensureSchema();
+    const oldRows = new Map(this.encode(before).map((row) => [row.key, row.payload]));
+    const newRows = new Map(this.encode(after).map((row) => [row.key, row.payload]));
+    const upsert = sqlite.query(`INSERT INTO vyline_kv (namespace, account_id, key, payload)
+      VALUES (?, ?, ?, ?) ON CONFLICT(namespace, account_id, key)
+      DO UPDATE SET payload = excluded.payload`);
+    const remove = sqlite.query("DELETE FROM vyline_kv WHERE namespace = ? AND account_id = ? AND key = ?");
+    sqlite.transaction(() => {
+      for (const [key, payload] of newRows) {
+        if (oldRows.get(key) !== payload) upsert.run(this.namespace, accountId, key, payload);
+      }
+      for (const key of oldRows.keys()) {
+        if (!newRows.has(key)) remove.run(this.namespace, accountId, key);
+      }
+    }).immediate();
   }
 
   peek(accountId: string): T | undefined {
@@ -44,98 +126,71 @@ export class VylineStorage<T extends object> {
   async load(accountId: string): Promise<T> {
     const cached = this.memory.get(accountId);
     if (cached) return cached;
-
-    const p = this.path(accountId);
-    if (!existsSync(p)) {
-      // 旧フラット (vyline-<ns>-<id>.json / nezu-<ns>-<id>.json) からの移行:
-      // あれば読んで accounts/<id>/ へ保存
-      const legacy = await readAccountJson<T>(
-        accountId,
-        `vyline-${this.namespace}.json`,
-        this.legacyPath(accountId),
-      );
-      if (!legacy) {
-        const nezuLegacy = join(DATA_DIR, `nezu-${this.namespace}-${accountId}.json`);
-        if (existsSync(nezuLegacy)) {
-          try {
-            const parsed = JSON.parse(await readFile(nezuLegacy, "utf8")) as T;
-            this.memory.set(accountId, parsed);
-            await mkdir(dirname(p), { recursive: true });
-            await writeFile(p, JSON.stringify(parsed), "utf8");
-            return parsed;
-          } catch {
-            // fallthrough to empty
-          }
-        }
-        const empty = this.factory();
-        this.memory.set(accountId, empty);
-        return empty;
-      }
-      this.memory.set(accountId, legacy);
-      return legacy;
-    }
-
-    try {
-      const raw = await readFile(p, "utf8");
-      const parsed = JSON.parse(raw) as T;
-      this.memory.set(accountId, parsed);
-      return parsed;
-    } catch (err) {
-      log.warn({ accountId, namespace: this.namespace, err }, "VylineStorage load failed");
-      const empty = this.factory();
-      this.memory.set(accountId, empty);
-      return empty;
-    }
-  }
-
-  /** メモリ上を即更新し、debounce でディスクへ */
-  async mutate(accountId: string, fn: (data: T) => void): Promise<T> {
-    const data = await this.load(accountId);
-    fn(data);
+    await this.ensureMigrated(accountId);
+    const rows = sqlite.query("SELECT key, payload FROM vyline_kv WHERE namespace = ? AND account_id = ?")
+      .all(this.namespace, accountId) as Row[];
+    const data = this.decode(rows);
     this.memory.set(accountId, data);
-    this.scheduleSave(accountId);
     return data;
   }
 
+  async getCacheEntries(
+    accountId: string,
+    bucket: "profiles" | "groups",
+    keys: string[],
+  ): Promise<Map<string, unknown>> {
+    if (this.namespace !== "cache") throw new Error("key reads are only supported by the cache namespace");
+    const unique = [...new Set(keys.filter(Boolean))];
+    if (unique.length === 0) return new Map();
+    const prefix = `${bucket}:`;
+    const cached = this.memory.get(accountId) as Record<string, Record<string, unknown>> | undefined;
+    if (cached) return new Map(unique.flatMap((key) => cached[bucket]?.[key] === undefined
+      ? [] : [[key, cached[bucket]![key]] as [string, unknown]]));
+    await this.ensureMigrated(accountId);
+    const placeholders = unique.map(() => "?").join(",");
+    const rows = sqlite.query(`SELECT key, payload FROM vyline_kv
+      WHERE namespace = ? AND account_id = ? AND key IN (${placeholders})`)
+      .all(this.namespace, accountId, ...unique.map((key) => `${prefix}${key}`)) as Row[];
+    return new Map(rows.map((row) => [row.key.slice(prefix.length), JSON.parse(row.payload) as unknown]));
+  }
+
+  async putCacheEntries(
+    accountId: string,
+    bucket: "profiles" | "groups",
+    entries: Array<{ key: string; value: unknown }>,
+  ): Promise<void> {
+    if (this.namespace !== "cache") throw new Error("key writes are only supported by the cache namespace");
+    if (entries.length === 0) return;
+    await this.ensureMigrated(accountId);
+    const upsert = sqlite.query(`INSERT INTO vyline_kv (namespace, account_id, key, payload)
+      VALUES (?, ?, ?, ?) ON CONFLICT(namespace, account_id, key)
+      DO UPDATE SET payload = excluded.payload`);
+    sqlite.transaction(() => {
+      for (const entry of entries) {
+        if (!entry.key) continue;
+        upsert.run(this.namespace, accountId, `${bucket}:${entry.key}`, JSON.stringify(entry.value));
+      }
+    }).immediate();
+    const cached = this.memory.get(accountId) as Record<string, Record<string, unknown>> | undefined;
+    if (cached) for (const entry of entries) if (entry.key) cached[bucket]![entry.key] = entry.value;
+  }
+
+  async mutate(accountId: string, fn: (data: T) => void): Promise<T> {
+    const current = await this.load(accountId);
+    const next = structuredClone(current);
+    fn(next);
+    this.writeDiff(accountId, current, next);
+    this.memory.set(accountId, next);
+    return next;
+  }
+
   async replace(accountId: string, data: T): Promise<void> {
+    const current = await this.load(accountId);
+    this.writeDiff(accountId, current, data);
     this.memory.set(accountId, data);
-    this.scheduleSave(accountId);
   }
 
-  private scheduleSave(accountId: string): void {
-    this.dirty.add(accountId);
-    const prev = this.timers.get(accountId);
-    if (prev) clearTimeout(prev);
-    this.timers.set(
-      accountId,
-      setTimeout(() => {
-        void this.flush(accountId);
-      }, SAVE_DEBOUNCE_MS),
-    );
-  }
+  async flush(_accountId: string): Promise<void> {}
 
-  async flush(accountId: string): Promise<void> {
-    if (!this.dirty.has(accountId)) return;
-    this.dirty.delete(accountId);
-    const data = this.memory.get(accountId);
-    if (!data) return;
-    try {
-      await mkdir(DATA_DIR, { recursive: true });
-      await writeFile(
-        this.path(accountId),
-        JSON.stringify(data, (key, value) => {
-          if (typeof value === "bigint") return value.toString();
-          return value;
-        }),
-        "utf8",
-      );
-    } catch (err) {
-      this.dirty.add(accountId);
-      log.warn({ accountId, namespace: this.namespace, err }, "VylineStorage flush failed");
-    }
-  }
-
-  async flushAll(): Promise<void> {
-    await Promise.all([...this.dirty].map((id) => this.flush(id)));
-  }
+  async flushAll(): Promise<void> {}
 }

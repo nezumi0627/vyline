@@ -8,6 +8,13 @@ export function directCallHint(): string {
   return "1:1 通話は DM（u*）のみ対応しています";
 }
 
+export function isNoAnswerCallFailure(error?: string): boolean {
+  const message = error?.toLowerCase() ?? "";
+  return message.includes("planet reply timeout")
+    || message.includes("planet call released")
+    || /\b(?:busy|user busy|callee busy)\b/.test(message);
+}
+
 export type CallUiState =
   | "idle"
   | "starting"
@@ -15,6 +22,7 @@ export type CallUiState =
   | "connecting"
   | "ringing"
   | "in-call"
+  | "no-answer"
   | "ending"
   | "ended"
   | "failed";

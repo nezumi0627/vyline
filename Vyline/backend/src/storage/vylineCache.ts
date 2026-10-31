@@ -98,44 +98,35 @@ export async function vylineGetProfile(
   accountId: string,
   mid: string,
 ): Promise<VylineProfileLite | null> {
-  const db = await storage.load(accountId);
-  return db.profiles[mid] ?? null;
+  return ((await storage.getCacheEntries(accountId, "profiles", [mid])).get(mid) as VylineProfileLite | undefined) ?? null;
 }
 
 export async function vylineGetProfiles(
   accountId: string,
   mids: string[],
 ): Promise<Map<string, VylineProfileLite>> {
-  const db = await storage.load(accountId);
   const out = new Map<string, VylineProfileLite>();
-  for (const mid of mids) {
-    const p = db.profiles[mid];
+  const profiles = await storage.getCacheEntries(accountId, "profiles", mids);
+  for (const [mid, value] of profiles) {
+    const p = value as VylineProfileLite;
     if (p) out.set(mid, p);
   }
   return out;
 }
 
-/** 表示名が使えるエントリだけ（mid 生出し回避用） */
-export async function vylineResolvedNameMap(
+/** チャット一覧が必要とするキャッシュだけをSQLiteからまとめて読む。 */
+export async function vylineGetChatCacheEntries(
   accountId: string,
-): Promise<Map<string, { name: string; thumbnailUrl?: string }>> {
-  const db = await storage.load(accountId);
-  const out = new Map<string, { name: string; thumbnailUrl?: string }>();
-  for (const [mid, p] of Object.entries(db.profiles)) {
-    if (p.displayName && !looksLikeMid(p.displayName)) {
-      const hit: { name: string; thumbnailUrl?: string } = { name: p.displayName };
-      if (p.thumbnailUrl) hit.thumbnailUrl = p.thumbnailUrl;
-      out.set(mid, hit);
-    }
-  }
-  for (const [mid, g] of Object.entries(db.groups)) {
-    if (g.name && !looksLikeMid(g.name)) {
-      const hit: { name: string; thumbnailUrl?: string } = { name: g.name };
-      if (g.thumbnailUrl) hit.thumbnailUrl = g.thumbnailUrl;
-      out.set(mid, hit);
-    }
-  }
-  return out;
+  mids: string[],
+): Promise<{ profiles: Map<string, VylineProfileLite>; groups: Map<string, VylineGroupLite> }> {
+  const [profiles, groups] = await Promise.all([
+    storage.getCacheEntries(accountId, "profiles", mids),
+    storage.getCacheEntries(accountId, "groups", mids),
+  ]);
+  return {
+    profiles: new Map([...profiles].map(([mid, value]) => [mid, value as VylineProfileLite])),
+    groups: new Map([...groups].map(([mid, value]) => [mid, value as VylineGroupLite])),
+  };
 }
 
 function mergeProfile(
@@ -180,9 +171,9 @@ export async function vylinePutProfile(
   entry: VylineProfileInput,
 ): Promise<void> {
   if (!entry.mid) return;
-  await storage.mutate(accountId, (db) => {
-    db.profiles[entry.mid] = mergeProfile(db.profiles[entry.mid], entry, Date.now());
-  });
+  const previous = await storage.getCacheEntries(accountId, "profiles", [entry.mid]);
+  const value = mergeProfile(previous.get(entry.mid) as VylineProfileLite | undefined, entry, Date.now());
+  await storage.putCacheEntries(accountId, "profiles", [{ key: entry.mid, value }]);
 }
 
 export async function vylinePutProfiles(
@@ -191,12 +182,15 @@ export async function vylinePutProfiles(
 ): Promise<void> {
   if (entries.length === 0) return;
   const now = Date.now();
-  await storage.mutate(accountId, (db) => {
-    for (const entry of entries) {
-      if (!entry.mid) continue;
-      db.profiles[entry.mid] = mergeProfile(db.profiles[entry.mid], entry, now);
-    }
-  });
+  const mids = [...new Set(entries.map((entry) => entry.mid).filter(Boolean))];
+  const previous = await storage.getCacheEntries(accountId, "profiles", mids);
+  const updates = new Map<string, VylineProfileLite>();
+  for (const entry of entries) {
+    if (!entry.mid) continue;
+    const old = updates.get(entry.mid) ?? (previous.get(entry.mid) as VylineProfileLite | undefined);
+    updates.set(entry.mid, mergeProfile(old, entry, now));
+  }
+  await storage.putCacheEntries(accountId, "profiles", [...updates].map(([key, value]) => ({ key, value })));
   log.debug({ accountId, count: entries.length }, "VylineCache profiles put");
 }
 
@@ -204,31 +198,29 @@ export async function vylineGetGroup(
   accountId: string,
   chatMid: string,
 ): Promise<VylineGroupLite | null> {
-  const db = await storage.load(accountId);
-  return db.groups[chatMid] ?? null;
+  return ((await storage.getCacheEntries(accountId, "groups", [chatMid])).get(chatMid) as VylineGroupLite | undefined) ?? null;
 }
 
 export async function vylinePutGroup(accountId: string, entry: VylineGroupInput): Promise<void> {
   if (!entry.chatMid) return;
-  await storage.mutate(accountId, (db) => {
-    const prev = db.groups[entry.chatMid];
-    const name = entry.name?.trim() ?? "";
-    const next: VylineGroupLite = {
-      chatMid: entry.chatMid,
-      name:
-        name && !looksLikeMid(name)
-          ? name
-          : prev?.name && !looksLikeMid(prev.name)
-            ? prev.name
-            : name || entry.chatMid,
-      memberMids: entry.memberMids?.length ? entry.memberMids : (prev?.memberMids ?? []),
-      members: entry.members?.length ? entry.members : (prev?.members ?? []),
-      updatedAt: entry.updatedAt ?? Date.now(),
-    };
-    const thumb = pickStr(entry.thumbnailUrl) ?? pickStr(prev?.thumbnailUrl);
-    if (thumb) next.thumbnailUrl = thumb;
-    db.groups[entry.chatMid] = next;
-  });
+  const previous = await storage.getCacheEntries(accountId, "groups", [entry.chatMid]);
+  const prev = previous.get(entry.chatMid) as VylineGroupLite | undefined;
+  const name = entry.name?.trim() ?? "";
+  const next: VylineGroupLite = {
+    chatMid: entry.chatMid,
+    name:
+      name && !looksLikeMid(name)
+        ? name
+        : prev?.name && !looksLikeMid(prev.name)
+          ? prev.name
+          : name || entry.chatMid,
+    memberMids: entry.memberMids?.length ? entry.memberMids : (prev?.memberMids ?? []),
+    members: entry.members?.length ? entry.members : (prev?.members ?? []),
+    updatedAt: entry.updatedAt ?? Date.now(),
+  };
+  const thumb = pickStr(entry.thumbnailUrl) ?? pickStr(prev?.thumbnailUrl);
+  if (thumb) next.thumbnailUrl = thumb;
+  await storage.putCacheEntries(accountId, "groups", [{ key: entry.chatMid, value: next }]);
 }
 
 export function vylineProfileNeedsRefresh(entry: VylineProfileLite | null | undefined): boolean {

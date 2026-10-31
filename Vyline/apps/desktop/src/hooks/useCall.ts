@@ -4,17 +4,12 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
-import type { ActiveCall, CallUiState } from "@/utils/callAllowlist";
-
-const WS_BASE =
-  typeof location !== "undefined"
-    ? `${location.protocol === "https:" ? "wss" : "ws"}://${location.hostname}:3001`
-    : "ws://localhost:3001";
+import { isNoAnswerCallFailure, type ActiveCall, type CallUiState } from "@/utils/callAllowlist";
 
 const PCM_FRAME_BYTES = 1920; // 960 samples × 2 @ 48kHz mono 20ms
 
 function friendlyCallError(msg: string): string {
-  if (msg.includes("PLANET reply timeout")) return "応答がありませんでした";
+  if (isNoAnswerCallFailure(msg)) return "応答なし";
   if (msg.includes("SIP")) return `通話サーバー応答エラー: ${msg}`;
   return msg;
 }
@@ -26,6 +21,7 @@ function mapState(s: string): CallUiState {
     s === "connecting" ||
     s === "ringing" ||
     s === "in-call" ||
+    s === "no-answer" ||
     s === "ending" ||
     s === "ended" ||
     s === "failed"
@@ -43,6 +39,9 @@ export function useCall(accountId: string | null) {
   const micProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const playbackTimeRef = useRef(0);
   const mutedRef = useRef(false);
+  const generationRef = useRef(0);
+  const callRef = useRef(call);
+  useEffect(() => { callRef.current = call; }, [call]);
 
   const micStartedRef = useRef(false);
 
@@ -60,6 +59,7 @@ export function useCall(accountId: string | null) {
   }, []);
 
   const endCall = useCallback(async () => {
+    generationRef.current++;
     const sessionId = call?.sessionId;
     cleanupMedia();
     if (sessionId) {
@@ -72,13 +72,23 @@ export function useCall(accountId: string | null) {
     setCall(null);
   }, [accountId, call?.sessionId, cleanupMedia]);
 
-  const startMicPipeline = useCallback((ws: WebSocket) => {
+  useEffect(() => {
+    if (call?.state !== "no-answer") return;
+    const timer = window.setTimeout(() => void endCall(), 1_000);
+    return () => window.clearTimeout(timer);
+  }, [call?.state, endCall]);
+
+  const startMicPipeline = useCallback((ws: WebSocket, generation: number) => {
     if (!navigator.mediaDevices?.getUserMedia) return;
     void (async () => {
       const stream = await navigator.mediaDevices.getUserMedia({
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         video: false,
       });
+      if (generationRef.current !== generation || wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) {
+        stream.getTracks().forEach((track) => track.stop());
+        return;
+      }
       micStreamRef.current = stream;
       const ctx = audioCtxRef.current ?? new AudioContext({ sampleRate: 48000 });
       audioCtxRef.current = ctx;
@@ -121,12 +131,28 @@ export function useCall(accountId: string | null) {
   }, []);
 
   const connectWs = useCallback(
-    (sessionId: string, accId: string) => {
-      const url = `${WS_BASE}/line/${encodeURIComponent(accId)}/call/ws?sessionId=${encodeURIComponent(sessionId)}`;
+    async (sessionId: string, accId: string, generation: number) => {
+      let ticket: string;
+      try {
+        const result = await api.line.callWsTicket(accId, sessionId);
+        if (generationRef.current !== generation) return;
+        if (!result.ok || !result.ticket) throw new Error(result.error ?? "通話接続を認証できませんでした");
+        ticket = result.ticket;
+      } catch (error) {
+        if (generationRef.current !== generation) return;
+        setCall((prev) => prev?.sessionId === sessionId
+          ? { ...prev, state: "failed", error: error instanceof Error ? error.message : "通話接続に失敗しました" }
+          : prev);
+        return;
+      }
+      const scheme = location.protocol === "https:" ? "wss" : "ws";
+      const url = `${scheme}://${location.host}/line/${encodeURIComponent(accId)}/call/ws?sessionId=${encodeURIComponent(sessionId)}&ticket=${encodeURIComponent(ticket)}`;
       const ws = new WebSocket(url);
+      let latestState: CallUiState | null = null;
       ws.binaryType = "arraybuffer";
       wsRef.current = ws;
       ws.onmessage = (ev) => {
+        if (generationRef.current !== generation) return;
         if (typeof ev.data === "string") {
           try {
             const j = JSON.parse(ev.data) as {
@@ -137,23 +163,32 @@ export function useCall(accountId: string | null) {
             };
             if (j.type === "state" && j.state) {
               const nextState = mapState(j.state);
+              if (generationRef.current !== generation) return;
               const transport =
                 j.transport === "planet" || j.transport === "andromeda" || j.transport === "unknown"
                   ? j.transport
                   : undefined;
+              const noAnswer = nextState === "failed" && isNoAnswerCallFailure(j.error);
+              latestState = noAnswer ? "no-answer" : nextState;
               setCall((prev) =>
                 prev
                   ? {
                       ...prev,
-                      state: nextState,
+                      state: noAnswer ? "no-answer" : nextState,
                       ...(transport ? { transport } : {}),
-                      ...(j.error ? { error: friendlyCallError(j.error) } : {}),
+                      ...(noAnswer
+                        ? { error: undefined }
+                        : j.error
+                          ? { error: friendlyCallError(j.error) }
+                          : {}),
                     }
                   : prev,
               );
               if (nextState === "in-call" && !micStartedRef.current) {
                 micStartedRef.current = true;
-                startMicPipeline(ws);
+                startMicPipeline(ws, generation);
+              } else if (nextState === "ended" || nextState === "failed") {
+                cleanupMedia();
               }
             }
           } catch {
@@ -166,15 +201,37 @@ export function useCall(accountId: string | null) {
         }
       };
       ws.onopen = () => {
+        if (generationRef.current !== generation || wsRef.current !== ws) return;
         ws.send(JSON.stringify({ type: "ping" }));
       };
+      ws.onclose = () => {
+        if (
+          generationRef.current !== generation ||
+          wsRef.current !== ws ||
+          latestState === "ended" ||
+          latestState === "failed" ||
+          latestState === "no-answer"
+        ) {
+          return;
+        }
+        setCall((prev) =>
+          prev?.sessionId === sessionId &&
+          prev.state !== "ended" &&
+          prev.state !== "failed" &&
+          prev.state !== "no-answer"
+            ? { ...prev, state: "failed", error: "通話サーバーとの接続が切れました" }
+            : prev,
+        );
+        cleanupMedia();
+      };
     },
-    [playRemotePcm, startMicPipeline],
+    [cleanupMedia, playRemotePcm, startMicPipeline],
   );
 
   const startCall = useCallback(
     async (to: string, kind: "voice" | "video") => {
       if (!accountId) return { ok: false as const, error: "not logged in" };
+      const generation = ++generationRef.current;
       setCall({
         sessionId: "",
         to,
@@ -182,15 +239,37 @@ export function useCall(accountId: string | null) {
         state: "starting",
       });
       const callType = kind === "video" ? "VIDEO" : "AUDIO";
-      const res = await api.line.callStart(accountId, to, callType);
-      if (!res.ok || !("session" in res) || !res.session) {
-        const errMsg = !res.ok && "error" in res ? res.error : "call start failed";
+      let res: Awaited<ReturnType<typeof api.line.callStart>>;
+      try {
+        res = await api.line.callStart(accountId, to, callType);
+      } catch (error) {
+        if (generationRef.current !== generation) return { ok: false as const, error: "call cancelled" };
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const noAnswer = isNoAnswerCallFailure(errorMessage);
         setCall({
           sessionId: "",
           to,
           kind,
-          state: "failed",
-          error: errMsg ? friendlyCallError(errMsg) : "call start failed",
+          state: noAnswer ? "no-answer" : "failed",
+          ...(noAnswer ? {} : { error: friendlyCallError(errorMessage) }),
+        });
+        return { ok: false as const, error: errorMessage };
+      }
+      if (generationRef.current !== generation) {
+        if (res.ok && "session" in res && res.session) {
+          void api.line.callEnd(accountId, res.session.sessionId).catch(() => undefined);
+        }
+        return { ok: false as const, error: "call cancelled" };
+      }
+      if (!res.ok || !("session" in res) || !res.session) {
+        const errMsg = !res.ok && "error" in res ? res.error : "call start failed";
+        const noAnswer = isNoAnswerCallFailure(errMsg);
+        setCall({
+          sessionId: "",
+          to,
+          kind,
+          state: noAnswer ? "no-answer" : "failed",
+          ...(noAnswer ? {} : { error: errMsg ? friendlyCallError(errMsg) : "call start failed" }),
         });
         return { ok: false as const, error: errMsg };
       }
@@ -204,7 +283,7 @@ export function useCall(accountId: string | null) {
       };
       setCall(active);
       audioCtxRef.current = new AudioContext({ sampleRate: 48000 });
-      connectWs(res.session.sessionId, accountId);
+      void connectWs(res.session.sessionId, accountId, generation);
       return { ok: true as const, session: res.session };
     },
     [accountId, connectWs],
@@ -214,7 +293,17 @@ export function useCall(accountId: string | null) {
     mutedRef.current = muted;
   }, []);
 
-  useEffect(() => () => cleanupMedia(), [cleanupMedia]);
+  useEffect(
+    () => () => {
+      generationRef.current++;
+      const sessionId = callRef.current?.sessionId;
+      cleanupMedia();
+      if (sessionId && accountId) {
+        void api.line.callEnd(accountId, sessionId).catch(() => undefined);
+      }
+    },
+    [accountId, cleanupMedia],
+  );
 
   return { call, startCall, endCall, setMuted, isInCall: call?.state === "in-call" };
 }

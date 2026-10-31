@@ -1,38 +1,19 @@
-/**
- * tokenStore.ts
- *
- * authToken とセッションメタのローカル保存。
- * 保存先: <backend>/data/tokens.json
- *
- * 構造:
- * {
- *   "accountId": {
- *     "authToken": "...",
- *     "storageFile": "<backend>/data/storage-accountId.json",
- *     "savedAt": "ISO8601",
- *     "mid": "u...",
- *     "displayName": "...",
- *     "picturePath": "...",
- *     "statusMessage": "..."
- *   }
- * }
- */
+/** Auth token and session metadata storage. */
 
-import { join, dirname } from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { migrateOnce, sqlite } from "./sqlite.js";
 
 const log = childLogger("tokenStore");
-
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const dir = fileURLToPath(new URL(".", import.meta.url));
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(dir, "..", "..", "data");
 const TOKENS_FILE = join(DATA_DIR, "tokens.json");
 
 export interface TokenEntry {
   authToken: string;
-  /** VylineFileStorage のパス */
+  /** Protocol KV path retained until its SQLite adapter is switched over. */
   storageFile: string;
   savedAt: string;
   mid?: string;
@@ -49,46 +30,159 @@ export interface TokenEntry {
 }
 
 export type TokenMap = Record<string, TokenEntry>;
+export type SessionMeta = Pick<
+  TokenEntry,
+  "mid" | "displayName" | "picturePath" | "statusMessage" | "premium"
+>;
 
-export type SessionMeta = {
-  mid?: string;
-  displayName?: string;
-  picturePath?: string;
-  statusMessage?: string;
-  premium?: {
-    active: boolean;
-    planType?: string | number;
-    validUntil?: number;
-    onFreeTrial?: boolean;
-    willExpire?: boolean;
-  };
+type TokenRow = {
+  account_id: string;
+  auth_token: string;
+  storage_file: string;
+  saved_at: string;
+  mid: string | null;
+  display_name: string | null;
+  picture_path: string | null;
+  status_message: string | null;
+  premium_active: number | null;
+  premium_plan_type: string | null;
+  premium_plan_is_number: number | null;
+  premium_valid_until: number | null;
+  premium_on_free_trial: number | null;
+  premium_will_expire: number | null;
 };
 
-async function ensureDataDir(): Promise<void> {
-  if (!existsSync(DATA_DIR)) {
-    await mkdir(DATA_DIR, { recursive: true });
-    log.debug({ dir: DATA_DIR }, "created data dir");
+function ensureSchema(): void {
+  sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS account_tokens (
+    account_id TEXT PRIMARY KEY,
+    auth_token TEXT NOT NULL,
+    storage_file TEXT NOT NULL,
+    saved_at TEXT NOT NULL,
+    mid TEXT,
+    display_name TEXT,
+    picture_path TEXT,
+    status_message TEXT,
+    premium_active INTEGER,
+    premium_plan_type TEXT,
+    premium_plan_is_number INTEGER,
+    premium_valid_until INTEGER,
+    premium_on_free_trial INTEGER,
+    premium_will_expire INTEGER
+  );
+`);
+}
+
+let legacyImported = false;
+function ensureLegacyImported(): void {
+  if (legacyImported) return;
+  ensureSchema();
+  if (existsSync(TOKENS_FILE)) migrateOnce("tokens-json-v2", () => {
+    const entries = JSON.parse(readFileSync(TOKENS_FILE, "utf8")) as TokenMap;
+    const insert = sqlite.query(`
+      INSERT OR IGNORE INTO account_tokens (
+        account_id, auth_token, storage_file, saved_at, mid, display_name, picture_path,
+        status_message, premium_active, premium_plan_type, premium_plan_is_number,
+        premium_valid_until, premium_on_free_trial, premium_will_expire
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const [accountId, entry] of Object.entries(entries)) {
+      if (typeof entry?.authToken !== "string" || !entry.authToken) continue;
+      const premium = entry.premium;
+      insert.run(
+        accountId,
+        entry.authToken,
+        entry.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
+        entry.savedAt ?? new Date().toISOString(),
+        entry.mid ?? null,
+        entry.displayName ?? null,
+        entry.picturePath ?? null,
+        entry.statusMessage ?? null,
+        premium ? (premium.active ? 1 : 0) : null,
+        premium?.planType == null ? null : String(premium.planType),
+        typeof premium?.planType === "number" ? 1 : 0,
+        premium?.validUntil ?? null,
+        premium?.onFreeTrial == null ? null : premium.onFreeTrial ? 1 : 0,
+        premium?.willExpire == null ? null : premium.willExpire ? 1 : 0,
+      );
+    }
+  });
+  legacyImported = true;
+}
+
+function fromRow(row: TokenRow): TokenEntry {
+  const entry: TokenEntry = {
+    authToken: row.auth_token,
+    storageFile: row.storage_file,
+    savedAt: row.saved_at,
+  };
+  if (row.mid != null) entry.mid = row.mid;
+  if (row.display_name != null) entry.displayName = row.display_name;
+  if (row.picture_path != null) entry.picturePath = row.picture_path;
+  if (row.status_message != null) entry.statusMessage = row.status_message;
+  if (row.premium_active != null) {
+    entry.premium = {
+      active: row.premium_active === 1,
+      ...(row.premium_plan_type != null
+        ? {
+            planType: row.premium_plan_is_number
+              ? Number(row.premium_plan_type)
+              : row.premium_plan_type,
+          }
+        : {}),
+      ...(row.premium_valid_until != null ? { validUntil: row.premium_valid_until } : {}),
+      ...(row.premium_on_free_trial != null
+        ? { onFreeTrial: row.premium_on_free_trial === 1 }
+        : {}),
+      ...(row.premium_will_expire != null ? { willExpire: row.premium_will_expire === 1 } : {}),
+    };
   }
+  return entry;
+}
+
+function rowFor(accountId: string, entry: TokenEntry) {
+  const premium = entry.premium;
+  return [
+    accountId,
+    entry.authToken,
+    entry.storageFile,
+    entry.savedAt,
+    entry.mid ?? null,
+    entry.displayName ?? null,
+    entry.picturePath ?? null,
+    entry.statusMessage ?? null,
+    premium ? (premium.active ? 1 : 0) : null,
+    premium?.planType == null ? null : String(premium.planType),
+    typeof premium?.planType === "number" ? 1 : 0,
+    premium?.validUntil ?? null,
+    premium?.onFreeTrial == null ? null : premium.onFreeTrial ? 1 : 0,
+    premium?.willExpire == null ? null : premium.willExpire ? 1 : 0,
+  ] as const;
+}
+
+function upsertToken(accountId: string, entry: TokenEntry): void {
+  sqlite.query(`
+  INSERT INTO account_tokens (
+    account_id, auth_token, storage_file, saved_at, mid, display_name, picture_path,
+    status_message, premium_active, premium_plan_type, premium_plan_is_number,
+    premium_valid_until, premium_on_free_trial, premium_will_expire
+  ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  ON CONFLICT(account_id) DO UPDATE SET
+    auth_token = excluded.auth_token, storage_file = excluded.storage_file,
+    saved_at = excluded.saved_at, mid = excluded.mid, display_name = excluded.display_name,
+    picture_path = excluded.picture_path, status_message = excluded.status_message,
+    premium_active = excluded.premium_active, premium_plan_type = excluded.premium_plan_type,
+    premium_plan_is_number = excluded.premium_plan_is_number,
+    premium_valid_until = excluded.premium_valid_until,
+    premium_on_free_trial = excluded.premium_on_free_trial,
+    premium_will_expire = excluded.premium_will_expire
+`).run(...rowFor(accountId, entry));
 }
 
 export async function loadTokens(): Promise<TokenMap> {
-  await ensureDataDir();
-  if (!existsSync(TOKENS_FILE)) return {};
-  try {
-    const raw = await readFile(TOKENS_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as TokenMap;
-    // 空トークンのゴミを除外
-    const cleaned: TokenMap = {};
-    for (const [id, entry] of Object.entries(parsed)) {
-      if (entry?.authToken && typeof entry.authToken === "string") {
-        cleaned[id] = entry;
-      }
-    }
-    return cleaned;
-  } catch (err) {
-    log.warn({ err }, "failed to parse tokens.json, returning empty");
-    return {};
-  }
+  ensureLegacyImported();
+  const rows = sqlite.query("SELECT * FROM account_tokens").all() as TokenRow[];
+  return Object.fromEntries(rows.map((row) => [row.account_id, fromRow(row)]));
 }
 
 function normalizeAuthToken(authToken: unknown): string | null {
@@ -109,15 +203,16 @@ export async function saveToken(
   authToken: unknown,
   meta?: SessionMeta,
 ): Promise<void> {
+  ensureLegacyImported();
   const token = normalizeAuthToken(authToken);
   if (!token) {
     log.warn({ accountId }, "skip token save — empty authToken");
     return;
   }
-
-  await ensureDataDir();
-  const tokens = await loadTokens();
-  const existing = tokens[accountId];
+  const existingRow = sqlite
+    .query("SELECT * FROM account_tokens WHERE account_id = ?")
+    .get(accountId) as TokenRow | null;
+  const existing = existingRow ? fromRow(existingRow) : undefined;
   const entry: TokenEntry = {
     authToken: token,
     storageFile: existing?.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
@@ -133,39 +228,40 @@ export async function saveToken(
   if (picturePath) entry.picturePath = picturePath;
   if (statusMessage) entry.statusMessage = statusMessage;
   if (premium) entry.premium = premium;
-  tokens[accountId] = entry;
-
-  await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  upsertToken(accountId, entry);
   log.info({ accountId, displayName: entry.displayName, mid: entry.mid }, "token saved");
 }
 
 export async function updateSessionMeta(accountId: string, meta: SessionMeta): Promise<void> {
-  const tokens = await loadTokens();
-  const existing = tokens[accountId];
-  if (!existing) return;
+  ensureLegacyImported();
+  const row = sqlite
+    .query("SELECT * FROM account_tokens WHERE account_id = ?")
+    .get(accountId) as TokenRow | null;
+  if (!row) return;
+  const existing = fromRow(row);
   if (meta.mid != null) existing.mid = meta.mid;
   if (meta.displayName != null) existing.displayName = meta.displayName;
   if (meta.picturePath != null) existing.picturePath = meta.picturePath;
   if (meta.statusMessage != null) existing.statusMessage = meta.statusMessage;
   if (meta.premium != null) existing.premium = meta.premium;
   existing.savedAt = new Date().toISOString();
-  tokens[accountId] = existing;
-  await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  upsertToken(accountId, existing);
 }
 
 export async function deleteToken(accountId: string): Promise<void> {
-  const tokens = await loadTokens();
-  delete tokens[accountId];
-  await writeFile(TOKENS_FILE, JSON.stringify(tokens, null, 2), "utf-8");
+  ensureLegacyImported();
+  sqlite.query("DELETE FROM account_tokens WHERE account_id = ?").run(accountId);
   log.info({ accountId }, "token deleted");
 }
 
 export async function getToken(accountId: string): Promise<TokenEntry | undefined> {
-  const tokens = await loadTokens();
-  return tokens[accountId];
+  ensureLegacyImported();
+  const row = sqlite
+    .query("SELECT * FROM account_tokens WHERE account_id = ?")
+    .get(accountId) as TokenRow | null;
+  return row ? fromRow(row) : undefined;
 }
 
-/** ログイン画面用のセッション一覧 */
 export async function listSavedSessions(): Promise<
   Array<{
     accountId: string;
@@ -174,32 +270,21 @@ export async function listSavedSessions(): Promise<
     displayName?: string;
     picturePath?: string;
     statusMessage?: string;
+    premium?: TokenEntry["premium"];
     hasToken: boolean;
   }>
 > {
   const tokens = await loadTokens();
   return Object.entries(tokens)
-    .map(([accountId, entry]) => {
-      const row: {
-        accountId: string;
-        savedAt: string;
-        mid?: string;
-        displayName?: string;
-        picturePath?: string;
-        statusMessage?: string;
-        premium?: TokenEntry["premium"];
-        hasToken: boolean;
-      } = {
-        accountId,
-        savedAt: entry.savedAt,
-        hasToken: Boolean(entry.authToken),
-      };
-      if (entry.mid) row.mid = entry.mid;
-      if (entry.displayName) row.displayName = entry.displayName;
-      if (entry.picturePath) row.picturePath = entry.picturePath;
-      if (entry.statusMessage) row.statusMessage = entry.statusMessage;
-      if (entry.premium) row.premium = entry.premium;
-      return row;
-    })
+    .map(([accountId, entry]) => ({
+      accountId,
+      savedAt: entry.savedAt,
+      ...(entry.mid ? { mid: entry.mid } : {}),
+      ...(entry.displayName ? { displayName: entry.displayName } : {}),
+      ...(entry.picturePath ? { picturePath: entry.picturePath } : {}),
+      ...(entry.statusMessage ? { statusMessage: entry.statusMessage } : {}),
+      ...(entry.premium ? { premium: entry.premium } : {}),
+      hasToken: Boolean(entry.authToken),
+    }))
     .sort((a, b) => (a.savedAt < b.savedAt ? 1 : -1));
 }

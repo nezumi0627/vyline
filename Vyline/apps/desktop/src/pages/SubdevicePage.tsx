@@ -1,9 +1,9 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
+import { getSubdeviceSessionToken, setSubdeviceSessionToken } from "@/lib/subdeviceSession";
 
-const STORAGE_KEY = "vyline:subdevice-session";
 const platform = /iPhone|iPad|iPod/i.test(navigator.userAgent)
   ? "ios"
   : /Android/i.test(navigator.userAgent)
@@ -15,11 +15,11 @@ export function SubdevicePage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [message, setMessage] = useState("接続情報を確認しています…");
-  const pairingToken = params.get("pairing");
-  const savedToken = useMemo(() => localStorage.getItem(STORAGE_KEY), []);
+  const pairingToken = params.get("pairing") ?? new URLSearchParams(window.location.hash.slice(1)).get("pairing");
   const setAccountId = useStore((s) => s.setAccountId);
 
   useEffect(() => {
+    if (pairingToken) window.history.replaceState(window.history.state, "", window.location.pathname);
     let cancelled = false;
     const connect = async () => {
       try {
@@ -29,6 +29,7 @@ export function SubdevicePage() {
           setMessage("この端末をサブデバイスとして登録します");
           return;
         }
+        const savedToken = await getSubdeviceSessionToken();
         if (savedToken) {
           const res = await api.subdevices.heartbeat(savedToken);
           if (res.ok && res.device) {
@@ -46,7 +47,7 @@ export function SubdevicePage() {
     return () => {
       cancelled = true;
     };
-  }, [pairingToken, savedToken, navigate, setAccountId]);
+  }, [pairingToken, navigate, setAccountId]);
 
   const complete = async () => {
     if (!pairingToken) return;
@@ -56,7 +57,7 @@ export function SubdevicePage() {
         setMessage(res.error ?? "登録に失敗しました");
         return;
       }
-      localStorage.setItem(STORAGE_KEY, res.sessionToken);
+      await setSubdeviceSessionToken(res.sessionToken);
       setAccountId(res.device.accountId);
       navigate("/", { replace: true });
     } catch (error) {

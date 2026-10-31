@@ -19,7 +19,7 @@ describe("subdevice pairing URL", () => {
     process.env.VYLINE_LAN_ACCESS = "true";
 
     const result = buildPairingUrl("http://127.0.0.1:5173", "vyp_test");
-    expect(result).toMatch(/^http:\/\/[^/]+:5173\/subdevice\?pairing=vyp_test$/);
+    expect(result).toMatch(/^http:\/\/[^/]+:5173\/subdevice#pairing=vyp_test$/);
     expect(result).not.toContain("127.0.0.1");
   });
 
@@ -27,7 +27,7 @@ describe("subdevice pairing URL", () => {
     process.env.VYLINE_LAN_ACCESS = undefined;
 
     expect(buildPairingUrl("http://192.0.2.10:5173", "vyp_test")).toBe(
-      "http://192.0.2.10:5173/subdevice?pairing=vyp_test",
+      "http://192.0.2.10:5173/subdevice#pairing=vyp_test",
     );
   });
 });

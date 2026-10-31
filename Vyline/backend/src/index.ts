@@ -26,50 +26,68 @@ import type { CallWsData } from "./call/callManager.js";
 import { ensureCdnCacheDir } from "./storage/cdnAssetCache.js";
 import { ensureMediaStorageDir } from "./storage/mediaStorage.js";
 import { subdeviceRouter } from "./api/subdevices.js";
-import { isSubdeviceSessionValid } from "./storage/subdeviceStore.js";
+import { getSubdeviceSession } from "./storage/subdeviceStore.js";
+import { consumeCallWsTicket } from "./call/callWsTicket.js";
+import {
+  authorizeSubdeviceRoute,
+  isLanAccessEnabled,
+  isLanProtectedPath,
+  isPublicPairingRequest,
+  isSubdeviceHeartbeatPath,
+  isSubdeviceManagementPath,
+  subdeviceAccountIdFromPath,
+} from "./security/policies.js";
 
-const PORT = Number(process.env.PORT ?? 3001);
-const LAN_ACCESS = process.env.VYLINE_LAN_ACCESS === "true";
-const HOST = LAN_ACCESS ? "0.0.0.0" : (process.env.VYLINE_HOST ?? "127.0.0.1");
-const CORS_ORIGIN = process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173";
+const PORT = Number(process.env.VYLINE_BACKEND_PORT ?? process.env.PORT ?? 3001);
+const LAN_ACCESS_REQUESTED = process.env.VYLINE_LAN_ACCESS === "true";
+const BIND_HOST = process.env.VYLINE_HOST ?? "127.0.0.1";
+const LAN_ACCESS = isLanAccessEnabled(LAN_ACCESS_REQUESTED, BIND_HOST);
+const HOST = LAN_ACCESS_REQUESTED ? "0.0.0.0" : BIND_HOST;
+const CORS_ORIGINS = new Set(
+  (process.env.VYLINE_CORS_ORIGIN ?? "http://localhost:5173,http://127.0.0.1:5173")
+    .split(",")
+    .map((origin) => origin.trim())
+    .filter(Boolean),
+);
 const STATIC_DIR =
   process.env.VYLINE_STATIC_DIR ??
   join(dirname(fileURLToPath(import.meta.url)), "..", "..", "apps", "desktop", "dist");
 
 const app = new Hono();
 
-function isPublicPairingRequest(path: string, method: string) {
-  if (method === "GET") return /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+$/.test(path);
-  return method === "POST" && /^\/(?:api\/)?auth\/subdevices\/pairing\/[^/]+\/complete$/.test(path);
-}
-
 app.use(
   "*",
   cors({
-    origin: (origin) => (LAN_ACCESS ? origin : CORS_ORIGIN),
+    origin: (origin) => (origin && CORS_ORIGINS.has(origin) ? origin : undefined),
     credentials: true,
   }),
 );
 
-// LANモードでは、PCのloopback以外からのAPI利用をサブデバイスセッションに限定する。
-// QRの確認・完了だけは、まだセッションを持たない端末のため公開する。
-app.use("/api/*", async (c, next) => {
-  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
+app.use("*", async (c, next) => {
+  await next();
+  c.header("X-Content-Type-Options", "nosniff");
+  c.header("X-Frame-Options", "DENY");
+  c.header("Referrer-Policy", "no-referrer");
+});
+
+// LAN mode applies to every route alias. Subdevice credentials only access
+// their own account's LINE API and heartbeat; device administration stays local.
+app.use("*", async (c, next) => {
+  if (!LAN_ACCESS || !isLanProtectedPath(c.req.path)) return next();
   if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
+  if (c.req.header("x-vyline-local-request") === "1") return next();
   const auth = c.req.header("authorization") ?? "";
   const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session))) {
+  const device = session ? await getSubdeviceSession(session) : null;
+  const decision = authorizeSubdeviceRoute(c.req.path, c.req.method, device?.accountId ?? null);
+  if (decision === "unauthorized") {
     return c.json({ ok: false, error: "subdevice authentication required" }, 401);
   }
-  return next();
-});
-app.use("/auth/*", async (c, next) => {
-  if (!LAN_ACCESS || c.req.header("x-vyline-local-request") === "1") return next();
-  if (isPublicPairingRequest(c.req.path, c.req.method)) return next();
-  const auth = c.req.header("authorization") ?? "";
-  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
-  if (!(await isSubdeviceSessionValid(session))) {
-    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  if (decision === "forbidden" && isSubdeviceManagementPath(c.req.path)) {
+    return c.json({ ok: false, error: "device management is local-only" }, 403);
+  }
+  if (decision === "forbidden") {
+    return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
   }
   return next();
 });
@@ -250,7 +268,7 @@ app.onError((err, c) => {
 });
 
 logger.info(
-  { port: PORT, host: HOST, staticDir: STATIC_DIR, cors: CORS_ORIGIN },
+  { port: PORT, host: HOST, staticDir: STATIC_DIR, cors: [...CORS_ORIGINS] },
   "starting Vyline backend",
 );
 
@@ -306,26 +324,36 @@ export default {
   idleTimeout: 120,
   async fetch(req: Request, server: Bun.Server<CallWsData>) {
     const address = server.requestIP(req)?.address ?? "";
-    const local = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+    const loopback = address === "127.0.0.1" || address === "::1" || address === "::ffff:127.0.0.1";
+    // Only trust this forwarding header from the loopback Vite proxy. Remote clients
+    // connecting directly to the backend cannot assert their own local status.
+    const forwardedAddress = loopback
+      ? req.headers.get("x-vyline-proxy-client-address") ??
+        (process.env.VYLINE_TRUST_PROXY === "true"
+          ? req.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim()
+          : null)
+      : null;
+    const clientAddress = forwardedAddress || address;
+    const local = clientAddress === "127.0.0.1" || clientAddress === "::1" || clientAddress === "::ffff:127.0.0.1";
     const headers = new Headers(req.headers);
     headers.set("x-vyline-local-request", local ? "1" : "0");
     const request = new Request(req, { headers });
     const url = new URL(request.url);
-    const m = url.pathname.match(/^\/line\/([^/]+)\/call\/ws$/);
+    const m = url.pathname.match(/^\/(?:api\/)?line\/([^/]+)\/call\/ws$/);
     if (m && request.headers.get("upgrade")?.toLowerCase() === "websocket") {
-      if (
-        LAN_ACCESS &&
-        !local &&
-        !(await isSubdeviceSessionValid(
-          (request.headers.get("authorization") ?? "").replace(/^Bearer\s+/i, ""),
-        ))
-      ) {
-        return new Response("subdevice authentication required", { status: 401 });
+      let accountId: string;
+      try {
+        accountId = decodeURIComponent(m[1]!);
+      } catch {
+        return new Response("invalid account id", { status: 400 });
       }
-      const accountId = decodeURIComponent(m[1]!);
       const sessionId = url.searchParams.get("sessionId");
       if (!sessionId) {
         return new Response("sessionId required", { status: 400 });
+      }
+      const ticket = url.searchParams.get("ticket") ?? "";
+      if (!consumeCallWsTicket(ticket, accountId, sessionId)) {
+        return new Response("call websocket ticket invalid or expired", { status: 401 });
       }
       const ok = server.upgrade(request, { data: { accountId, sessionId } });
       if (ok) return undefined as unknown as Response;

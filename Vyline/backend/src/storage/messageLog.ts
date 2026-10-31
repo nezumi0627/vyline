@@ -1,25 +1,26 @@
-/**
- * storage/messageLog.ts — チャット内容・アナウンスのタイミング付き詳細ログ
- *
- * 受信（Push / 履歴同期）・送信されたメッセージを JSONL として
- * data/logs/message-log-<accountId>.jsonl に追記する。
- * 画像・動画・音声・ファイルなどのメディアも messageId / contentType を記録する。
- * ローテーション: 10MB を超えたら .1 / .2 へ shift。
- */
+/** SQLite-backed, bounded message and announcement diagnostics. */
 
-import { createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
-import { readFile, rename, stat } from "node:fs/promises";
+import { createReadStream, existsSync } from "node:fs";
+import { createInterface } from "node:readline";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import { accountDir, ensureAccount } from "./accountDirs.js";
+import { sqlite } from "./sqlite.js";
 
 const log = childLogger("message-log");
-
 const _dir = dirname(fileURLToPath(import.meta.url));
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
 const LOG_DIR = process.env.VYLINE_LOG_DIR ?? join(DATA_DIR, "logs");
-const ROTATE_BYTES = Number(process.env.VYLINE_MESSAGE_LOG_MAX_BYTES ?? 10 * 1024 * 1024);
+const LEGACY_ROTATION_BYTES = Number(process.env.VYLINE_MESSAGE_LOG_MAX_BYTES ?? 10 * 1024 * 1024);
+const DEFAULT_RETENTION_BYTES = LEGACY_ROTATION_BYTES * 3;
+const IMPORT_BATCH_SIZE = 500;
+const MAX_IMPORT_CACHE_ACCOUNTS = 32;
+
+function maxLogBytes(): number {
+  const configured = Number(process.env.VYLINE_MESSAGE_LOG_RETENTION_BYTES ?? DEFAULT_RETENTION_BYTES);
+  return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RETENTION_BYTES;
+}
 
 export interface MessageLogEntry {
   ts: string;
@@ -33,6 +34,7 @@ export interface MessageLogEntry {
   senderName?: string;
   contentType: string;
   text?: string | null;
+  messageId?: string;
   media?: {
     contentType: string;
     mediaId?: string;
@@ -47,127 +49,296 @@ export interface MessageLogEntry {
   locKey?: string;
 }
 
-const streams = new Map<string, WriteStream>();
-const rotatedBytes = new Map<string, number>();
-/** 追記バイト数カウンタ（毎回 stat() するコストを避ける） */
-const writtenBytes = new Map<string, number>();
+type LogRow = {
+  id: number;
+  ts: string;
+  tsMillis: number;
+  accountId: string;
+  kind: MessageLogEntry["kind"];
+  direction: MessageLogEntry["direction"];
+  chatMid: string;
+  chatName: string | null;
+  chatNamePresent: number;
+  senderMid: string;
+  senderName: string | null;
+  senderNamePresent: number;
+  contentType: string;
+  text: string | null;
+  textPresent: number;
+  messageId: string | null;
+  mediaPresent: number;
+  mediaContentType: string | null;
+  mediaId: string | null;
+  mediaIdPresent: number;
+  imageSetId: string | null;
+  imageSetIdPresent: number;
+  attachmentName: string | null;
+  attachmentNamePresent: number;
+  durationMillis: number | null;
+  durationMillisPresent: number;
+  fileSize: number | null;
+  fileSizePresent: number;
+  stickerId: string | null;
+  stickerIdPresent: number;
+  packageId: string | null;
+  packageIdPresent: number;
+  locKey: string | null;
+  locKeyPresent: number;
+};
 
-function logPath(accountId: string): string {
-  ensureAccount(accountId);
-  return join(accountDir(accountId), "message-log.jsonl");
+let schemaReady = false;
+const imports = new Map<string, Promise<void>>();
+const importedAccounts = new Map<string, true>();
+
+function rememberImportedAccount(accountId: string): void {
+  importedAccounts.delete(accountId);
+  importedAccounts.set(accountId, true);
+  while (importedAccounts.size > MAX_IMPORT_CACHE_ACCOUNTS) {
+    importedAccounts.delete(importedAccounts.keys().next().value!);
+  }
+}
+
+function ensureSchema(): void {
+  if (schemaReady) return;
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS message_logs (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      account_id TEXT NOT NULL, ts TEXT NOT NULL, ts_millis INTEGER NOT NULL,
+      kind TEXT NOT NULL, direction TEXT NOT NULL, chat_mid TEXT NOT NULL,
+      chat_name TEXT, chat_name_present INTEGER NOT NULL,
+      sender_mid TEXT NOT NULL, sender_name TEXT, sender_name_present INTEGER NOT NULL,
+      content_type TEXT NOT NULL, text TEXT, text_present INTEGER NOT NULL,
+      message_id TEXT, media_present INTEGER NOT NULL, media_content_type TEXT,
+      media_id TEXT, media_id_present INTEGER NOT NULL, image_set_id TEXT,
+      image_set_id_present INTEGER NOT NULL, attachment_name TEXT,
+      attachment_name_present INTEGER NOT NULL, duration_millis REAL,
+      duration_millis_present INTEGER NOT NULL, file_size REAL,
+      file_size_present INTEGER NOT NULL, sticker_id TEXT, sticker_id_present INTEGER NOT NULL,
+      package_id TEXT, package_id_present INTEGER NOT NULL, loc_key TEXT,
+      loc_key_present INTEGER NOT NULL, entry_bytes INTEGER NOT NULL,
+      legacy_key TEXT, UNIQUE(account_id, legacy_key)
+    );
+    CREATE INDEX IF NOT EXISTS message_logs_account_order_idx
+      ON message_logs(account_id, id DESC);
+    CREATE INDEX IF NOT EXISTS message_logs_account_message_idx
+      ON message_logs(account_id, message_id);
+    CREATE TABLE IF NOT EXISTS message_log_state (
+      account_id TEXT PRIMARY KEY, total_bytes INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  schemaReady = true;
 }
 
 function legacyLogPath(accountId: string): string {
-  return join(LOG_DIR, `message-log-${accountId}.jsonl`);
+  ensureAccount(accountId);
+  const currentPath = join(accountDir(accountId), "message-log.jsonl");
+  return existsSync(currentPath) ? currentPath : join(LOG_DIR, `message-log-${accountId}.jsonl`);
 }
 
-function streamFor(accountId: string): WriteStream {
-  const existing = streams.get(accountId);
-  if (existing) return existing;
+type SqlValue = string | number | bigint | null | boolean | Uint8Array;
 
-  // createWriteStream は親ディレクトリを作成しない。
-  // 非同期 mkdir と open の競合を避け、ストリームを開く前に必ず作成する。
-  mkdirSync(LOG_DIR, { recursive: true });
-  const stream = createWriteStream(logPath(accountId), { flags: "a", encoding: "utf8" });
-  streams.set(accountId, stream);
-  // カウンタ初期化: 既存サイズは1回だけ取得
-  stat(logPath(accountId))
-    .then((s) => writtenBytes.set(accountId, s.size))
-    .catch(() => writtenBytes.set(accountId, 0));
-  stream.on("error", (err) => {
-    if (streams.get(accountId) === stream) streams.delete(accountId);
-    log.debug({ accountId, err }, "message log stream error");
-  });
-  return stream;
+function entryValues(entry: MessageLogEntry, entryBytes: number, legacyKey: string | null): SqlValue[] {
+  const media = entry.media;
+  return [
+    entry.accountId, entry.ts, entry.tsMillis, entry.kind, entry.direction, entry.chatMid,
+    entry.chatName ?? null, Number(Object.hasOwn(entry, "chatName")),
+    entry.senderMid, entry.senderName ?? null, Number(Object.hasOwn(entry, "senderName")),
+    entry.contentType, entry.text ?? null, Number(Object.hasOwn(entry, "text")),
+    entry.messageId ?? null, Number(media != null), media?.contentType ?? null,
+    media?.mediaId ?? null, Number(media != null && Object.hasOwn(media, "mediaId")),
+    media?.imageSetId ?? null, Number(media != null && Object.hasOwn(media, "imageSetId")),
+    media?.attachmentName ?? null, Number(media != null && Object.hasOwn(media, "attachmentName")),
+    media?.durationMillis ?? null, Number(media != null && Object.hasOwn(media, "durationMillis")),
+    media?.fileSize ?? null, Number(media != null && Object.hasOwn(media, "fileSize")),
+    media?.stickerId ?? null, Number(media != null && Object.hasOwn(media, "stickerId")),
+    media?.packageId ?? null, Number(media != null && Object.hasOwn(media, "packageId")),
+    entry.locKey ?? null, Number(Object.hasOwn(entry, "locKey")), entryBytes, legacyKey,
+  ];
 }
 
-async function maybeRotate(accountId: string): Promise<void> {
-  const size = writtenBytes.get(accountId) ?? 0;
-  if (size < ROTATE_BYTES) return;
-  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
-  const last = rotatedBytes.get(accountId);
-  if (last != null && size - last < ROTATE_BYTES) return; // 直前ローテ直後
-  rotatedBytes.set(accountId, size);
-  try {
-    const s = streams.get(accountId);
-    if (s) {
-      // flush を待ってから rename（バッファ中の行消失防止）
-      await new Promise<void>((resolve) => s.end(() => resolve()));
+const INSERT_SQL = `INSERT OR IGNORE INTO message_logs (
+  account_id,ts,ts_millis,kind,direction,chat_mid,chat_name,chat_name_present,
+  sender_mid,sender_name,sender_name_present,content_type,text,text_present,message_id,
+  media_present,media_content_type,media_id,media_id_present,image_set_id,image_set_id_present,
+  attachment_name,attachment_name_present,duration_millis,duration_millis_present,
+  file_size,file_size_present,sticker_id,sticker_id_present,package_id,package_id_present,
+  loc_key,loc_key_present,entry_bytes,legacy_key
+) VALUES (${Array.from({ length: 35 }, () => "?").join(",")})`;
+
+function trimLog(accountId: string): void {
+  const state = sqlite.query("SELECT total_bytes FROM message_log_state WHERE account_id=?")
+    .get(accountId) as { total_bytes: number } | null;
+  const total = state?.total_bytes ?? 0;
+  const byteLimit = maxLogBytes();
+  if (total <= byteLimit) return;
+
+  sqlite.query(`WITH cumulative AS (
+      SELECT id, SUM(entry_bytes) OVER (ORDER BY id DESC) AS bytes_from_newest
+      FROM message_logs WHERE account_id=?
+    )
+    DELETE FROM message_logs WHERE account_id=? AND id IN (
+      SELECT id FROM cumulative WHERE bytes_from_newest > ?
+    )`).run(accountId, accountId, byteLimit);
+  const remaining = sqlite.query("SELECT COALESCE(SUM(entry_bytes),0) AS total FROM message_logs WHERE account_id=?")
+    .get(accountId) as { total: number };
+  sqlite.query(`INSERT INTO message_log_state(account_id,total_bytes) VALUES(?,?)
+    ON CONFLICT(account_id) DO UPDATE SET total_bytes=excluded.total_bytes`)
+    .run(accountId, remaining.total);
+}
+
+function insertBatch(rows: Array<{ entry: MessageLogEntry; bytes: number; legacyKey: string | null }>): void {
+  if (!rows.length) return;
+  const firstAccount = rows[0]!.entry.accountId;
+  let insertedBytes = 0;
+  sqlite.transaction(() => {
+    const insert = sqlite.query(INSERT_SQL);
+    for (const row of rows) {
+      const result = insert.run(...entryValues(row.entry, row.bytes, row.legacyKey));
+      if (result.changes) insertedBytes += row.bytes;
     }
-    streams.delete(accountId);
-    writtenBytes.set(accountId, 0);
-    const prev = `${p}.2`;
-    if (existsSync(prev))
-      await import("node:fs/promises").then(({ unlink }) => unlink(prev)).catch(() => undefined);
-    if (existsSync(`${p}.1`)) await rename(`${p}.1`, prev);
-    await rename(p, `${p}.1`);
-  } catch (err) {
-    log.debug({ accountId, err }, "message log rotate failed");
-  }
+    if (insertedBytes) {
+      sqlite.query(`INSERT INTO message_log_state(account_id,total_bytes) VALUES(?,?)
+        ON CONFLICT(account_id) DO UPDATE SET total_bytes=total_bytes+excluded.total_bytes`)
+        .run(firstAccount, insertedBytes);
+    }
+    trimLog(firstAccount);
+  }).immediate();
 }
 
-/** JSONL に1行追記（失敗しても全体を止めない） */
-export function appendMessageLog(entry: MessageLogEntry): void {
-  try {
-    const s = streamFor(entry.accountId);
-    const line = `${JSON.stringify(entry)}\n`;
-    s.write(line);
-    // stat() の代わりに書き込みバイト数で追跡
-    writtenBytes.set(
-      entry.accountId,
-      (writtenBytes.get(entry.accountId) ?? 0) + Buffer.byteLength(line, "utf8"),
-    );
-    void maybeRotate(entry.accountId).catch(() => undefined);
-  } catch (err) {
-    log.debug({ err }, "message log append failed");
-  }
-}
+async function importLegacyLog(accountId: string): Promise<void> {
+  ensureSchema();
+  const migrationName = `message-log-jsonl-v1:${accountId}`;
+  if (sqlite.query("SELECT 1 FROM app_migrations WHERE name=?").get(migrationName)) return;
 
-/** 直近 N 行を読み返す（デバッグ・復元用） */
-export async function readRecentMessageLog(
-  accountId: string,
-  limit = 200,
-): Promise<MessageLogEntry[]> {
-  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
-  if (!existsSync(p)) return [];
-  try {
-    const raw = await readFile(p, "utf8");
-    const lines = raw.split("\n").filter((l) => l.trim());
-    const out: MessageLogEntry[] = [];
-    for (const line of lines.slice(-limit)) {
-      try {
-        out.push(JSON.parse(line) as MessageLogEntry);
-      } catch {
-        /* skip malformed */
+  const path = legacyLogPath(accountId);
+  let batch: Array<{ entry: MessageLogEntry; bytes: number; legacyKey: string | null }> = [];
+  if (existsSync(path)) {
+    const input = createReadStream(path);
+    const lines = createInterface({ input, crlfDelay: Infinity });
+    let lineNumber = 0;
+    try {
+      for await (const line of lines) {
+        lineNumber++;
+        if (!line.trim()) continue;
+        try {
+          const parsed = JSON.parse(line) as MessageLogEntry;
+          if (!parsed || typeof parsed !== "object" || typeof parsed.tsMillis !== "number" ||
+              typeof parsed.chatMid !== "string" || typeof parsed.senderMid !== "string") continue;
+          const entry = { ...parsed, accountId };
+          batch.push({ entry, bytes: Buffer.byteLength(line, "utf8") + 1, legacyKey: `${path}:${lineNumber}` });
+        } catch {
+          /* skip malformed legacy lines while retaining the source file */
+        }
+        if (batch.length >= IMPORT_BATCH_SIZE) {
+          insertBatch(batch);
+          batch = [];
+        }
       }
+    } finally {
+      lines.close();
+      input.destroy();
     }
-    return out;
-  } catch {
+  }
+  insertBatch(batch);
+  sqlite.transaction(() => {
+    sqlite.query("INSERT OR IGNORE INTO app_migrations(name,applied_at) VALUES(?,?)")
+      .run(migrationName, new Date().toISOString());
+  }).immediate();
+}
+
+async function ensureImported(accountId: string): Promise<void> {
+  ensureSchema();
+  if (importedAccounts.has(accountId)) {
+    rememberImportedAccount(accountId);
+    return;
+  }
+  const active = imports.get(accountId);
+  if (active) return active;
+  const task = importLegacyLog(accountId)
+    .then(() => { rememberImportedAccount(accountId); })
+    .finally(() => imports.delete(accountId));
+  imports.set(accountId, task);
+  return task;
+}
+
+function fromRow(row: LogRow): MessageLogEntry {
+  const entry: MessageLogEntry = {
+    ts: row.ts, tsMillis: row.tsMillis, accountId: row.accountId, kind: row.kind,
+    direction: row.direction, chatMid: row.chatMid,
+    senderMid: row.senderMid, contentType: row.contentType,
+  };
+  if (row.chatNamePresent) entry.chatName = row.chatName ?? "";
+  if (row.senderNamePresent) entry.senderName = row.senderName ?? "";
+  if (row.textPresent) entry.text = row.text;
+  if (row.messageId != null) entry.messageId = row.messageId;
+  if (row.locKeyPresent) entry.locKey = row.locKey ?? "";
+  if (row.mediaPresent) {
+    const media: NonNullable<MessageLogEntry["media"]> = { contentType: row.mediaContentType ?? "" };
+    if (row.mediaIdPresent) media.mediaId = row.mediaId ?? "";
+    if (row.imageSetIdPresent) media.imageSetId = row.imageSetId ?? "";
+    if (row.attachmentNamePresent) media.attachmentName = row.attachmentName ?? "";
+    if (row.durationMillisPresent) media.durationMillis = row.durationMillis ?? 0;
+    if (row.fileSizePresent) media.fileSize = row.fileSize ?? 0;
+    if (row.stickerIdPresent) media.stickerId = row.stickerId ?? "";
+    if (row.packageIdPresent) media.packageId = row.packageId ?? "";
+    entry.media = media;
+  }
+  return entry;
+}
+
+/** SQLiteに1件追記（旧JSONLを先に一度だけ取り込み、失敗しても全体は止めない） */
+export async function appendMessageLog(entry: MessageLogEntry): Promise<void> {
+  try {
+    await ensureImported(entry.accountId);
+    const bytes = Buffer.byteLength(JSON.stringify(entry), "utf8") + 1;
+    insertBatch([{ entry, bytes, legacyKey: null }]);
+  } catch (err) {
+    log.debug({ accountId: entry.accountId, err }, "message log append failed");
+  }
+}
+
+/** 直近N件をSQLiteの順序インデックスから取得する（デバッグ・復元用） */
+export async function readRecentMessageLog(accountId: string, limit = 200): Promise<MessageLogEntry[]> {
+  const boundedLimit = Math.max(0, Math.floor(limit));
+  if (!boundedLimit) return [];
+  try {
+    await ensureImported(accountId);
+    const rows = sqlite.query(`SELECT id,ts,ts_millis AS tsMillis,account_id AS accountId,kind,direction,
+      chat_mid AS chatMid,chat_name AS chatName,chat_name_present AS chatNamePresent,
+      sender_mid AS senderMid,sender_name AS senderName,sender_name_present AS senderNamePresent,
+      content_type AS contentType,text,text_present AS textPresent,message_id AS messageId,
+      media_present AS mediaPresent,media_content_type AS mediaContentType,media_id AS mediaId,
+      media_id_present AS mediaIdPresent,image_set_id AS imageSetId,image_set_id_present AS imageSetIdPresent,
+      attachment_name AS attachmentName,attachment_name_present AS attachmentNamePresent,
+      duration_millis AS durationMillis,duration_millis_present AS durationMillisPresent,
+      file_size AS fileSize,file_size_present AS fileSizePresent,sticker_id AS stickerId,
+      sticker_id_present AS stickerIdPresent,package_id AS packageId,package_id_present AS packageIdPresent,
+      loc_key AS locKey,loc_key_present AS locKeyPresent FROM message_logs
+      WHERE account_id=? ORDER BY id DESC LIMIT ?`).all(accountId, boundedLimit) as LogRow[];
+    return rows.reverse().map(fromRow);
+  } catch (err) {
+    log.debug({ accountId, err }, "message log read failed");
     return [];
   }
 }
 
-/** 起動時などに未ログ分を再スキャンして追記（履歴同期の取りこぼし補填） */
+/** 既知のメッセージID集合へ、ログに残る未登録IDを追加する。 */
 export async function replayMissingLogs(accountId: string, knownIds: Set<string>): Promise<number> {
-  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
-  if (!existsSync(p)) return 0;
   try {
-    const raw = await readFile(p, "utf8");
-    const lines = raw.split("\n").filter((l) => l.trim());
+    await ensureImported(accountId);
+    const rows = sqlite.query(`SELECT message_id FROM message_logs
+      WHERE account_id=? AND message_id IS NOT NULL ORDER BY id`)
+      .all(accountId) as Array<{ message_id: string }>;
     let added = 0;
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line) as MessageLogEntry & { messageId?: string };
-        if (entry.messageId && !knownIds.has(entry.messageId)) {
-          knownIds.add(entry.messageId);
-          added++;
-        }
-      } catch {
-        /* skip */
+    for (const { message_id: messageId } of rows) {
+      if (!knownIds.has(messageId)) {
+        knownIds.add(messageId);
+        added++;
       }
     }
     return added;
-  } catch {
+  } catch (err) {
+    log.debug({ accountId, err }, "message log replay failed");
     return 0;
   }
 }

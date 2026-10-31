@@ -20,9 +20,18 @@ import {
   getToken,
   loadTokens,
   deleteToken,
-  updateSessionMeta,
 } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
+import { ProtocolSqliteStorage } from "../storage/protocolSqliteStorage.js";
+import { currentTalkEventSequence } from "./talkEventBuffer.js";
+import { runAccountSingleFlight } from "./accountSingleFlight.js";
+import {
+  completeOperationInboxBatch,
+  getOperationSyncCursor,
+  getPendingOperationInboxBatches,
+  saveOperationSyncCursor,
+  stageOperationInboxBatch,
+} from "../storage/chatStore.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
 
 const log = childLogger("clientManager");
@@ -45,6 +54,7 @@ interface ManagedClient {
 }
 
 const clients = new Map<string, ManagedClient>();
+const tokenRestoreInflight = new Map<string, Promise<VylineClient>>();
 
 /** アカウントごとの fetchOps カーソル（revision ベース） */
 const opsRevision = new Map<
@@ -58,6 +68,7 @@ const opsRevision = new Map<
 
 /** fetchOps ループの AbortController */
 const opsAbortByAccount = new Map<string, AbortController>();
+const talkListenerTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
 /** バックグラウンド RPC 用（poll / 既読）。送信はキューに入れない */
 const talkRpcBackground = new Map<string, Promise<unknown>>();
@@ -92,24 +103,6 @@ export function runTalkRpcImmediate<T>(accountId: string, work: () => Promise<T>
 const sendQueue = new Map<string, Promise<unknown>>();
 const SEND_TIMEOUT_MS = 15_000;
 
-function withSendTimeout<T>(p: Promise<T>, timeoutMs: number): Promise<T> {
-  return new Promise<T>((resolve, reject) => {
-    const timeoutId = setTimeout(() => {
-      reject(new Error(`send timed out after ${timeoutMs}ms`));
-    }, timeoutMs);
-    p.then(
-      (value) => {
-        clearTimeout(timeoutId);
-        resolve(value);
-      },
-      (error) => {
-        clearTimeout(timeoutId);
-        reject(error);
-      },
-    );
-  });
-}
-
 export function runSendRpc<T>(
   accountId: string,
   work: () => Promise<T>,
@@ -122,15 +115,14 @@ export function runSendRpc<T>(
   // 次の送信が並行すると ECONNRESET 等で連続失敗するのを防ぐ。
   const started = prev.catch(() => undefined).then(() => work());
   sendQueue.set(accountId, started);
-  const raced = Promise.race([
-    started,
-    new Promise<T>((_, reject) => {
-      setTimeout(() => reject(new Error(`send timed out after ${timeoutMs}ms`)), timeoutMs);
-    }),
-  ]);
-  return raced.finally(() => {
-    if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+  let timeoutId: ReturnType<typeof setTimeout>;
+  const timeout = new Promise<T>((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`send timed out after ${timeoutMs}ms`)), timeoutMs);
   });
+  void started.finally(() => {
+    if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+  }).catch(() => undefined);
+  return Promise.race([started, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
 /**
@@ -175,16 +167,17 @@ import { fileURLToPath } from "node:url";
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 
-function storagePathFor(accountId: string): string {
+function legacyStoragePathFor(accountId: string): string {
   const dataDir = process.env.VYLINE_DATA_DIR ?? pathJoin(_dir, "../../data");
   return `${dataDir}/storage-${accountId}.json`;
 }
 
 function loginInit(accountId: string) {
   const deviceMode = process.env.VYLINE_DEVICE;
+  const legacyStoragePath = legacyStoragePathFor(accountId);
   return {
     profile: getVylineProfile(),
-    storagePath: storagePathFor(accountId),
+    storage: new ProtocolSqliteStorage(accountId, legacyStoragePath),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
@@ -196,10 +189,49 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
     return;
   }
   const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
-  setTimeout(() => {
+  const previous = talkListenerTimers.get(accountId);
+  if (previous) clearTimeout(previous);
+  const timer = setTimeout(() => {
+    talkListenerTimers.delete(accountId);
+    if (clients.get(accountId)?.client !== client) return;
     startFetchOpsLoop(client, accountId);
     log.info({ accountId, delayMs }, "ops loop started");
   }, delayMs);
+  talkListenerTimers.set(accountId, timer);
+}
+
+function waitForAbortableDelay(ms: number, signal: AbortSignal): Promise<void> {
+  return new Promise((resolve) => {
+    let timer: ReturnType<typeof setTimeout>;
+    const finish = () => {
+      clearTimeout(timer);
+      signal.removeEventListener("abort", finish);
+      resolve();
+    };
+    timer = setTimeout(finish, ms);
+    signal.addEventListener("abort", finish, { once: true });
+    if (signal.aborted) finish();
+  });
+}
+
+function revisionFromStorage(value: string): number | bigint {
+  if (/^-?\d+$/.test(value)) {
+    try {
+      return BigInt(value);
+    } catch {
+      // Preserve compatibility with non-standard revision values below.
+    }
+  }
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : 0;
+}
+
+function cursorStorageValue(cursor: { revision: number | bigint; globalRev: number | bigint; individualRev: number | bigint }) {
+  return {
+    revision: String(cursor.revision),
+    globalRevision: String(cursor.globalRev),
+    individualRevision: String(cursor.individualRev),
+  };
 }
 
 function startFetchOpsLoop(client: VylineClient, accountId: string): void {
@@ -213,11 +245,62 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 
   const getCursor = () =>
     opsRevision.get(accountId) ?? { revision: 0, globalRev: 0, individualRev: 0 };
+  let cursorLoaded = false;
+  type SyncOperation = {
+    type?: string | number;
+    param1?: string;
+    param2?: string;
+    param3?: string;
+    message?: unknown;
+    revision?: number | bigint;
+  };
+
+  async function processPendingInbox(): Promise<number> {
+    const batches = await getPendingOperationInboxBatches<SyncOperation>(accountId);
+    if (batches.length === 0) return 0;
+    const { processFetchedOperations } = await import("../service/lineService.js");
+    for (const batch of batches) {
+      if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) {
+        throw new Error("operation sync loop was superseded before inbox processing");
+      }
+      await processFetchedOperations(accountId, batch.operations, async (events) => {
+        if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) {
+          throw new Error("operation sync loop was superseded before inbox acknowledgement");
+        }
+        const committedSequences = await completeOperationInboxBatch(
+          accountId,
+          batch.batchId,
+          batch.cursor,
+          events,
+          currentTalkEventSequence(accountId),
+        );
+        opsRevision.set(accountId, {
+          revision: revisionFromStorage(batch.cursor.revision),
+          globalRev: revisionFromStorage(batch.cursor.globalRevision),
+          individualRev: revisionFromStorage(batch.cursor.individualRevision),
+        });
+        return committedSequences;
+      });
+    }
+    return batches.length;
+  }
 
   async function loop(): Promise<void> {
     let errorStreak = 0;
     while (!abort.signal.aborted && client.base.authToken) {
       try {
+        if (!cursorLoaded) {
+          const stored = await getOperationSyncCursor(accountId);
+          if (stored) {
+            opsRevision.set(accountId, {
+              revision: revisionFromStorage(stored.revision),
+              globalRev: revisionFromStorage(stored.globalRevision),
+              individualRev: revisionFromStorage(stored.individualRevision),
+            });
+          }
+          cursorLoaded = true;
+        }
+        await processPendingInbox();
         const cursor = getCursor();
         const resp = await client.base.talk.sync({
           limit: 100,
@@ -229,44 +312,46 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 
         const opResp = resp?.operationResponse;
         const fullSync = resp?.fullSyncResponse;
+        let nextCursor = { ...cursor };
         if (fullSync?.nextRevision) {
-          opsRevision.set(accountId, { ...getCursor(), revision: fullSync.nextRevision });
+          nextCursor.revision = fullSync.nextRevision;
         }
         if (opResp?.globalEvents?.lastRevision) {
-          opsRevision.set(accountId, {
-            ...getCursor(),
-            globalRev: opResp.globalEvents.lastRevision,
-          });
+          nextCursor.globalRev = opResp.globalEvents.lastRevision;
         }
         if (opResp?.individualEvents?.lastRevision) {
-          opsRevision.set(accountId, {
-            ...getCursor(),
-            individualRev: opResp.individualEvents.lastRevision,
-          });
+          nextCursor.individualRev = opResp.individualEvents.lastRevision;
         }
 
         const ops = opResp?.operations ?? [];
         if (ops.length > 0) {
           const lastOp = ops[ops.length - 1];
           if (lastOp?.revision != null) {
-            opsRevision.set(accountId, { ...getCursor(), revision: lastOp.revision });
+            nextCursor.revision = lastOp.revision;
           }
           log.debug({ accountId, count: ops.length }, "ops received");
-          const { processFetchedOperations } = await import("../service/lineService.js");
-          await processFetchedOperations(accountId, ops);
+          await stageOperationInboxBatch(
+            accountId,
+            cursorStorageValue(cursor),
+            cursorStorageValue(nextCursor),
+            ops,
+          );
+          await processPendingInbox();
+        } else {
+          const storedCursor = cursorStorageValue(cursor);
+          const nextStoredCursor = cursorStorageValue(nextCursor);
+          if (
+            storedCursor.revision !== nextStoredCursor.revision ||
+            storedCursor.globalRevision !== nextStoredCursor.globalRevision ||
+            storedCursor.individualRevision !== nextStoredCursor.individualRevision
+          ) {
+            if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) break;
+            await saveOperationSyncCursor(accountId, nextStoredCursor);
+            opsRevision.set(accountId, nextCursor);
+          }
         }
 
-        await new Promise<void>((resolve) => {
-          const t = setTimeout(resolve, ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS);
-          abort.signal.addEventListener(
-            "abort",
-            () => {
-              clearTimeout(t);
-              resolve();
-            },
-            { once: true },
-          );
-        });
+        await waitForAbortableDelay(ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS, abort.signal);
         errorStreak = 0;
       } catch (err) {
         if (abort.signal.aborted) break;
@@ -279,17 +364,17 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           // 期限を迎えるのは通常の待機終了なので、警告にしない。
           errorStreak = 0;
           log.debug({ accountId, msg }, "ops long poll timed out, retrying in 5s");
-          await new Promise<void>((resolve) => setTimeout(resolve, 5_000));
+          await waitForAbortableDelay(5_000, abort.signal);
         } else {
           // 連続エラー時は指数バックオフ（5s → 10s → 20s ... 最大60s）でサーバ負荷を避ける
           errorStreak++;
           const retryMs = Math.min(5_000 * 2 ** (errorStreak - 1), 60_000);
           log.warn({ accountId, msg }, `ops loop error, retrying in ${retryMs / 1000}s`);
-          await new Promise<void>((resolve) => setTimeout(resolve, retryMs));
+          await waitForAbortableDelay(retryMs, abort.signal);
         }
       }
     }
-    opsAbortByAccount.delete(accountId);
+    if (opsAbortByAccount.get(accountId) === abort) opsAbortByAccount.delete(accountId);
     log.info({ accountId }, "ops loop stopped");
   }
 
@@ -297,12 +382,15 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 }
 
 export function stopFetchOpsLoop(accountId: string): void {
+  const listenerTimer = talkListenerTimers.get(accountId);
+  if (listenerTimer) clearTimeout(listenerTimer);
+  talkListenerTimers.delete(accountId);
   opsAbortByAccount.get(accountId)?.abort();
   opsAbortByAccount.delete(accountId);
   opsRevision.delete(accountId);
 }
 
-function watchAuthToken(client: VylineClient, accountId: string): void {
+async function watchAuthToken(client: VylineClient, accountId: string): Promise<void> {
   try {
     patchGroupKeyLookup(client);
   } catch (err) {
@@ -311,28 +399,11 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
 
   startTalkListeners(client, accountId);
 
-  // スタック内部ログ（RPC request/response 等）は trace で埋める。
-  // LOG_LEVEL=trace で詳細確認、通常運用では表示しない。
-  // 認証関連など重要なものだけ debug で残す。
-  client.base.on("log", ({ type, data }) => {
-    const t = type as string;
-    if (t === "update:authtoken" || t.startsWith("vyline:e2ee") || t.startsWith("vyline:init")) {
-      log.debug(
-        { vylineType: t, ...(data as Record<string, unknown> | undefined) },
-        "vyline stack event",
-      );
-      return;
-    }
-    // RPC request/response など高頻度ログ → trace のみ
-    log.trace(
-      { vylineType: t, ...(data as Record<string, unknown> | undefined) },
-      "vyline stack log",
-    );
-  });
-
-  const persist = async (reason: string) => {
-    const token = client.authToken ?? client.base.authToken;
-    const profile = client.base.profile;
+  let lastToken = String(client.authToken ?? client.base.authToken ?? "");
+  let persistTail: Promise<void> = Promise.resolve();
+  const persist = (reason: string, tokenOverride?: string, profileOverride?: VylineClient["base"]["profile"]): Promise<void> => {
+    const token = tokenOverride ?? client.authToken ?? client.base.authToken;
+    const profile = profileOverride ?? client.base.profile;
     const meta: {
       mid?: string;
       displayName?: string;
@@ -346,48 +417,55 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
       (profile as { pictureStatus?: string } | undefined)?.pictureStatus;
     if (pic) meta.picturePath = String(pic);
     if (profile?.statusMessage) meta.statusMessage = String(profile.statusMessage);
-    try {
+    const task = persistTail.catch(() => undefined).then(async () => {
       await saveToken(accountId, token, meta);
       log.debug({ accountId, reason }, "session persisted");
-    } catch (err) {
+    });
+    persistTail = task.catch((err) => {
       log.warn({ accountId, reason, err }, "session persist failed");
-    }
+    });
+    return persistTail;
   };
 
-  void persist("initial");
+  // The stack emits the replacement token immediately after refresh. Persist it
+  // synchronously through SQLite instead of waiting for the five-minute poll.
+  client.base.on("update:authtoken", (authToken) => {
+    if (!authToken || authToken === lastToken) return;
+    lastToken = authToken;
+    void persist("token-refresh-event", authToken);
+  });
+
+  // Never include event payloads in logs: login and request payloads may contain credentials.
+  client.base.on("log", ({ type }) => {
+    const t = type as string;
+    if (t === "update:authtoken" || t.startsWith("vyline:e2ee") || t.startsWith("vyline:init")) {
+      log.debug({ vylineType: t }, "vyline stack event");
+      return;
+    }
+    log.trace({ vylineType: t }, "vyline stack log");
+  });
+
+  await persist("initial");
 
   // プロフィール取得後に表示名などを追記
   void client.base.talk
     .getProfile()
     .then(async (profile) => {
       client.base.profile = profile;
-      const meta: {
-        mid?: string;
-        displayName?: string;
-        picturePath?: string;
-        statusMessage?: string;
-      } = {};
-      if (profile.mid) meta.mid = String(profile.mid);
-      if (profile.displayName) meta.displayName = String(profile.displayName);
-      const pic =
-        (profile as { picturePath?: string }).picturePath ??
-        (profile as { pictureStatus?: string }).pictureStatus;
-      if (pic) meta.picturePath = String(pic);
-      if (profile.statusMessage) meta.statusMessage = String(profile.statusMessage);
-      await updateSessionMeta(accountId, meta);
-      await persist("profile");
+      await persist("profile", undefined, profile);
     })
     .catch((err) => {
       log.debug({ accountId, err }, "profile enrich for session skipped");
     });
 
-  let lastToken = String(client.authToken ?? client.base.authToken ?? "");
+  const previousInterval = tokenWatchIntervals.get(accountId);
+  if (previousInterval) clearInterval(previousInterval);
   const interval = setInterval(
     () => {
       const current = String(client.authToken ?? client.base.authToken ?? "");
       if (current && current !== lastToken) {
         lastToken = current;
-        void persist("token-refresh");
+        void persist("token-refresh", current);
       }
     },
     5 * 60 * 1000,
@@ -421,14 +499,14 @@ export async function loginWithEmail(
       password,
       ...(pincode !== undefined ? { pincode } : {}),
       onPincodeRequest(pin: string) {
-        log.info({ accountId, pincode: pin }, "pincode requested");
+        log.info({ accountId, received: Boolean(pin) }, "pincode requested");
         onPincode(pin);
       },
     },
     loginInit(accountId),
   );
 
-  watchAuthToken(client, accountId);
+  await watchAuthToken(client, accountId);
   void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
@@ -483,13 +561,13 @@ export async function loginWithQRCode(
     const client = await vylineLoginQR(
       {
         onReceiveQRUrl(url: string) {
-          log.info({ accountId, url }, "QR URL received");
+          log.info({ accountId, received: Boolean(url) }, "QR URL received");
           managed.qrUrl = url;
           managed.qrExpired = false;
           onQrUrl(url);
         },
         onPincodeRequest(pin: string) {
-          log.info({ accountId, pin }, "QR pincode requested");
+          log.info({ accountId, received: Boolean(pin) }, "QR pincode requested");
           managed.pincode = pin;
         },
       },
@@ -501,7 +579,7 @@ export async function loginWithQRCode(
     managed.qrExpired = false;
     managed.pincode = null;
     managed.loggedInAt = Date.now();
-    watchAuthToken(client, accountId);
+    await watchAuthToken(client, accountId);
     void warmLineCache(accountId).catch(() => undefined);
     log.info({ accountId }, "QR login success");
     return client;
@@ -518,7 +596,23 @@ export async function loginWithQRCode(
   }
 }
 
-export async function loginWithToken(accountId: string): Promise<VylineClient> {
+export function loginWithToken(
+  accountId: string,
+  options: { background?: boolean } = {},
+): Promise<VylineClient> {
+  const active = clients.get(accountId);
+  if (active?.client && active.loggedInAt !== null) return Promise.resolve(active.client);
+  return runAccountSingleFlight(tokenRestoreInflight, accountId, async () => {
+    const current = clients.get(accountId);
+    if (current?.client && current.loggedInAt !== null) return current.client;
+    return restoreSavedToken(accountId, options);
+  });
+}
+
+async function restoreSavedToken(
+  accountId: string,
+  options: { background?: boolean },
+): Promise<VylineClient> {
   const entry = await getToken(accountId);
   if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
@@ -526,11 +620,13 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
 
   const client = await vylineLoginToken(entry.authToken, {
     profile: getVylineProfile(),
-    storagePath: entry.storageFile,
+    storage: new ProtocolSqliteStorage(accountId, entry.storageFile),
   });
 
-  watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
+  if (options.background !== false) {
+    await watchAuthToken(client, accountId);
+    void warmLineCache(accountId).catch(() => undefined);
+  }
   clients.set(accountId, {
     client,
     accountId,
@@ -551,16 +647,16 @@ export async function loginWithAuthToken(
   const { fileURLToPath } = await import("node:url");
   const _dir = dirname(fileURLToPath(import.meta.url));
   const dataDir = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-  const storagePath = join(dataDir, `storage-${accountId}.json`);
+  const legacyStoragePath = join(dataDir, `storage-${accountId}.json`);
 
   log.info({ accountId }, "login with authToken via Vyline");
 
   const client = await vylineLoginToken(authToken, {
     profile: getVylineProfile(),
-    storagePath,
+    storage: new ProtocolSqliteStorage(accountId, legacyStoragePath),
   });
 
-  watchAuthToken(client, accountId);
+  await watchAuthToken(client, accountId);
   void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,

@@ -9,8 +9,10 @@ docker compose pull
 docker compose up -d
 ```
 
-- アプリは `http://localhost:3000` で起動する（フロントエンド同梱）。
+- アプリは `http://localhost:3000` で起動する（フロントエンド同梱）。既定ではホストのloopbackだけに公開する。
 - 永続データは `./data` と `./storage`（トークン・チャット DB・保存メディア等）。
+- 3000番ポートが使用中なら `.env` に `VYLINE_PORT=3001` のように設定して再起動する。
+- 同じWiFiの端末から開く場合だけ `.env` に `VYLINE_BIND_ADDRESS=0.0.0.0` と `VYLINE_LAN_ACCESS=true` を設定する。LANモードではサブデバイスのペアリングが必要。
 
 ## 更新
 
@@ -26,6 +28,9 @@ docker compose up -d --build
 | 変数 | 既定 | 説明 |
 |---|---|---|
 | `PORT` | `3000` | リッスンポート |
+| `VYLINE_PORT` | `3000` | ホスト側の公開ポート（衝突時に変更） |
+| `VYLINE_BIND_ADDRESS` | `127.0.0.1` | Dockerホストでの公開アドレス。LAN公開時は `0.0.0.0` |
+| `VYLINE_LAN_ACCESS` | `false` | 外部LANアクセスにサブデバイス認証を必須にする |
 | `VYLINE_HOST` | `0.0.0.0` | バインドアドレス |
 | `VYLINE_DATA_DIR` | `/app/data` | 永続データ |
 | `VYLINE_STORAGE_DIR` | `/app/storage` | 保存メディアなどの永続ストレージ |

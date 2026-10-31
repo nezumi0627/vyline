@@ -9,9 +9,8 @@
  * - すべての操作はアカウントスコープ（accountId バウンド）
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { join } from "node:path";
 import type {
   PluginContext,
   PluginLogger,
@@ -20,12 +19,9 @@ import type {
 } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
 import { PLUGIN_DIR } from "./pluginPaths.js";
+import { getPluginSetting, setPluginSetting } from "./pluginStorage.js";
 
 const log = childLogger("plugins");
-
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-const SETTINGS_DIR = join(DATA_DIR, "plugin-settings");
 
 interface ActivePlugin {
   accountId: string;
@@ -64,29 +60,6 @@ async function makeLogger(pluginId: string): Promise<PluginLogger> {
     warn: (msg, ...args) => base.warn({ args }, msg),
     error: (msg, ...args) => base.error({ args }, msg),
   };
-}
-
-function readSettingsFile(accountId: string, pluginId: string): Record<string, unknown> {
-  try {
-    return JSON.parse(
-      readFileSync(join(SETTINGS_DIR, `${accountId}.${pluginId}.json`), "utf8"),
-    ) as Record<string, unknown>;
-  } catch {
-    return {};
-  }
-}
-
-function writeSettingsFile(
-  accountId: string,
-  pluginId: string,
-  data: Record<string, unknown>,
-): void {
-  mkdirSync(SETTINGS_DIR, { recursive: true });
-  writeFileSync(
-    join(SETTINGS_DIR, `${accountId}.${pluginId}.json`),
-    JSON.stringify(data, null, 2),
-    "utf8",
-  );
 }
 
 /**
@@ -141,17 +114,14 @@ export async function activatePlugin(
             logger.warn(`settings.get('${keyName}') ignored: missing permission settings:read`);
             return fallback;
           }
-          const data = readSettingsFile(accountId, pluginId);
-          return (data[keyName] as T | undefined) ?? fallback;
+          return (getPluginSetting(accountId, pluginId, keyName) as T | undefined) ?? fallback;
         },
         async set<T>(keyName: string, value: T): Promise<void> {
           if (!perms.has("settings:write")) {
             logger.warn(`settings.set('${keyName}') ignored: missing permission settings:write`);
             return;
           }
-          const data = readSettingsFile(accountId, pluginId);
-          data[keyName] = value;
-          writeSettingsFile(accountId, pluginId, data);
+          setPluginSetting(accountId, pluginId, keyName, value);
         },
       },
     };

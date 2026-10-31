@@ -1,53 +1,85 @@
-/**
- * featureLocks.ts — アカウント単位の危険操作ロック（永続）
- *
- * ABUSE_BLOCK 等で BAN リスクがある操作を、以降呼ばないようにする。
- * 保存先: <backend>/data/feature-locks.json
- */
+/** Account-scoped permanent locks for operations that may trigger an abuse block. */
 
-import { join, dirname } from "node:path";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { migrateOnce, sqlite } from "./sqlite.js";
 
 const log = childLogger("featureLocks");
-
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const dir = fileURLToPath(new URL(".", import.meta.url));
+const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(dir, "..", "..", "data");
 const LOCKS_FILE = join(DATA_DIR, "feature-locks.json");
 
 export type AccountFeatureLocks = {
-  /** createChat(GROUP) 永久禁止（ABUSE_BLOCK 検知後） */
   createGroupBanned?: boolean;
   createGroupBannedAt?: string;
   createGroupBannedReason?: string;
 };
 
-type LocksFile = Record<string, AccountFeatureLocks>;
-
-async function ensureDir(): Promise<void> {
-  if (!existsSync(DATA_DIR)) await mkdir(DATA_DIR, { recursive: true });
+function ensureSchema(): void {
+  sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS account_feature_locks (
+    account_id TEXT PRIMARY KEY,
+    create_group_banned INTEGER NOT NULL DEFAULT 0,
+    create_group_banned_at TEXT,
+    create_group_banned_reason TEXT
+  );
+`);
 }
 
-async function readAll(): Promise<LocksFile> {
-  try {
-    if (!existsSync(LOCKS_FILE)) return {};
-    const raw = await readFile(LOCKS_FILE, "utf8");
-    return JSON.parse(raw) as LocksFile;
-  } catch {
-    return {};
-  }
+let legacyImported = false;
+function ensureLegacyImported(): void {
+  if (legacyImported) return;
+  ensureSchema();
+  if (existsSync(LOCKS_FILE)) migrateOnce("feature-locks-json-v2", () => {
+      const data = JSON.parse(readFileSync(LOCKS_FILE, "utf8")) as Record<
+        string,
+        AccountFeatureLocks
+      >;
+      const insert = sqlite.query(`
+        INSERT OR IGNORE INTO account_feature_locks
+          (account_id, create_group_banned, create_group_banned_at, create_group_banned_reason)
+        VALUES (?, ?, ?, ?)
+      `);
+      for (const [accountId, locks] of Object.entries(data)) {
+        insert.run(
+          accountId,
+          locks.createGroupBanned === true ? 1 : 0,
+          locks.createGroupBannedAt ?? null,
+          locks.createGroupBannedReason ?? null,
+        );
+      }
+  });
+  legacyImported = true;
 }
 
-async function writeAll(data: LocksFile): Promise<void> {
-  await ensureDir();
-  await writeFile(LOCKS_FILE, JSON.stringify(data, null, 2), "utf8");
+function read(accountId: string): AccountFeatureLocks {
+  const row = sqlite
+    .query(
+      `SELECT create_group_banned, create_group_banned_at, create_group_banned_reason
+       FROM account_feature_locks WHERE account_id = ?`,
+    )
+    .get(accountId) as
+    | {
+        create_group_banned: number;
+        create_group_banned_at: string | null;
+        create_group_banned_reason: string | null;
+      }
+    | null;
+  if (!row) return {};
+  return {
+    createGroupBanned: row.create_group_banned === 1,
+    ...(row.create_group_banned_at ? { createGroupBannedAt: row.create_group_banned_at } : {}),
+    ...(row.create_group_banned_reason
+      ? { createGroupBannedReason: row.create_group_banned_reason }
+      : {}),
+  };
 }
 
 export async function getFeatureLocks(accountId: string): Promise<AccountFeatureLocks> {
-  const all = await readAll();
-  return all[accountId] ?? {};
+  ensureLegacyImported();
+  return read(accountId);
 }
 
 export async function isCreateGroupBanned(accountId: string): Promise<boolean> {
@@ -55,42 +87,44 @@ export async function isCreateGroupBanned(accountId: string): Promise<boolean> {
   return locks.createGroupBanned === true;
 }
 
-/** ABUSE_BLOCK 等を検知したら createGroup を永久禁止 */
 export async function banCreateGroup(
   accountId: string,
   reason: string,
 ): Promise<AccountFeatureLocks> {
-  const all = await readAll();
-  const prev = all[accountId] ?? {};
+  ensureLegacyImported();
+  const prev = read(accountId);
   if (prev.createGroupBanned) return prev;
-  const next: AccountFeatureLocks = {
-    ...prev,
-    createGroupBanned: true,
-    createGroupBannedAt: new Date().toISOString(),
-    createGroupBannedReason: reason.slice(0, 500),
-  };
-  all[accountId] = next;
-  await writeAll(all);
+  const at = new Date().toISOString();
+  const boundedReason = reason.slice(0, 500);
+  sqlite
+    .query(`
+      INSERT INTO account_feature_locks
+        (account_id, create_group_banned, create_group_banned_at, create_group_banned_reason)
+      VALUES (?, 1, ?, ?)
+      ON CONFLICT(account_id) DO UPDATE SET
+        create_group_banned = 1,
+        create_group_banned_at = excluded.create_group_banned_at,
+        create_group_banned_reason = excluded.create_group_banned_reason
+      WHERE account_feature_locks.create_group_banned = 0
+    `)
+    .run(accountId, at, boundedReason);
+  const next = read(accountId);
   log.warn({ accountId, reason: next.createGroupBannedReason }, "createGroup permanently banned");
   return next;
 }
 
-/** グループ作成禁止を解除（オプション） */
 export async function unbanCreateGroup(accountId: string): Promise<AccountFeatureLocks> {
-  const all = await readAll();
-  const prev = all[accountId] ?? {};
+  ensureLegacyImported();
+  const prev = read(accountId);
   if (!prev.createGroupBanned) return prev;
-  const {
-    createGroupBannedAt: _createGroupBannedAt,
-    createGroupBannedReason: _createGroupBannedReason,
-    ...rest
-  } = prev;
-  const next: AccountFeatureLocks = {
-    ...rest,
-    createGroupBanned: false,
-  };
-  all[accountId] = next;
-  await writeAll(all);
+  sqlite
+    .query(`
+      UPDATE account_feature_locks
+      SET create_group_banned = 0, create_group_banned_at = NULL, create_group_banned_reason = NULL
+      WHERE account_id = ?
+    `)
+    .run(accountId);
+  const next: AccountFeatureLocks = { createGroupBanned: false };
   log.info({ accountId }, "createGroup ban cleared (user override)");
   return next;
 }

@@ -243,13 +243,7 @@ export function LoginPage() {
             </button>
           )}
           <div className="flex flex-col items-center mb-6 mt-4">
-            <div
-              className="flex h-12 w-12 items-center justify-center rounded-2xl text-[var(--vy-accent-contrast)] font-bold text-lg"
-              style={{ background: "var(--vy-accent)" }}
-            >
-              V
-            </div>
-            <h1 className="text-2xl font-bold mt-3">Vyline</h1>
+            <h1 className="text-2xl font-bold">Vyline</h1>
             <p className="text-[13px] text-[var(--vy-text-dim)] mt-1">LINE にログイン</p>
           </div>
 

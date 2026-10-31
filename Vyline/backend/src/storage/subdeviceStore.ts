@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
-import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
+import { migrateOnce, sqlite } from "./sqlite.js";
 
 const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
 const FILE = join(DATA_DIR, "subdevices.json");
@@ -21,107 +21,192 @@ export type Subdevice = {
 type Pairing = { id: string; tokenHash: string; expiresAt: number; accountId: string };
 type State = { devices: Subdevice[]; pairings: Pairing[] };
 
-let cache: State | null = null;
+function ensureSchema(): void {
+  sqlite.exec(`
+  CREATE TABLE IF NOT EXISTS subdevices (
+    id TEXT PRIMARY KEY,
+    account_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    platform TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    last_seen_at TEXT,
+    blocked INTEGER NOT NULL DEFAULT 0,
+    token_hash TEXT NOT NULL UNIQUE
+  );
+  CREATE INDEX IF NOT EXISTS subdevices_account_idx ON subdevices(account_id);
+  CREATE TABLE IF NOT EXISTS subdevice_pairings (
+    id TEXT PRIMARY KEY,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at INTEGER NOT NULL,
+    account_id TEXT NOT NULL
+  );
+  CREATE INDEX IF NOT EXISTS subdevice_pairings_expires_idx ON subdevice_pairings(expires_at);
+`);
+}
+
+let legacyImported = false;
+function ensureLegacyImported(): void {
+  if (legacyImported) return;
+  ensureSchema();
+  if (existsSync(FILE)) migrateOnce("subdevices-json-v2", () => {
+    const state = JSON.parse(readFileSync(FILE, "utf8")) as State;
+    const insertDevice = sqlite.query(`
+      INSERT OR IGNORE INTO subdevices
+        (id, account_id, name, platform, created_at, last_seen_at, blocked, token_hash)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const device of state.devices ?? []) {
+      insertDevice.run(
+        device.id,
+        device.accountId,
+        device.name,
+        device.platform,
+        device.createdAt,
+        device.lastSeenAt,
+        device.blocked ? 1 : 0,
+        device.tokenHash,
+      );
+    }
+    const insertPairing = sqlite.query(`
+      INSERT OR IGNORE INTO subdevice_pairings (id, token_hash, expires_at, account_id)
+      VALUES (?, ?, ?, ?)
+    `);
+    for (const pairing of state.pairings ?? []) {
+      insertPairing.run(pairing.id, pairing.tokenHash, pairing.expiresAt, pairing.accountId);
+    }
+  });
+  legacyImported = true;
+}
+
 const hash = (value: string) => createHash("sha256").update(value).digest("hex");
 const token = (prefix: string) => `${prefix}_${randomBytes(32).toString("base64url")}`;
 
-async function load(): Promise<State> {
-  if (cache) return cache;
-  if (!existsSync(FILE)) return (cache = { devices: [], pairings: [] });
-  try {
-    cache = JSON.parse(await readFile(FILE, "utf8")) as State;
-    cache.devices ??= [];
-    cache.pairings ??= [];
-  } catch {
-    cache = { devices: [], pairings: [] };
-  }
-  return cache;
-}
-
-async function save(state: State) {
-  await mkdir(DATA_DIR, { recursive: true });
-  await writeFile(FILE, JSON.stringify(state, null, 2), "utf8");
-  cache = state;
-}
-
 export async function createPairing(accountId: string) {
-  const state = await load();
-  state.pairings = state.pairings.filter((p) => p.expiresAt > Date.now());
+  ensureLegacyImported();
   const raw = token("vyp");
-  state.pairings.push({
-    id: randomBytes(12).toString("hex"),
-    tokenHash: hash(raw),
-    expiresAt: Date.now() + PAIRING_TTL_MS,
-    accountId,
-  });
-  await save(state);
-  return { token: raw, expiresAt: state.pairings.at(-1)!.expiresAt };
+  const expiresAt = Date.now() + PAIRING_TTL_MS;
+  sqlite.transaction(() => {
+    sqlite.query("DELETE FROM subdevice_pairings WHERE expires_at <= ?").run(Date.now());
+    sqlite
+      .query(
+        "INSERT INTO subdevice_pairings (id, token_hash, expires_at, account_id) VALUES (?, ?, ?, ?)",
+      )
+      .run(randomBytes(12).toString("hex"), hash(raw), expiresAt, accountId);
+  })();
+  return { token: raw, expiresAt };
 }
 
 export async function getPairing(raw: string) {
-  const state = await load();
-  const pairing = state.pairings.find((p) => p.tokenHash === hash(raw) && p.expiresAt > Date.now());
-  return pairing ? { expiresAt: pairing.expiresAt } : null;
+  ensureLegacyImported();
+  const pairing = sqlite
+    .query("SELECT expires_at FROM subdevice_pairings WHERE token_hash = ? AND expires_at > ?")
+    .get(hash(raw), Date.now()) as { expires_at: number } | null;
+  return pairing ? { expiresAt: pairing.expires_at } : null;
 }
 
 export async function completePairing(raw: string, name: string, platform: Subdevice["platform"]) {
-  const state = await load();
-  const index = state.pairings.findIndex(
-    (p) => p.tokenHash === hash(raw) && p.expiresAt > Date.now(),
-  );
-  if (index < 0) return null;
-  const accountId = state.pairings[index]!.accountId;
-  state.pairings.splice(index, 1);
-  const rawSession = token("vys");
+  ensureLegacyImported();
+  const sessionToken = token("vys");
+  const now = new Date().toISOString();
   const device: Subdevice = {
     id: randomBytes(12).toString("hex"),
+    accountId: "",
     name: name.trim().slice(0, 80) || "サブデバイス",
     platform,
-    createdAt: new Date().toISOString(),
-    lastSeenAt: new Date().toISOString(),
+    createdAt: now,
+    lastSeenAt: now,
     blocked: false,
-    tokenHash: hash(rawSession),
-    accountId,
+    tokenHash: hash(sessionToken),
   };
-  state.devices.push(device);
-  await save(state);
-  return { device: { ...device, tokenHash: undefined }, sessionToken: rawSession };
+  const result = sqlite.transaction(() => {
+    const pairing = sqlite
+      .query("SELECT account_id FROM subdevice_pairings WHERE token_hash = ? AND expires_at > ?")
+      .get(hash(raw), Date.now()) as { account_id: string } | null;
+    if (!pairing) return false;
+    device.accountId = pairing.account_id;
+    sqlite.query("DELETE FROM subdevice_pairings WHERE token_hash = ?").run(hash(raw));
+    sqlite
+      .query(`
+        INSERT INTO subdevices
+          (id, account_id, name, platform, created_at, last_seen_at, blocked, token_hash)
+        VALUES (?, ?, ?, ?, ?, ?, 0, ?)
+      `)
+      .run(
+        device.id,
+        device.accountId,
+        device.name,
+        device.platform,
+        device.createdAt,
+        device.lastSeenAt,
+        device.tokenHash,
+      );
+    return true;
+  })();
+  if (!result) return null;
+  const { tokenHash: _tokenHash, ...safeDevice } = device;
+  return { device: safeDevice, sessionToken };
 }
 
 export async function listSubdevices() {
-  const state = await load();
-  return state.devices.map(({ tokenHash: _tokenHash, ...device }) => device);
+  ensureLegacyImported();
+  return sqlite
+    .query(`
+      SELECT id, account_id AS accountId, name, platform, created_at AS createdAt,
+        last_seen_at AS lastSeenAt, blocked
+      FROM subdevices ORDER BY rowid
+    `)
+    .all()
+    .map((row) => {
+      const device = row as Omit<Subdevice, "tokenHash" | "blocked"> & { blocked: number };
+      return { ...device, blocked: device.blocked === 1 };
+    });
 }
 
 export async function authenticateSubdevice(raw: string) {
-  const state = await load();
-  const device = state.devices.find((d) => d.tokenHash === hash(raw));
-  if (!device || device.blocked) return null;
-  device.lastSeenAt = new Date().toISOString();
-  await save(state);
-  const { tokenHash: _tokenHash, ...safe } = device;
-  return safe;
+  ensureLegacyImported();
+  const row = sqlite
+    .query(`
+      UPDATE subdevices SET last_seen_at = ?
+      WHERE token_hash = ? AND blocked = 0
+      RETURNING id, account_id AS accountId, name, platform, created_at AS createdAt,
+        last_seen_at AS lastSeenAt, blocked
+    `)
+    .get(new Date().toISOString(), hash(raw)) as
+    | (Omit<Subdevice, "tokenHash" | "blocked"> & { blocked: number })
+    | null;
+  return row ? { ...row, blocked: row.blocked === 1 } : null;
+}
+
+export async function getSubdeviceSession(raw: string) {
+  ensureLegacyImported();
+  const row = sqlite
+    .query(`
+      SELECT id, account_id AS accountId, name, platform, created_at AS createdAt,
+        last_seen_at AS lastSeenAt, blocked
+      FROM subdevices WHERE token_hash = ? AND blocked = 0
+    `)
+    .get(hash(raw)) as
+    | (Omit<Subdevice, "tokenHash" | "blocked"> & { blocked: number })
+    | null;
+  return row ? { ...row, blocked: row.blocked === 1 } : null;
 }
 
 export async function isSubdeviceSessionValid(raw: string) {
-  const state = await load();
-  const device = state.devices.find((d) => d.tokenHash === hash(raw));
-  return Boolean(device && !device.blocked);
+  ensureLegacyImported();
+  return Boolean(
+    sqlite.query("SELECT 1 FROM subdevices WHERE token_hash = ? AND blocked = 0").get(hash(raw)),
+  );
 }
 
 export async function removeSubdevice(id: string) {
-  const state = await load();
-  const before = state.devices.length;
-  state.devices = state.devices.filter((d) => d.id !== id);
-  await save(state);
-  return state.devices.length !== before;
+  ensureLegacyImported();
+  return sqlite.query("DELETE FROM subdevices WHERE id = ?").run(id).changes > 0;
 }
 
 export async function setSubdeviceBlocked(id: string, blocked: boolean) {
-  const state = await load();
-  const device = state.devices.find((d) => d.id === id);
-  if (!device) return false;
-  device.blocked = blocked;
-  await save(state);
-  return true;
+  ensureLegacyImported();
+  return (
+    sqlite.query("UPDATE subdevices SET blocked = ? WHERE id = ?").run(blocked ? 1 : 0, id)
+      .changes > 0
+  );
 }

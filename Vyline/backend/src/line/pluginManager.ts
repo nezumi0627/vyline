@@ -6,40 +6,21 @@
  * ユーザー向けガイドは docs/developer-guide/plugin-system.md を参照。
  */
 
-import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import type { PluginManifest } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
-import { DATA_DIR, PLUGIN_DIR } from "./pluginPaths.js";
+import { PLUGIN_DIR } from "./pluginPaths.js";
 import { activatePlugin, deactivatePlugin, resolvePluginEntry } from "./pluginRuntime.js";
+import { getPluginStates as getStoredPluginStates, setStoredPluginState } from "./pluginStorage.js";
 
 const log = childLogger("plugins");
-
-const STATES_PATH = join(DATA_DIR, "plugin-states.json");
 
 export interface PluginEntry extends PluginManifest {
   /** プラグインディレクトリ名（= manifest の置かれたフォルダ） */
   dir: string;
   /** エントリファイルが存在し実行可能か */
   loadable: boolean;
-}
-
-type PluginStates = Record<string, Record<string, boolean>>;
-
-function loadStates(): PluginStates {
-  try {
-    return JSON.parse(readFileSync(STATES_PATH, "utf8")) as PluginStates;
-  } catch {
-    return {};
-  }
-}
-
-function saveStates(states: PluginStates): void {
-  try {
-    writeFileSync(STATES_PATH, JSON.stringify(states, null, 2), "utf8");
-  } catch (err) {
-    log.warn({ err }, "failed to save plugin states");
-  }
 }
 
 /** プラグインディレクトリを走査し manifest.json を読む（この関数自体はコードを実行しない） */
@@ -76,7 +57,7 @@ function findPluginDir(pluginId: string): string | null {
 }
 
 export function getPluginStates(accountId: string): Record<string, boolean> {
-  return loadStates()[accountId] ?? {};
+  return getStoredPluginStates(accountId);
 }
 
 /**
@@ -99,8 +80,5 @@ export async function setPluginState(
     await deactivatePlugin(accountId, pluginId);
   }
 
-  const states = loadStates();
-  states[accountId] = states[accountId] ?? {};
-  states[accountId]![pluginId] = enabled;
-  saveStates(states);
+  setStoredPluginState(accountId, pluginId, enabled);
 }

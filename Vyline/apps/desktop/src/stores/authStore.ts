@@ -2,14 +2,15 @@
  * stores/authStore.ts
  *
  * 認証状態の管理。
- * - backend の tokens.json に authToken を保存
+ * - backend の SQLite account_tokens に authToken を保存
  * - 起動時に saved → restore → active を復元
- * - activeAccountId は localStorage に永続化
+ * - 認証状態は IndexedDB に永続化
  * - ログイン画面用に sessions メタを保持
  */
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { indexedDbPersistStorage } from "../lib/indexedDbStorage.js";
 import { api } from "../api/client.js";
 import type { SavedSession } from "@vyline/types";
 
@@ -25,6 +26,8 @@ interface AuthState {
   pendingLoginAccountId: string | null;
   /** login 画面を開いた理由。auto=起動時のみ / manual=サイドバーからの追加・切替 */
   loginMode: "auto" | "manual";
+  /** Non-secret login method metadata for support diagnostics. */
+  loginMethods: Record<string, "email" | "qr" | "token" | "restored" | "unknown">;
 
   setActiveAccount: (id: string) => void;
   setPendingLogin: (id: string | null) => void;
@@ -78,6 +81,7 @@ export const useAuthStore = create<AuthState>()(
       error: null,
       pendingLoginAccountId: null,
       loginMode: "auto",
+      loginMethods: {},
 
       setActiveAccount: (id) => set({ activeAccountId: id }),
 
@@ -105,7 +109,7 @@ export const useAuthStore = create<AuthState>()(
         let saved = res.saved;
         let sessions = res.sessions ?? [];
 
-        // メモリに無いが tokens.json にある → restore
+        // 保存済みだがBackendメモリにないセッションだけ復元する。
         const missing = saved.filter((id) => !active.includes(id));
         if (missing.length > 0) {
           await Promise.allSettled(missing.map((id) => api.auth.restore(id)));
@@ -174,6 +178,7 @@ export const useAuthStore = create<AuthState>()(
             set({ error: message });
             return { ok: false, error: message };
           }
+          set((state) => ({ loginMethods: { ...state.loginMethods, [accountId]: "email" } }));
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -193,6 +198,7 @@ export const useAuthStore = create<AuthState>()(
             set({ error: message });
             return { ok: false, error: message };
           }
+          set((state) => ({ loginMethods: { ...state.loginMethods, [accountId]: "qr" } }));
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -212,6 +218,7 @@ export const useAuthStore = create<AuthState>()(
             set({ error: message });
             return { ok: false, error: message };
           }
+          set((state) => ({ loginMethods: { ...state.loginMethods, [accountId]: "token" } }));
           await get().refreshAccounts();
           set({ activeAccountId: accountId });
           return { ok: true };
@@ -233,6 +240,10 @@ export const useAuthStore = create<AuthState>()(
             set({ error: message });
             return { ok: false, error: message };
           }
+          set((state) => ({ loginMethods: {
+            ...state.loginMethods,
+            [accountId]: state.loginMethods[accountId] ?? "restored",
+          } }));
           await get().refreshAccounts();
           set({ activeAccountId: accountId });
           return { ok: true };
@@ -284,7 +295,9 @@ export const useAuthStore = create<AuthState>()(
     }),
     {
       name: "vyline:auth",
-      partialize: (s) => ({ activeAccountId: s.activeAccountId }),
+      storage: indexedDbPersistStorage,
+      skipHydration: true,
+      partialize: (s) => ({ activeAccountId: s.activeAccountId, loginMethods: s.loginMethods }),
     },
   ),
 );

@@ -9,7 +9,7 @@
  */
 
 import { Hono } from "hono";
-import { detectInstalledDesktop, ensureValidE2EEIdentity } from "@vyline/protocol";
+import { detectInstalledDesktop, ensureValidE2EEIdentity, resolveDeviceMode } from "@vyline/protocol";
 import { childLogger } from "../logger.js";
 import { loadTokens } from "../storage/tokenStore.js";
 import { listAccounts, getClient } from "../line/clientManager.js";
@@ -315,6 +315,11 @@ debugRouter.get("/vyline/status", (c) => {
       profileVersion: profile.identity.appVersion,
       installedVersion: installed?.version ?? null,
       method: profile.source.detectionMethod,
+      deviceMode: resolveDeviceMode(),
+      device: profile.identity.device,
+      systemName: profile.identity.systemName,
+      systemVersion: profile.identity.systemVersion,
+      ntSuffix: profile.identity.ntSuffix,
       userAgent: profile.identity.userAgent,
       xLineApplication: profile.identity.xLineApplication,
       exePath: installed?.exePath ?? profile.source.exePath,

@@ -37,6 +37,7 @@ interface ManagedCall {
   error?: string;
   wsClients: Set<ServerWebSocket<CallWsData>>;
   micQueue: PcmFrame[];
+  micQueueBytes: number;
   micWaiters: Array<(f: PcmFrame | null) => void>;
   micClosed: boolean;
   sendTask?: Promise<void>;
@@ -51,6 +52,11 @@ export interface CallWsData {
 
 const sessions = new Map<string, ManagedCall>();
 const byAccount = new Map<string, Set<string>>();
+const startingAccounts = new Set<string>();
+// 48 kB is about 500 ms of mono PCM16 at 48 kHz; discard stale audio rather than growing latency.
+const MAX_MIC_QUEUE_BYTES = 48 * 1024;
+// Keep the browser's socket queue below the same latency budget for downlink audio.
+const MAX_WS_AUDIO_BUFFER_BYTES = 48 * 1024;
 
 function micSource(call: ManagedCall): AudioSource {
   return {
@@ -59,7 +65,9 @@ function micSource(call: ManagedCall): AudioSource {
       while (!signal?.aborted && !call.micClosed) {
         const frame = await new Promise<PcmFrame | null>((resolve) => {
           if (call.micQueue.length > 0) {
-            resolve(call.micQueue.shift()!);
+            const queued = call.micQueue.shift()!;
+            call.micQueueBytes -= queued.samples.byteLength;
+            resolve(queued);
             return;
           }
           call.micWaiters.push(resolve);
@@ -74,7 +82,16 @@ function micSource(call: ManagedCall): AudioSource {
 function pushMic(call: ManagedCall, frame: PcmFrame) {
   const waiter = call.micWaiters.shift();
   if (waiter) waiter(frame);
-  else call.micQueue.push(frame);
+  else {
+    if (frame.samples.byteLength > MAX_MIC_QUEUE_BYTES) return;
+    while (call.micQueueBytes + frame.samples.byteLength > MAX_MIC_QUEUE_BYTES) {
+      const stale = call.micQueue.shift();
+      if (!stale) break;
+      call.micQueueBytes -= stale.samples.byteLength;
+    }
+    call.micQueue.push(frame);
+    call.micQueueBytes += frame.samples.byteLength;
+  }
 }
 
 function broadcastState(call: ManagedCall) {
@@ -96,6 +113,17 @@ function broadcastState(call: ManagedCall) {
 
 function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
   for (const ws of call.wsClients) {
+    const bufferedAmount = (ws as ServerWebSocket<CallWsData> & { getBufferedAmount?: () => number })
+      .getBufferedAmount?.() ?? 0;
+    if (bufferedAmount > MAX_WS_AUDIO_BUFFER_BYTES) {
+      call.wsClients.delete(ws);
+      try {
+        ws.close(1013, "audio consumer too slow");
+      } catch {
+        /* */
+      }
+      continue;
+    }
     try {
       ws.send(pcm);
     } catch {
@@ -148,6 +176,9 @@ async function runCallStart(call: ManagedCall): Promise<void> {
     call.error = err instanceof Error ? err.message : String(err);
     broadcastState(call);
     log.warn({ sessionId, err }, "call start failed");
+    // CallSession.start closes a partially opened transport before rejecting.
+    // Drop the failed session now so it cannot block the next outgoing call.
+    cleanupCall(sessionId);
   }
 }
 
@@ -175,6 +206,9 @@ export async function startManagedCall(opts: {
   desktopProfile?: DesktopProfile;
 }): Promise<CallSessionSnapshot> {
   const kind = opts.kind ?? "AUDIO";
+  if (startingAccounts.has(opts.accountId)) {
+    throw new Error("通話の開始処理中です");
+  }
   const existing = [...(byAccount.get(opts.accountId) ?? [])]
     .map((id) => sessions.get(id))
     .find((c) => {
@@ -190,11 +224,17 @@ export async function startManagedCall(opts: {
     throw new Error(`通話中: sessionId=${existing.sessionId}`);
   }
 
-  const created = await createDirectCallSession(opts.client, {
-    to: opts.to,
-    kind,
-    ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
-  });
+  startingAccounts.add(opts.accountId);
+  let created: Awaited<ReturnType<typeof createDirectCallSession>>;
+  try {
+    created = await createDirectCallSession(opts.client, {
+      to: opts.to,
+      kind,
+      ...(opts.desktopProfile ? { desktopProfile: opts.desktopProfile } : {}),
+    });
+  } finally {
+    startingAccounts.delete(opts.accountId);
+  }
   const session = created.session;
   const sessionId = randomUUID();
   const transport = created.transportKind;
@@ -210,6 +250,7 @@ export async function startManagedCall(opts: {
     startedAt: Date.now(),
     wsClients: new Set(),
     micQueue: [],
+    micQueueBytes: 0,
     micWaiters: [],
     micClosed: false,
   };
@@ -241,6 +282,9 @@ export async function endManagedCall(sessionId: string, reason = "user-ended"): 
   if (!call) return;
   call.micClosed = true;
   for (const w of call.micWaiters) w(null);
+  call.micWaiters.length = 0;
+  call.micQueue.length = 0;
+  call.micQueueBytes = 0;
   try {
     await call.session.end(reason);
   } catch (err) {
@@ -254,6 +298,9 @@ function cleanupCall(sessionId: string) {
   if (!call) return;
   call.micClosed = true;
   for (const w of call.micWaiters) w(null);
+  call.micWaiters.length = 0;
+  call.micQueue.length = 0;
+  call.micQueueBytes = 0;
   for (const ws of call.wsClients) {
     try {
       ws.close();
@@ -262,7 +309,9 @@ function cleanupCall(sessionId: string) {
     }
   }
   sessions.delete(sessionId);
-  byAccount.get(call.accountId)?.delete(sessionId);
+  const accountSessions = byAccount.get(call.accountId);
+  accountSessions?.delete(sessionId);
+  if (accountSessions?.size === 0) byAccount.delete(call.accountId);
 }
 
 export function getCallSnapshot(sessionId: string): CallSessionSnapshot | null {

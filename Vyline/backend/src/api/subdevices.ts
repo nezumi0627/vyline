@@ -46,8 +46,8 @@ export function buildPairingUrl(origin: string | undefined, token: string): stri
       url.hostname = lanHost;
     }
     url.pathname = "/subdevice";
-    url.search = `?pairing=${encodeURIComponent(token)}`;
-    url.hash = "";
+    url.search = "";
+    url.hash = `pairing=${encodeURIComponent(token)}`;
     return url.toString();
   } catch {
     return undefined;

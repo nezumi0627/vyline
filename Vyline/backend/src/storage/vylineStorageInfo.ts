@@ -5,24 +5,13 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
+import { readdir, stat, statfs } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 
 const log = childLogger("vyline-storage");
 const _dir = dirname(fileURLToPath(import.meta.url));
-
-async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  while (true) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    if (value) chunks.push(value);
-  }
-  return Buffer.concat(chunks).toString("utf-8");
-}
 
 export const VYLINE_DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 export const VYLINE_STORAGE_DIR =
@@ -69,33 +58,32 @@ async function dirSize(target: string): Promise<number> {
   return total;
 }
 
+async function sqliteFilesSize(): Promise<number> {
+  const databasePath = join(VYLINE_DATA_DIR, "vyline.sqlite");
+  const paths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
+  const sizes = await Promise.all(paths.map(async (path) => {
+    try {
+      return (await stat(path)).size;
+    } catch {
+      return 0;
+    }
+  }));
+  return sizes.reduce((total, size) => total + size, 0);
+}
+
 function extractDriveLetter(path: string): string {
   const m = /^([a-zA-Z]:)/.exec(path);
   return m?.[1]?.toUpperCase() ?? "";
 }
 
 async function getDiskInfo(
-  driveLetter: string,
+  path: string,
 ): Promise<{ totalBytes: number; freeBytes: number; usedBytes: number } | null> {
   try {
-    if (!driveLetter) return null;
-    const name = driveLetter.replace(":", "");
-    const ps = `[pscustomobject]@{ Total = (Get-PSDrive ${name}).Used + (Get-PSDrive ${name}).Free; Free = (Get-PSDrive ${name}).Free; Used = (Get-PSDrive ${name}).Used } | ConvertTo-Json`;
-    const proc = Bun.spawn(["powershell", "-NoProfile", "-Command", ps], {
-      stdout: "pipe",
-      stderr: "pipe",
-    });
-    const [code, stdout, stderr] = await Promise.all([
-      proc.exited,
-      streamToText(proc.stdout),
-      streamToText(proc.stderr),
-    ]);
-    if (typeof code === "number" && code === 0 && stdout.trim()) {
-      const data = JSON.parse(stdout.trim());
-      if (data && typeof data.Total === "number") {
-        return { totalBytes: data.Total, freeBytes: data.Free, usedBytes: data.Used };
-      }
-    }
+    const info = await statfs(path);
+    const totalBytes = Number(info.blocks) * Number(info.bsize);
+    const freeBytes = Number(info.bavail) * Number(info.bsize);
+    return { totalBytes, freeBytes, usedBytes: Math.max(0, totalBytes - freeBytes) };
   } catch {
     /* ignore */
   }
@@ -104,7 +92,7 @@ async function getDiskInfo(
 
 export async function getVylineStorageInfo() {
   const driveLetter = extractDriveLetter(VYLINE_STORAGE_DIR);
-  const [cdnCacheSize, iconCacheSize, imagesSize, videosSize, audioSize, filesSize] =
+  const [cdnCacheSize, iconCacheSize, imagesSize, videosSize, audioSize, filesSize, databaseSize] =
     await Promise.all([
       dirSize(CDN_CACHE_DIR),
       dirSize(ICON_CACHE_DIR),
@@ -112,18 +100,20 @@ export async function getVylineStorageInfo() {
       dirSize(MEDIA_TYPE_DIRS.video),
       dirSize(MEDIA_TYPE_DIRS.audio),
       dirSize(MEDIA_TYPE_DIRS.file),
+      sqliteFilesSize(),
     ]);
 
   const cacheSize = cdnCacheSize + iconCacheSize;
   const savedMediaSize = imagesSize + videosSize + audioSize + filesSize;
-  const vylineTotal = cacheSize + savedMediaSize;
-  const disk = await getDiskInfo(driveLetter);
+  const vylineTotal = cacheSize + savedMediaSize + databaseSize;
+  const disk = await getDiskInfo(VYLINE_STORAGE_DIR);
 
   return {
     ok: true,
     driveLetter,
     disk,
     vylineTotal,
+    databaseSize,
     cacheSize,
     savedMediaSize,
     cache: {
