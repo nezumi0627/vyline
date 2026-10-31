@@ -1230,3 +1230,55 @@
   max-width: 300px;
   min-width: 0;
 }
+
+/* LINE Flex Simulator carousel track and item sizing (captured HAR stylesheet). */
+.LySlider {
+  overflow: hidden;
+  overflow-x: scroll;
+  -webkit-overflow-scrolling: touch;
+}
+.LySlider::-webkit-scrollbar {
+  display: none;
+}
+.LySlider .lyInner {
+  display: flex;
+  width: 100%;
+}
+.LySlider .lyInner::after {
+  content: "";
+  display: block;
+  flex: none;
+  width: 7px;
+  height: 1px;
+}
+.LySlider .lyItem {
+  display: inherit;
+  flex: none;
+  width: 80%;
+  max-width: 300px;
+  margin-left: 7px;
+}
+.LySlider .lyItem + .lyItem {
+  margin-left: 9px;
+}
+.LySlider .lyItem.LyGi {
+  max-width: 500px;
+}
+.LySlider .lyItem.LyMe {
+  max-width: 300px;
+}
+.LySlider .lyItem.LyKi {
+  max-width: 260px;
+}
+.LySlider .lyItem.LyHe {
+  max-width: 241px;
+}
+.LySlider .lyItem.LyDe {
+  max-width: 220px;
+}
+.LySlider .lyItem.LyMi {
+  max-width: 160px;
+}
+.LySlider .lyItem.LyNa {
+  max-width: 120px;
+}
