@@ -4,6 +4,7 @@
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { indexedDbPersistStorage } from "../lib/indexedDbStorage.js";
 
 type DraftState = {
   drafts: Record<string, string>;
@@ -34,6 +35,6 @@ export const useDraftStore = create<DraftState>()(
         }),
       getDraft: (chatMid) => get().drafts[chatMid] ?? "",
     }),
-    { name: "vyline:drafts" },
+    { name: "vyline:drafts", storage: indexedDbPersistStorage, skipHydration: true },
   ),
 );

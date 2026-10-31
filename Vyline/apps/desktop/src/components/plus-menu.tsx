@@ -4,7 +4,7 @@ import { useStore } from "@/lib/store";
 import { mapMember } from "@/lib/mappers";
 import type { Member } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { IconClose } from "@/components/icons";
+import { IconClose, IconPlus } from "@/components/icons";
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T | "timeout"> => {
   return new Promise((resolve) => {
@@ -538,17 +538,17 @@ export function PlusMenu({ chatId }: { chatId: string }) {
   return (
     <>
       <style>{PLUS_KEYFRAMES}</style>
-      <div className="relative">
+      <div className="relative self-center">
         <button
           type="button"
           className={cn(
-            "flex h-8 w-8 items-center justify-center rounded-full text-lg text-[var(--vy-text-dim)] transition-transform duration-200 hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
+            "flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-transform duration-200 hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
             open && "rotate-45 text-[var(--vy-accent)]",
           )}
           onClick={() => setOpen((p) => !p)}
           aria-label="メニューを開く"
         >
-          ＋
+          <IconPlus size={19} />
         </button>
         {open && (
           <div
