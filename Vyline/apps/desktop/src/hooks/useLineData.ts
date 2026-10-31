@@ -19,6 +19,8 @@ import {
   vylineClientToContactMap,
 } from "../lib/vyline-cache.js";
 import { useStore } from "../lib/store.js";
+import { getPersistedRaw, setPersistedRaw } from "../lib/indexedDbStorage.js";
+import { olderMessageRequest } from "../lib/olderMessageRequest.js";
 
 interface UseLineDataOptions {
   accountId: string | null;
@@ -27,10 +29,12 @@ interface UseLineDataOptions {
 const PAGE_SIZE = 100;
 
 export function useLineData({ accountId }: UseLineDataOptions) {
+  const [dataAccountId, setDataAccountId] = useState(accountId);
   const [profile, setProfile] = useState<LineProfile | null>(null);
   const [chats, setChats] = useState<Chat[]>([]);
   const [selectedChatMid, setSelectedChatMid] = useState<string>("");
   const [messages, setMessages] = useState<Message[]>([]);
+  const [readyChatId, setReadyChatId] = useState<string | null>(null);
   const [hasMoreMessages, setHasMoreMessages] = useState(true);
   const [fromLocalCache, setFromLocalCache] = useState(false);
 
@@ -54,7 +58,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   const selectedChatMidRef = useRef(selectedChatMid);
   selectedChatMidRef.current = selectedChatMid;
   const messagesGen = useRef(0);
-  const olderInFlight = useRef(false);
+  const olderInFlight = useRef(new Set<string>());
   const accountIdRef = useRef(accountId);
   accountIdRef.current = accountId;
 
@@ -143,22 +147,26 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   const loadProfile = useCallback(async () => {
     if (!accountId || inFlight.current.profile) return;
-    inFlight.current.profile = true;
+    const flight = inFlight.current;
+    flight.profile = true;
     setLoadingProfile(true);
     try {
       const res = await api.line.profile(accountId);
       if (accountIdRef.current !== accountId) return;
       if (res.ok && res.profile) setProfile(res.profile);
+    } catch {
+      // A temporary RPC failure must not discard the cached profile.
     } finally {
-      setLoadingProfile(false);
-      inFlight.current.profile = false;
+      if (accountIdRef.current === accountId) setLoadingProfile(false);
+      flight.profile = false;
     }
   }, [accountId]);
 
   const loadChats = useCallback(
     async (opts?: { light?: boolean; refresh?: boolean; force?: boolean }) => {
       if (!accountId || inFlight.current.chats) return;
-      inFlight.current.chats = true;
+      const flight = inFlight.current;
+      flight.chats = true;
       // 既に一覧があるときはローディングスピナーを出さない
       setLoadingChats((prev) => prev || false);
       try {
@@ -166,7 +174,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (accountIdRef.current !== accountId) return;
         if (res.ok && res.chats?.length) {
           setChats(res.chats);
-          setSelectedChatMid((prev) => prev || res.chats?.[0]?.mid || "");
+          setSelectedChatMid((prev) => {
+            const active = useStore.getState().activeChatId;
+            if (active && res.chats?.some((chat) => chat.mid === active)) return active;
+            if (prev && res.chats?.some((chat) => chat.mid === prev)) return prev;
+            return "";
+          });
           applyChatsToContactCache(res.chats);
           setFromLocalCache(Boolean(res.fromCache));
           const warmTargets = res.chats
@@ -177,9 +190,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
             .map((c) => c.mid);
           prefetchContacts(warmTargets, 10);
         }
+      } catch {
+        // Keep the bootstrap/cache usable and allow subsequent syncs to retry.
       } finally {
-        setLoadingChats(false);
-        inFlight.current.chats = false;
+        if (accountIdRef.current === accountId) setLoadingChats(false);
+        flight.chats = false;
       }
     },
     [accountId, applyChatsToContactCache, prefetchContacts],
@@ -200,6 +215,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
     async (chatMid: string, limit = PAGE_SIZE, opts?: { force?: boolean }) => {
       if (!accountId || !chatMid) return;
       const gen = ++messagesGen.current;
+      if (!opts?.force) setReadyChatId(null);
 
       const boot = bootstrapMessages.current.get(chatMid);
       if (boot && boot.length > 0 && !opts?.force) {
@@ -239,24 +255,31 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (selectedChatMidRef.current !== chatMid) return;
         if (res.ok && res.messages) {
           const asc = [...res.messages].reverse();
+          if (asc.length === 0 && messagesRef.current.some((m) => m.to === chatMid || m.from === chatMid)) return;
           setMessages(asc);
           setHasMoreMessages(res.hasMore ?? res.messages.length >= limit);
           if (res.fromCache) setFromLocalCache(true);
           resolveMessageAuthors(asc);
         }
+      } catch {
+        // Preserve the local page on a failed background refresh.
       } finally {
-        if (gen === messagesGen.current) setLoadingMessages(false);
+        if (gen === messagesGen.current) {
+          setLoadingMessages(false);
+          if (!opts?.force) setReadyChatId(chatMid);
+        }
       }
     },
     [accountId, resolveMessageAuthors, fetchContact],
   );
 
   const loadOlderMessages = useCallback(
-    async (chatMid: string) => {
+    async (chatMid: string, targetMessageId?: string) => {
       if (!accountId || !chatMid) return;
       if (!hasMoreMessages) return;
       if (selectedChatMidRef.current !== chatMid) return;
-      if (olderInFlight.current) return;
+      const flightKey = JSON.stringify([accountId, chatMid]);
+      if (olderInFlight.current.has(flightKey)) return;
 
       const current = messagesRef.current;
       const oldest = current[0];
@@ -264,18 +287,23 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
       const gen = messagesGen.current;
       let shouldContinue = false;
-      olderInFlight.current = true;
+      olderInFlight.current.add(flightKey);
       setLoadingOlder(true);
       try {
         const res = await api.line.messages(accountId, chatMid, PAGE_SIZE, {
-          beforeMessageId: oldest.id,
-          beforeDeliveredTime: oldest.createdTime,
-          local: true,
+          ...olderMessageRequest(oldest),
         });
         if (gen !== messagesGen.current) return;
         if (selectedChatMidRef.current !== chatMid) return;
-        if (!res.ok || !res.messages) {
-          setHasMoreMessages(false);
+        if (!res.ok || !res.messages || res.timedOut) {
+          window.dispatchEvent(new CustomEvent("vyline:older-messages-failed", { detail: { chatMid } }));
+          // A transient request failure says nothing about whether older pages exist.
+          if (targetMessageId && useStore.getState().accountId === accountId) {
+            useStore.getState().showNotice("過去のメッセージを読み込めませんでした");
+            if (useStore.getState().highlightMessageId === targetMessageId) {
+              useStore.setState({ highlightMessageId: null });
+            }
+          }
           return;
         }
         const olderAsc = [...res.messages].reverse();
@@ -289,8 +317,17 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         shouldContinue = res.hasMore ?? res.messages.length >= PAGE_SIZE;
         setHasMoreMessages(shouldContinue);
         resolveMessageAuthors(fresh);
+      } catch {
+        window.dispatchEvent(new CustomEvent("vyline:older-messages-failed", { detail: { chatMid } }));
+        // Keep hasMoreMessages unchanged so the user can retry after reconnecting.
+        if (targetMessageId && useStore.getState().accountId === accountId) {
+          useStore.getState().showNotice("過去のメッセージを読み込めませんでした");
+          if (useStore.getState().highlightMessageId === targetMessageId) {
+            useStore.setState({ highlightMessageId: null });
+          }
+        }
       } finally {
-        olderInFlight.current = false;
+        olderInFlight.current.delete(flightKey);
         if (gen === messagesGen.current) setLoadingOlder(false);
       }
       if (shouldContinue && gen === messagesGen.current && selectedChatMidRef.current === chatMid) {
@@ -308,8 +345,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const onLoadOlder = (event: Event) => {
-      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
-      if (chatMid) void loadOlderMessages(chatMid);
+      const detail = (event as CustomEvent<{ chatMid?: string; targetMessageId?: string }>).detail;
+      if (detail?.chatMid) void loadOlderMessages(detail.chatMid, detail.targetMessageId);
     };
     window.addEventListener("vyline:load-older-messages", onLoadOlder);
     return () => window.removeEventListener("vyline:load-older-messages", onLoadOlder);
@@ -327,7 +364,8 @@ export function useLineData({ accountId }: UseLineDataOptions) {
 
   const loadBootstrap = useCallback(async () => {
     if (!accountId || inFlight.current.bootstrap) return;
-    inFlight.current.bootstrap = true;
+    const flight = inFlight.current;
+    flight.bootstrap = true;
     try {
       const res = await api.line.bootstrap(accountId);
       if (accountIdRef.current !== accountId) return;
@@ -342,12 +380,17 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         setChats(res.chats);
         setFromLocalCache(true);
         applyChatsToContactCache(res.chats);
-        setSelectedChatMid((prev) => prev || res.chats[0]?.mid || "");
+        setSelectedChatMid((prev) => {
+          const active = useStore.getState().activeChatId;
+          if (active && res.chats.some((chat) => chat.mid === active)) return active;
+          if (prev && res.chats.some((chat) => chat.mid === prev)) return prev;
+          return "";
+        });
       }
     } catch {
       /* bootstrap optional */
     } finally {
-      inFlight.current.bootstrap = false;
+      flight.bootstrap = false;
     }
   }, [accountId, applyChatsToContactCache]);
 
@@ -385,10 +428,13 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   // accountId 変更時だけフルリセット（loadChats 再生成で回さない）
   useEffect(() => {
     messagesGen.current += 1;
+    inFlight.current = { profile: false, chats: false, bootstrap: false };
+    setDataAccountId(accountId);
     setProfile(null);
     setChats([]);
     setSelectedChatMid("");
     setMessages([]);
+    setReadyChatId(null);
     setHasMoreMessages(true);
     setFromLocalCache(false);
     contactFetching.current.clear();
@@ -425,12 +471,14 @@ export function useLineData({ accountId }: UseLineDataOptions) {
       await loadBootstrap();
       if (accountIdRef.current !== accountId) return;
       void loadProfile();
-      await loadChats({ refresh: true, light: true });
+      // 初回一覧では直近E2EEメッセージのプレビュー復号も開始し、4秒後の再読込で反映する。
+      await loadChats({ refresh: true, light: false });
       if (accountIdRef.current !== accountId) return;
 
       // 初回インデックス: 過去メッセージ等を chatdb に先読み（1アカウント1回）
       const indexKey = `vyline:indexed:${accountId}`;
-      const needIndex = typeof localStorage !== "undefined" && !localStorage.getItem(indexKey);
+      const needIndex = (await getPersistedRaw(indexKey)) !== "1";
+      if (accountIdRef.current !== accountId) return;
       if (needIndex) {
         useStore.getState().setIndexing({
           active: true,
@@ -438,7 +486,7 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         });
         try {
           const idx = await api.line.runIndex(accountId);
-          if (idx.ok) localStorage.setItem(indexKey, "1");
+          if (idx.ok) await setPersistedRaw(indexKey, "1");
         } catch {
           /* バックエンド warm でも走っているので失敗は無視 */
         } finally {
@@ -469,10 +517,12 @@ export function useLineData({ accountId }: UseLineDataOptions) {
   }, [contactCache]);
 
   return {
+    accountId: dataAccountId,
     profile,
     chats,
     selectedChatMid,
     messages,
+    readyChatId,
     hasMoreMessages,
     fromLocalCache,
     avatarCache,

@@ -17,6 +17,9 @@ import type {
 } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
+import { processOperationBatch } from "../line/operationBatch.js";
+import { isTrustedLineMediaUrl } from "../security/policies.js";
+import { pruneTimedCache } from "./pruneTimedCache.js";
 import {
   getClient,
   enqueueTalkRpcBackground,
@@ -27,13 +30,16 @@ import {
 import {
   drainTalkEvents,
   pushTalkEvent,
+  pushTalkEventAtSequence,
+  restoreTalkEventBuffer,
   clearTalkEvents,
+  type TalkPollEventPayload,
   type TalkPollEvent,
 } from "../line/talkEventBuffer.js";
-import type { VylineClient } from "@vyline/protocol";
 import { peerPubCacheKey, selfPubCacheKey } from "@vyline/protocol/e2ee/pubCacheKeys";
 import {
   vylineGetGroup,
+  vylineGetChatCacheEntries,
   vylineGetProfile,
   vylineGetProfiles,
   vylineGroupNeedsRefresh,
@@ -42,10 +48,18 @@ import {
   vylinePutGroup,
   vylinePutProfile,
   vylinePutProfiles,
-  vylineResolvedNameMap,
 } from "../storage/vylineCache.js";
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
+import {
+  getReadSnapshotV4,
+  indexReadIntervalsV4,
+  markReadSnapshotV4Stale,
+  normalizeReadIntervalsV4,
+  readersAtMessageV4,
+  readRangesFromSnapshotV4,
+  replaceReadSnapshotV4,
+} from "../storage/readEngineV4.js";
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import { checkStickerGiftEligibility } from "./liffFeatures.js";
 import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
@@ -68,6 +82,7 @@ import {
 } from "@vyline/protocol";
 import {
   getMessages,
+  getTalkEventOutbox,
   getStoredChats,
   getStoredMessages,
   getBootstrapPayload,
@@ -76,8 +91,10 @@ import {
   upsertChats,
   upsertMessages,
   markStoredMessagesReadThrough,
+  reconcileStoredUnreadWithReadPosition,
   compareMessagesNewestFirst,
   markMessageRevoked,
+  findStoredMessageById,
   restoreRevokedMessage,
   getMessageHistory,
   warmAccountCache,
@@ -96,6 +113,7 @@ export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
 
 const log = childLogger("service:line");
+const backgroundMessageSyncs = new Set<string>();
 
 type CombinationStickerLayoutInfo = {
   width: number;
@@ -272,14 +290,14 @@ async function fetchHomeProfileBackgroundUrl(
     if (info?.objectId && result?.isDefaultCover !== true) {
       const ns = info.obsNamespace || "c";
       const url = `https://obs.line-apps.com/r/myhome/${ns}/${info.objectId}`;
-      homeBackgroundCache.set(key, { at: Date.now(), url });
+      setBoundedCacheEntry(homeBackgroundCache, key, { at: Date.now(), url }, 512);
       return url;
     }
-    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    setBoundedCacheEntry(homeBackgroundCache, key, { at: Date.now(), url: "" }, 512);
     return null;
   } catch (err) {
     log.debug({ accountId, targetMid, err }, "home cover background fetch failed");
-    homeBackgroundCache.set(key, { at: Date.now(), url: "" });
+    setBoundedCacheEntry(homeBackgroundCache, key, { at: Date.now(), url: "" }, 512);
     return null;
   }
 }
@@ -700,25 +718,37 @@ async function withRetryOnReset<T>(fn: () => Promise<T>, label: string): Promise
   }
   throw new Error("unreachable");
 }
-const READ_RANGE_MIN_INTERVAL_MS = Number(process.env.VYLINE_READ_RANGE_MIN_INTERVAL_MS ?? 60_000);
+const READ_RANGE_MIN_INTERVAL_MS = Number(process.env.VYLINE_READ_RANGE_MIN_INTERVAL_MS ?? 5_000);
 const READ_RANGE_CIRCUIT_MS = Number(process.env.VYLINE_READ_RANGE_CIRCUIT_MS ?? 180_000);
 
-type ReadRangeCacheEntry = {
-  at: number;
-  ranges: Array<{ chatId?: string; ranges?: unknown }>;
-  failStreak: number;
-};
-
-const readRangeStorage = new VylineStorage<Record<string, ReadRangeCacheEntry>>(
-  "readRanges",
-  () => ({}),
-);
 /** fetchMessagesInner のバックグラウンド既読 RPC をチャットごとに間引く（毎 fetch で force 実行しない） */
 const READ_RANGE_BG_MS = Number(process.env.VYLINE_READ_RANGE_BG_MS ?? 60_000);
 const readRangeBgAt = new Map<string, number>();
+const MAX_EPHEMERAL_CACHE_ENTRIES = 2_048;
+
+export function setBoundedCacheEntry<K, V>(map: Map<K, V>, key: K, value: V, maxSize: number): void {
+  map.delete(key);
+  map.set(key, value);
+  while (map.size > maxSize) {
+    const oldest = map.keys().next();
+    if (oldest.done) break;
+    map.delete(oldest.value);
+  }
+}
 
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
+// Keep membership outside chat rows: history imports/upserts must not resurrect exited groups.
+const chatMembershipStorage = new VylineStorage<Record<string, boolean>>("chatMembership", () => ({}));
+
+async function applyKnownChatMembership(accountId: string, chats: Chat[]): Promise<Chat[]> {
+  const membership = await chatMembershipStorage.load(accountId);
+  return chats.map((chat) => membership[chat.mid] === false ? { ...chat, left: true } : chat);
+}
+
+async function rememberExitedChat(accountId: string, chatMid: string): Promise<void> {
+  await chatMembershipStorage.mutate(accountId, (membership) => { membership[chatMid] = false; });
+}
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
 const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
 
@@ -805,7 +835,7 @@ async function fetchAllMessageBoxes(
   const all: any[] = [];
   const prefixes = ["c", "u", "r"];
   for (const p of prefixes) {
-    // プレフィックス単位の失敗は許容（1 系統が落ちても他でカバー）
+    // A partial roster must not replace the complete cached sidebar.
     try {
       let min = `${p}00000000000000000000000000000000`;
       const max = `${p}fffffffffffffffffffffffffffffff`;
@@ -826,6 +856,7 @@ async function fetchAllMessageBoxes(
       }
     } catch (err) {
       log.debug({ prefix: p, err }, "fetchAllMessageBoxes prefix failed");
+      throw err;
     }
   }
   return all.sort((a, b) => {
@@ -861,7 +892,7 @@ async function fetchMessageBoxesCached(
   const boxes = forChats
     ? await fetchAllMessageBoxes(client)
     : (await client.base.talk.getMessageBoxes({ messageBoxListRequest: {} })).messageBoxes;
-  messageBoxesCache.set(key, { at: now, boxes });
+  setBoundedCacheEntry(messageBoxesCache, key, { at: now, boxes }, 64);
 
   if (forChats && boxes.length > 0) {
     void saveBoxOrder(
@@ -920,7 +951,7 @@ async function resolveMyMid(
   const fromBase = client.base.profile?.mid;
   if (fromBase) {
     const mid = String(fromBase);
-    myMidCache.set(accountId, mid);
+    setBoundedCacheEntry(myMidCache, accountId, mid, 32);
     return mid;
   }
   const profile = await withTimeout(
@@ -929,7 +960,7 @@ async function resolveMyMid(
     "getProfile",
   );
   const mid = String(profile.mid);
-  myMidCache.set(accountId, mid);
+  setBoundedCacheEntry(myMidCache, accountId, mid, 32);
   return mid;
 }
 
@@ -961,6 +992,15 @@ export class NotLoggedInError extends Error {
   constructor(accountId: string) {
     super(`not logged in: ${accountId}`);
     this.name = "NotLoggedInError";
+  }
+}
+
+export class ProtectedContactDeleteError extends Error {
+  readonly code = "PROTECTED_CONTACT_DELETE";
+
+  constructor() {
+    super("この友だちは保護対象のため削除できません");
+    this.name = "ProtectedContactDeleteError";
   }
 }
 
@@ -1007,7 +1047,7 @@ async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
     );
   }
 
-  premiumStatusCache.set(accountId, { at: Date.now(), premium });
+  setBoundedCacheEntry(premiumStatusCache, accountId, { at: Date.now(), premium }, 32);
   void updateSessionMeta(accountId, { premium });
   return premium;
 }
@@ -1025,7 +1065,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     const premium =
       premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
     const next = { ...mem.profile, premium };
-    myProfileCache.set(accountId, { at: mem.at, profile: next });
+    setBoundedCacheEntry(myProfileCache, accountId, { at: mem.at, profile: next }, 32);
     return next;
   }
 
@@ -1089,8 +1129,8 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
 
   const persistAndReturn = (out: LineProfile): LineProfile => {
     if (out.mid) {
-      myMidCache.set(accountId, out.mid);
-      myProfileCache.set(accountId, { at: Date.now(), profile: out });
+      setBoundedCacheEntry(myMidCache, accountId, out.mid, 32);
+      setBoundedCacheEntry(myProfileCache, accountId, { at: Date.now(), profile: out }, 32);
       const put: {
         mid: string;
         displayName: string;
@@ -1172,7 +1212,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       const mapped = lineProfileFromVyline(profile);
       mapped.premium =
         premiumStatusCache.get(accountId)?.premium ?? (await fetchPremiumStatus(accountId));
-      myProfileCache.set(accountId, { at: now, profile: mapped });
+      setBoundedCacheEntry(myProfileCache, accountId, { at: now, profile: mapped }, 32);
       refreshInBg();
       return mapped;
     }
@@ -1386,10 +1426,10 @@ export async function fetchContactsBatch(
         if (mapped.thumbnailUrl) put.thumbnailUrl = mapped.thumbnailUrl;
         if (mapped.statusMessage) put.statusMessage = mapped.statusMessage;
         toPut.push(put);
-        contactProfileCache.set(`${accountId}:${mapped.mid}`, {
+        setBoundedCacheEntry(contactProfileCache, `${accountId}:${mapped.mid}`, {
           at: Date.now(),
           profile: mapped,
-        });
+        }, 1_024);
       }
     } catch (err) {
       log.debug(
@@ -1427,10 +1467,10 @@ export async function fetchContactsBatch(
               if (mapped.thumbnailUrl) put.thumbnailUrl = mapped.thumbnailUrl;
               if (mapped.statusMessage) put.statusMessage = mapped.statusMessage;
               toPut.push(put);
-              contactProfileCache.set(`${accountId}:${mapped.mid}`, {
+              setBoundedCacheEntry(contactProfileCache, `${accountId}:${mapped.mid}`, {
                 at: Date.now(),
                 profile: mapped,
-              });
+              }, 1_024);
             }
           }
         } catch {
@@ -1466,10 +1506,10 @@ export async function fetchContactsBatch(
       if (mapped.thumbnailUrl) put.thumbnailUrl = mapped.thumbnailUrl;
       if (mapped.statusMessage) put.statusMessage = mapped.statusMessage;
       toPut.push(put);
-      contactProfileCache.set(`${accountId}:${mapped.mid}`, {
+      setBoundedCacheEntry(contactProfileCache, `${accountId}:${mapped.mid}`, {
         at: Date.now(),
         profile: mapped,
-      });
+      }, 1_024);
     } catch {
       /* fallback also failed — leave as MID */
     }
@@ -1487,22 +1527,24 @@ export async function applyVylineCacheToChats(accountId: string, chats: Chat[]):
   const authService = require("../auth/mod.js").AuthService;
   await authService.tryRefreshToken(accountId);
 
-  const nameMap = await vylineResolvedNameMap(accountId);
-  // 直接トーク相手のステメ・背景は VylineCache プロフィールから補完
-  const mids = chats.filter((c) => c.kind === "direct").map((c) => c.mid);
-  const profileMap = mids.length ? await vylineGetProfiles(accountId, mids) : new Map();
+  const { profiles: profileMap, groups: groupMap } = await vylineGetChatCacheEntries(
+    accountId,
+    chats.map((chat) => chat.mid),
+  );
   const resolved: Chat[] = chats.map((c) => {
-    const hit = nameMap.get(c.mid);
+    const cachedProfile = c.kind === "direct" ? profileMap.get(c.mid) : undefined;
+    const cachedGroup = c.kind === "direct" ? undefined : groupMap.get(c.mid);
+    const cachedName = cachedProfile?.displayName ?? cachedGroup?.name;
+    const cachedThumbnail = cachedProfile?.thumbnailUrl ?? cachedGroup?.thumbnailUrl;
     const nameLooksMid = !c.name || /^[ucr][0-9a-f]{32}$/i.test(c.name) || c.name === "(No Name)";
     const next: Chat = {
       ...c,
-      name: nameLooksMid ? (hit?.name ?? c.name) : c.name,
+      name: nameLooksMid ? (cachedName ?? c.name) : c.name,
     };
-    if (!c.thumbnailUrl && hit?.thumbnailUrl) next.thumbnailUrl = hit?.thumbnailUrl;
-    const p = profileMap.get(c.mid);
-    if (p) {
-      if (p.statusMessage) next.statusMessage = p.statusMessage;
-      if (p.backgroundUrl) next.backgroundUrl = p.backgroundUrl;
+    if (!c.thumbnailUrl && cachedThumbnail) next.thumbnailUrl = cachedThumbnail;
+    if (cachedProfile) {
+      if (cachedProfile.statusMessage) next.statusMessage = cachedProfile.statusMessage;
+      if (cachedProfile.backgroundUrl) next.backgroundUrl = cachedProfile.backgroundUrl;
     }
     return next;
   });
@@ -1827,7 +1869,7 @@ export async function fetchContactProfile(
         const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
         if (bg) {
           next.backgroundUrl = bg;
-          contactProfileCache.set(cacheKey, { at: Date.now(), profile: next });
+          setBoundedCacheEntry(contactProfileCache, cacheKey, { at: Date.now(), profile: next }, 1_024);
           return next;
         }
       } catch {
@@ -1860,7 +1902,7 @@ export async function fetchContactProfile(
           /* optional */
         }
       }
-      contactProfileCache.set(cacheKey, { at: Date.now(), profile });
+      setBoundedCacheEntry(contactProfileCache, cacheKey, { at: Date.now(), profile }, 1_024);
       return profile;
     }
 
@@ -1872,7 +1914,7 @@ export async function fetchContactProfile(
         "fetchContactProfile",
       );
       if (profile) {
-        contactProfileCache.set(cacheKey, { at: Date.now(), profile });
+        setBoundedCacheEntry(contactProfileCache, cacheKey, { at: Date.now(), profile }, 1_024);
         contactProfileMiss.delete(cacheKey);
         const put: {
           mid: string;
@@ -1896,14 +1938,14 @@ export async function fetchContactProfile(
         void vylinePutProfile(accountId, put);
         return profile;
       }
-      contactProfileMiss.set(cacheKey, Date.now());
+      setBoundedCacheEntry(contactProfileMiss, cacheKey, Date.now(), 1_024);
       return cached?.profile ?? null;
     } catch (err) {
       log.debug(
         { accountId, targetMid, err: err instanceof Error ? err.message : String(err) },
         "fetchContactProfile timed out — using cache if any",
       );
-      contactProfileMiss.set(cacheKey, Date.now());
+      setBoundedCacheEntry(contactProfileMiss, cacheKey, Date.now(), 1_024);
       if (vylineHit) {
         return lineProfileFromVyline(vylineHit);
       }
@@ -2024,7 +2066,7 @@ export async function markAsRead(
   accountId: string,
   chatMid: string,
   lastMessageId?: string,
-): Promise<void> {
+): Promise<string | undefined> {
   // Refresh token before making read request
   const authService = require("../auth/mod.js").AuthService;
   await authService.tryRefreshToken(accountId);
@@ -2047,14 +2089,14 @@ export async function markAsRead(
       if (rawId != null && String(rawId).trim() !== "") {
         messageId = String(rawId);
       }
-    } catch {
-      /* fall through */
+    } catch (err) {
+      rethrowReadReceiptFailure(err, accountId, chatMid);
     }
   }
 
   if (!messageId) {
     log.debug({ accountId, chatMid }, "markAsRead skipped: no valid lastMessageId");
-    return;
+    return undefined;
   }
 
   try {
@@ -2065,17 +2107,20 @@ export async function markAsRead(
       sessionId: 0,
     });
     await markStoredMessagesReadThrough(accountId, chatMid, messageId);
+    // 次のチャット一覧更新が既読前のMessageBox/Chatキャッシュを再利用しないようにする。
+    invalidateMessageBoxesCache(accountId);
+    chatsCache.delete(accountId);
     log.info({ accountId, chatMid, lastMessageId: messageId }, "chat marked as read");
+    return messageId;
   } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    // 接続エラー・タイムアウトは再スローしない（非クリティカル）
-    if (/connection|timeout|connect|ECONN|ENET|ETIMEDOUT/i.test(msg)) {
-      log.warn({ accountId, chatMid, errMsg: msg }, "markAsRead skipped (network)");
-      return;
-    }
-    log.warn({ accountId, chatMid, err }, "markAsRead failed");
-    throw err;
+    rethrowReadReceiptFailure(err, accountId, chatMid);
   }
+}
+
+export function rethrowReadReceiptFailure(err: unknown, accountId: string, chatMid: string): never {
+  const msg = err instanceof Error ? err.message : String(err);
+  log.warn({ accountId, chatMid, err: msg }, "markAsRead failed; caller may retry");
+  throw err;
 }
 
 /**
@@ -2088,15 +2133,16 @@ export async function fetchReadRanges(
   opts?: { force?: boolean },
 ): Promise<Array<{ chatId?: string; ranges?: unknown }>> {
   const now = Date.now();
-  const cacheDict = await readRangeStorage.load(accountId);
-  const cached = cacheDict[chatMid];
+  const cached = getReadSnapshotV4(accountId, chatMid);
+  const cachedRanges = readRangesFromSnapshotV4(chatMid, cached);
+  const lastAttemptAt = cached ? Date.parse(cached.attemptedAt) : 0;
 
-  if (!opts?.force && cached) {
-    if (cached.failStreak >= 3 && now - cached.at < READ_RANGE_CIRCUIT_MS) {
-      return cached.ranges;
+  if (!opts?.force && cached && lastAttemptAt > 0) {
+    if (cached.failStreak >= 3 && now - lastAttemptAt < READ_RANGE_CIRCUIT_MS) {
+      return cachedRanges;
     }
-    if (now - cached.at < READ_RANGE_MIN_INTERVAL_MS) {
-      return cached.ranges;
+    if (now - lastAttemptAt < READ_RANGE_MIN_INTERVAL_MS) {
+      return cachedRanges;
     }
   }
 
@@ -2116,21 +2162,25 @@ export async function fetchReadRanges(
 
     const ranges = normalizeMessageReadRanges(res);
 
-    cacheDict[chatMid] = { at: now, ranges, failStreak: 0 };
-    void readRangeStorage.replace(accountId, cacheDict);
-    return ranges;
+    const explicitChat = ranges.find((entry) => String(entry.chatId ?? "") === chatMid);
+    if (explicitChat && explicitChat.ranges != null) {
+      const intervals = normalizeReadIntervalsV4(ranges, chatMid, "");
+      if (intervals) {
+        replaceReadSnapshotV4(accountId, chatMid, intervals);
+        return ranges;
+      }
+    }
+    markReadSnapshotV4Stale(accountId, chatMid);
+    return readRangesFromSnapshotV4(chatMid, getReadSnapshotV4(accountId, chatMid));
   } catch (err) {
-    const failStreak = (cached?.failStreak ?? 0) + 1;
-    const fallback = cached?.ranges ?? [];
-    cacheDict[chatMid] = { at: now, ranges: fallback, failStreak };
-    void readRangeStorage.replace(accountId, cacheDict);
+    const failStreak = markReadSnapshotV4Stale(accountId, chatMid);
     if (failStreak === 1 || failStreak % 10 === 0) {
       log.debug(
         { accountId, chatMid, failStreak, err },
         "getMessageReadRange failed (using cache/backoff)",
       );
     }
-    return fallback;
+    return readRangesFromSnapshotV4(chatMid, getReadSnapshotV4(accountId, chatMid));
   }
 }
 
@@ -2188,7 +2238,7 @@ export function peerReadUpToMessageId(
   chatMid: string,
   myMid: string,
 ): string | null {
-  const entry = ranges.find((r) => String(r.chatId ?? "") === chatMid) ?? ranges[0];
+  const entry = ranges.find((r) => String(r.chatId ?? "") === chatMid);
   if (!entry?.ranges) return null;
 
   let best: bigint | null = null;
@@ -2225,17 +2275,16 @@ export function memberReadWatermarks(
   chatMid: string,
   myMid: string,
 ): MemberReadWatermark[] {
-  const entry = ranges.find((r) => String(r.chatId ?? "") === chatMid) ?? ranges[0];
+  const entry = ranges.find((r) => String(r.chatId ?? "") === chatMid);
   if (!entry?.ranges) return [];
 
-  const out: MemberReadWatermark[] = [];
+  const byMid = new Map<string, bigint>();
   const push = (mid: string, id: string | number | bigint | undefined) => {
     if (!mid || mid === myMid) return;
     const n = toBigIntId(id);
     if (n == null) return;
-    const existing = out.find((x) => x.mid === mid);
-    if (!existing) out.push({ mid, upTo: n });
-    else if (n > existing.upTo) existing.upTo = n;
+    const existing = byMid.get(mid);
+    if (existing == null || n > existing) byMid.set(mid, n);
   };
 
   const raw = entry.ranges;
@@ -2252,7 +2301,7 @@ export function memberReadWatermarks(
       }
     }
   }
-  return out;
+  return [...byMid].map(([mid, upTo]) => ({ mid, upTo }));
 }
 
 /** 自分の送信メッセージにグループ既読数・既読者 mid を付与 */
@@ -2290,6 +2339,21 @@ export function applyReadReceiptsToMessages(
   chatMid: string,
   myMid: string,
 ): void {
+  const exactIntervals = normalizeReadIntervalsV4(ranges, chatMid, myMid);
+  if (exactIntervals) {
+    const intervalIndex = indexReadIntervalsV4(exactIntervals);
+    for (const message of messages) {
+      if (!message.isMyMessage) continue;
+      const readers = readersAtMessageV4(intervalIndex, message.id).filter((mid) => mid !== myMid);
+      if (chatMid.startsWith("u")) {
+        message.seen = readers.includes(chatMid);
+      } else if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+        message.readBy = [...new Set(readers)];
+        message.readCount = message.readBy.length;
+      }
+    }
+    return;
+  }
   if (chatMid.startsWith("u")) {
     const upTo = peerReadUpToMessageId(ranges, chatMid, myMid);
     if (!upTo) return;
@@ -2356,7 +2420,51 @@ export type ReadReceiptsResult = {
   peerReadUpTo?: string;
   /** グループ/ルーム: メンバーごとの既読ウォーターマーク */
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+  /** v4 exact ranges; intervals are authoritative and may contain gaps. */
+  readSnapshotV4?: ReturnType<typeof getReadSnapshotV4>;
 };
+
+export type ReadWatermarksResult = Pick<ReadReceiptsResult, "peerReadUpTo" | "memberReadWatermarks"> & {
+  readSnapshotV4?: NonNullable<ReadReceiptsResult["readSnapshotV4"]>;
+};
+
+export async function getReadWatermarksForChat(
+  accountId: string,
+  chatMid: string,
+  opts?: { force?: boolean },
+): Promise<ReadWatermarksResult> {
+  try {
+    const authService = require("../auth/mod.js").AuthService;
+    await authService.tryRefreshToken(accountId);
+    const client = requireClient(accountId);
+    const myMid = await resolveMyMid(client, accountId);
+    let ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
+    let readSnapshotV4 = getReadSnapshotV4(accountId, chatMid);
+    if (!readSnapshotV4 && !opts?.force) {
+      ranges = await fetchReadRanges(accountId, chatMid, { force: true });
+      readSnapshotV4 = getReadSnapshotV4(accountId, chatMid);
+    }
+
+    if (chatMid.startsWith("u")) {
+      const upTo = peerReadUpToMessageId(ranges, chatMid, myMid);
+      return {
+        ...(upTo ? { peerReadUpTo: upTo } : {}),
+        ...(readSnapshotV4 ? { readSnapshotV4 } : {}),
+      };
+    }
+    if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+      const marks = memberReadWatermarks(ranges, chatMid, myMid);
+      return {
+        memberReadWatermarks: marks.map((mark) => ({ mid: mark.mid, upTo: String(mark.upTo) })),
+        ...(readSnapshotV4 ? { readSnapshotV4 } : {}),
+      };
+    }
+    return readSnapshotV4 ? { readSnapshotV4 } : {};
+  } catch (err) {
+    log.debug({ accountId, chatMid, err }, "getReadWatermarksForChat failed");
+    return {};
+  }
+}
 
 export async function getReadReceiptsForChat(
   accountId: string,
@@ -2364,52 +2472,53 @@ export async function getReadReceiptsForChat(
   messageIds: string[],
   opts?: { force?: boolean },
 ): Promise<ReadReceiptsResult> {
-  try {
-    // Refresh token before making read receipt requests
-    const authService = require("../auth/mod.js").AuthService;
-    await authService.tryRefreshToken(accountId);
-
-    const client = requireClient(accountId);
-    const myMid = await resolveMyMid(client, accountId);
-    const ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
-    const out: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }> = {};
-
-    if (chatMid.startsWith("u")) {
-      const upTo = peerReadUpToMessageId(ranges, chatMid, myMid);
-      if (upTo) {
-        const upToN = BigInt(upTo);
-        for (const id of messageIds) {
-          try {
-            if (BigInt(id) <= upToN) out[id] = { seen: true };
-          } catch {
-            /* ignore */
-          }
-        }
+  const watermarks = await getReadWatermarksForChat(accountId, chatMid, opts);
+  const receipts: ReadReceiptsResult["receipts"] = {};
+  if (watermarks.readSnapshotV4 && !watermarks.readSnapshotV4.stale) {
+    const intervalIndex = indexReadIntervalsV4(watermarks.readSnapshotV4.intervals);
+    const ownMid = chatMid.startsWith("c") || chatMid.startsWith("r")
+      ? await resolveMyMid(requireClient(accountId), accountId)
+      : "";
+    for (const id of messageIds) {
+      const readers = readersAtMessageV4(intervalIndex, id);
+      if (chatMid.startsWith("u")) {
+        if (readers.includes(chatMid)) receipts[id] = { seen: true };
+      } else if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+        const groupReaders = readers.filter((mid) => mid !== ownMid);
+        receipts[id] = { readCount: groupReaders.length, readBy: groupReaders };
       }
-      return upTo ? { receipts: out, peerReadUpTo: upTo } : { receipts: out };
     }
-
-    if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
-      const marks = memberReadWatermarks(ranges, chatMid, myMid);
-      for (const id of messageIds) {
-        try {
-          const msgId = BigInt(id);
-          const readers = marks.filter((w) => w.upTo >= msgId).map((w) => w.mid);
-          out[id] = { readCount: readers.length, readBy: readers };
-        } catch {
-          /* ignore */
-        }
-      }
-      return {
-        receipts: out,
-        memberReadWatermarks: marks.map((m) => ({ mid: m.mid, upTo: String(m.upTo) })),
-      };
-    }
-    return { receipts: out };
-  } catch (err) {
-    log.debug({ accountId, chatMid, err }, "getReadReceiptsForChat failed");
-    return { receipts: {} };
+    return { receipts, ...watermarks };
   }
+  if (watermarks.peerReadUpTo) {
+    const upTo = BigInt(watermarks.peerReadUpTo);
+    for (const id of messageIds) {
+      try {
+        if (BigInt(id) <= upTo) receipts[id] = { seen: true };
+      } catch {
+        /* Ignore non-numeric local IDs. */
+      }
+    }
+  } else if (watermarks.memberReadWatermarks) {
+    const marks = watermarks.memberReadWatermarks.flatMap((mark) => {
+      try {
+        return [{ mid: mark.mid, upTo: BigInt(mark.upTo) }];
+      } catch {
+        return [];
+      }
+    });
+    for (const id of messageIds) {
+      let messageId: bigint;
+      try {
+        messageId = BigInt(id);
+      } catch {
+        continue;
+      }
+      const readers = marks.filter((mark) => mark.upTo >= messageId).map((mark) => mark.mid);
+      receipts[id] = { readCount: readers.length, readBy: readers };
+    }
+  }
+  return { receipts, ...watermarks };
 }
 
 /**
@@ -2501,6 +2610,11 @@ function boxMeta(box: any | undefined): {
   return meta;
 }
 
+/** 古いMessageBoxが返す未読数を、保存済みの既読位置より先へ復活させない。 */
+export function reconcileChatUnreadWithLocalRead(chat: Chat, readUpTo?: string): Chat {
+  return reconcileStoredUnreadWithReadPosition(chat, readUpTo);
+}
+
 function chatFromMessageBox(
   box: any,
   groupByMid: Map<string, { mid: string; name: string; raw?: Record<string, unknown> }>,
@@ -2534,6 +2648,13 @@ function chatFromMessageBox(
       thumbnailUrl: pictureStatusToUrl(ps) ?? "",
       left,
     };
+    if (typeof raw.notificationDisabled === "boolean") {
+      chat.notificationDisabled = raw.notificationDisabled;
+    }
+    const groupExtra = (raw.extra as { groupExtra?: { preventedJoinByTicket?: unknown } } | undefined)?.groupExtra;
+    if (typeof groupExtra?.preventedJoinByTicket === "boolean") {
+      chat.preventedJoinByTicket = groupExtra.preventedJoinByTicket;
+    }
     if (meta.lastMessageId) chat.lastMessageId = meta.lastMessageId;
     if (meta.unreadCount != null) chat.unreadCount = meta.unreadCount;
     return chat;
@@ -2559,6 +2680,7 @@ function chatFromMessageBox(
 export async function fetchBootstrap(accountId: string): Promise<BootstrapPayload> {
   requireClient(accountId);
   const payload = await getBootstrapPayload(accountId);
+  payload.chats = await applyKnownChatMembership(accountId, payload.chats);
   if (payload.chats.length > 0) {
     payload.chats = await markSelfChats(accountId, payload.chats);
   }
@@ -2579,7 +2701,7 @@ export async function fetchChats(
   accountId: string,
   opts?: { light?: boolean; force?: boolean; refresh?: boolean },
 ): Promise<Chat[]> {
-  const chats = await fetchChatsCore(accountId, opts);
+  const chats = await applyKnownChatMembership(accountId, await fetchChatsCore(accountId, opts));
   const enriched = await applyVylineCacheToChats(accountId, chats);
   return markSelfChats(accountId, enriched);
 }
@@ -2605,7 +2727,7 @@ async function fetchChatsCore(
           const fresh = await fetchChatsInner(accountId, {
             light: opts?.light ?? true,
           });
-          chatsCache.set(accountId, { at: Date.now(), chats: fresh });
+          setBoundedCacheEntry(chatsCache, accountId, { at: Date.now(), chats: fresh }, 32);
           return fresh;
         });
 
@@ -2642,7 +2764,7 @@ async function fetchChatsCore(
 
   try {
     const chats = await enqueueTalkRpcBackground(accountId, () => fetchChatsInner(accountId, opts));
-    chatsCache.set(accountId, { at: now, chats });
+    setBoundedCacheEntry(chatsCache, accountId, { at: now, chats }, 32);
     return chats;
   } catch (err) {
     if (memCached) {
@@ -2661,17 +2783,38 @@ async function fetchChatsCore(
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
 
-  const [messageBoxes, joinedChats, users] = await Promise.all([
+  const [messageBoxes, joined, users, storedChats, cacheMeta] = await Promise.all([
     fetchMessageBoxesCached(accountId, client, { forChats: true }),
-    client.fetchJoinedChats().catch((err) => {
-      log.warn({ accountId, err }, "fetchJoinedChats failed — skipping groups");
-      return [] as Awaited<ReturnType<VylineClient["fetchJoinedChats"]>>;
-    }),
-    client.fetchUsers().catch((err) => {
-      log.warn({ accountId, err }, "fetchUsers failed — skipping friends");
-      return [] as Awaited<ReturnType<VylineClient["fetchUsers"]>>;
-    }),
+    client.base.talk.getAllChatMids({ request: { withMemberChats: true }, syncReason: "INTERNAL" }),
+    client.fetchUsers(),
+    getStoredChats(accountId),
+    getCacheMeta(accountId),
   ]);
+  if (!Array.isArray(joined.memberChatMids)) throw new Error("joined chat roster unavailable");
+  const joinedMids = new Set(joined.memberChatMids);
+  if (!messageBoxes.length && !joinedMids.size && !users.length && storedChats.length) {
+    throw new Error("empty chat sync; retaining cached roster");
+  }
+  const details = joinedMids.size
+    ? await client.base.talk.getChats({ chatMids: [...joinedMids] }).catch(() => ({ chats: [] }))
+    : { chats: [] };
+  const detailsByMid = new Map(details.chats.map((raw) => [raw.chatMid, raw]));
+  const storedByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
+  const joinedChats = [...joinedMids].map((mid) => ({
+    mid,
+    name: detailsByMid.get(mid)?.chatName || storedByMid.get(mid)?.name || mid,
+    raw: detailsByMid.get(mid) as unknown as Record<string, unknown> | undefined,
+  }));
+  await chatMembershipStorage.mutate(accountId, (membership) => {
+    for (const chat of storedChats) {
+      if (chat.kind === "group" || chat.kind === "room") membership[chat.mid] = joinedMids.has(chat.mid);
+    }
+    for (const box of messageBoxes) {
+      const mid = String(box.id);
+      if (/^[cr]/.test(mid)) membership[mid] = joinedMids.has(mid);
+    }
+    for (const mid of joinedMids) membership[mid] = true;
+  });
 
   const groupByMid = new Map<
     string,
@@ -2758,8 +2901,12 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
     const chat = chatFromMessageBox(box, groupByMid, userByMid);
-    seen.add(chat.mid);
-    result.push(chat);
+    const reconciled = reconcileChatUnreadWithLocalRead(
+      chat,
+      cacheMeta.localReadUpTo?.[chat.mid]?.messageId,
+    );
+    seen.add(reconciled.mid);
+    result.push(reconciled);
   }
 
   // メッセージ未送信のグループは末尾（時刻 0 → 名前順）
@@ -2776,6 +2923,12 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       lastMessageTime: 0,
       lastMessagePreview: "",
       thumbnailUrl: pictureStatusToUrl(ps) ?? "",
+      ...(typeof raw.notificationDisabled === "boolean"
+        ? { notificationDisabled: raw.notificationDisabled }
+        : {}),
+      ...(typeof (raw.extra as { groupExtra?: { preventedJoinByTicket?: unknown } } | undefined)?.groupExtra?.preventedJoinByTicket === "boolean"
+        ? { preventedJoinByTicket: (raw.extra as { groupExtra: { preventedJoinByTicket: boolean } }).groupExtra.preventedJoinByTicket }
+        : {}),
     });
     seen.add(chat.mid);
   }
@@ -2940,6 +3093,16 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     void vylinePutGroup(accountId, put);
   }
 
+  // 取得中に既読が確定したケースを含め、返却直前の保存済み位置で再照合する。
+  const latestReadMeta = await getCacheMeta(accountId);
+  for (let index = 0; index < result.length; index++) {
+    const chat = result[index]!;
+    result[index] = reconcileChatUnreadWithLocalRead(
+      chat,
+      latestReadMeta.localReadUpTo?.[chat.mid]?.messageId,
+    );
+  }
+
   log.debug(
     {
       accountId,
@@ -3053,7 +3216,8 @@ async function resolveChatNameCached(
   accountId: string,
   chatMid: string,
 ): Promise<string | undefined> {
-  const cached = chatNameCache.get(chatMid);
+  const cacheKey = `${accountId}:${chatMid}`;
+  const cached = chatNameCache.get(cacheKey);
   if (cached && Date.now() - cached.at < CHAT_NAME_CACHE_TTL_MS) return cached.name;
   let name: string | undefined;
   try {
@@ -3067,7 +3231,7 @@ async function resolveChatNameCached(
   } catch {
     /* log は best-effort */
   }
-  chatNameCache.set(chatMid, { at: Date.now(), name });
+  setBoundedCacheEntry(chatNameCache, cacheKey, { at: Date.now(), name }, 1_024);
   return name;
 }
 
@@ -3108,6 +3272,7 @@ function buildMessageLogEntry(
     kind,
     direction: message.isMyMessage ? "out" : "in",
     chatMid,
+    messageId: message.id,
     senderMid: message.from,
     ...(senderName ? { senderName } : {}),
     contentType: message.contentType,
@@ -3124,7 +3289,7 @@ function logMessageAsync(accountId: string, chatMid: string, message: Message): 
   void (async () => {
     try {
       const name = await resolveChatNameCached(accountId, chatMid);
-      appendMessageLog(buildMessageLogEntry(accountId, chatMid, message, name));
+      await appendMessageLog(buildMessageLogEntry(accountId, chatMid, message, name));
     } catch {
       /* best-effort */
     }
@@ -3142,14 +3307,29 @@ export async function processFetchedOperations(
     message?: unknown;
     revision?: number | bigint;
   }>,
+  afterProcessed: (events: readonly TalkPollEventPayload[]) => Promise<number[] | void> = async () => undefined,
 ): Promise<void> {
-  for (const op of ops) {
-    try {
-      await processSingleOperation(accountId, op);
-    } catch (err) {
-      log.debug({ accountId, err, opType: op.type }, "operation processing error");
-    }
-  }
+  const stagedEvents: TalkPollEventPayload[] = [];
+  let committedSequences: number[] | void;
+  await processOperationBatch(
+    ops,
+    async (op) => {
+      try {
+        await processSingleOperation(accountId, op, (event) => stagedEvents.push(event));
+      } catch (err) {
+        log.warn({ accountId, err, opType: op.type }, "operation processing failed; sync cursor will not advance");
+        throw err;
+      }
+    },
+    async () => { committedSequences = await afterProcessed(stagedEvents); },
+    async () => {
+      for (const [index, event] of stagedEvents.entries()) {
+        const seq = committedSequences?.[index];
+        if (seq === undefined) pushTalkEvent(accountId, event);
+        else pushTalkEventAtSequence(accountId, event, seq);
+      }
+    },
+  );
 }
 
 async function processSingleOperation(
@@ -3162,6 +3342,7 @@ async function processSingleOperation(
     message?: unknown;
     revision?: number | bigint;
   },
+  emitEvent: (event: TalkPollEventPayload) => void,
 ): Promise<void> {
   const client = requireClient(accountId);
   const myMid = await resolveMyMid(client, accountId);
@@ -3181,11 +3362,11 @@ async function processSingleOperation(
       } catch {
         /* 復号失敗は平文のまま */
       }
-      pushTalkEvent(accountId, { kind: "message", chatMid, message });
       invalidateBoxCursorCache(accountId, chatMid);
       await upsertMessages(accountId, chatMid, [
         { ...message, chatMid, savedAt: new Date().toISOString() },
       ]);
+      emitEvent({ kind: "message", chatMid, message });
       logMessageAsync(accountId, chatMid, message);
       dispatchPluginMessage(accountId, {
         id: String(message.id),
@@ -3209,8 +3390,8 @@ async function processSingleOperation(
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "revoke", chatMid, messageId });
-      void markMessageRevoked(accountId, chatMid, messageId).catch(() => undefined);
+      await markMessageRevoked(accountId, chatMid, messageId);
+      emitEvent({ kind: "revoke", chatMid, messageId });
     }
     return;
   }
@@ -3219,7 +3400,7 @@ async function processSingleOperation(
   if (isReadOperationType(type)) {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "read", chatMid });
+      emitEvent({ kind: "read", chatMid });
     }
     return;
   }
@@ -3227,27 +3408,26 @@ async function processSingleOperation(
   // リアクション
   if (
     type === "SEND_REACTION" ||
-    type === "58" ||
+    type === "139" ||
     type === "NOTIFIED_SEND_REACTION" ||
-    type === "55" ||
+    type === "140" ||
     type === "NOTIFIED_GCS_REACTION" ||
-    type === "65" ||
-    type === "48"
+    type === "154"
   ) {
     const messageId = String(op.param1 ?? "");
     const chatMid = String(op.param2 ?? "");
     if (messageId && /^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "reaction", chatMid, messageId });
+      emitEvent({ kind: "reaction", chatMid, messageId });
     }
     return;
   }
 
   // 着信通話
-  if (type === "NOTIFIED_RECEIVED_CALL" || type === "3") {
+  if (type === "NOTIFIED_RECEIVED_CALL" || type === "50") {
     const chatMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, {
+      emitEvent({
         kind: "call:incoming",
         chatMid,
         callerMid,
@@ -3259,20 +3439,11 @@ async function processSingleOperation(
   }
 
   // 通話キャンセル
-  if (type === "NOTIFIED_CANCEL_CALL" || type === "NOTIFIED_MISSED_CALL" || type === "4") {
+  if (type === "CANCEL_CALL" || type === "51") {
     const chatMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:cancel", chatMid, callerMid });
-    }
-    return;
-  }
-
-  // 通話終了
-  if (type === "NOTIFIED_CALL_STATUS" || type === "5") {
-    const chatMid = String(op.param1 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "call:end", chatMid });
+      emitEvent({ kind: "call:cancel", chatMid, callerMid });
     }
     return;
   }
@@ -3281,7 +3452,7 @@ async function processSingleOperation(
   if (type === "NOTIFIED_INVITE_INTO_CHAT" || type === "33") {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "membership", chatMid, event: "invited" });
+      emitEvent({ kind: "membership", chatMid, event: "invited" });
     }
     return;
   }
@@ -3292,7 +3463,7 @@ async function processSingleOperation(
   ) {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "membership", chatMid, event: "joined" });
+      emitEvent({ kind: "membership", chatMid, event: "joined" });
     }
     return;
   }
@@ -3306,7 +3477,7 @@ async function processSingleOperation(
     const targetMid = String(op.param2 ?? "");
     if (/^[ucr]/.test(chatMid)) {
       const event = type === "NOTIFIED_KICKOUT_FROM_CHAT" || type === "34" ? "kicked" : "left";
-      pushTalkEvent(accountId, { kind: "membership", chatMid, event, targetMid });
+      emitEvent({ kind: "membership", chatMid, event, targetMid });
     }
     return;
   }
@@ -3315,7 +3486,7 @@ async function processSingleOperation(
   if (type === "NOTIFIED_UPDATE_CHAT" || type === "13") {
     const chatMid = String(op.param1 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "chat:update", chatMid });
+      emitEvent({ kind: "chat:update", chatMid });
     }
     return;
   }
@@ -3325,7 +3496,7 @@ async function processSingleOperation(
     const chatMid = String(op.param1 ?? "");
     const text = String(op.param3 ?? op.param2 ?? "");
     if (/^[ucr]/.test(chatMid)) {
-      pushTalkEvent(accountId, { kind: "announce", chatMid, text });
+      emitEvent({ kind: "announce", chatMid, text });
     }
     return;
   }
@@ -3335,11 +3506,13 @@ export function detachFetchOps(accountId: string): void {
   clearTalkEvents(accountId);
 }
 
-export function pollTalkEvents(
+export async function pollTalkEvents(
   accountId: string,
   cursor: number,
-): { cursor: number; events: TalkPollEvent[]; reset: boolean; seq: number } {
+): Promise<{ cursor: number; events: TalkPollEvent[]; reset: boolean; seq: number }> {
   requireClient(accountId);
+  const durable = await getTalkEventOutbox<TalkPollEventPayload>(accountId);
+  restoreTalkEventBuffer(accountId, durable.events.map(({ seq, event }) => ({ ...event, seq }) as TalkPollEvent), durable.seq);
   return drainTalkEvents(accountId, cursor);
 }
 
@@ -3435,7 +3608,9 @@ export async function fetchMessages(
     if (local.length > 0) {
       const meta = await getCacheMeta(accountId);
       const age = messageSyncAgeMs(meta, chatMid);
-      if (age == null || age > MESSAGE_LOCAL_STALE_MS) {
+      const syncKey = `${accountId}\0${chatMid}`;
+      if ((age == null || age > MESSAGE_LOCAL_STALE_MS) && !backgroundMessageSyncs.has(syncKey)) {
+        backgroundMessageSyncs.add(syncKey);
         void enqueueTalkRpcBackground(accountId, () =>
           fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch((err) => {
             log.debug(
@@ -3447,10 +3622,12 @@ export async function fetchMessages(
               "background message sync failed",
             );
           }),
-        );
+        ).finally(() => backgroundMessageSyncs.delete(syncKey));
       }
-      const cacheDict = await readRangeStorage.load(accountId);
-      const cached = cacheDict[chatMid]?.ranges ?? [];
+      const cached = readRangesFromSnapshotV4(chatMid, getReadSnapshotV4(accountId, chatMid));
+      const client = requireClient(accountId);
+      const myMid = await resolveMyMid(client, accountId);
+      applyReadReceiptsToMessages(local, cached, chatMid, myMid);
       return local;
     }
   }
@@ -3533,9 +3710,9 @@ async function fetchMessagesInner(
         const box = messageBoxes.find((b: { id: string }) => b.id === chatMid);
         if (box) {
           endMessageId = (box as { lastDeliveredMessageId?: unknown }).lastDeliveredMessageId;
-          boxCursorCache.set(cacheKey, { at: now, endMessageId });
+          setBoundedCacheEntry(boxCursorCache, cacheKey, { at: now, endMessageId }, 2_048);
         } else {
-          boxCursorMiss.set(cacheKey, now);
+          setBoundedCacheEntry(boxCursorMiss, cacheKey, now, 2_048);
           const cached = await getStoredMessages(accountId, chatMid, limit);
           if (cached.length > 0) {
             log.debug({ accountId, chatMid, count: cached.length }, "messages from cache (no box)");
@@ -3670,8 +3847,7 @@ async function fetchMessagesInner(
   // getMessageReadRange は遅いのでメッセージ表示をブロックしない（キャッシュ即時適用 → 裏で更新）
   if (!opts?.lite && !opts?.delta) {
     try {
-      const cacheDict = await readRangeStorage.load(accountId);
-      const cached = cacheDict[chatMid]?.ranges ?? [];
+      const cached = readRangesFromSnapshotV4(chatMid, getReadSnapshotV4(accountId, chatMid));
       applyReadReceiptsToMessages(messages, cached, chatMid, myMid);
     } catch (err) {
       log.debug({ accountId, chatMid, err }, "attach cached read receipts failed");
@@ -3680,7 +3856,7 @@ async function fetchMessagesInner(
     const bgNow = Date.now();
     const bgLast = readRangeBgAt.get(bgKey);
     if (bgLast == null || bgNow - bgLast > READ_RANGE_BG_MS) {
-      readRangeBgAt.set(bgKey, bgNow);
+      setBoundedCacheEntry(readRangeBgAt, bgKey, bgNow, MAX_EPHEMERAL_CACHE_ENTRIES);
       void (async () => {
         try {
           const ranges = await fetchReadRanges(accountId, chatMid, { force: true });
@@ -3718,7 +3894,18 @@ async function fetchMessagesInner(
 
   // messageBox カーソル遅延で送信直後の行がネット結果に無いことがある。
   // upsert 済みローカルとマージした一覧を返す（表示から消えないように）。
-  const merged = await getStoredMessages(accountId, chatMid, Math.max(limit, messages.length));
+  const pageCursor = opts?.beforeMessageId
+    ? {
+        beforeMessageId: opts.beforeMessageId,
+        ...(opts.beforeDeliveredTime != null ? { beforeDeliveredTime: opts.beforeDeliveredTime } : {}),
+      }
+    : undefined;
+  const merged = await getStoredMessages(
+    accountId,
+    chatMid,
+    Math.max(limit, messages.length),
+    pageCursor,
+  );
   const byId = new Map<string, Message>();
   for (const m of merged) byId.set(m.id, m);
   for (const m of messages) {
@@ -4100,6 +4287,7 @@ export type MediaBatchItem = {
 const MEDIA_SEND_TIMEOUT_MS = 90_000;
 const MEDIA_FLOW_REQSEQ = 1;
 const mediaFlowCache = new Map<string, { flowMap: Record<string, number>; expiresAt: number }>();
+const MEDIA_FLOW_CACHE_MAX_SIZE = 512;
 
 function mediaContentTypeNumber(mediaType: MediaSendType): number {
   if (mediaType === "video") return 2;
@@ -4115,7 +4303,9 @@ async function determinePlainMediaFlow(
   mediaTypes: MediaSendType[],
 ): Promise<boolean> {
   const now = Date.now();
-  const cached = mediaFlowCache.get(chatMid);
+  const key = `${accountId}:${chatMid}`;
+  const cached = mediaFlowCache.get(key);
+  if (cached && cached.expiresAt <= now) mediaFlowCache.delete(key);
   let flowMap = cached && cached.expiresAt > now ? cached.flowMap : undefined;
   if (!flowMap) {
     try {
@@ -4129,7 +4319,8 @@ async function determinePlainMediaFlow(
         typeof res.cacheTtlMillis === "bigint"
           ? Number(res.cacheTtlMillis)
           : Number(res.cacheTtlMillis ?? 0);
-      mediaFlowCache.set(chatMid, {
+      pruneTimedCache(mediaFlowCache, (entry) => entry.expiresAt, Date.now(), MEDIA_FLOW_CACHE_MAX_SIZE);
+      mediaFlowCache.set(key, {
         flowMap,
         expiresAt: now + Math.max(60_000, Math.min(ttl || 0, 6 * 60 * 60 * 1000)),
       });
@@ -4977,10 +5168,13 @@ export async function sendLineEmoji(
 export async function unsendMessage(accountId: string, messageId: string): Promise<void> {
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
-    const found = await findStoredMessageByIdLocal(accountId, messageId);
+    const found = await findStoredMessageById(accountId, messageId);
     const chatMid = found?.chatMid;
     if (found) {
       const stored = found.message;
+      if (!stored.isMyMessage) {
+        throw new Error("MESSAGE_NOT_OWNED: cannot unsend another user's message");
+      }
       if (
         stored.revokedSnapshot ||
         stored.messageState?.startsWith("revoked") ||
@@ -5000,22 +5194,6 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
     }
     log.info({ accountId, messageId }, "message unsent");
   });
-}
-
-async function findStoredMessageByIdLocal(
-  accountId: string,
-  messageId: string,
-): Promise<{
-  chatMid: string;
-  message: Awaited<ReturnType<typeof getStoredMessages>>[number];
-} | null> {
-  const chats = await getStoredChats(accountId);
-  for (const chat of chats) {
-    const messages = await getStoredMessages(accountId, chat.mid, Number.MAX_SAFE_INTEGER);
-    const message = messages.find((m) => m.id === messageId);
-    if (message) return { chatMid: chat.mid, message };
-  }
-  return null;
 }
 
 /** メッセージ編集（Desktop: editMessage） */
@@ -5165,7 +5343,7 @@ export async function updateMyProfileBackground(
     const profile = mem?.profile;
     if (profile) {
       const next = { ...profile, backgroundUrl };
-      myProfileCache.set(accountId, { at: Date.now(), profile: next });
+      setBoundedCacheEntry(myProfileCache, accountId, { at: Date.now(), profile: next }, 32);
       void vylinePutProfile(accountId, {
         mid,
         displayName: profile.displayName,
@@ -5188,6 +5366,39 @@ export async function updateChatName(
   const client = requireClient(accountId);
   await wrapSession(client).chat.updateName(chatMid, name);
   log.info({ accountId, chatMid, name }, "chat name updated");
+}
+
+/** Update the current user's notification preference for a group. */
+export async function updateGroupNotifications(
+  accountId: string,
+  chatMid: string,
+  disabled: boolean,
+): Promise<void> {
+  const client = requireClient(accountId);
+  await client.base.talk.updateChat({
+    request: {
+      reqSeq: await client.base.getReqseq(),
+      chat: { chatMid, notificationDisabled: disabled },
+      updatedAttribute: "NOTIFICATION_SETTING",
+    },
+  });
+}
+
+/** Update whether members can join through an invitation ticket/link. */
+export async function updateGroupJoinTicket(
+  accountId: string,
+  chatMid: string,
+  prevented: boolean,
+): Promise<void> {
+  const client = requireClient(accountId);
+  await client.base.talk.updateChat({
+    request: {
+      reqSeq: await client.base.getReqseq(),
+      chat: { chatMid, extra: { groupExtra: { preventedJoinByTicket: prevented } } },
+      updatedAttribute: "PREVENTED_JOIN_BY_TICKET",
+    },
+  });
+  chatsCache.delete(accountId);
 }
 
 /** グループ画像変更（OBS + updateChat PICTURE_STATUS） */
@@ -5215,6 +5426,19 @@ export async function renameContact(accountId: string, input: ContactRenameInput
   });
 }
 
+/** 友だちを削除 — LINE: updateContactSetting(CONTACT_SETTING_DELETE) */
+export async function deleteContactMid(accountId: string, mid: string): Promise<void> {
+  if (!/^u[0-9a-f]{32}$/i.test(mid)) throw new Error("user MID required");
+  if (mid.toLowerCase() === "u085311ecd9e3e3d74ae4c9f5437cbcb5") {
+    throw new ProtectedContactDeleteError();
+  }
+  const client = requireClient(accountId);
+  await wrapSession(client).contacts.delete(mid);
+  invalidateMessageBoxesCache(accountId);
+  chatsCache.delete(accountId);
+  log.info({ accountId, mid }, "contact deleted from friend list");
+}
+
 /** グループ退出 — Desktop: TalkService_deleteSelfFromChat */
 export async function leaveChat(
   accountId: string,
@@ -5229,6 +5453,7 @@ export async function leaveChat(
     const msg = err instanceof Error ? err.message : String(err);
     // キック済みなどで既にメンバーでない → 退出済みとして成功扱い
     if (msg.includes("NOT_A_MEMBER") || msg.includes("NOT_AUTHORIZED_DEVICE")) {
+      await rememberExitedChat(accountId, chatMid);
       groupProfileMiss.add(`${accountId}:${chatMid}`);
       invalidateMessageBoxesCache(accountId);
       chatsCache.delete(accountId);
@@ -5237,6 +5462,7 @@ export async function leaveChat(
     }
     // 空グループ（EMPTY_GROUP）も退出成功扱い
     if (msg.includes("EMPTY_GROUP") || msg.includes("empty group")) {
+      await rememberExitedChat(accountId, chatMid);
       groupProfileMiss.add(`${accountId}:${chatMid}`);
       invalidateMessageBoxesCache(accountId);
       chatsCache.delete(accountId);
@@ -5245,6 +5471,7 @@ export async function leaveChat(
     }
     throw err;
   }
+  await rememberExitedChat(accountId, chatMid);
   groupProfileMiss.add(`${accountId}:${chatMid}`);
   invalidateMessageBoxesCache(accountId);
   chatsCache.delete(accountId);
@@ -5448,6 +5675,7 @@ export async function createGroupChat(
   accountId: string,
   name: string,
   memberMids: string[],
+  mode: "group" | "room" = "group",
 ): Promise<{ chatMid: string; name: string }> {
   if (await isCreateGroupBanned(accountId)) {
     throw Object.assign(
@@ -5459,14 +5687,16 @@ export async function createGroupChat(
   }
 
   const client = requireClient(accountId);
-  const mids = [...new Set(memberMids.filter((m) => m.startsWith("u")))];
+  const mids = [...new Set(memberMids.filter((m) => /^u[0-9a-f]{32}$/i.test(m)))];
   if (mids.length === 0) throw new Error("memberMids required");
 
   try {
     const res = await client.base.talk.createChat({
       request: {
         reqSeq: await client.base.getReqseq(),
-        type: "GROUP",
+        // LINE's supported createChat types distinguish invitation-based groups
+        // from multi-person rooms that add selected contacts immediately.
+        type: mode === "room" ? "ROOM" : "GROUP",
         name: name.trim() || "グループ",
         targetUserMids: mids,
         picturePath: "",
@@ -5847,6 +6077,7 @@ export type GroupCallStatus = {
 
 const groupCallStatusCache = new Map<string, { at: number; status: GroupCallStatus }>();
 const GROUP_CALL_STATUS_CACHE_MS = 20_000;
+const GROUP_CALL_STATUS_CACHE_MAX_SIZE = 512;
 const GROUP_CALL_RPC_TIMEOUT_MS = 10_000;
 
 /**
@@ -5862,6 +6093,7 @@ export async function getGroupCallStatus(
   if (cached && Date.now() - cached.at < GROUP_CALL_STATUS_CACHE_MS) {
     return cached.status;
   }
+  if (cached) groupCallStatusCache.delete(key);
   const client = requireClient(accountId);
   const fallback: GroupCallStatus = {
     online: false,
@@ -5891,11 +6123,15 @@ export async function getGroupCallStatus(
     if (gc.mediaType != null) status.mediaType = String(gc.mediaType);
     const started = gc.started != null ? Number(gc.started) : Number.NaN;
     if (Number.isFinite(started)) status.started = started;
-    groupCallStatusCache.set(key, { at: Date.now(), status });
+    const at = Date.now();
+    pruneTimedCache(groupCallStatusCache, (entry) => entry.at + GROUP_CALL_STATUS_CACHE_MS, at, GROUP_CALL_STATUS_CACHE_MAX_SIZE);
+    groupCallStatusCache.set(key, { at, status });
     return status;
   } catch (err) {
     log.debug({ accountId, chatMid, err }, "getGroupCall failed — offline");
-    groupCallStatusCache.set(key, { at: Date.now(), status: fallback });
+    const at = Date.now();
+    pruneTimedCache(groupCallStatusCache, (entry) => entry.at + GROUP_CALL_STATUS_CACHE_MS, at, GROUP_CALL_STATUS_CACHE_MAX_SIZE);
+    groupCallStatusCache.set(key, { at, status: fallback });
     return fallback;
   }
 }
@@ -6005,9 +6241,47 @@ async function downloadUrlBytes(
   fallbackMime = guessMediaMime("IMAGE"),
   ms = 20_000,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  const res = await withTimeout(fetch(url), ms, "downloadUrlBytes");
+  if (!isTrustedLineMediaUrl(url)) throw new Error("download URL host not allowed");
+  let res = await withTimeout(fetch(url, { redirect: "manual" }), ms, "downloadUrlBytes");
+  if (res.status >= 300 && res.status < 400) {
+    const location = res.headers.get("location");
+    const target = location ? new URL(location, url).toString() : "";
+    await res.body?.cancel();
+    if (!target || !isTrustedLineMediaUrl(target))
+      throw new Error("download redirect host not allowed");
+    res = await withTimeout(fetch(target, { redirect: "error" }), ms, "downloadUrlBytes redirect");
+  }
   if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`);
-  const bytes = new Uint8Array(await res.arrayBuffer());
+  const maxBytes = 64 * 1024 * 1024;
+  const declaredLength = Number(res.headers.get("content-length"));
+  if (Number.isFinite(declaredLength) && declaredLength > maxBytes) {
+    await res.body?.cancel();
+    throw new Error("download exceeds media size limit");
+  }
+  const reader = res.body?.getReader();
+  if (!reader) throw new Error("download response has no body");
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      total += value.byteLength;
+      if (total > maxBytes) {
+        await reader.cancel();
+        throw new Error("download exceeds media size limit");
+      }
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
   const contentType = res.headers.get("content-type") || fallbackMime;
   return { bytes, contentType };
 }
@@ -6149,7 +6423,7 @@ export async function fetchMessageMedia(
         const msg = err instanceof Error ? err.message : String(err);
         // 404 は期限切れ/削除 — 500 連打しない
         if (msg.includes("404")) {
-          mediaFailedAt.set(failureKey, Date.now());
+          setBoundedCacheEntry(mediaFailedAt, failureKey, Date.now(), MAX_EPHEMERAL_CACHE_ENTRIES);
           throw new Error(`media expired or unavailable (OBS 404): ${messageId}`);
         }
         throw new Error(`message not found in history and OBS fallback failed: ${msg}`);
@@ -6239,7 +6513,7 @@ export async function fetchMessageMedia(
         await ensureGroupKeyById(client, chatMid, gk);
         return await tryDownload();
       }
-      mediaFailedAt.set(failureKey, Date.now());
+      setBoundedCacheEntry(mediaFailedAt, failureKey, Date.now(), MAX_EPHEMERAL_CACHE_ENTRIES);
       throw err;
     }
   });
@@ -6333,7 +6607,7 @@ async function loadStickerPack(packageId: string): Promise<CatalogPack | null> {
     `https://stickershop.line-scdn.net/stickershop/v1/product/${packageId}/android/productInfo.meta`,
   );
   if (!meta?.stickers?.length) {
-    packMetaCache.set(`stk:${packageId}`, { data: null, at: Date.now() });
+    setBoundedCacheEntry(packMetaCache, `stk:${packageId}`, { data: null, at: Date.now() }, 512);
     return null;
   }
   const animated = Boolean(meta.hasAnimation);
@@ -6353,7 +6627,7 @@ async function loadStickerPack(packageId: string): Promise<CatalogPack | null> {
       };
     }),
   };
-  packMetaCache.set(`stk:${packageId}`, { data: result, at: Date.now() });
+  setBoundedCacheEntry(packMetaCache, `stk:${packageId}`, { data: result, at: Date.now() }, 512);
   return result;
 }
 
@@ -6364,7 +6638,7 @@ async function loadEmojiPack(packageId: string): Promise<CatalogPack | null> {
     `https://stickershop.line-scdn.net/sticonshop/v1/sticon/${packageId}/ANDROID/meta.json`,
   );
   if (!meta?.orders?.length) {
-    packMetaCache.set(`emoji:${packageId}`, { data: null, at: Date.now() });
+    setBoundedCacheEntry(packMetaCache, `emoji:${packageId}`, { data: null, at: Date.now() }, 512);
     return null;
   }
   const first = String(meta.orders[0]);
@@ -6384,7 +6658,7 @@ async function loadEmojiPack(packageId: string): Promise<CatalogPack | null> {
       return item;
     }),
   };
-  packMetaCache.set(`emoji:${packageId}`, { data: result, at: Date.now() });
+  setBoundedCacheEntry(packMetaCache, `emoji:${packageId}`, { data: result, at: Date.now() }, 512);
   return result;
 }
 
@@ -6394,6 +6668,7 @@ async function listOwnedPackageIds(
 ): Promise<string[]> {
   const locale = { language: "ja", country: "JP" };
   const ids: string[] = [];
+  const seenIds = new Set<string>();
   const PAGE = 100;
 
   // getOwnedProductSummaries をページネーションで全件取得
@@ -6434,7 +6709,10 @@ async function listOwnedPackageIds(
       }
       for (const p of list) {
         const id = String(p?.id ?? "");
-        if (id && !ids.includes(id)) ids.push(id);
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          ids.push(id);
+        }
       }
       totalSize = Number((owned as Record<string, unknown>)?.totalSize ?? 0);
       if (list.length < PAGE) break;
@@ -6472,7 +6750,10 @@ async function listOwnedPackageIds(
       };
       for (const rec of purchased?.purchaseRecords ?? []) {
         const id = String(rec?.productDetail?.id ?? "");
-        if (id && !ids.includes(id)) ids.push(id);
+        if (id && !seenIds.has(id)) {
+          seenIds.add(id);
+          ids.push(id);
+        }
       }
       totalSize = Number(purchased?.totalSize ?? 0);
       if ((purchased?.purchaseRecords ?? []).length < PAGE) break;
@@ -6523,7 +6804,7 @@ export async function fetchStickersCatalog(
   );
 
   const result: StickersCatalog = { premium, stickerPacks, emojiPacks };
-  catalogCache.set(accountId, { data: result, at: Date.now() });
+  setBoundedCacheEntry(catalogCache, accountId, { data: result, at: Date.now() }, 32);
 
   log.info(
     {

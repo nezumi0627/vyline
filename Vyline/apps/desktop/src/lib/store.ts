@@ -1,5 +1,6 @@
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { indexedDbPersistStorage } from "./indexedDbStorage.js";
 import { api, type Announcement } from "../api/client.js";
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
 import { THEME_PRESETS } from "@vyline/themes";
@@ -7,7 +8,6 @@ import type {
   Chat,
   ChatSort,
   Message,
-  MessageReaction,
   MessageSnapshot,
   VyTheme,
   Settings,
@@ -35,8 +35,10 @@ import { getDismissedChatMids, getRestoredChatMids } from "../utils/dismissedCha
 import { parseMentions, type MentionDraft } from "../utils/mention.js";
 import { compressImageFile } from "../utils/compressImage.js";
 import { setHiddenForAccount } from "../hooks/useHiddenChats.js";
-import { invalidateMessage } from "./reactionCache.js";
 import type { MessageState } from "./store-types.js";
+import { countReceivedMessages, findLatestReceivedMessage, markReceivedMessagesReadThrough, resolveInitialUnreadScrollTarget, rollbackReceiptAttempt } from "./readReceiptSelection.js";
+import { retainMessagesForChat } from "./chatMessageSelector.js";
+import { shouldThrottleDeltaPoll } from "./deltaPollPolicy.js";
 
 export type {
   Chat,
@@ -53,10 +55,10 @@ export type {
 const readReceiptSent = new Map<string, string>();
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
+const readReceiptForceInflight = new Map<string, Promise<void>>();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
-const READ_WATERMARK_TTL_MS = 30_000;
-/** 直近で取得済みの自分のメッセージID（ウォーターマークでまとめて既読化するため参照） */
-const myMessageIdsByChat = new Map<string, string[]>();
+const READ_WATERMARK_TTL_MS = 5_000;
+const MAX_CACHED_READ_CHATS = 96;
 /** accountId → Talk poll カーソル */
 const eventPollCursor = new Map<string, number>();
 /** accountId → 進行中の poll */
@@ -67,8 +69,6 @@ const noticeTimer: { current: ReturnType<typeof setTimeout> | null } = { current
 const refreshDebounce = new Map<string, ReturnType<typeof setTimeout>>();
 /** accountId → delta 実行間隔制御 */
 const lastDeltaPollAt = new Map<string, number>();
-/** messageId → リアクションのキャッシュ（高速読み込み用） */
-const messageReactionCache = new Map<string, MessageReaction[]>();
 /** chatId → 進行中のギャップ backfill（重複抑止） */
 const backfillInflight = new Map<string, Promise<void>>();
 /** mid → プロフィール取得済み（重複 API 抑止） */
@@ -77,6 +77,68 @@ const contactFetched = new Set<string>();
 const sessionOpenedChats = new Set<string>();
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
+
+function indexReadIntervalsV4(intervals: Array<{ readerMid: string; startMessageId: string; endMessageId: string }>) {
+  const byReader = new Map<string, Array<{ start: bigint; end: bigint }>>();
+  for (const interval of intervals) {
+    try {
+      const rows = byReader.get(interval.readerMid) ?? [];
+      rows.push({ start: BigInt(interval.startMessageId), end: BigInt(interval.endMessageId) });
+      byReader.set(interval.readerMid, rows);
+    } catch { /* malformed range */ }
+  }
+  const index = new Map<string, { starts: bigint[]; prefixEnds: bigint[] }>();
+  for (const [mid, rows] of byReader) {
+    rows.sort((a, b) => a.start < b.start ? -1 : a.start > b.start ? 1 : 0);
+    let maxEnd = -1n;
+    const prefixEnds = rows.map((row) => {
+      if (row.end > maxEnd) maxEnd = row.end;
+      return maxEnd;
+    });
+    index.set(mid, { starts: rows.map((row) => row.start), prefixEnds });
+  }
+  return index;
+}
+
+function readersAtMessageV4(
+  index: Map<string, { starts: bigint[]; prefixEnds: bigint[] }>,
+  messageId: bigint,
+): string[] {
+  const readers: string[] = [];
+  for (const [mid, ranges] of index) {
+    let low = 0;
+    let high = ranges.starts.length;
+    while (low < high) {
+      const middle = (low + high) >>> 1;
+      if (ranges.starts[middle]! <= messageId) low = middle + 1;
+      else high = middle;
+    }
+    if (low > 0 && ranges.prefixEnds[low - 1]! >= messageId) readers.push(mid);
+  }
+  return readers;
+}
+
+function createPendingMessageId(kind = ""): string {
+  const unique = globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+  return `pending_${kind ? `${kind}_` : ""}${unique}`;
+}
+
+function scheduleMessageRefresh(
+  accountId: string,
+  chatId: string,
+  isAccountActive: () => boolean,
+  refresh: () => void,
+): void {
+  const key = JSON.stringify([accountId, chatId]);
+  const previous = refreshDebounce.get(key);
+  if (previous) clearTimeout(previous);
+  const timer = setTimeout(() => {
+    if (refreshDebounce.get(key) !== timer) return;
+    refreshDebounce.delete(key);
+    if (isAccountActive()) refresh();
+  }, 800);
+  refreshDebounce.set(key, timer);
+}
 
 // push が機能しない環境でもアクティブチャットの受信を保証するための間隔
 const DELTA_POLL_MIN_MS = 10_000;
@@ -95,6 +157,13 @@ function buildContactCache(chats: Chat[]): Map<string, ContactInfo> {
 function snapshotFromMessage(m: Message): MessageSnapshot {
   const { history: _history, revokedSnapshot: _revokedSnapshot, ...snapshot } = m;
   return snapshot;
+}
+
+function sendFailureStatus(result: { deliveryStatus?: string }): Message["status"] {
+  if (result.deliveryStatus === "unknown") return "uncertain";
+  if (result.deliveryStatus === "restricted") return "restricted";
+  if (result.deliveryStatus === "rejected") return "rejected";
+  return "failed";
 }
 
 function isDataUrl(value?: string): boolean {
@@ -173,11 +242,47 @@ function applyReadWatermarkLocal(
   cache: {
     peerReadUpTo?: string;
     memberWatermarks?: Array<{ mid: string; upTo: string }>;
+    readSnapshotV4?: {
+      version: number;
+      observedAt: string;
+      stale: boolean;
+      intervals: Array<{ readerMid: string; startMessageId: string; endMessageId: string }>;
+    };
   },
   force: boolean,
 ): Map<string, Partial<Message>> | null {
   let changed = false;
   const patches = new Map<string, Partial<Message>>();
+
+  if (cache.readSnapshotV4 && !cache.readSnapshotV4.stale) {
+    const chatId = chatMessages[0]?.chatId ?? "";
+    const selfMid = useStore.getState().self.mid;
+    const index = indexReadIntervalsV4(cache.readSnapshotV4.intervals);
+    for (const message of chatMessages) {
+      if (message.authorId !== "me" || message.id.startsWith("pending_") ||
+        message.messageState.startsWith("revoked") ||
+        (message.status !== "sent" && message.status !== "read")) continue;
+      let messageId: bigint;
+      try { messageId = BigInt(message.id); } catch { continue; }
+      const readBy = readersAtMessageV4(index, messageId).filter((mid) =>
+        chatId.startsWith("u") ? mid === chatId : mid !== selfMid,
+      );
+      const read = readBy.length > 0;
+      const sameReaders = (message.readBy?.length ?? 0) === readBy.length &&
+        readBy.every((mid) => message.readBy?.includes(mid));
+      if (message.read !== read || message.status !== (read ? "read" : "sent") ||
+        (!chatId.startsWith("u") && ((message.readCount ?? 0) !== readBy.length ||
+          !sameReaders))) {
+        patches.set(message.id, {
+          read,
+          status: read ? "read" : "sent",
+          ...(!chatId.startsWith("u") ? { readBy, readCount: readBy.length } : {}),
+        });
+        changed = true;
+      }
+    }
+    return changed ? patches : null;
+  }
 
   if (cache.peerReadUpTo) {
     let upToN: bigint;
@@ -238,6 +343,45 @@ function applyReadWatermarkLocal(
   }
 
   return changed ? patches : null;
+}
+
+function mergeReadWatermarks(
+  current: {
+    peerReadUpTo?: string; memberWatermarks?: Array<{ mid: string; upTo: string }>;
+    readSnapshotV4?: { version: number; observedAt: string; stale: boolean; intervals: Array<{
+      readerMid: string; startMessageId: string; endMessageId: string; startTime?: string; endTime?: string;
+    }> };
+  } | undefined,
+  incoming: {
+    peerReadUpTo?: string; memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+    readSnapshotV4?: { version: number; observedAt: string; stale: boolean; intervals: Array<{
+      readerMid: string; startMessageId: string; endMessageId: string; startTime?: string; endTime?: string;
+    }> };
+  },
+) {
+  const maxId = (left?: string, right?: string) => {
+    if (!left) return right;
+    if (!right) return left;
+    try {
+      return BigInt(left) >= BigInt(right) ? left : right;
+    } catch {
+      return right;
+    }
+  };
+  const members = new Map((current?.memberWatermarks ?? []).map((item) => [item.mid, item.upTo]));
+  for (const item of incoming.memberReadWatermarks ?? []) {
+    members.set(item.mid, maxId(members.get(item.mid), item.upTo)!);
+  }
+  return {
+    ...(maxId(current?.peerReadUpTo, incoming.peerReadUpTo)
+      ? { peerReadUpTo: maxId(current?.peerReadUpTo, incoming.peerReadUpTo) }
+      : {}),
+    ...(members.size ? { memberWatermarks: [...members].map(([mid, upTo]) => ({ mid, upTo })) } : {}),
+    ...(incoming.readSnapshotV4 &&
+      (!current?.readSnapshotV4 || incoming.readSnapshotV4.version >= current.readSnapshotV4.version)
+      ? { readSnapshotV4: incoming.readSnapshotV4 }
+      : current?.readSnapshotV4 ? { readSnapshotV4: current.readSnapshotV4 } : {}),
+  };
 }
 
 function messagePreview(m: Message): string {
@@ -309,6 +453,10 @@ type State = {
   highlightMessageId: string | null;
   /** チャットを開くときの初期位置。未読の先頭、なければ末尾。 */
   initialChatScrollMessageId: string | null;
+  /** 未読件数はチャットを開くと即時0になるため、初期位置確定まで保持する。 */
+  initialChatScrollUnreadCount: number;
+  /** 初回履歴が届くまで初期スクロールを確定しない。 */
+  initialChatScrollPending: boolean;
   showUpdateNote: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
@@ -331,6 +479,18 @@ type State = {
     {
       peerReadUpTo?: string;
       memberWatermarks?: Array<{ mid: string; upTo: string }>;
+      readSnapshotV4?: {
+        version: number;
+        observedAt: string;
+        stale: boolean;
+        intervals: Array<{
+          readerMid: string;
+          startMessageId: string;
+          endMessageId: string;
+          startTime?: string;
+          endTime?: string;
+        }>;
+      };
       at: number;
     }
   >;
@@ -376,6 +536,7 @@ type State = {
     } | null;
     chats: LineChat[];
     messages: LineMessage[];
+    readyChatId: string | null;
     hiddenMids: Set<string>;
     contactCache: Map<string, ContactInfo>;
   }) => void;
@@ -405,7 +566,7 @@ type State = {
   toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
-  markChatRead: (id: string) => Promise<void>;
+  markChatRead: (id: string, opts?: { force?: boolean }) => Promise<void>;
   markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
@@ -475,6 +636,9 @@ export const useStore = create<State>()(
         readReceipts: true,
         showReaderList: true,
         streamerMode: false,
+        streamerMaskNames: true,
+        streamerMaskAvatars: true,
+        streamerMaskUrls: true,
         compactDensity: false,
         fontScale: 1,
         enterToSend: true,
@@ -483,13 +647,19 @@ export const useStore = create<State>()(
         showStatusMessage: true,
         showBackground: true,
         highQualityImages: false,
+        mediaAutoSave: true,
+        linkPreviewLimit: 3,
         proxyEnabled: false,
         proxyUrl: "",
         notificationsEnabled: true,
+        webNotificationsEnabled: false,
+        hideNotificationContent: true,
         betaBlockCheckManual: false,
         betaBlockCheckAuto: false,
         betaMidSearch: false,
         betaAgentI: false,
+        betaBlockedListSqliteSync: false,
+        aiEnabled: true,
       },
       chats: [],
       messages: [],
@@ -499,6 +669,8 @@ export const useStore = create<State>()(
       replyToId: null,
       highlightMessageId: null,
       initialChatScrollMessageId: null,
+      initialChatScrollUnreadCount: 0,
+      initialChatScrollPending: false,
       showUpdateNote: true,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
@@ -521,25 +693,30 @@ export const useStore = create<State>()(
       },
 
       setAccountId: (id) => {
-        if (id !== get().accountId) {
+        const previousAccountId = get().accountId;
+        if (id !== previousAccountId) {
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
-          myMessageIdsByChat.clear();
+          readReceiptForceInflight.clear();
           backfillInflight.clear();
           lastDeltaPollAt.clear();
           sessionOpenedChats.clear();
           eventPollCursor.delete(String(id));
         }
         if (id !== get().accountId) {
+          get().resetAccountData();
           // アカウント切替時に前アカウントの会話・既読・一時 UI を残さない。
           // 共有 MID をまたぐ表示漏れを防ぎ、後続 hydrate の正本を明確にする。
           set({
             accountId: id,
+            activeChatId: null,
             chats: [],
             messages: [],
-            activeChatId: null,
+            loadingChats: false,
+            loadingMessages: false,
             initialChatScrollMessageId: null,
+            initialChatScrollPending: false,
             memberProfile: null,
             readWatermarks: {},
             announcements: {},
@@ -563,6 +740,7 @@ export const useStore = create<State>()(
           replyToId: null,
           highlightMessageId: null,
           initialChatScrollMessageId: null,
+          initialChatScrollPending: false,
           customOrder: [],
           readDisabledMids: {},
           blockedMids: [],
@@ -575,13 +753,23 @@ export const useStore = create<State>()(
           else next[id] = true;
           return { readDisabledMids: next };
         });
+        const st = get();
+        if (
+          !st.readDisabledMids[id] &&
+          st.settings.readReceipts &&
+          st.activeChatId === id &&
+          sessionOpenedChats.has(id)
+        ) {
+          void st.markChatRead(id);
+        }
       },
 
       syncBlockedMids: async () => {
-        const { accountId } = get();
+        const { accountId, settings } = get();
         if (!accountId) return;
         try {
-          const res = await api.line.blockedContacts(accountId);
+          const res = await api.line.blockedContacts(accountId, settings.betaBlockedListSqliteSync);
+          if (get().accountId !== accountId) return;
           if (res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
         } catch {
           /* silent */
@@ -599,28 +787,24 @@ export const useStore = create<State>()(
 
       _activateChat: (id, opts) => {
         const opts2 = opts ?? {};
-        const firstUnread = get()
-          .messages.filter((m) => m.chatId === id && m.authorId !== "me" && !m.read)
-          .sort((a, b) => {
-            const byTime = a.createdAt - b.createdAt;
-            if (byTime) return byTime;
-            try {
-              const left = BigInt(a.id);
-              const right = BigInt(b.id);
-              return left === right ? 0 : left < right ? -1 : 1;
-            } catch {
-              return a.id.localeCompare(b.id);
-            }
-          })[0];
+        const current = get();
+        const chatMessages = retainMessagesForChat(current.messages, id);
+        const unreadCount = current.chats.find((chat) => chat.id === id)?.unread ?? 0;
+        const unreadTarget = resolveInitialUnreadScrollTarget(chatMessages, id, null, unreadCount);
         set((st) => ({
           screen: "chat",
           activeChatId: id,
-          initialChatScrollMessageId: firstUnread?.id ?? null,
+          messages: chatMessages,
+          initialChatScrollMessageId: unreadTarget,
+          initialChatScrollUnreadCount: unreadCount,
+          // Wait for useLineData's initial page request to finish before choosing
+          // an unread anchor or falling back to the newest message.
+          initialChatScrollPending: Boolean(id),
           profileDrawerOpen: false,
           chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
         }));
         const { accountId, settings, chats } = get();
-        if (accountId && settings.readReceipts) {
+        if (accountId && settings.readReceipts && chatMessages.length > 0) {
           void get().markChatRead(id);
         }
         if (accountId) {
@@ -642,13 +826,14 @@ export const useStore = create<State>()(
       },
 
       closeChat: () =>
-        set({ activeChatId: null, initialChatScrollMessageId: null, profileDrawerOpen: false }),
+        set({ activeChatId: null, messages: [], initialChatScrollMessageId: null, initialChatScrollUnreadCount: 0, initialChatScrollPending: false, profileDrawerOpen: false }),
 
       loadAnnouncements: async (chatId) => {
         const { accountId } = get();
         if (!accountId) return;
         try {
           const res = await api.line.announce.list(accountId, chatId);
+          if (get().accountId !== accountId) return;
           const list = (res as { ok: boolean; data: Announcement[] }).data ?? [];
           set((st) => ({ announcements: { ...st.announcements, [chatId]: list } }));
         } catch {
@@ -695,6 +880,9 @@ export const useStore = create<State>()(
             readReceipts: true,
             showReaderList: true,
             streamerMode: false,
+            streamerMaskNames: true,
+            streamerMaskAvatars: true,
+            streamerMaskUrls: true,
             compactDensity: false,
             fontScale: 1,
             enterToSend: true,
@@ -703,19 +891,25 @@ export const useStore = create<State>()(
             showStatusMessage: true,
             showBackground: true,
             highQualityImages: false,
+            mediaAutoSave: true,
+            linkPreviewLimit: 3,
             proxyEnabled: false,
             proxyUrl: "",
             notificationsEnabled: true,
+            webNotificationsEnabled: false,
+            hideNotificationContent: true,
             betaBlockCheckManual: false,
             betaBlockCheckAuto: false,
             betaMidSearch: false,
             betaAgentI: false,
+            betaBlockedListSqliteSync: false,
+            aiEnabled: true,
           },
           sidebarWidth: 360,
           customOrder: [],
         }),
 
-      hydrateLineData: ({ profile, chats, messages, hiddenMids, contactCache }) => {
+      hydrateLineData: ({ profile, chats, messages, readyChatId, hiddenMids, contactCache }) => {
         // 空 chats で既存 UI を潰さない（bootstrap 前 race）
         if (!chats.length && get().chats.length > 0) {
           if (profile) {
@@ -768,24 +962,68 @@ export const useStore = create<State>()(
 
         // hide flag: always preserve prev.hidden when chat already exists,
         // taking precedence over the newly mapped hidden from hiddenMids
+        const previousChats = new Map(get().chats.map((chat) => [chat.id, chat]));
         const hiddenByPrev = new Map<string, boolean>();
         mappedChats.forEach((c) => {
-          const prev = useStore.getState().chats.find((p) => p.id === c.id);
+          const prev = previousChats.get(c.id);
           if (prev) hiddenByPrev.set(c.id, prev.hidden ?? false);
         });
 
-        const chatId =
-          activeChatId && (!dismissed.has(activeChatId) || restored.has(activeChatId))
-            ? activeChatId
-            : (mappedChats[0]?.id ?? null);
+        const chatId = activeChatId && mappedChats.some((c) => c.id === activeChatId)
+          ? activeChatId
+          : null;
         // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
         const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
         const mappedMessages =
           chatId && accountId
             ? messages
                 .filter(chatMessageFilter)
-                .map((m) => mapMessage(m, chatId, accountId, contactCache))
+                .map((m) => mapMessage(m, chatId, accountId, contactCache, get().settings.mediaAutoSave ?? true))
             : [];
+        if (chatId && accountId && mappedMessages.length > 0) {
+          const previousById = new Map(get().messages.map((message) => [message.id, message]));
+          for (const message of mappedMessages) {
+            const previous = previousById.get(message.id);
+            if (!previous) continue;
+            const readBy = [...new Set([...(previous.readBy ?? []), ...(message.readBy ?? [])])];
+            const readCount = Math.max(previous.readCount ?? 0, message.readCount ?? 0, readBy.length);
+            if (previous.read || previous.status === "read" || readCount > 0) {
+              message.read = true;
+              message.status = "read";
+              if (readBy.length > 0) message.readBy = readBy;
+              if (readCount > 0) message.readCount = readCount;
+            }
+          }
+          const watermark = get().readWatermarks[accountChatKey(accountId, chatId)];
+          if (watermark) {
+            const patched = applyReadWatermarkLocal(mappedMessages, watermark, false);
+            if (patched) {
+              for (const message of mappedMessages) {
+                const patch = patched.get(message.id);
+                if (patch) Object.assign(message, patch);
+              }
+            }
+          }
+        }
+        const resolveInitialScroll = Boolean(
+          chatId &&
+          readyChatId === chatId &&
+          get().activeChatId === chatId &&
+          get().initialChatScrollPending,
+        );
+        const initialUnreadCount = get().initialChatScrollUnreadCount;
+        const hasUnreadWindow =
+          mappedMessages.length === 0 ||
+          initialUnreadCount <= countReceivedMessages(mappedMessages, chatId ?? "");
+        const canResolveInitialScroll = resolveInitialScroll && hasUnreadWindow;
+        const unreadScrollTarget = canResolveInitialScroll
+          ? resolveInitialUnreadScrollTarget(
+              mappedMessages,
+              chatId!,
+              get().initialChatScrollMessageId,
+              initialUnreadCount,
+            )
+          : null;
 
         const members = buildMembersFromMessages(messages.filter(chatMessageFilter), contactCache);
 
@@ -793,7 +1031,7 @@ export const useStore = create<State>()(
           chats: mappedChats
             .filter((c) => !dismissed.has(c.id) || restored.has(c.id))
             .map((c) => {
-              const prev = st.chats.find((p) => p.id === c.id);
+              const prev = previousChats.get(c.id);
               const mergedName =
                 c.name && !looksLikeMid(c.name)
                   ? c.name
@@ -818,17 +1056,8 @@ export const useStore = create<State>()(
           messages: (() => {
             if (mappedMessages.length === 0 && st.messages.length > 0) return st.messages;
             const pending = st.messages.filter(
-              (m) => m.id.startsWith("pending_") || m.status === "sending" || m.status === "failed",
+              (m) => m.id.startsWith("pending_") || m.status === "sending" || m.status === "failed" || m.status === "uncertain",
             );
-            mappedMessages.forEach((m) => {
-              if (m.id) {
-                if (m.reactions?.length) {
-                  messageReactionCache.set(m.id, m.reactions);
-                } else {
-                  messageReactionCache.delete(m.id);
-                }
-              }
-            });
             if (pending.length === 0) {
               return mappedMessages;
             }
@@ -836,7 +1065,18 @@ export const useStore = create<State>()(
             const keep = pending.filter((p) => !ids.has(p.id));
             return [...mappedMessages, ...keep];
           })(),
-          activeChatId: st.activeChatId ?? chatId,
+          activeChatId: chatId,
+          ...(resolveInitialScroll
+            ? {
+                ...(canResolveInitialScroll
+                  ? {
+                      initialChatScrollMessageId: unreadScrollTarget,
+                      initialChatScrollUnreadCount: 0,
+                    }
+                  : {}),
+                initialChatScrollPending: !canResolveInitialScroll,
+              }
+            : {}),
           customOrder: st.customOrder.length ? st.customOrder : mappedChats.map((c) => c.id),
           self: profile
             ? {
@@ -882,6 +1122,9 @@ export const useStore = create<State>()(
             ),
           }));
         }
+        if (resolveInitialScroll && get().settings.readReceipts && sessionOpenedChats.has(chatId!)) {
+          void get().markChatRead(chatId!);
+        }
       },
 
       sendMessage: async (chatId, text, opts) => {
@@ -891,7 +1134,7 @@ export const useStore = create<State>()(
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const trimmed = text; // 文中 sticon の前後空白を落とさない
         const relatedMessageId = replyToId ?? undefined;
-        const tempId = `pending_${Date.now()}`;
+        const tempId = createPendingMessageId();
         let optimisticSticons: import("../utils/lineSticon.js").SticonResource[] | undefined;
         let optimisticMentions: import("../utils/mention.js").MentionInfo[] | undefined;
         try {
@@ -943,20 +1186,22 @@ export const useStore = create<State>()(
               mute: opts?.mute,
             });
           } catch {
+             if (get().accountId !== accountId) return;
             set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "uncertain" } : m)),
             }));
             return;
           }
+           if (get().accountId !== accountId) return;
           if (!res.ok) {
             set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: sendFailureStatus(res) } : m)),
             }));
             return;
           }
           if (res.message) {
             const contactCache = buildContactCache(get().chats);
-            const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
+            const mapped = mapMessage(res.message, chatId, accountId!, contactCache, get().settings.mediaAutoSave ?? true);
             set((st) => ({
               messages: st.messages.map((m) => (m.id === tempId ? mapped : m)),
               chats: st.chats.map((c) =>
@@ -974,15 +1219,9 @@ export const useStore = create<State>()(
               messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
             }));
           }
-          const existing = refreshDebounce.get(chatId);
-          if (existing) clearTimeout(existing);
-          refreshDebounce.set(
-            chatId,
-            setTimeout(() => {
-              refreshDebounce.delete(chatId);
-              void get().refreshMessages(chatId, { force: true });
-            }, 800),
-          );
+          scheduleMessageRefresh(accountId, chatId, () => get().accountId === accountId, () => {
+            void get().refreshMessages(chatId, { force: true });
+          });
         })();
       },
 
@@ -990,7 +1229,7 @@ export const useStore = create<State>()(
         const { accountId, blockedMids } = get();
         if (!accountId || !packageId || !stickerId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
-        const tempId = `pending_stk_${Date.now()}`;
+        const tempId = createPendingMessageId("sticker");
         const optimistic: Message = {
           id: tempId,
           chatId,
@@ -1012,17 +1251,18 @@ export const useStore = create<State>()(
               stickerId,
               ...(isPremium ? { isPremium: true } : {}),
             });
+            if (get().accountId !== accountId) return;
             if (!res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) =>
-                  m.id === tempId ? { ...m, status: "failed" } : m,
+                  m.id === tempId ? { ...m, status: sendFailureStatus(res) } : m,
                 ),
               }));
               return;
             }
             if (res.message) {
               const contactCache = buildContactCache(get().chats);
-              const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
+              const mapped = mapMessage(res.message, chatId, accountId!, contactCache, get().settings.mediaAutoSave ?? true);
               const finalMsg: Message = {
                 ...mapped,
                 kind: "sticker",
@@ -1048,18 +1288,13 @@ export const useStore = create<State>()(
                 messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
               }));
             }
-            const existing = refreshDebounce.get(chatId);
-            if (existing) clearTimeout(existing);
-            refreshDebounce.set(
-              chatId,
-              setTimeout(() => {
-                refreshDebounce.delete(chatId);
-                void get().refreshMessages(chatId, { force: true });
-              }, 800),
-            );
+            scheduleMessageRefresh(accountId, chatId, () => get().accountId === accountId, () => {
+              void get().refreshMessages(chatId, { force: true });
+            });
           } catch {
+            if (get().accountId !== accountId) return;
             set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "uncertain" } : m)),
             }));
           }
         })();
@@ -1070,7 +1305,7 @@ export const useStore = create<State>()(
         if (!accountId || !items.length) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const placements = combinationPlacementsFromItems(items);
-        const tempId = `pending_combo_${Date.now()}`;
+        const tempId = createPendingMessageId("combo");
         const optimistic: Message = {
           id: tempId,
           chatId,
@@ -1088,10 +1323,11 @@ export const useStore = create<State>()(
         void (async () => {
           try {
             const res = await api.line.sendCombinationSticker(accountId!, chatId, items);
+            if (get().accountId !== accountId) return;
             if (!res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) =>
-                  m.id === tempId ? { ...m, status: "failed" } : m,
+                  m.id === tempId ? { ...m, status: sendFailureStatus(res) } : m,
                 ),
               }));
               return;
@@ -1112,13 +1348,14 @@ export const useStore = create<State>()(
                 /* ignore */
               }
               const contactCache = buildContactCache(get().chats);
-              const mapped = mapMessage(res.message, chatId, accountId!, contactCache);
+              const mapped = mapMessage(res.message, chatId, accountId!, contactCache, get().settings.mediaAutoSave ?? true);
               // 履歴表示は CSSTKID / メッセージID のどちらでもプレビューを引けるよう両方保存
               const preview = await persistCombinationStickerPreview(
                 accountId!,
                 res.message,
                 placements,
               );
+              if (get().accountId !== accountId) return;
               const finalMsg: Message = {
                 ...mapped,
                 kind: "sticker",
@@ -1141,18 +1378,13 @@ export const useStore = create<State>()(
                 messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
               }));
             }
-            const existing = refreshDebounce.get(chatId);
-            if (existing) clearTimeout(existing);
-            refreshDebounce.set(
-              chatId,
-              setTimeout(() => {
-                refreshDebounce.delete(chatId);
-                void get().refreshMessages(chatId, { force: true });
-              }, 800),
-            );
+            scheduleMessageRefresh(accountId, chatId, () => get().accountId === accountId, () => {
+              void get().refreshMessages(chatId, { force: true });
+            });
           } catch {
+            if (get().accountId !== accountId) return;
             set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "uncertain" } : m)),
             }));
           }
         })();
@@ -1163,7 +1395,7 @@ export const useStore = create<State>()(
         if (!accountId || !packageId || !sticonId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
 
-        const tempId = `pending_emoji_${Date.now()}`;
+        const tempId = createPendingMessageId("emoji");
         const optimistic: Message = {
           id: tempId,
           chatId,
@@ -1193,29 +1425,25 @@ export const useStore = create<State>()(
               packageId,
               sticonId,
             });
+            if (get().accountId !== accountId) return;
             if (res.ok) {
               set((st) => ({
                 messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "sent" } : m)),
               }));
-              const existing = refreshDebounce.get(chatId);
-              if (existing) clearTimeout(existing);
-              refreshDebounce.set(
-                chatId,
-                setTimeout(() => {
-                  refreshDebounce.delete(chatId);
-                  void get().refreshMessages(chatId, { force: true });
-                }, 800),
-              );
+              scheduleMessageRefresh(accountId, chatId, () => get().accountId === accountId, () => {
+                void get().refreshMessages(chatId, { force: true });
+              });
             } else {
               set((st) => ({
                 messages: st.messages.map((m) =>
-                  m.id === tempId ? { ...m, status: "failed" } : m,
+                  m.id === tempId ? { ...m, status: sendFailureStatus(res) } : m,
                 ),
               }));
             }
           } catch {
+            if (get().accountId !== accountId) return;
             set((st) => ({
-              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "failed" } : m)),
+              messages: st.messages.map((m) => (m.id === tempId ? { ...m, status: "uncertain" } : m)),
             }));
           }
         })();
@@ -1226,7 +1454,7 @@ export const useStore = create<State>()(
         if (!accountId) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         const isVideo = file.type.startsWith("video/");
-        const tempId = `pending_${isVideo ? "video" : "img"}_${Date.now()}`;
+        const tempId = createPendingMessageId(isVideo ? "video" : "image");
         const localUrl = URL.createObjectURL(file);
         const optimistic: Message = {
           id: tempId,
@@ -1240,6 +1468,7 @@ export const useStore = create<State>()(
           messageState: "normal",
         };
         set((st) => ({ messages: [...st.messages, optimistic] }));
+        let uploadStarted = false;
         try {
           const highQuality = get().settings.highQualityImages;
           const { blob, mime } = highQuality
@@ -1262,27 +1491,31 @@ export const useStore = create<State>()(
             binary += String.fromCharCode(...bytes.subarray(i, i + chunk));
           }
           const dataBase64 = btoa(binary);
+          uploadStarted = true;
           const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
             mimeType: mime,
             filename: file.name || (isVideo ? "video.mp4" : "image.jpg"),
             mediaType: isVideo ? "video" : "image",
           });
+          if (get().accountId !== accountId) return;
           if (res.ok) {
-            const existing = refreshDebounce.get(chatId);
-            if (existing) clearTimeout(existing);
-            refreshDebounce.set(
-              chatId,
-              setTimeout(() => {
-                refreshDebounce.delete(chatId);
-                void get().refreshMessages(chatId, { force: true });
-              }, 800),
-            );
+            scheduleMessageRefresh(accountId, chatId, () => get().accountId === accountId, () => {
+              void get().refreshMessages(chatId, { force: true });
+            });
           } else {
-            // 画像は再送 UI を持たないので失敗時は楽観表示を除去
-            set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+            set((st) => ({
+              messages: res.deliveryStatus === "unknown"
+                ? st.messages.map((m) => m.id === tempId ? { ...m, status: "uncertain" } : m)
+                : st.messages.filter((m) => m.id !== tempId),
+            }));
           }
         } catch {
-          set((st) => ({ messages: st.messages.filter((m) => m.id !== tempId) }));
+          if (get().accountId !== accountId) return;
+          set((st) => ({
+            messages: uploadStarted
+              ? st.messages.map((m) => m.id === tempId ? { ...m, status: "uncertain" } : m)
+              : st.messages.filter((m) => m.id !== tempId),
+          }));
         } finally {
           // 送信完了後にローカルURLを解放（60s 後でも安全な間隔）
           setTimeout(() => URL.revokeObjectURL(localUrl), 60_000);
@@ -1294,6 +1527,7 @@ export const useStore = create<State>()(
         if (!accountId || !blob || blob.size === 0) return;
         if (chatId.startsWith("u") && blockedMids.includes(chatId)) return;
         void (async () => {
+          let requestStarted = false;
           try {
             const buf = await blob.arrayBuffer();
             const bytes = new Uint8Array(buf);
@@ -1305,26 +1539,27 @@ export const useStore = create<State>()(
             const dataBase64 = btoa(binary);
             const mime = blob.type || "audio/webm";
             const ext = mime.includes("ogg") ? "ogg" : mime.includes("mp4") ? "m4a" : "webm";
+            requestStarted = true;
             const res = await api.line.sendMedia(accountId!, chatId, dataBase64, {
               mimeType: mime,
               filename: `voice-${seconds}s.${ext}`,
               mediaType: "audio",
             });
+            if (get().accountId !== accountId) return;
             if (!res.ok) {
-              window.alert(res.error ?? "音声メッセージの送信に失敗しました");
+              window.alert(res.deliveryStatus === "unknown"
+                ? "音声メッセージの送信結果を確認できません。トーク履歴を更新して確認してください。"
+                : res.error ?? "音声メッセージの送信に失敗しました");
               return;
             }
-            const existing = refreshDebounce.get(chatId);
-            if (existing) clearTimeout(existing);
-            refreshDebounce.set(
-              chatId,
-              setTimeout(() => {
-                refreshDebounce.delete(chatId);
-                void get().refreshMessages(chatId, { force: true });
-              }, 800),
-            );
+            scheduleMessageRefresh(accountId, chatId, () => get().accountId === accountId, () => {
+              void get().refreshMessages(chatId, { force: true });
+            });
           } catch {
-            window.alert("音声メッセージの送信に失敗しました");
+            if (get().accountId !== accountId) return;
+            window.alert(requestStarted
+              ? "音声メッセージの送信結果を確認できません。トーク履歴を更新して確認してください。"
+              : "音声メッセージを送信する前の準備に失敗しました。");
           }
         })();
       },
@@ -1333,9 +1568,11 @@ export const useStore = create<State>()(
         const { accountId, activeChatId } = get();
         if (!accountId) return;
         const msg = get().messages.find((m) => m.id === id);
-        // 送信中の楽観メッセージはサーバ未確定のため取り消せない
-        if (!msg || msg.status === "sending" || id.startsWith("pending_")) {
-          window.alert("送信が完了してから取り消しできます");
+        // 未送信・失敗・送信中のメッセージはサーバ側に取消対象がない。
+        if (!msg || (msg.status !== "sent" && msg.status !== "read") || id.startsWith("pending_")) {
+          get().showNotice(msg?.status === "failed"
+            ? "送信失敗のメッセージは取り消せません。再送してください"
+            : "送信が完了してから取り消しできます");
           return;
         }
         if (msg.messageState.startsWith("revoked") || msg.revokedSnapshot) {
@@ -1362,10 +1599,18 @@ export const useStore = create<State>()(
               : m,
           ),
         }));
-        const res = await api.line.unsend(accountId, id);
-        if (res.ok && activeChatId) await get().refreshMessages(activeChatId, { force: true });
-        else if (!res.ok) {
-          const errText = res.error ?? "";
+        try {
+          const res = await api.line.unsend(accountId, id);
+          if (get().accountId !== accountId) return;
+          if (!res.ok) throw new Error(res.error || "取り消しに失敗しました");
+        } catch (err) {
+          if (get().accountId !== accountId) return;
+          set((st) => ({
+            messages: st.messages.map((m) =>
+              m.id === id && m.messageState === "revoked-by-self" ? msg : m,
+            ),
+          }));
+          const errText = err instanceof Error ? err.message : String(err);
           if (
             errText.includes("MESSAGE_NOT_DESTRUCTIBLE") ||
             errText.includes("message too old") ||
@@ -1373,9 +1618,13 @@ export const useStore = create<State>()(
           ) {
             get().showNotice("取り消し失敗(送信取り消し可能な時間を過ぎています)");
           } else {
-            window.alert(errText || "取り消しに失敗しました");
+            get().showNotice(errText || "取り消しに失敗しました");
           }
+          return;
         }
+        if (get().accountId !== accountId) return;
+        const currentChatId = get().activeChatId ?? activeChatId;
+        if (currentChatId) await get().refreshMessages(currentChatId, { force: true });
       },
 
       editMessage: async (id, newText) => {
@@ -1408,9 +1657,11 @@ export const useStore = create<State>()(
 
         try {
           const res = await api.line.editMessage(accountId, msg.chatId, id, newText);
+          if (get().accountId !== accountId) return;
           if (res.ok) {
             get().showNotice("メッセージを編集しました");
-            if (activeChatId) await get().refreshMessages(activeChatId, { force: true });
+            const currentChatId = get().activeChatId ?? activeChatId;
+            if (currentChatId) await get().refreshMessages(currentChatId, { force: true });
           } else {
             // 失敗時はロールバック
             set((st) => ({
@@ -1421,6 +1672,7 @@ export const useStore = create<State>()(
             window.alert(res.error ?? "メッセージの編集に失敗しました");
           }
         } catch (err) {
+          if (get().accountId !== accountId) return;
           // 失敗時はロールバック
           set((st) => ({
             messages: st.messages.map((m) =>
@@ -1444,7 +1696,7 @@ export const useStore = create<State>()(
         if (
           !accountId ||
           !msg ||
-          msg.status !== "failed" ||
+          (msg.status !== "failed" && msg.status !== "uncertain") ||
           msg.messageState.startsWith("revoked") ||
           !msg.retry
         )
@@ -1454,12 +1706,15 @@ export const useStore = create<State>()(
         set((st) => ({
           messages: st.messages.map((m) => (m.id === id ? { ...m, status: "sending" } : m)),
         }));
-        const markFailed = () =>
+        const markFailed = (status: Message["status"] = "failed") => {
+          if (get().accountId !== accountId) return;
           set((st) => ({
-            messages: st.messages.map((m) => (m.id === id ? { ...m, status: "failed" } : m)),
+            messages: st.messages.map((m) => (m.id === id ? { ...m, status } : m)),
           }));
+        };
         try {
           let ok = false;
+          let failureStatus: Message["status"] = "failed";
           let confirmed: LineMessage | null = null;
           if (intent.kind === "text") {
             const res = await api.line.send(accountId, chatId, intent.text, {
@@ -1467,6 +1722,7 @@ export const useStore = create<State>()(
               contentMetadata: intent.contentMetadata,
             });
             ok = res.ok;
+            if (!res.ok) failureStatus = sendFailureStatus(res);
             confirmed = res.ok ? (res.message ?? null) : null;
           } else if (intent.kind === "sticker") {
             const res = await api.line.sendSticker(accountId, chatId, {
@@ -1475,6 +1731,7 @@ export const useStore = create<State>()(
               isPremium: intent.isPremium,
             });
             ok = res.ok;
+            if (!res.ok) failureStatus = sendFailureStatus(res);
             confirmed = res.ok ? (res.message ?? null) : null;
           } else if (intent.kind === "emoji") {
             const res = await api.line.sendEmoji(accountId, chatId, {
@@ -1482,11 +1739,14 @@ export const useStore = create<State>()(
               sticonId: intent.sticonId,
             });
             ok = res.ok;
+            if (!res.ok) failureStatus = sendFailureStatus(res);
           } else if (intent.kind === "combinationSticker") {
             const res = await api.line.sendCombinationSticker(accountId, chatId, intent.items);
             ok = res.ok;
+            if (!res.ok) failureStatus = sendFailureStatus(res);
             confirmed = res.ok ? (res.message ?? null) : null;
           }
+          if (get().accountId !== accountId) return;
           if (ok && confirmed && intent.kind === "combinationSticker") {
             // 再送でも送信時と同じくローカルプレビューを保存（mapMessage が CSSTKID/メッセージIDで引ける）
             await persistCombinationStickerPreview(
@@ -1494,14 +1754,15 @@ export const useStore = create<State>()(
               confirmed,
               combinationPlacementsFromItems(intent.items),
             );
+            if (get().accountId !== accountId) return;
           }
           if (!ok) {
-            markFailed();
+            markFailed(failureStatus);
             return;
           }
           if (confirmed) {
             const contactCache = buildContactCache(get().chats);
-            const mapped = mapMessage(confirmed, chatId, accountId, contactCache);
+            const mapped = mapMessage(confirmed, chatId, accountId, contactCache, get().settings.mediaAutoSave ?? true);
             // 重い refreshMessages(force) は同期を止め得るため、確認済みメッセージで直接反映
             set((st) => ({
               messages: st.messages.map((m) =>
@@ -1523,7 +1784,7 @@ export const useStore = create<State>()(
             }));
           }
         } catch {
-          markFailed();
+          markFailed("uncertain");
         }
       },
 
@@ -1534,49 +1795,43 @@ export const useStore = create<State>()(
         await get().markChatRead(activeChatId);
       },
 
-      markChatRead: async (id) => {
+      markChatRead: async (id, opts) => {
+        const force = opts?.force === true;
         const { accountId, messages, settings, readDisabledMids } = get();
-        const received = messages
-          .filter((m) => m.chatId === id && m.authorId !== "me" && !m.id.startsWith("pending_"))
-          .sort((a, b) => {
-            const byTime = b.createdAt - a.createdAt;
-            if (byTime) return byTime;
-            try {
-              const left = BigInt(a.id);
-              const right = BigInt(b.id);
-              return left === right ? 0 : right > left ? 1 : -1;
-            } catch {
-              return b.id.localeCompare(a.id);
-            }
-          });
-        const last = received[0];
-        set((st) => ({
-          chats: st.chats.map((c) => (c.id === id ? { ...c, unread: 0 } : c)),
-          messages: st.messages.map((m) => {
-            // 自分の送信メッセージの read は相手側の既読状態。
-            // チャットを開いただけで自分の最新送信まで既読にしてはいけない。
-            if (m.chatId !== id || m.authorId === "me" || !last) return m;
-            try {
-              if (BigInt(m.id) > BigInt(last.id)) return m;
-            } catch {
-              return m;
-            }
-            return { ...m, read: true, status: "read" };
-          }),
-        }));
+        const last = findLatestReceivedMessage(messages, id);
+        set((st) => {
+          const nextMessages = last
+            ? markReceivedMessagesReadThrough(st.messages, id, last)
+            : st.messages;
+          const hasUnreadChat = st.chats.some((chat) => chat.id === id && chat.unread !== 0);
+          if (nextMessages === st.messages && !hasUnreadChat) return st;
+          return {
+            chats: hasUnreadChat
+              ? st.chats.map((chat) => (chat.id === id ? { ...chat, unread: 0 } : chat))
+              : st.chats,
+            messages: nextMessages,
+          };
+        });
         // 全体無効（設定）または個別無効（右クリック）なら送信しない
-        if (!accountId || !settings.readReceipts || readDisabledMids[id]) return;
+        if (!accountId || (!force && (!settings.readReceipts || readDisabledMids[id]))) return;
         // ローカルに未取得の履歴だけでもバックエンドがDB/サーバの最終地点を解決する。
         const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (lastId && prev === lastId) return;
+        if (!force && lastId && prev === lastId) return;
         if (lastId) readReceiptSent.set(receiptKey, lastId);
         try {
-          await api.line.markAsRead(accountId, id, lastId);
+          const result = await api.line.markAsRead(accountId, id, lastId);
+          // HTTP 200 の { ok: false } も失敗として扱い、次回の再送を許可する。
+          if (!result.ok) throw new Error(result.error || "既読の送信に失敗しました");
+          const confirmedId = result.lastMessageId?.trim() || lastId;
+          if (confirmedId && (!lastId || readReceiptSent.get(receiptKey) === lastId)) {
+            readReceiptSent.set(receiptKey, confirmedId);
+          }
         } catch {
-          if (lastId) readReceiptSent.delete(receiptKey);
+          if (lastId) rollbackReceiptAttempt(readReceiptSent, receiptKey, lastId);
+          if (force) get().showNotice("既読を送信できませんでした。接続を確認して、もう一度お試しください。");
         }
       },
 
@@ -1585,7 +1840,8 @@ export const useStore = create<State>()(
           .chats.filter((chat) => chat.unread > 0)
           .map((chat) => chat.id);
         for (const chatId of unreadChatIds) {
-          await get().markChatRead(chatId);
+          // 明示的な一括操作は、自動既読の設定やチャット別除外を上書きする。
+          await get().markChatRead(chatId, { force: true });
         }
       },
 
@@ -1602,20 +1858,26 @@ export const useStore = create<State>()(
       scrollToMessage: (messageId) => {
         // chat-area が highlightMessageId を監視して仮想リスト内をスクロールする
         set({ highlightMessageId: messageId });
-        window.setTimeout(() => set({ highlightMessageId: null }), 2200);
       },
 
       openDirectChatWith: (memberMid) => {
         if (!memberMid.startsWith("u")) return;
         sessionOpenedChats.add(memberMid);
+        const chatMessages = retainMessagesForChat(get().messages, memberMid);
+        const unreadCount = get().chats.find((chat) => chat.id === memberMid)?.unread ?? 0;
+        const unreadTarget = resolveInitialUnreadScrollTarget(chatMessages, memberMid, null, unreadCount);
         set({
           memberProfile: null,
           profileDrawerOpen: false,
           screen: "chat",
           activeChatId: memberMid,
+          messages: chatMessages,
+          initialChatScrollMessageId: unreadTarget,
+          initialChatScrollUnreadCount: unreadCount,
+          initialChatScrollPending: true,
         });
         const { accountId, settings } = get();
-        if (accountId && settings.readReceipts) {
+        if (accountId && settings.readReceipts && chatMessages.length > 0) {
           void get().markChatRead(memberMid);
         }
       },
@@ -1679,6 +1941,15 @@ export const useStore = create<State>()(
         })),
       updateSetting: (k, v) => {
         set((st) => ({ settings: { ...st.settings, [k]: v } }));
+        if (k === "aiEnabled") {
+          try { localStorage.setItem("vyline:ai-enabled-v1", v ? "1" : "0"); } catch { /* app remains disabled only for this session */ }
+        }
+        if (k === "readReceipts" && v === true) {
+          const st = get();
+          if (st.activeChatId && sessionOpenedChats.has(st.activeChatId)) {
+            void st.markChatRead(st.activeChatId);
+          }
+        }
       },
       setLocalName: (chatId, name) =>
         set((st) => ({
@@ -1695,7 +1966,7 @@ export const useStore = create<State>()(
         try {
           await get().refreshChatsSilently();
         } finally {
-          set({ loadingChats: false });
+          if (get().accountId === accountId) set({ loadingChats: false });
         }
       },
 
@@ -1704,7 +1975,8 @@ export const useStore = create<State>()(
         if (!accountId) return;
         try {
           const res = await api.line.chats(accountId, { light: true, refresh: true });
-          if (res.ok && res.chats) {
+          if (get().accountId !== accountId) return;
+          if (res.ok && res.chats?.length) {
             const hidden = new Set(
               get()
                 .chats.filter((c) => c.hidden)
@@ -1712,9 +1984,14 @@ export const useStore = create<State>()(
             );
             const dismissed = getDismissedChatMids(accountId);
             const restored = new Set(getRestoredChatMids(accountId));
+            const availableChats = res.chats.filter(
+              (c) => !c.left && (!dismissed.has(c.mid) || restored.has(c.mid)),
+            );
             set((st) => ({
-              chats: res
-                .chats!.filter((c) => !dismissed.has(c.mid) || restored.has(c.mid))
+              activeChatId: st.activeChatId && availableChats.some((c) => c.mid === st.activeChatId)
+                ? st.activeChatId
+                : (availableChats[0]?.mid ?? null),
+              chats: availableChats
                 .map((c) => {
                   const base = mapChat(c, hidden.has(c.mid));
                   const prev = st.chats.find((p) => p.id === c.mid);
@@ -1749,11 +2026,15 @@ export const useStore = create<State>()(
             // （getMessageBoxes の lastMessageTime が store の最新より新しい）
             const activeChatId = get().activeChatId;
             const msgs = get().messages;
+            const newestByChat = new Map<string, number>();
+            for (const message of msgs) {
+              if (message.createdAt > (newestByChat.get(message.chatId) ?? 0)) {
+                newestByChat.set(message.chatId, message.createdAt);
+              }
+            }
             const candidates = res.chats
               .filter((c) => {
-                const newest = msgs
-                  .filter((m) => m.chatId === c.mid)
-                  .reduce((t, m) => Math.max(t, m.createdAt), 0);
+                const newest = newestByChat.get(c.mid) ?? 0;
                 return newest > 0 && newest < (c.lastMessageTime ?? 0);
               })
               .sort((a, b) => (b.mid === activeChatId ? 1 : 0) - (a.mid === activeChatId ? 1 : 0));
@@ -1777,6 +2058,7 @@ export const useStore = create<State>()(
           const res = await api.line.messages(accountId, chatId, 50, {
             force: opts?.force === true,
           });
+          if (get().accountId !== accountId) return;
           if (res.ok && res.messages) {
             const asc = [...res.messages].reverse();
             const contactCache = new Map<string, ContactInfo>();
@@ -1789,7 +2071,7 @@ export const useStore = create<State>()(
                 contactCache.set(m.id, { name: m.name, thumbnailUrl: m.avatarUrl });
               }
             }
-            const mapped = asc.map((m) => mapMessage(m, chatId, accountId, contactCache));
+            const mapped = asc.map((m) => mapMessage(m, chatId, accountId, contactCache, get().settings.mediaAutoSave ?? true));
             const members = buildMembersFromMessages(asc, contactCache);
             set((st) => {
               const mappedIds = new Set(mapped.map((m) => m.id));
@@ -1863,7 +2145,8 @@ export const useStore = create<State>()(
                 if (
                   m.id.startsWith("pending_") ||
                   m.status === "sending" ||
-                  m.status === "failed"
+                  m.status === "failed" ||
+                  m.status === "uncertain"
                 ) {
                   // 同内容がサーバに載ったら捨てる
                   if (m.kind === "text" && m.text) {
@@ -1912,7 +2195,9 @@ export const useStore = create<State>()(
               }
               const forChat = [...mergedMap.values()].sort((a, b) => a.createdAt - b.createdAt);
               return {
-                messages: [...st.messages.filter((m) => m.chatId !== chatId), ...forChat],
+                messages: st.activeChatId === chatId
+                  ? [...st.messages.filter((m) => m.chatId !== chatId), ...forChat]
+                  : st.messages,
                 chats: st.chats.map((c) =>
                   c.id === chatId && c.type === "group"
                     ? {
@@ -1937,17 +2222,14 @@ export const useStore = create<State>()(
                 ),
               };
             });
-            if (
-              get().settings.readReceipts &&
-              get().activeChatId === chatId &&
-              sessionOpenedChats.has(chatId)
-            ) {
-              void get().markChatRead(chatId);
+            if (get().activeChatId === chatId && sessionOpenedChats.has(chatId)) {
+              if (get().settings.readReceipts) void get().markChatRead(chatId);
+              // 既読送信をOFFにしても、自分の送信メッセージの既読状態取得は継続する。
               void get().refreshReadReceipts(chatId);
             }
           }
         } finally {
-          if (showLoading) set({ loadingMessages: false });
+          if (showLoading && get().accountId === accountId) set({ loadingMessages: false });
         }
       },
 
@@ -1956,41 +2238,45 @@ export const useStore = create<State>()(
         if (!accountId) return;
         const chatKey = accountChatKey(accountId, chatId);
         const inflight = readReceiptInflight.get(chatKey);
-        if (inflight) return inflight;
+        if (inflight) {
+          if (!opts?.force) return inflight;
+          const forced = readReceiptForceInflight.get(chatKey);
+          if (forced) return forced;
+          const followup = inflight.then(() =>
+            get().accountId === accountId ? get().refreshReadReceipts(chatId, { force: true }) : undefined,
+          );
+          readReceiptForceInflight.set(chatKey, followup);
+          const clearForced = () => {
+            if (readReceiptForceInflight.get(chatKey) === followup) {
+              readReceiptForceInflight.delete(chatKey);
+            }
+          };
+          void followup.then(clearForced, clearForced);
+          return followup;
+        }
 
         let task!: Promise<void>;
         task = (async () => {
           const { messages } = get();
-
-          const myIds = messages
-            .filter(
-              (m) =>
-                m.chatId === chatId &&
-                m.authorId === "me" &&
-                m.id &&
-                !m.id.startsWith("pending_") &&
-                !m.messageState.startsWith("revoked"),
-            )
-            .map((m) => m.id)
-            .slice(-50);
-          myMessageIdsByChat.set(chatKey, myIds);
-          if (myIds.length === 0) return;
-
-          // 既読済みでも直近 15 分のメッセージは既読者一覧を追い続ける
-          const needsPoll = messages.some(
-            (m) =>
-              m.chatId === chatId &&
-              m.authorId === "me" &&
-              myIds.includes(m.id) &&
-              Date.now() - m.createdAt < 15 * 60_000,
+          const chatMessages = messages.filter((m) => m.chatId === chatId);
+          const myMessages = chatMessages.filter(
+            (m) => m.authorId === "me" && !m.id.startsWith("pending_") && !m.messageState.startsWith("revoked"),
           );
+          if (myMessages.length === 0) return;
+
+          // DM は未読の自分の送信を相手が読むまで追跡する。
+          // グループは既読者が増える可能性があるため、直近15分を追跡する。
+          const needsPoll = myMessages.some((m) => {
+            if (chatId.startsWith("u")) return !m.read && m.status !== "read";
+            return Date.now() - m.createdAt < 15 * 60_000;
+          });
 
           // キャッシュ済みウォーターマークがあれば先にローカル適用（読み込み高速化）
           // needsPoll に関係なく適用する（古いチャットを開き直したときも既読状態を即反映）
           const cached = get().readWatermarks[chatKey];
           if (cached) {
             const patched = applyReadWatermarkLocal(
-              messages.filter((m) => m.chatId === chatId),
+              chatMessages,
               cached,
               opts?.force === true,
             );
@@ -2007,31 +2293,31 @@ export const useStore = create<State>()(
 
           if (!needsPoll) return;
 
-          const res = await api.line.readReceipts(accountId, chatId, myIds, {
+          const res = await api.line.readReceipts(accountId, chatId, undefined, {
             force: opts?.force === true,
           });
-          if (!res.ok || !res.receipts) return;
+          if (get().accountId !== accountId) return;
+          if (!res.ok) return;
 
-          // ウォーターマークを永続化ステートに保存（相手の最終既読地点）
+          const watermark = mergeReadWatermarks(get().readWatermarks[chatKey], res);
           set((st) => ({
-            readWatermarks: {
-              ...st.readWatermarks,
-              [chatKey]: {
-                peerReadUpTo: res.peerReadUpTo,
-                memberWatermarks: res.memberReadWatermarks,
-                at: Date.now(),
-              },
-            },
+            readWatermarks: Object.fromEntries(
+              Object.entries({
+                ...st.readWatermarks,
+                [chatKey]: { ...watermark, at: Date.now() },
+              })
+                .sort(([, left], [, right]) => right.at - left.at)
+                .slice(0, MAX_CACHED_READ_CHATS),
+            ),
           }));
 
           // 既読者 MID のプロフィールを事前取得（メンバー一覧を開かなくても名前表示）
           const allReaderMids = new Set<string>();
-          for (const patch of Object.values(res.receipts)) {
-            for (const mid of (patch as { readBy?: string[] }).readBy ?? []) {
-              allReaderMids.add(mid);
-            }
-          }
-          const memberMidSet = new Set(res.memberMids ?? []);
+          for (const item of watermark.memberWatermarks ?? []) allReaderMids.add(item.mid);
+          const memberMidSet = new Set(
+            get().chats.find((chat) => chat.id === chatId)?.members?.map((member) => member.id) ??
+              [],
+          );
           const readersNeedFetch: string[] = [];
           for (const mid of allReaderMids) {
             const contactKey = accountChatKey(accountId, mid);
@@ -2042,6 +2328,7 @@ export const useStore = create<State>()(
           }
           if (readersNeedFetch.length > 0) {
             void api.line.vylineWarm(accountId, readersNeedFetch).then((warmRes) => {
+              if (get().accountId !== accountId) return;
               if (!warmRes.ok || !warmRes.profiles) return;
               const profiles = warmRes.profiles;
               set((st) => ({
@@ -2070,37 +2357,24 @@ export const useStore = create<State>()(
             });
           }
 
-          set((st) => ({
-            messages: st.messages.map((m) => {
-              if (m.chatId !== chatId || m.authorId !== "me") return m;
-              const patch = res.receipts![m.id];
-              if (!patch) return m;
-              const readBy = patch.readBy ?? [];
-              const alreadyRead = m.read;
-              const read =
-                patch.seen === true ||
-                Boolean((patch as { read?: boolean }).read) ||
-                (patch.readCount != null && patch.readCount > 0) ||
-                readBy.length > 0;
-              // 既読フラグが一度立っている場合は立てたままにする（未読にしない）
-              const finalRead = alreadyRead ? true : read;
-              return {
-                ...m,
-                read: finalRead,
-                readBy: finalRead ? (readBy.length ? readBy : m.readBy) : m.readBy,
-                readCount: finalRead ? (patch.readCount ?? m.readCount) : m.readCount,
-                status: finalRead ? ("read" as const) : m.status === "read" ? "sent" : m.status,
-              };
-            }),
-          }));
+          const patched = applyReadWatermarkLocal(chatMessages, watermark, opts?.force === true);
+          if (patched) {
+            set((st) => ({
+              messages: st.messages.map((message) => {
+                const patch = message.chatId === chatId ? patched.get(message.id) : undefined;
+                return patch ? { ...message, ...patch } : message;
+              }),
+            }));
+          }
         })();
 
         readReceiptInflight.set(chatKey, task);
-        void task.finally(() => {
+        const clearInflight = () => {
           if (readReceiptInflight.get(chatKey) === task) {
             readReceiptInflight.delete(chatKey);
           }
-        });
+        };
+        void task.then(clearInflight, clearInflight);
         return task;
       },
 
@@ -2110,15 +2384,17 @@ export const useStore = create<State>()(
 
         const silent = opts?.silent === true;
         const contactCache = buildContactCache(chats);
-        const mapped = incoming.map((m) => mapMessage(m, chatId, accountId, contactCache));
+        const mapped = incoming.map((m) => mapMessage(m, chatId, accountId, contactCache, get().settings.mediaAutoSave ?? true));
         const incomingById = new Map(mapped.map((m) => [m.id, m]));
-        const existingIds = new Set(messages.filter((m) => m.chatId === chatId).map((m) => m.id));
+        const existingForChat = messages.filter((m) => m.chatId === chatId);
+        const existingById = new Map(existingForChat.map((message) => [message.id, message]));
+        const existingIds = new Set(existingById.keys());
         const fresh = mapped.filter((m) => !existingIds.has(m.id));
 
         // 既存メッセージにもリアクションや状態の更新を反映（同期で re-fetch された場合）
         const hasUpdates = [...incomingById.values()].some((m) => {
           if (!existingIds.has(m.id)) return false;
-          const existing = messages.find((x) => x.id === m.id);
+          const existing = existingById.get(m.id);
           if (!existing) return false;
           if (
             m.reactions?.length &&
@@ -2153,6 +2429,27 @@ export const useStore = create<State>()(
           : undefined;
         const incomingFromPeer = fresh.filter((m) => m.authorId !== "me").length;
 
+        // Inactive chats need only their sidebar summary and unread count in
+        // memory. Their message page is reloaded from SQLite when opened.
+        if (activeChatId !== chatId) {
+          set((st) => ({
+            chats: st.chats.map((chat) => {
+              if (chat.id !== chatId) return chat;
+              return {
+                ...chat,
+                unread: silent ? chat.unread : chat.unread + incomingFromPeer,
+                ...(latest
+                  ? {
+                      lastMessagePreview: messagePreview(latest),
+                      lastMessageTime: Math.max(chat.lastMessageTime ?? 0, latest.createdAt),
+                    }
+                  : {}),
+              };
+            }),
+          }));
+          return;
+        }
+
         set((st) => {
           const withUpdates = hasUpdates
             ? st.messages.map((m) => {
@@ -2166,11 +2463,6 @@ export const useStore = create<State>()(
                 if (!reactionChanged && !revokedChanged) return m;
                 const updated = { ...m };
                 if (reactionChanged) {
-                  if (upd.reactions?.length) {
-                    messageReactionCache.set(m.id, upd.reactions);
-                  } else {
-                    messageReactionCache.delete(m.id);
-                  }
                   updated.reactions = upd.reactions;
                 }
                 if (revokedChanged) {
@@ -2192,9 +2484,14 @@ export const useStore = create<State>()(
                 return mergePreservingComboStickerPreview(m, updated);
               })
             : st.messages;
-          const merged = [...withUpdates, ...fresh].sort((a, b) => a.createdAt - b.createdAt);
-          const trimmed = merged.filter((m) => m.chatId !== chatId);
-          const forChat = merged.filter((m) => m.chatId === chatId);
+          const trimmed: Message[] = [];
+          const mergedById = new Map<string, Message>();
+          for (const message of withUpdates) {
+            if (message.chatId === chatId) mergedById.set(message.id, message);
+            else trimmed.push(message);
+          }
+          for (const message of fresh) mergedById.set(message.id, message);
+          const forChat = [...mergedById.values()].sort((a, b) => a.createdAt - b.createdAt);
           return {
             messages: [...trimmed, ...forChat],
             chats: st.chats.map((c) => {
@@ -2274,7 +2571,6 @@ export const useStore = create<State>()(
               text: undefined,
             };
           });
-          invalidateMessage(messageReactionCache, messageId);
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
@@ -2288,19 +2584,34 @@ export const useStore = create<State>()(
         return [];
       },
 
-      restoreRevokedMessage: async (_chatId, messageId) => {
+      restoreRevokedMessage: async (chatId, messageId) => {
         const accountId = get().accountId;
         if (!accountId) return;
-        const msg = get().messages.find((m) => m.id === messageId);
+        const initial = get().messages.find((m) => m.chatId === chatId && m.id === messageId);
+        if (!initial || initial.messageState !== "revoked-by-self") return;
+        if (!initial.revokedSnapshot && !initial.history?.some((h) => h.state === "normal" || h.state === "edited")) {
+          window.alert("復元できる元のメッセージがありません");
+          return;
+        }
+        try {
+          const res = await api.line.restoreRevokedMessage(accountId, chatId, messageId);
+          if (get().accountId !== accountId) return;
+          if (!res.ok) {
+            get().showNotice(res.error ?? "取り消し表示の解除に失敗しました");
+            return;
+          }
+        } catch (err) {
+          if (get().accountId !== accountId) return;
+          get().showNotice(err instanceof Error ? err.message : "取り消し表示の解除に失敗しました");
+          return;
+        }
+        const msg = get().messages.find((m) => m.chatId === chatId && m.id === messageId);
         if (!msg || msg.messageState !== "revoked-by-self") return;
         const snapshot = msg.revokedSnapshot;
         const lastNormal = [...(msg.history ?? [])]
           .reverse()
           .find((h) => h.state === "normal" || h.state === "edited");
-        if (!snapshot && !lastNormal) {
-          window.alert("復元できる元のメッセージがありません");
-          return;
-        }
+        if (!snapshot && !lastNormal) return;
         const historyEntry = {
           state: "normal" as const,
           text: msg.text ?? null,
@@ -2309,7 +2620,7 @@ export const useStore = create<State>()(
         };
         set((st) => ({
           messages: st.messages.map((m) =>
-            m.id === messageId
+            m.chatId === chatId && m.id === messageId && m.messageState === "revoked-by-self"
               ? {
                   ...m,
                   ...snapshot,
@@ -2326,11 +2637,6 @@ export const useStore = create<State>()(
               : m,
           ),
         }));
-        try {
-          await api.line.restoreRevokedMessage(accountId, _chatId, messageId);
-        } catch {
-          /* local update already applied */
-        }
       },
 
       setMessageReaction: (messageId, reaction, myMid) => {
@@ -2352,15 +2658,6 @@ export const useStore = create<State>()(
             }
             return { ...m, reactions: next.length ? next : undefined };
           });
-          // キャッシュも更新
-          for (const m of msgs) {
-            if (!m.id) continue;
-            if (m.reactions?.length) {
-              messageReactionCache.set(m.id, m.reactions);
-            } else {
-              messageReactionCache.delete(m.id);
-            }
-          }
           if (msgs.every((m, i) => m === st.messages[i])) return st;
           return { messages: msgs };
         });
@@ -2377,6 +2674,7 @@ export const useStore = create<State>()(
         task = (async () => {
           try {
             const res = await api.line.messages(accountId, chatId, 50, { force: true });
+            if (get().accountId !== accountId) return;
             if (res.ok && res.messages?.length) {
               get().mergeIncomingMessages(chatId, res.messages, { silent: true });
             }
@@ -2412,18 +2710,19 @@ export const useStore = create<State>()(
           return;
         }
         const started = Date.now();
+        let responseOk = false;
         try {
           const res = await api.line.messagesDelta(accountId, chatId, lastId, 15);
-          // 成功時のみスロットルを更新（失敗時は次のサイクルで再試行できるようにする）
-          lastDeltaPollAt.set(chatKey, Date.now());
+          if (get().accountId !== accountId) return;
+          responseOk = res.ok;
           if (res.ok && res.messages?.length) {
             get().mergeIncomingMessages(chatId, res.messages);
           }
         } catch {
           /* silent */
         }
-        // 遅い RPC の後は次回を遅らせて RPC キューを空ける（重い E2EE グループ対策）
-        if (Date.now() - started > 6_000) {
+        // 成功、またはRPC が遅かった場合のみ間隔を空けてキュー負荷を抑える。
+        if (shouldThrottleDeltaPoll(responseOk, Date.now() - started)) {
           lastDeltaPollAt.set(chatKey, Date.now());
         }
       },
@@ -2440,6 +2739,7 @@ export const useStore = create<State>()(
           const cursor = eventPollCursor.get(accountId) ?? 0;
           try {
             const res = await api.line.pollEvents(accountId, cursor);
+            if (get().accountId !== accountId) return;
             if (res.ok) {
               if (res.reset) {
                 // バッファが失われた（再起動 / 追い出し）→ カーソルを現在に合わせ再同期
@@ -2460,12 +2760,10 @@ export const useStore = create<State>()(
                   } else if (ev.kind === "revoke") {
                     get().applyRevoked(ev.chatMid, ev.messageId);
                   } else if (ev.kind === "read") {
-                    if (get().settings.readReceipts) {
-                      // 既読イベントは実既読地点が変わった可能性 → force で実値取得
-                      void get()
-                        .refreshReadReceipts(ev.chatMid, { force: true })
-                        .catch(() => undefined);
-                    }
+                    // 既読送信設定とは独立して、相手からの既読イベントを表示へ反映する。
+                    void get()
+                      .refreshReadReceipts(ev.chatMid, { force: true })
+                      .catch(() => undefined);
                   } else if (ev.kind === "reaction") {
                     // リアクション更新: delta 経由で reactions 付きメッセージを回収
                     const active = get().activeChatId;
@@ -2478,6 +2776,23 @@ export const useStore = create<State>()(
                   }
                 }
                 for (const [chatId, msgs] of byChat) {
+                  const state = get();
+                  if (state.settings.webNotificationsEnabled && document.visibilityState === "hidden" && state.activeChatId !== chatId && typeof Notification !== "undefined" && Notification.permission === "granted") {
+                    const knownIds = new Set(state.messages.filter((message) => message.chatId === chatId).map((message) => message.id));
+                    const chat = state.chats.find((item) => item.id === chatId);
+                    const fresh = msgs.find((message) =>
+                      !knownIds.has(message.id) &&
+                      message.from !== state.self.mid &&
+                      message.from !== state.accountId &&
+                      (!chat?.lastMessageTime || message.createdTime >= chat.lastMessageTime),
+                    );
+                    if (fresh) {
+                      new Notification(state.settings.hideNotificationContent ? "新しいメッセージ" : (chat?.name || "Vyline"), {
+                        body: state.settings.hideNotificationContent ? "メッセージを受信しました" : (fresh.text || "メディアを受信しました").slice(0, 160),
+                        tag: `vyline:${accountId}:${chatId}`,
+                      });
+                    }
+                  }
                   get().mergeIncomingMessages(chatId, msgs);
                 }
               }
@@ -2487,9 +2802,9 @@ export const useStore = create<State>()(
           }
 
           const { activeChatId } = get();
-          // push が機能しない環境の保険: アクティブチャットは delta で毎回取りこぼしを回収
+          // Push の取りこぼしを差分で補う。遅いRPCを待ってイベントpollを止めない。
           if (activeChatId) {
-            await get().pollMessagesDelta(activeChatId);
+            void get().pollMessagesDelta(activeChatId);
           }
         })();
 
@@ -2504,6 +2819,8 @@ export const useStore = create<State>()(
     }),
     {
       name: "vyline:store",
+      storage: indexedDbPersistStorage,
+      skipHydration: true,
       partialize: (s) => ({
         theme: s.theme,
         settings: s.settings,
@@ -2515,7 +2832,6 @@ export const useStore = create<State>()(
         seenUpdateVersion: s.seenUpdateVersion,
         readDisabledMids: s.readDisabledMids,
         blockedMids: s.blockedMids,
-        activeChatId: s.activeChatId,
         readWatermarks: s.readWatermarks,
         chats: s.chats.map((c) => ({
           id: c.id,
@@ -2529,6 +2845,13 @@ export const useStore = create<State>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        // Keep chat selection transient: restarting the browser restores the roster,
+        // but must not reopen a conversation or fetch its message history.
+        state.activeChatId = null;
+        state.messages = [];
+        state.initialChatScrollMessageId = null;
+        state.initialChatScrollUnreadCount = 0;
+        state.initialChatScrollPending = false;
         state.settings.animationMode ??= "vyline";
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
@@ -2543,11 +2866,7 @@ export const useStore = create<State>()(
             );
           if (match) state.theme = { ...match, ...state.theme, id: match.id, name: match.name };
         }
-        if (unseen) {
-          state.screen = "home";
-        } else {
-          state.screen = "chat";
-        }
+        state.screen = "home";
       },
     },
   ),
@@ -2571,7 +2890,7 @@ function initial(name: string): string {
 }
 
 export function displayName(chat: Chat, streamerMode: boolean): string {
-  if (streamerMode) return chat.type === "group" ? "グループ" : "友だち";
+  if (streamerMode && useStore.getState().settings.streamerMaskNames) return chat.type === "group" ? "グループ" : "友だち";
   if (chat.isSelf) return "Keepメモ";
   const n = chat.localName || chat.name;
   if (!n || looksLikeMid(n)) return chat.type === "group" ? "グループ" : "友だち";
@@ -2579,13 +2898,17 @@ export function displayName(chat: Chat, streamerMode: boolean): string {
 }
 
 export function memberDisplayName(name: string, streamerMode: boolean): string {
-  if (streamerMode) return "メンバー";
+  if (streamerMode && useStore.getState().settings.streamerMaskNames) return "メンバー";
   if (!name || looksLikeMid(name)) return "メンバー";
   return name;
 }
 
 export function memberGlyph(glyph: string, streamerMode: boolean): string {
-  return streamerMode ? "•" : glyph;
+  return shouldMaskStreamerAvatars(streamerMode) ? "•" : glyph;
+}
+
+export function shouldMaskStreamerAvatars(streamerMode: boolean): boolean {
+  return streamerMode && useStore.getState().settings.streamerMaskAvatars;
 }
 
 /** 指定メンバーと共通のグループ（members が読み込まれているもの） */
@@ -2602,18 +2925,23 @@ export function sortChats(
   messages: Message[],
   customOrder: string[],
 ): Chat[] {
+  const lastMessageTimes = new Map<string, number>();
+  if (sort === "unread") {
+    for (const message of messages) lastMessageTimes.set(message.chatId, message.createdAt);
+  }
   const lastTs = (id: string, chat?: Chat) => {
-    const fromMsg = messages.filter((m) => m.chatId === id).slice(-1)[0]?.createdAt ?? 0;
+    const fromMsg = lastMessageTimes.get(id) ?? 0;
     const fromApi = chat?.lastMessageTime ?? 0;
     return Math.max(fromMsg, fromApi);
   };
   const arr = [...list];
   if (sort === "custom") {
+    const orderById = new Map(customOrder.map((id, index) => [id, index]));
     arr.sort((a, b) => {
       if (!!a.pinned !== !!b.pinned) return a.pinned ? -1 : 1;
-      const ia = customOrder.indexOf(a.id);
-      const ib = customOrder.indexOf(b.id);
-      return (ia < 0 ? 999 : ia) - (ib < 0 ? 999 : ib);
+      const rawA = orderById.get(a.id) ?? -1;
+      const rawB = orderById.get(b.id) ?? -1;
+      return (rawA < 0 ? 999 : rawA) - (rawB < 0 ? 999 : rawB);
     });
   } else if (sort === "unread") {
     arr.sort((a, b) => {

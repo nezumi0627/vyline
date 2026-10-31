@@ -13,7 +13,6 @@ import { useLineData } from "../hooks/useLineData.js";
 import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
 import { useStore } from "../lib/store.js";
-import { api } from "../api/client.js";
 
 function eventsPollIntervalMs(): number {
   if (typeof document === "undefined") return 2_000;
@@ -47,27 +46,10 @@ export function useVylineSync(enabled = true) {
   const setScreen = useStore((s) => s.setScreen);
 
   const showUpdateNote = useStore((s) => s.showUpdateNote);
-  const betaBlockCheckAuto = useStore((s) => s.settings.betaBlockCheckAuto);
 
   const line = useLineData({ accountId: enabled ? accountId : null });
 
   const { hiddenSet } = useHiddenChats(enabled ? accountId : null);
-
-  // Beta: one authoritative friend/block-list check at most every two minutes.
-  useEffect(() => {
-    if (!enabled || !accountId || !betaBlockCheckAuto) return;
-    let cancelled = false;
-    const run = () => {
-      if (cancelled) return;
-      void api.line.verifyFriendBlockStatus(accountId).catch(() => undefined);
-    };
-    run();
-    const timer = window.setInterval(run, 120_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [accountId, betaBlockCheckAuto, enabled]);
 
   const syncingChat = useRef(false);
   const lastHydrateAt = useRef(0);
@@ -82,8 +64,6 @@ export function useVylineSync(enabled = true) {
   const refreshChatsSilently = useStore((s) => s.refreshChatsSilently);
 
   const activeChatId = useStore((s) => s.activeChatId);
-
-  const readReceiptsEnabled = useStore((s) => s.settings.readReceipts);
 
   useEffect(() => {
     if (!enabled || !accountId) return;
@@ -161,7 +141,7 @@ export function useVylineSync(enabled = true) {
   }, [enabled, accountId, pollIncoming, pollMessagesDelta, refreshChatsSilently]);
 
   useEffect(() => {
-    if (!enabled || !accountId || !activeChatId || !readReceiptsEnabled) return;
+    if (!enabled || !accountId || !activeChatId) return;
 
     if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
 
@@ -170,6 +150,19 @@ export function useVylineSync(enabled = true) {
       const messages = useStore.getState().messages;
 
       const now = Date.now();
+
+      if (activeChatId.startsWith("u")) {
+        // DM は相手が読むまで追跡する。15分を過ぎても未読なら確認を止めない。
+        return messages.some(
+          (m) =>
+            m.chatId === activeChatId &&
+            m.authorId === "me" &&
+            !m.read &&
+            m.id &&
+            !m.id.startsWith("pending_") &&
+            !m.messageState.startsWith("revoked"),
+        );
+      }
 
       return messages.some(
         (m) =>
@@ -190,10 +183,10 @@ export function useVylineSync(enabled = true) {
 
     tick();
 
-    const t = setInterval(tick, 10_000);
+    const t = setInterval(tick, 5_000);
 
     return () => clearInterval(t);
-  }, [enabled, accountId, activeChatId, readReceiptsEnabled, refreshReadReceipts]);
+  }, [enabled, accountId, activeChatId, refreshReadReceipts]);
 
   useEffect(() => {
     if (!enabled) return;
@@ -208,19 +201,14 @@ export function useVylineSync(enabled = true) {
   }, [enabled, accountId, setAccountId, setScreen, showUpdateNote]);
 
   useEffect(() => {
-    if (!enabled || !accountId) return;
-
-    useStore.getState().resetAccountData();
-  }, [enabled, accountId]);
-
-  useEffect(() => {
-    if (!enabled || !accountId) return;
+    if (!enabled || !accountId || line.accountId !== accountId) return;
 
     if (!line.chats.length && useStore.getState().chats.length > 0) return;
 
     // contactCache の逐次解決など連続更新を 1 回の hydrate にまとめる
     // （連鎖する全チャット再マップ → 長タスク・ヒープ膨張を抑止）
     const run = () => {
+      if (useStore.getState().accountId !== accountId) return;
       lastHydrateAt.current = Date.now();
       hydrateLineData({
         profile: line.profile
@@ -239,12 +227,17 @@ export function useVylineSync(enabled = true) {
           : null,
         chats: line.chats,
         messages: line.messages,
+        readyChatId: line.readyChatId,
         hiddenMids: hiddenSet,
         contactCache: line.contactCache,
       });
     };
 
-    const wait = Math.max(0, 300 - (Date.now() - lastHydrateAt.current));
+    const resolvingInitialScroll =
+      line.readyChatId === storeChatId &&
+      useStore.getState().initialChatScrollPending &&
+      useStore.getState().activeChatId === storeChatId;
+    const wait = resolvingInitialScroll ? 0 : Math.max(0, 300 - (Date.now() - lastHydrateAt.current));
     if (wait === 0) {
       run();
       return;
@@ -259,9 +252,15 @@ export function useVylineSync(enabled = true) {
 
     line.profile,
 
+    line.accountId,
+
     line.chats,
 
     line.messages,
+
+    line.readyChatId,
+
+    storeChatId,
 
     line.contactCache,
 
