@@ -70,7 +70,7 @@ const body = (required: string[], properties: Record<string, unknown>, descripti
 // [routePath, method, tag, spec]
 // operationId は LINE 関数名準拠（Vyline 拡張は description に明記）
 
-type Method = "get" | "post" | "put" | "delete";
+type Method = "get" | "post" | "put" | "patch" | "delete";
 interface OpSpec {
   /** operationId — LINE 関数名（canonicalName）準拠 */
   op: string;
@@ -191,6 +191,7 @@ const routes: Array<[string, Method, OpSpec]> = [
         {
           name: { type: "string" },
           memberMids: { type: "array", items: { type: "string" } },
+          mode: { type: "string", enum: ["group", "room"], default: "group" },
           forbidUnbanOption: { type: "boolean" },
         },
         "forbidUnbanOption はグループ作成禁止解除オプション（自己責任）",
@@ -221,6 +222,22 @@ const routes: Array<[string, Method, OpSpec]> = [
       requestBody: body(["memberMids"], {
         memberMids: { type: "array", items: { type: "string" } },
       }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}/settings",
+    "patch",
+    {
+      op: "updateGroupSettings",
+      summary: "グループ通知・招待チケット設定",
+      description: "TalkService.updateChat: NOTIFICATION_SETTING または PREVENTED_JOIN_BY_TICKET",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body([], {
+        notificationDisabled: { type: "boolean" },
+        preventedJoinByTicket: { type: "boolean" },
+      }, "2項目のうち1つだけ指定"),
       responses: { "200": okRes() },
     },
   ],
@@ -409,6 +426,46 @@ const routes: Array<[string, Method, OpSpec]> = [
       tags: ["messages"],
       params: [acc, chatMid],
       responses: { "200": jsonRes("既読範囲") },
+    },
+  ],
+  [
+    "/line/{accountId}/link-preview",
+    "post",
+    {
+      op: "fetchLinkPreview",
+      summary: "URLプレビュー取得",
+      description: "Vyline 拡張。公開HTTP(S) URLのOpen Graph/Twitter Card情報を取得し、安全な画像キャッシュを返す",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["url"], { url: { type: "string", format: "uri", maxLength: 2048 } }),
+      responses: {
+        "200": jsonRes("タイトル・説明・画像キャッシュID。プレビュー不能時はnull"),
+        "400": { description: "URLが無効" },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/link-preview/image/{imageId}",
+    "get",
+    {
+      op: "getLinkPreviewImage",
+      summary: "URLプレビュー画像取得",
+      description: "Vyline 拡張。サーバー側キャッシュから画像を返す",
+      tags: ["media"],
+      params: [acc, pathParam("imageId", "SHA-256画像キャッシュID")],
+      responses: {
+        "200": {
+          description: "安全な画像形式",
+          content: {
+            "image/jpeg": { schema: { type: "string", format: "binary" } },
+            "image/png": { schema: { type: "string", format: "binary" } },
+            "image/webp": { schema: { type: "string", format: "binary" } },
+            "image/gif": { schema: { type: "string", format: "binary" } },
+            "image/avif": { schema: { type: "string", format: "binary" } },
+          },
+        },
+        "404": { description: "画像キャッシュなし" },
+      },
     },
   ],
   [
@@ -670,6 +727,18 @@ const routes: Array<[string, Method, OpSpec]> = [
       tags: ["contacts"],
       params: [acc, pathParam("mid", "対象 MID")],
       responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/contacts/{mid}",
+    "delete",
+    {
+      op: "deleteFriend",
+      summary: "友だちリストから削除",
+      description: "LINE: TalkService.updateContactSetting(CONTACT_SETTING_DELETE)。トーク履歴は削除しない。",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象ユーザー MID")],
+      responses: { "200": okRes(), "400": jsonRes("user MID required") },
     },
   ],
   [
@@ -1226,7 +1295,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "チャット詳細ログ閲覧",
       tags: ["misc"],
       params: [acc],
-      responses: { "200": jsonRes("JSONL ログ") },
+      responses: { "200": jsonRes("チャット詳細ログ") },
     },
   ],
   [

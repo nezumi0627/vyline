@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
@@ -14,7 +14,7 @@ import {
   IconSpark,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
-import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
+const StickerEmojiPanel = lazy(async () => ({ default: (await import("@/components/sticker-emoji-panel")).StickerEmojiPanel }));
 import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
@@ -117,7 +117,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const sendAudio = useStore((s) => s.sendAudio);
   const accountId = useStore((s) => s.accountId);
   const enterToSend = useStore((s) => s.settings.enterToSend);
-  const agentEnabled = useStore((s) => s.settings.betaAgentI);
+  const agentEnabled = useStore((s) => s.settings.aiEnabled);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -591,16 +591,17 @@ export function MessageInput({ chatId }: { chatId: string }) {
         onChange={onFileChange}
       />
       {picker && (
-        <StickerEmojiPanel
-          accountId={accountId}
-          onPickSticker={(packageId, stickerId, isPremium) => {
-            void sendSticker(chatId, packageId, stickerId, isPremium);
-            setPicker(false);
-          }}
-          onPickEmoji={(packageId, sticonId) => {
-            insertLineEmoji(packageId, sticonId);
-          }}
-          onSendCombinationSticker={async (
+        <Suspense fallback={<div role="status" className="px-3 py-2 text-xs text-[var(--vy-text-dim)]">スタンプを読み込んでいます…</div>}>
+          <StickerEmojiPanel
+            accountId={accountId}
+            onPickSticker={(packageId, stickerId, isPremium) => {
+              void sendSticker(chatId, packageId, stickerId, isPremium);
+              setPicker(false);
+            }}
+            onPickEmoji={(packageId, sticonId) => {
+              insertLineEmoji(packageId, sticonId);
+            }}
+            onSendCombinationSticker={async (
             items: Array<{
               packageId: string;
               stickerId: string;
@@ -612,7 +613,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
             await sendCombinationSticker(chatId, items);
             setPicker(false);
           }}
-        />
+          />
+        </Suspense>
       )}
 
       {replyMsg && (
@@ -773,7 +775,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
             </div>
           )}
           {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
-          <div className="vy-input-row flex items-end gap-1.5 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
+          <div className="vy-input-row flex items-end gap-1 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
             <PlusMenu chatId={chatId} />
             <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
               <IconPaperclip size={20} />

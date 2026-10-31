@@ -8,7 +8,6 @@
 */
 :root {
   color-scheme: dark;
-  font-size: calc(100% * var(--vy-font-scale, 1));
 
   --vy-bg: #0e1621;
   --vy-surface: #17212b;
@@ -312,8 +311,16 @@ html.vy-compact {
   --vy-sidebar-row-pad-y: 0.3rem;
   --vy-header-pad-y: 0.3rem;
   --vy-input-pad-y: 0.15rem;
-  font-size: calc(94% * var(--vy-font-scale, 1));
+  font-size: 94%;
 }
+/* Scale typography utilities only. Keep rem-based layout dimensions stable. */
+.text-xs { font-size: calc(0.75rem * var(--vy-font-scale, 1)) !important; }
+.text-sm { font-size: calc(0.875rem * var(--vy-font-scale, 1)) !important; }
+.text-base { font-size: calc(1rem * var(--vy-font-scale, 1)) !important; }
+.text-lg { font-size: calc(1.125rem * var(--vy-font-scale, 1)) !important; }
+.text-xl { font-size: calc(1.25rem * var(--vy-font-scale, 1)) !important; }
+.text-2xl { font-size: calc(1.5rem * var(--vy-font-scale, 1)) !important; }
+.text-3xl { font-size: calc(1.875rem * var(--vy-font-scale, 1)) !important; }
 html.vy-compact .vy-msg-stack-gap {
   margin-top: 0.2rem !important;
 }
@@ -335,6 +342,23 @@ html.vy-compact .vy-input-row {
   padding-top: var(--vy-input-pad-y) !important;
   padding-bottom: var(--vy-input-pad-y) !important;
 }
+/* Composer controls keep a comfortable hit area while retaining the compact layout. */
+.vy-input-row > button,
+.vy-input-row > [role="button"] {
+  min-width: 40px;
+  min-height: 40px;
+}
+.vy-input-row {
+  padding-inline: 0.625rem;
+  border-color: color-mix(in srgb, var(--vy-border) 84%, transparent);
+  transition: border-color 140ms ease, background-color 140ms ease, padding 180ms ease;
+}
+.vy-input-row:focus-within {
+  border-color: color-mix(in srgb, var(--vy-accent) 62%, var(--vy-border));
+}
+.vy-input-row button:active {
+  filter: brightness(0.88);
+}
 /* smooth transition when toggling compact */
 html.vy-compact .vy-bubble-pad,
 html.vy-compact .vy-sidebar-row,
@@ -345,13 +369,32 @@ header,
 }
 .vy-msg-text,
 .vy-chat-text,
-.vy-input-text,
+.vy-input-text {
+  font-size: calc(1rem * var(--vy-font-scale, 1)) !important;
+  line-height: 1.55;
+}
+.vy-msg-text {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
 .vy-sidebar-preview {
-  font-size: calc(0.95rem * var(--vy-font-scale, 1)) !important;
-  line-height: 1.45;
+  font-size: calc(0.8125rem * var(--vy-font-scale, 1)) !important;
+  line-height: 1.4;
+}
+.vy-sidebar-tools > div:first-child {
+  border-radius: 6px !important;
+}
+.vy-sidebar-tabs button {
+  border-radius: 6px !important;
+}
+.vy-chat-header > button {
+  flex-shrink: 0;
+}
+.vy-chat-header > button:has(.vy-chat-header-title) {
+  flex-shrink: 1;
 }
 .vy-chat-header-title {
-  font-size: calc(1.15rem * var(--vy-font-scale, 1)) !important;
+  font-size: calc(1rem * var(--vy-font-scale, 1)) !important;
   line-height: 1.35;
 }
 .vy-chat-messages {
@@ -362,7 +405,7 @@ html.vy-compact .vy-sidebar-row {
   gap: 0.55rem !important;
 }
 html.vy-compact .vy-sidebar-row .truncate.text-sm {
-  font-size: 0.8125rem;
+  font-size: calc(0.8125rem * var(--vy-font-scale, 1));
 }
 html.vy-compact .vy-chat-messages .vy-msg-stack-gap {
   margin-top: 0.2rem !important;
@@ -449,10 +492,6 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
   .vy-sidebar-profile {
     gap: 0.5rem;
     padding: 0.75rem;
-  }
-
-  .vy-sidebar-profile > button:nth-of-type(2) {
-    display: none;
   }
 
   .vy-sidebar-tools {

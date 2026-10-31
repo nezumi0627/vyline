@@ -30,6 +30,7 @@ import type {
   CallType,
   Message,
 } from "@vyline/types";
+import { getSubdeviceSessionToken } from "../lib/subdeviceSession.js";
 
 // re-export for convenience
 export type { LineProfile } from "@vyline/types";
@@ -48,6 +49,23 @@ export interface AgentIHistoryItem {
 }
 
 const BASE = "/api";
+const AGENT_I_CONSENT_KEY = "vyline:agent-i-terms-v1";
+
+async function requireAgentIConsent(): Promise<void> {
+  if (localStorage.getItem("vyline:ai-enabled-v1") === "0") {
+    throw new Error("AI機能は設定で無効になっています");
+  }
+  if (localStorage.getItem(AGENT_I_CONSENT_KEY) === "1") return;
+  const accepted = window.confirm(
+    "Agent I 利用条件\n\n文章校正・要約などで入力した内容と、明示的に選択した文章やトーク本文を、回答生成のためYahooのAgent Iへ送信します。VylineからLINEへ自動送信はしません。利用したくない場合はキャンセルし、設定からAI機能を無効にしてください。\n\nAgent Iを利用しますか？",
+  );
+  if (!accepted) {
+    localStorage.setItem("vyline:ai-enabled-v1", "0");
+    window.dispatchEvent(new Event("vyline:ai-disabled"));
+    throw new Error("Agent Iの利用に同意していません。AI機能は無効になりました");
+  }
+  localStorage.setItem(AGENT_I_CONSENT_KEY, "1");
+}
 
 /** バックエンド未起動時は TypeError(ECONNREFUSED) が飛ぶ → 静かに失敗 */
 function isBackendDown(err: unknown): boolean {
@@ -66,8 +84,7 @@ async function request<T>(
   extraHeaders?: HeadersInit,
 ): Promise<T> {
   let res: Response;
-  const sessionToken =
-    typeof localStorage !== "undefined" ? localStorage.getItem("vyline:subdevice-session") : null;
+  const sessionToken = await getSubdeviceSessionToken();
   try {
     res = await fetch(`${BASE}${path}`, {
       method,
@@ -99,6 +116,21 @@ async function request<T>(
   } catch {
     throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
   }
+}
+
+async function requestBlob(path: string): Promise<Blob> {
+  const sessionToken = await getSubdeviceSessionToken();
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}${path}`, {
+      headers: sessionToken ? { Authorization: `Bearer ${sessionToken}` } : {},
+    });
+  } catch (err) {
+    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
+    throw new Error(`backend に接続できません: ${String(err)}`);
+  }
+  if (!response.ok) throw new Error(`画像プレビュー取得に失敗しました: HTTP ${response.status}`);
+  return response.blob();
 }
 
 // ─── api ──────────────────────────────────────
@@ -159,11 +191,29 @@ export const api = {
       ),
   },
   agentI: {
-    chat: (accountId: string, prompt: string, history?: AgentIHistoryItem[]) =>
-      request<{ ok: boolean; text?: string; error?: string }>(
+    chat: async (accountId: string, prompt: string, history?: AgentIHistoryItem[], authMode: "anonymous" | "authenticated" = "anonymous") => {
+      await requireAgentIConsent();
+      return request<{ ok: boolean; text?: string; error?: string }>(
         "POST",
         `/beta/agent-i/${encodeURIComponent(accountId)}/chat`,
-        { prompt, history },
+        { prompt, history, authMode },
+      );
+    },
+    credentialStatus: (accountId: string) =>
+      request<{ ok: boolean; yahooCookieConfigured?: boolean }>(
+        "GET",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/credentials`,
+      ),
+    setYahooCookie: (accountId: string, yahooCookie: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "PUT",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/credentials`,
+        { yahooCookie },
+      ),
+    clearYahooCookie: (accountId: string) =>
+      request<{ ok: boolean }>(
+        "DELETE",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/credentials`,
       ),
     reset: (accountId: string) =>
       request<{ ok: boolean }>("DELETE", `/beta/agent-i/${encodeURIComponent(accountId)}/session`),
@@ -248,6 +298,15 @@ export const api = {
       return request<MessagesResponse>(
         "GET",
         `/line/${accountId}/messages/${encodeURIComponent(chatMid)}?${q}`,
+      );
+    },
+
+    searchMessages: (accountId: string, chatMid: string, query: string, regex = false) => {
+      const params = new URLSearchParams({ q: query });
+      if (regex) params.set("regex", "1");
+      return request<{ ok: boolean; messages: Message[]; truncated: boolean }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(chatMid)}/search?${params}`,
       );
     },
 
@@ -425,10 +484,17 @@ export const api = {
       request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
 
     restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
-      request<{ ok: true; text?: string | null; contentType?: string }>(
+      request<{ ok: boolean; error?: string; text?: string | null; contentType?: string }>(
         "POST",
         `/line/${accountId}/restore?chatMid=${encodeURIComponent(chatMid)}`,
         { messageId },
+      ),
+
+    /** Deletes the local chat DB record; existing backup files are not purged. */
+    deleteRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "DELETE",
+        `/line/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}`,
       ),
 
     editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
@@ -446,6 +512,8 @@ export const api = {
     /** 相手ユーザーのプロフィール取得 (アイコン URL 用) */
     contactProfile: (accountId: string, targetMid: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/contact/${targetMid}`),
+    addFriendByMid: (accountId: string, mid: string) =>
+      request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/contacts/${encodeURIComponent(mid)}/add`, {}),
 
     /** Vyline プロフィール/グループキャッシュ */
     vylineCache: (accountId: string) =>
@@ -474,12 +542,14 @@ export const api = {
         driveLetter?: string;
         disk?: { totalBytes: number; freeBytes: number; usedBytes: number };
         vylineTotal: number;
+        databaseSize: number;
         cacheSize: number;
         savedMediaSize: number;
         cache: {
           cdn: number;
           icons: number;
         };
+        cacheLimits: { cdn: number; icons: number };
         savedMedia: {
           image: number;
           video: number;
@@ -607,22 +677,28 @@ export const api = {
         `/line/${accountId}/chats/${encodeURIComponent(chatMid)}/leave`,
       ),
 
-    blockContact: (accountId: string, mid: string) =>
+    blockContact: (accountId: string, mid: string, sqliteDiffSync = false) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
-        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/block`,
+        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/block${sqliteDiffSync ? "?sqliteDiffSync=1" : ""}`,
       ),
 
-    unblockContact: (accountId: string, mid: string) =>
+    deleteFriend: (accountId: string, mid: string) =>
       request<{ ok: boolean; error?: string }>(
         "DELETE",
-        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/block`,
+        `/line/${accountId}/contacts/${encodeURIComponent(mid)}`,
       ),
 
-    blockedContacts: (accountId: string) =>
+    unblockContact: (accountId: string, mid: string, sqliteDiffSync = false) =>
+      request<{ ok: boolean; error?: string }>(
+        "DELETE",
+        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/block${sqliteDiffSync ? "?sqliteDiffSync=1" : ""}`,
+      ),
+
+    blockedContacts: (accountId: string, sqliteDiffSync = false) =>
       request<{ ok: boolean; mids?: string[]; error?: string }>(
         "GET",
-        `/line/${accountId}/blocked`,
+        `/line/${accountId}/blocked${sqliteDiffSync ? "?sqliteDiffSync=1" : ""}`,
       ),
 
     verifyFriendBlockStatus: (accountId: string, mid?: string) =>
@@ -637,14 +713,32 @@ export const api = {
         error?: string;
       }>("POST", `/line/${accountId}/block-verification`, mid ? { mid } : {}),
 
-    createGroup: (accountId: string, name: string, memberMids: string[]) =>
+    createGroup: (accountId: string, name: string, memberMids: string[], mode: "group" | "room" = "group") =>
       request<{
         ok: boolean;
         chat?: { chatMid: string; name: string };
         error?: string;
         code?: string;
         createGroupBanned?: boolean;
-      }>("POST", `/line/${accountId}/chats/create-group`, { name, memberMids }),
+      }>("POST", `/line/${accountId}/chats/create-group`, { name, memberMids, mode }),
+
+    updateChatName: (accountId: string, chatMid: string, name: string) =>
+      request<{ ok: boolean; error?: string }>("PATCH", `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}`, { name }),
+
+    updateChatPicture: (accountId: string, chatMid: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
+      fetch(`${BASE}/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/picture`, {
+        method: "POST", headers: { "Content-Type": mime }, body: bytes,
+      }).then(async (res) => {
+        const result = await res.json() as { ok: boolean; error?: string };
+        if (!res.ok || !result.ok) throw new Error(result.error ?? `画像の更新に失敗しました (${res.status})`);
+        return result;
+      }),
+
+    updateGroupNotifications: (accountId: string, chatMid: string, disabled: boolean) =>
+      request<{ ok: boolean; error?: string }>("PATCH", `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`, { notificationDisabled: disabled }),
+
+    updateGroupInviteTicket: (accountId: string, chatMid: string, prevented: boolean) =>
+      request<{ ok: boolean; error?: string }>("PATCH", `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`, { preventedJoinByTicket: prevented }),
 
     featureLocks: (accountId: string) =>
       request<{
@@ -712,7 +806,7 @@ export const api = {
 
     /** 既読にする */
     markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean }>("POST", `/line/${accountId}/read`, {
+      request<{ ok: boolean; lastMessageId?: string; error?: string }>("POST", `/line/${accountId}/read`, {
         chatMid,
         lastMessageId,
       }),
@@ -721,13 +815,28 @@ export const api = {
     readReceipts: (
       accountId: string,
       chatMid: string,
-      messageIds: string[],
+      messageIds?: string[],
       opts?: { force?: boolean },
-    ) =>
-      request<ReadReceiptsResponse>(
+    ) => {
+      const query = new URLSearchParams();
+      if (messageIds?.length) query.set("ids", messageIds.join(","));
+      if (opts?.force) query.set("force", "1");
+      const suffix = query.size ? `?${query}` : "";
+      return request<ReadReceiptsResponse>(
         "GET",
-        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}${opts?.force ? "&force=1" : ""}`,
+        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}${suffix}`,
+      );
+    },
+
+    linkPreview: (accountId: string, url: string) =>
+      request<{ ok: boolean; preview: { title: string; description: string; site: string; imageId?: string } | null }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/link-preview`,
+        { url },
       ),
+
+    linkPreviewImage: (accountId: string, imageId: string) =>
+      requestBlob(`/line/${encodeURIComponent(accountId)}/link-preview/image/${encodeURIComponent(imageId)}`),
 
     /** Talk Push バッファから新着取得 */
     pollEvents: (accountId: string, cursor = 0) =>
@@ -927,6 +1036,13 @@ export const api = {
         sessionId,
       }),
 
+    callWsTicket: (accountId: string, sessionId: string) =>
+      request<{ ok: boolean; ticket?: string; error?: string }>(
+        "POST",
+        `/line/${accountId}/call/ws-ticket`,
+        { sessionId },
+      ),
+
     callStatus: (accountId: string, sessionId: string) =>
       request<CallStatusResponse>(
         "GET",
@@ -1100,6 +1216,20 @@ export const api = {
   },
   debug: {
     health: () => request<{ ok: boolean; uptime: number }>("GET", "/debug/health"),
+
+    vylineStatus: () => request<{
+      ok: boolean;
+      profileVersion?: string;
+      installedVersion?: string | null;
+      method?: string;
+      deviceMode?: string;
+      device?: string;
+      systemName?: string;
+      systemVersion?: string;
+      ntSuffix?: string;
+      userAgent?: string;
+      xLineApplication?: string;
+    }>("GET", "/debug/vyline/status"),
 
     tokens: () => request<{ ok: boolean; tokens: Record<string, unknown> }>("GET", "/debug/tokens"),
   },

@@ -1,15 +1,7 @@
 import { cn } from "@/lib/utils";
 import type { CallMessageMeta } from "@/lib/store-types";
 import { IconPhone, IconVideo } from "@/components/icons";
-
-function formatDuration(sec?: number): string | null {
-  if (sec == null || !Number.isFinite(sec) || sec <= 0) return null;
-  const s = Math.round(sec);
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m <= 0) return `${r}秒`;
-  return `${m}分${r.toString().padStart(2, "0")}秒`;
-}
+import { formatCallDuration } from "./message-bubble-helpers";
 
 function labelFor(meta: CallMessageMeta): { title: string; detail?: string } {
   const kind = meta.group
@@ -19,14 +11,14 @@ function labelFor(meta: CallMessageMeta): { title: string; detail?: string } {
     : meta.video
       ? "ビデオ通話"
       : "音声通話";
-  const dur = formatDuration(meta.durationSec);
+  const dur = formatCallDuration(meta.durationSec);
   switch (meta.outcome) {
     case "missed":
       return { title: `不在着信 · ${kind}` };
     case "declined":
       return { title: `拒否 · ${kind}` };
     case "busy":
-      return { title: `話中 · ${kind}` };
+      return { title: `応答なし · ${kind}` };
     default:
       return {
         title: kind,
@@ -42,13 +34,14 @@ export function CallEventMessage({ meta, isMe }: { meta?: CallMessageMeta; isMe?
     outcome: "ended",
   };
   const { title, detail } = labelFor(resolved);
-  const missed = resolved.outcome === "missed" || resolved.outcome === "declined";
+  const missed =
+    resolved.outcome === "missed" || resolved.outcome === "declined" || resolved.outcome === "busy";
 
   return (
-    <div className="my-2 flex w-full justify-center px-2">
+    <div className="my-1 flex w-full justify-center px-2">
       <div
         className={cn(
-          "inline-flex max-w-[min(100%,320px)] items-center gap-2.5 rounded-2xl border px-3.5 py-2 shadow-sm",
+          "inline-flex max-w-[min(100%,320px)] items-center gap-2 rounded-lg border px-3 py-2",
           missed
             ? "border-[color-mix(in_oklab,var(--vy-danger)_35%,var(--vy-border))] bg-[color-mix(in_oklab,var(--vy-danger)_10%,var(--vy-surface))]"
             : "border-[var(--vy-border)] bg-[var(--vy-surface)]",
@@ -58,13 +51,13 @@ export function CallEventMessage({ meta, isMe }: { meta?: CallMessageMeta; isMe?
       >
         <span
           className={cn(
-            "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+            "flex h-8 w-8 shrink-0 items-center justify-center rounded-full",
             missed
               ? "bg-[color-mix(in_oklab,var(--vy-danger)_22%,transparent)] text-[var(--vy-danger)]"
               : "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]",
           )}
         >
-          {resolved.video ? <IconVideo size={18} /> : <IconPhone size={18} />}
+          {resolved.video ? <IconVideo size={17} /> : <IconPhone size={17} />}
         </span>
         <div className="min-w-0 text-left">
           <div className="text-sm font-semibold text-[var(--vy-text)]">{title}</div>

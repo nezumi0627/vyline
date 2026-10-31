@@ -1,26 +1,40 @@
 /**
  * hooks/useHiddenChats.ts
  *
- * アカウントごとの「非表示チャット」を localStorage で管理するフック。
+ * アカウントごとの「非表示チャット」をIndexedDBへ保存するフック。
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { getPersistedValue, setPersistedValue } from "../lib/indexedDbStorage.js";
 
 const STORAGE_KEY = "vyline:hiddenChatsByAccount";
 const CHANGE_EVENT = "vyline:hidden-chats-changed";
+let hiddenCache: Record<string, string[]> | undefined;
 
 export function loadHiddenChats(): Record<string, string[]> {
+  if (hiddenCache) return hiddenCache;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    return raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(STORAGE_KEY);
+    hiddenCache = raw ? (JSON.parse(raw) as Record<string, string[]>) : {};
+    return hiddenCache;
   } catch {
     return {};
   }
 }
 
 export function saveHiddenChats(data: Record<string, string[]>): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+  hiddenCache = data;
+  void setPersistedValue(STORAGE_KEY, data);
   window.dispatchEvent(new Event(CHANGE_EVENT));
+}
+
+export async function hydrateHiddenChats(): Promise<void> {
+  try {
+    const data = await getPersistedValue<Record<string, string[]>>(STORAGE_KEY);
+    if (data) hiddenCache = data;
+  } catch {
+    /* Keep the localStorage fallback. */
+  }
 }
 
 export function setHiddenForAccount(accountId: string, chatMid: string, hidden: boolean): void {

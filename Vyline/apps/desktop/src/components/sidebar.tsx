@@ -2,6 +2,7 @@ import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import {
   useStore,
   displayName,
+  shouldMaskStreamerAvatars,
   formatTime,
   sortChats,
   CHAT_SORT_LABELS,
@@ -34,6 +35,7 @@ import {
   IconChevron,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
+import { MidSearchProfileDrawer, type MidSearchProfile } from "@/components/mid-search-profile";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -119,7 +121,8 @@ function SidebarBase() {
   const activeChatId = useStore((s) => s.activeChatId);
   const openChat = useStore((s) => s.openChat);
   const setScreen = useStore((s) => s.setScreen);
-  const streamerMode = useStore((s) => s.settings.streamerMode);
+  const streamerSettings = useStore((s) => s.settings);
+  const streamerMode = streamerSettings.streamerMode;
   const sort = useStore((s) => s.settings.chatSort);
   const updateSetting = useStore((s) => s.updateSetting);
   const customOrder = useStore((s) => s.customOrder);
@@ -135,8 +138,15 @@ function SidebarBase() {
   const readDisabledMids = useStore((s) => s.readDisabledMids);
 
   const accountId = useStore((s) => s.accountId);
+  const refreshChats = useStore((s) => s.refreshChats);
   const [tab, setTab] = useState<Tab>("all");
   const [query, setQuery] = useState("");
+  const midQuery = /^u[0-9a-f]{32}$/i.test(query.trim()) ? query.trim() : "";
+  const [midProfile, setMidProfile] = useState<MidSearchProfile | null>(null);
+  const [midProfileOpen, setMidProfileOpen] = useState(false);
+  const [midLoading, setMidLoading] = useState(false);
+  const [midAddBusy, setMidAddBusy] = useState(false);
+  const [midNotice, setMidNotice] = useState("");
   const [sortOpen, setSortOpen] = useState(false);
   const [menu, setMenu] = useState<{ x: number; y: number; chat: Chat } | null>(null);
   const [blockedSet, setBlockedSet] = useState<Set<string>>(new Set());
@@ -146,6 +156,40 @@ function SidebarBase() {
   const [liveOrder, setLiveOrder] = useState<string[] | null>(null);
   const dragIdRef = useRef<string | null>(null);
   const liveOrderRef = useRef<string[] | null>(null);
+
+  useEffect(() => {
+    if (!midQuery || !accountId || midQuery === self.mid) {
+      setMidProfileOpen(false);
+      setMidProfile(null);
+      setMidLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setMidProfileOpen(false);
+    setMidProfile(null);
+    setMidNotice("");
+    setMidLoading(true);
+    const timer = window.setTimeout(() => {
+      void api.line.contactProfile(accountId, midQuery).then((response) => {
+        if (cancelled) return;
+        setMidProfile(response.ok && response.profile ? {
+          mid: midQuery,
+          displayName: response.profile.displayName,
+          thumbnailUrl: response.profile.thumbnailUrl,
+          statusMessage: response.profile.statusMessage,
+          backgroundUrl: response.profile.backgroundUrl,
+        } : null);
+      }).catch(() => {
+        if (!cancelled) setMidProfile(null);
+      }).finally(() => {
+        if (!cancelled) setMidLoading(false);
+      });
+    }, 350);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [midQuery, accountId, self.mid]);
 
   const previewMapRef = useRef<Map<string, { text: string; time: number } | null>>(new Map());
   const previewMap = useMemo(
@@ -170,7 +214,9 @@ function SidebarBase() {
 
     if (query.trim()) {
       const q = query.toLowerCase();
-      list = list.filter((c) => displayName(c, false).toLowerCase().includes(q));
+      list = list.filter(
+        (c) => displayName(c, false).toLowerCase().includes(q) || c.id.toLowerCase().includes(q),
+      );
     }
     // custom は messages 非依存にして再レンダーを減らす
     if (sort === "custom") {
@@ -254,7 +300,7 @@ function SidebarBase() {
     if (!accountId) return;
     let cancelled = false;
     void api.line
-      .blockedContacts(accountId)
+      .blockedContacts(accountId, streamerSettings.betaBlockedListSqliteSync)
       .then((res) => {
         if (cancelled || !res.ok || !res.mids) return;
         setBlockedSet(new Set(res.mids));
@@ -264,7 +310,7 @@ function SidebarBase() {
     return () => {
       cancelled = true;
     };
-  }, [accountId]);
+  }, [accountId, streamerSettings.betaBlockedListSqliteSync]);
 
   function openRowMenu(e: React.MouseEvent, chat: Chat) {
     e.preventDefault();
@@ -290,7 +336,7 @@ function SidebarBase() {
               {
                 label: "既読にする",
                 icon: <IconCheck size={16} />,
-                onClick: () => markChatRead(menu.chat.id),
+                onClick: () => markChatRead(menu.chat.id, { force: true }),
               },
             ]
           : []),
@@ -331,8 +377,8 @@ function SidebarBase() {
                   if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
                   setBlockBusy(true);
                   const req = isBlocked
-                    ? api.line.unblockContact(accountId, mid)
-                    : api.line.blockContact(accountId, mid);
+                    ? api.line.unblockContact(accountId, mid, streamerSettings.betaBlockedListSqliteSync)
+                    : api.line.blockContact(accountId, mid, streamerSettings.betaBlockedListSqliteSync);
                   void req
                     .then((res) => {
                       if (!res.ok) {
@@ -372,11 +418,11 @@ function SidebarBase() {
 
   return (
     <aside className="vy-sidebar flex h-full w-full flex-col bg-[var(--vy-sidebar)] md:border-r md:border-[var(--vy-border)]">
-      <div className="vy-sidebar-profile flex items-center gap-3 px-4 pt-4 pb-3">
+      <div className="vy-sidebar-profile relative grid grid-cols-[1fr_auto_1fr] items-center px-4 py-3">
         <button
           type="button"
           onClick={() => setScreen("settings")}
-          className="rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+          className="justify-self-start rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           aria-label="プロフィール設定"
         >
           <Avatar
@@ -386,33 +432,27 @@ function SidebarBase() {
             imageUrl={self.avatarUrl}
           />
         </button>
-        <button
-          type="button"
-          onClick={() => setScreen("settings")}
-          className="min-w-0 flex-1 text-left outline-none"
-        >
-          <div className="flex min-w-0 items-center gap-1.5">
-            <p className="truncate text-sm font-semibold">{self.name}</p>
-            {self.premium?.active && <PremiumBadge size={14} compact />}
-          </div>
-          <p className="truncate text-xs text-[var(--vy-text-dim)]">{self.status}</p>
-        </button>
-        <button
-          type="button"
-          onClick={() => setScreen("chat")}
-          aria-label="チャット"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-        >
-          <IconChat size={19} />
-        </button>
-        <button
-          type="button"
-          onClick={() => setScreen("settings")}
-          aria-label="設定"
-          className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
-        >
-          <IconSettings size={19} />
-        </button>
+        <span className="pointer-events-none truncate text-sm font-medium tracking-wide text-[var(--vy-text)]">
+          Vyline
+        </span>
+        <div className="ml-auto flex shrink-0 items-center gap-1">
+          <button
+            type="button"
+            onClick={() => setScreen("chat")}
+            aria-label="チャット"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          >
+            <IconChat size={19} />
+          </button>
+          <button
+            type="button"
+            onClick={() => setScreen("settings")}
+            aria-label="設定"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+          >
+            <IconSettings size={19} />
+          </button>
+        </div>
       </div>
 
       <div className="vy-sidebar-tools flex items-center gap-2 px-4 pb-3">
@@ -489,6 +529,29 @@ function SidebarBase() {
           )}
         </div>
       </div>
+
+      {midQuery && midQuery !== self.mid && (
+        <div className="mx-3 mb-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
+          {midLoading && <p className="text-xs text-[var(--vy-text-dim)]">MIDからプロフィールを検索中…</p>}
+          {midProfile && (
+            <button
+              type="button"
+              onClick={() => setMidProfileOpen(true)}
+              aria-label={`${midProfile.displayName || "名前未設定"}のプロフィールを表示`}
+              className="flex w-full items-center gap-3 rounded-lg text-left outline-none transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+            >
+              <Avatar glyph={midProfile.displayName?.slice(0, 1) || "?"} imageUrl={midProfile.thumbnailUrl} color="var(--vy-accent)" size={42} />
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-semibold">{midProfile.displayName || "名前未設定"}</span>
+                <span className="block truncate font-mono text-[0.65rem] text-[var(--vy-text-dim)]">{midProfile.mid}</span>
+              </span>
+              <span className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs">プロフィール</span>
+            </button>
+          )}
+          {midNotice && <p role="status" className="mt-2 text-xs text-[var(--vy-text-dim)]">{midNotice}</p>}
+          {!midLoading && !midProfile && !midNotice && <p className="text-xs text-[var(--vy-text-dim)]">プロフィールを取得できませんでした</p>}
+        </div>
+      )}
 
       <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
         {TABS.map((t) => (
@@ -584,6 +647,32 @@ function SidebarBase() {
         <MessageContextMenu x={menu.x} y={menu.y} items={menuItems} onClose={closeMenu} />
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
+      {midProfileOpen && midProfile && (
+        <MidSearchProfileDrawer
+          profile={midProfile}
+          isFriend={chats.some((chat) => chat.id === midProfile.mid)}
+          busy={midAddBusy}
+          notice={midNotice}
+          onClose={() => setMidProfileOpen(false)}
+          onTalk={() => {
+            openChat(midProfile.mid);
+            setMidProfileOpen(false);
+          }}
+          onAddFriend={() => {
+            if (!accountId || midAddBusy) return;
+            setMidAddBusy(true);
+            setMidNotice("");
+            void api.line.addFriendByMid(accountId, midProfile.mid)
+              .then(async (response) => {
+                if (!response.ok) throw new Error(response.error ?? "追加できませんでした");
+                setMidNotice("友だち追加を依頼しました");
+                await refreshChats();
+              })
+              .catch((error) => setMidNotice(error instanceof Error ? error.message : "友だち追加に失敗しました"))
+              .finally(() => setMidAddBusy(false));
+          }}
+        />
+      )}
 
       {/* account switcher: mobile is intentionally list-first and distraction-free */}
       <div className="vy-sidebar-account-switcher">
@@ -625,6 +714,8 @@ const ChatRow = memo(function ChatRow({
   preview: { text: string; time: number } | null;
 }) {
   const name = displayName(chat, streamerMode);
+  const previewText = preview?.text ?? chat.status;
+  const hasUrlPreview = /https?:\/\/\S+/i.test(previewText);
   const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
     timer: null,
     fired: false,
@@ -690,18 +781,18 @@ const ChatRow = memo(function ChatRow({
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
         className={cn(
-          "vy-sidebar-row relative flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+          "vy-sidebar-row relative flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
           active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
           draggable && "cursor-grab active:cursor-grabbing",
         )}
         style={active ? { background: "var(--vy-accent)" } : undefined}
       >
         <Avatar
-          glyph={streamerMode ? "•" : chat.avatar}
+          glyph={shouldMaskStreamerAvatars(streamerMode) ? "•" : chat.avatar}
           color={chat.color}
           size={48}
           online={chat.online}
-          imageUrl={streamerMode ? undefined : chat.avatarUrl}
+          imageUrl={shouldMaskStreamerAvatars(streamerMode) ? undefined : chat.avatarUrl}
           icon={!streamerMode && chat.isSelf ? <IconMemo size={24} /> : undefined}
         />
         {blocked && (
@@ -763,10 +854,11 @@ const ChatRow = memo(function ChatRow({
             <span
               className={cn(
                 "vy-sidebar-preview truncate",
-                active ? "opacity-90" : "text-[var(--vy-text-dim)]",
+                active ? "opacity-90" : hasUrlPreview ? "font-medium text-[var(--vy-text)]" : "text-[var(--vy-text-dim)]",
               )}
+              title={hasUrlPreview ? previewText : undefined}
             >
-              {preview?.text ?? chat.status}
+              {previewText}
             </span>
             {chat.unread > 0 && (
               <span

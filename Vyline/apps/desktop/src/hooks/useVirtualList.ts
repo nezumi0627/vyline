@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { adjustScrollTopForAnchor, isAtScrollEnd } from "./virtualScrollAnchor.js";
 
 /**
  * 可変高さリストのウィンドウ仮想化
@@ -12,6 +13,29 @@ export type VirtualRow<T> = {
   item: T;
 };
 
+export function calculateVisibleRange(
+  offsets: number[],
+  scrollTop: number,
+  viewportHeight: number,
+  overscan: number,
+): { startIdx: number; endIdx: number } {
+  const buffer = overscan * 60;
+  const start = scrollTop - buffer;
+  const end = scrollTop + viewportHeight + buffer;
+  let lo = 0;
+  let hi = offsets.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid]! <= start) lo = mid + 1;
+    else hi = mid;
+  }
+  const startIdx = Math.max(0, lo - 1);
+  let endIdx = startIdx;
+  while (endIdx < offsets.length && offsets[endIdx]! < end) endIdx++;
+  endIdx = Math.min(endIdx + 1, offsets.length);
+  return { startIdx, endIdx };
+}
+
 export function useVirtualList<T>({
   rows,
   estimateHeight,
@@ -23,10 +47,16 @@ export function useVirtualList<T>({
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
   const heights = useRef(new Map<string, number>());
+  const previousAnchor = useRef<{ key: string; offset: number; atBottom: boolean } | null>(null);
+  const previousLayout = useRef<{ rows: VirtualRow<T>[]; offsets: number[] } | null>(null);
   const [, setMeasuredTick] = useState(0);
   const measuredTick = useRef(0);
   const tickScheduled = useRef(false);
+  const measurementFrame = useRef<number | null>(null);
+  const scrollFrame = useRef<number | null>(null);
+  const pendingScrollTop = useRef(0);
   const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const observers = useRef(new Map<string, ResizeObserver>());
   const offsets = useMemo(() => {
@@ -38,36 +68,79 @@ export function useVirtualList<T>({
     }
     return { offsets: arr, total: acc };
   }, [rows, estimateHeight, measuredTick.current]);
+  const rowIndices = useMemo(() => new Map(rows.map((row, index) => [row.key, index])), [rows]);
 
-  const hasMeasured = measuredTick.current > 0;
+  // Preserve the first visible row when rows are prepended or earlier rows resize.
+  useLayoutEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const previous = previousAnchor.current;
+    const priorLayout = previousLayout.current;
+    const layoutChanged = priorLayout !== null &&
+      (priorLayout.rows !== rows || priorLayout.offsets !== offsets.offsets);
+    if (layoutChanged && previous?.atBottom) {
+      const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+      if (Math.abs(el.scrollTop - bottom) > 1) el.scrollTop = bottom;
+    } else if (layoutChanged && previous) {
+      const nextIndex = rowIndices.get(previous.key);
+      if (nextIndex != null) {
+        el.scrollTop = adjustScrollTopForAnchor(
+          el.scrollTop,
+          previous.offset,
+          offsets.offsets[nextIndex] ?? 0,
+        );
+      }
+    }
+
+    const top = el.scrollTop;
+    let lo = 0;
+    let hi = offsets.offsets.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      const rowBottom = offsets.offsets[mid + 1] ?? offsets.total;
+      if (rowBottom <= top) lo = mid + 1;
+      else hi = mid;
+    }
+    const key = rows[lo]?.key;
+    previousAnchor.current = key
+      ? {
+          key,
+          offset: offsets.offsets[lo] ?? 0,
+          atBottom: isAtScrollEnd(el.scrollHeight, el.clientHeight, el.scrollTop),
+        }
+      : null;
+    previousLayout.current = { rows, offsets: offsets.offsets };
+  }, [rows, rowIndices, offsets, scrollTop]);
+
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const updateViewportHeight = () => {
+      const nextHeight = el.clientHeight;
+      setViewportHeight((current) => current === nextHeight ? current : nextHeight);
+    };
+    updateViewportHeight();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(updateViewportHeight);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const onScroll = useCallback((e: React.UIEvent<HTMLDivElement>) => {
-    setScrollTop(e.currentTarget.scrollTop);
+    pendingScrollTop.current = e.currentTarget.scrollTop;
+    if (scrollFrame.current != null) return;
+    scrollFrame.current = requestAnimationFrame(() => {
+      scrollFrame.current = null;
+      setScrollTop(pendingScrollTop.current);
+    });
   }, []);
 
   // 可視ウィンドウを二分探索で算出
   const visible = useMemo(() => {
     const el = containerRef.current;
-    const viewportH = el?.clientHeight ?? 600;
-    const buffer = overscan * 60;
-    const start = scrollTop - buffer;
-    const end = scrollTop + viewportH + buffer;
-
-    let lo = 0;
-    let hi = offsets.offsets.length;
-    while (lo < hi) {
-      const mid = (lo + hi) >> 1;
-      if (offsets.offsets[mid]! < start) lo = mid + 1;
-      else hi = mid;
-    }
-    const startIdx = lo;
-
-    let endIdx = startIdx;
-    while (endIdx < offsets.offsets.length && offsets.offsets[endIdx]! < end) endIdx++;
-    endIdx = Math.min(endIdx + 1, offsets.offsets.length);
-
-    return { startIdx, endIdx };
-  }, [scrollTop, offsets, overscan]);
+    const viewportH = viewportHeight || el?.clientHeight || 600;
+    return calculateVisibleRange(offsets.offsets, scrollTop, viewportH, overscan);
+  }, [scrollTop, viewportHeight, offsets, overscan]);
 
   const measure = useCallback((key: string, el: HTMLElement | null) => {
     if (!el) return;
@@ -78,7 +151,8 @@ export function useVirtualList<T>({
       // 同一フレーム内の計測変更を 1 再描画に統合（画像遅延ロード時の再描画連鎖を抑制）
       if (tickScheduled.current) return;
       tickScheduled.current = true;
-      requestAnimationFrame(() => {
+      measurementFrame.current = requestAnimationFrame(() => {
+        measurementFrame.current = null;
         tickScheduled.current = false;
         measuredTick.current++;
         setMeasuredTick((t) => t + 1);
@@ -123,6 +197,8 @@ export function useVirtualList<T>({
 
   useEffect(() => {
     return () => {
+      if (measurementFrame.current !== null) cancelAnimationFrame(measurementFrame.current);
+      if (scrollFrame.current !== null) cancelAnimationFrame(scrollFrame.current);
       for (const observer of observers.current.values()) observer.disconnect();
     };
   }, []);
@@ -135,7 +211,10 @@ export function useVirtualList<T>({
       let top = offsets.offsets[idx] ?? 0;
       const el = containerRef.current;
       if (!el) return;
-      if (opts.center) top = Math.max(0, top - el.clientHeight / 2);
+      if (opts.center) {
+        const rowBottom = offsets.offsets[idx + 1] ?? offsets.total;
+        top = Math.max(0, top + (rowBottom - top - el.clientHeight) / 2);
+      }
       el.scrollTo({ top, behavior: opts.behavior ?? "smooth" });
     },
     [rows, offsets],
@@ -144,14 +223,14 @@ export function useVirtualList<T>({
   const scrollToBottom = useCallback((behavior: ScrollBehavior = "auto") => {
     const el = containerRef.current;
     if (!el) return;
-    el.scrollTo({ top: el.scrollHeight, behavior });
+    const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
+    if (Math.abs(el.scrollTop - bottom) <= 1) return;
+    el.scrollTo({ top: bottom, behavior });
   }, []);
 
   const visibleRows = useMemo(() => rows.slice(visible.startIdx, visible.endIdx), [rows, visible]);
-  const topSpacer = hasMeasured ? (offsets.offsets[visible.startIdx] ?? 0) : 0;
-  const bottomSpacer = hasMeasured
-    ? offsets.total - (offsets.offsets[visible.endIdx] ?? offsets.total)
-    : 0;
+  const topSpacer = offsets.offsets[visible.startIdx] ?? 0;
+  const bottomSpacer = offsets.total - (offsets.offsets[visible.endIdx] ?? offsets.total);
 
   return {
     containerRef,
