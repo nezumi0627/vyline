@@ -61,15 +61,11 @@ export function MidSearchProfileDrawer({
         <div className="vy-scroll flex-1 overflow-y-auto px-5 py-5">
           <div
             className="relative isolate flex min-h-52 flex-col items-center justify-end overflow-hidden rounded-2xl bg-[var(--vy-surface-2)] px-4 pb-5 pt-8 text-center"
-            style={
-              profile.backgroundUrl
-                ? {
-                    backgroundImage: `linear-gradient(180deg, rgba(8, 11, 16, 0.28), rgba(8, 11, 16, 0.76)), url(${profile.backgroundUrl})`,
-                    backgroundPosition: "center",
-                    backgroundSize: "cover",
-                  }
-                : undefined
-            }
+            style={profile.backgroundUrl ? {
+              backgroundImage: `linear-gradient(180deg, rgba(8, 11, 16, 0.28), rgba(8, 11, 16, 0.76)), url(${profile.backgroundUrl})`,
+              backgroundPosition: "center",
+              backgroundSize: "cover",
+            } : undefined}
           >
             <Avatar
               glyph={profile.displayName?.trim().slice(0, 1) || "?"}
@@ -77,10 +73,7 @@ export function MidSearchProfileDrawer({
               color="var(--vy-accent)"
               size={88}
             />
-            <h2
-              id="mid-search-profile-title"
-              className="mt-3 max-w-full break-words text-lg font-semibold"
-            >
+            <h2 id="mid-search-profile-title" className="mt-3 max-w-full break-words text-lg font-semibold">
               {profile.displayName || "名前未設定"}
             </h2>
             <p className="mt-1 max-w-full break-all font-mono text-[0.68rem] text-white/70">
@@ -117,11 +110,7 @@ export function MidSearchProfileDrawer({
               {isFriend ? "友だち追加済み" : busy ? "追加中…" : "友だち追加"}
             </button>
           </div>
-          {notice && (
-            <p role="status" className="mt-3 text-center text-xs text-[var(--vy-text-dim)]">
-              {notice}
-            </p>
-          )}
+          {notice && <p role="status" className="mt-3 text-center text-xs text-[var(--vy-text-dim)]">{notice}</p>}
         </div>
       </aside>
     </>

@@ -11,6 +11,7 @@ import {
   type StickerFavorite,
 } from "@/utils/stickerFavorites";
 import {
+  hydrateStickersCatalog,
   getCachedStickersCatalog,
   isStickersCatalogFresh,
   setCachedStickersCatalog,
@@ -82,14 +83,6 @@ function assetUrl(url: string): string {
   return url.startsWith("http") ? `/api/cdn/line?u=${encodeURIComponent(url)}` : url;
 }
 
-function prefetchImgs(urls: string[]): void {
-  for (const u of urls) {
-    const img = new Image();
-    img.decoding = "async";
-    img.src = assetUrl(u);
-  }
-}
-
 function readDragPayload(ev: DragEvent): DragPayload | null {
   const raw = ev.dataTransfer.getData("application/x-vyline-sticker");
   if (!raw) return null;
@@ -132,7 +125,7 @@ export function StickerEmojiPanel({
     demoMode ? false : accountId ? !getCachedStickersCatalog(accountId) : false,
   );
   const [error, setError] = useState<string | null>(null);
-  const [availability, setAvailability] = useState<Record<string, boolean> | null>(null);
+  const [availability, setAvailability] = useState<Record<string, boolean>>({});
   const [packId, setPackId] = useState<string | null>(() => {
     if (demoMode) return DEMO_STICKER_CATALOG.stickerPacks[0]?.packageId ?? null;
     const cached = accountId ? getCachedStickersCatalog(accountId) : null;
@@ -152,26 +145,40 @@ export function StickerEmojiPanel({
   useEffect(() => {
     if (demoMode || !accountId) return;
     let cancelled = false;
+    setAvailability({});
+    setError(null);
+    const applyCatalog = (value: Catalog) => {
+      setCatalog(value);
+      setPackId((prev) =>
+        prev && (value.stickerPacks.some((p) => p.packageId === prev) || value.emojiPacks.some((p) => p.packageId === prev))
+          ? prev
+          : value.stickerPacks[0]?.packageId ?? value.emojiPacks[0]?.packageId ?? null,
+      );
+    };
     const cached = getCachedStickersCatalog(accountId);
     if (cached) {
-      setCatalog(cached);
+      applyCatalog(cached);
       setLoading(false);
-      setError(null);
-      if (!packId) {
-        setPackId(cached.stickerPacks[0]?.packageId ?? cached.emojiPacks[0]?.packageId ?? null);
-      }
-      if (isStickersCatalogFresh(accountId)) return;
     } else {
+      setCatalog(null);
       setLoading(true);
     }
-    setError(null);
 
-    void api.line
-      .getOwnedStickers(accountId)
-      .then((res) => {
+    void (async () => {
+      await hydrateStickersCatalog(accountId);
+      if (cancelled) return;
+      const hydrated = getCachedStickersCatalog(accountId);
+      if (hydrated) applyCatalog(hydrated);
+      if (hydrated && isStickersCatalogFresh(accountId)) {
+        setLoading(false);
+        return;
+      }
+      if (!hydrated) setLoading(true);
+      try {
+        const res = await api.line.stickers(accountId);
         if (cancelled) return;
         if (!res.ok) {
-          if (!cached) setError(res.error || "取得に失敗しました");
+          if (!hydrated) setError(res.error || "取得に失敗しました");
           return;
         }
         const next: Catalog = {
@@ -180,75 +187,18 @@ export function StickerEmojiPanel({
           emojiPacks: res.emojiPacks ?? [],
         };
         setCachedStickersCatalog(accountId, next);
-        setCatalog(next);
-        setPackId((prev) => {
-          if (
-            prev &&
-            (next.stickerPacks.some((p) => p.packageId === prev) ||
-              next.emojiPacks.some((p) => p.packageId === prev))
-          ) {
-            return prev;
-          }
-          return next.stickerPacks[0]?.packageId ?? next.emojiPacks[0]?.packageId ?? null;
-        });
-      })
-      .catch((err) => {
-        if (!cancelled && !cached) setError(String(err));
-      })
-      .finally(() => {
+        applyCatalog(next);
+      } catch (err) {
+        if (!cancelled && !hydrated) setError(String(err));
+      } finally {
         if (!cancelled) setLoading(false);
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
     };
   }, [accountId, demoMode]);
-
-  useEffect(() => {
-    if (!catalog || (!accountId && !demoMode)) return;
-    const tabIcons = [
-      ...catalog.stickerPacks.map((p) => p.tabUrl),
-      ...catalog.emojiPacks.map((p) => p.tabUrl),
-    ];
-    const active =
-      catalog.stickerPacks.find((p) => p.packageId === packId) ??
-      catalog.emojiPacks.find((p) => p.packageId === packId);
-    const items = active ? active.items.map((i) => i.url) : [];
-    prefetchImgs([...tabIcons, ...items]);
-  }, [catalog, packId, accountId, demoMode]);
-
-  useEffect(() => {
-    if (demoMode) {
-      setAvailability(
-        Object.fromEntries((catalog?.stickerPacks ?? []).map((p) => [p.packageId, true])),
-      );
-      return;
-    }
-    if (!accountId || !catalog) return;
-    let cancelled = false;
-    const packageIds = catalog.stickerPacks.map((p) => p.packageId);
-    if (packageIds.length === 0) {
-      setAvailability({});
-      return;
-    }
-    setAvailability(null);
-    void Promise.all(
-      packageIds.map(async (packageId) => {
-        try {
-          const res = await api.line.isStickerAvailableForCombinationSticker(accountId, packageId);
-          return [packageId, Boolean(res.ok && res.availableForCombinationSticker)] as const;
-        } catch {
-          return [packageId, false] as const;
-        }
-      }),
-    ).then((entries) => {
-      if (cancelled) return;
-      setAvailability(Object.fromEntries(entries));
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [accountId, catalog, demoMode]);
 
   const packs = useMemo(() => {
     if (!catalog) return [];
@@ -260,6 +210,28 @@ export function StickerEmojiPanel({
   const activePack = packs.find((p) => p.packageId === packId) ?? packs[0];
 
   useEffect(() => {
+    if (!accountId || activePack?.type !== "sticker" || availability[activePack.packageId] !== undefined) return;
+    let cancelled = false;
+    const packageId = activePack.packageId;
+    void api.line
+      .isStickerAvailableForCombinationSticker(accountId, packageId)
+      .then((res) => {
+        if (!cancelled) {
+          setAvailability((previous) => ({
+            ...previous,
+            [packageId]: Boolean(res.ok && res.availableForCombinationSticker),
+          }));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setAvailability((previous) => ({ ...previous, [packageId]: false }));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, activePack?.packageId, activePack?.type, availability]);
+
+  useEffect(() => {
     if (!packs.some((p) => p.packageId === packId)) {
       setPackId(packs[0]?.packageId ?? null);
     }
@@ -267,7 +239,6 @@ export function StickerEmojiPanel({
 
   function canDragSticker(type: "sticker" | "emoji", packageId: string): boolean {
     if (type !== "sticker") return false;
-    if (availability == null) return false;
     return Boolean(availability[packageId]);
   }
 
