@@ -110,7 +110,7 @@ async function main(argv: string[]): Promise<void> {
       throw new Error("--before のメッセージがこのチャットのローカル履歴にありません");
     }
     const limit = boundedLimit(options, 50);
-    if (options.refresh) await loginWithToken(account.accountId, { background: false });
+    if (options.refresh) await loginWithToken(account.accountId);
     try {
       const messages = options.refresh
         ? await fetchMessages(account.accountId, chatMid, limit, {
@@ -138,7 +138,7 @@ async function main(argv: string[]): Promise<void> {
     return;
   }
 
-  await loginWithToken(account.accountId, { background: false });
+  await loginWithToken(account.accountId);
   try {
     switch (command) {
       case "profile":

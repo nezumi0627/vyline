@@ -62,7 +62,7 @@ async function ensureSession(accountId: string): Promise<void> {
   if (existing) return existing;
 
   const task = (async () => {
-    await lineClient.loginWithToken(accountId, { background: false });
+    await lineClient.loginWithToken(accountId);
     connectedAccounts.add(accountId);
   })();
   sessionInflight.set(accountId, task);
