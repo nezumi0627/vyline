@@ -76,7 +76,7 @@ test("applies component margin on the parent box main axis", () => {
     }),
   );
 
-  expect(html).toContain('margin-inline-start:8px');
+  expect(html).toContain("margin-inline-start:8px");
 });
 
 test("supports percentage widths for Flex images", () => {
@@ -123,9 +123,7 @@ test("applies relative offsets to non-box components", () => {
         body: {
           type: "box",
           layout: "vertical",
-          contents: [
-            { type: "text", text: "offset", offsetTop: "10px", offsetStart: "12px" },
-          ],
+          contents: [{ type: "text", text: "offset", offsetTop: "10px", offsetStart: "12px" }],
         },
       },
     }),

@@ -17,20 +17,39 @@ afterEach(() => {
 });
 
 const chat: Chat = {
-  id: "offline-chat", name: "Chat", type: "group", avatar: "C", color: "#000", status: "",
-  unread: 0, lastMessagePreview: "", lastMessageTime: 0,
+  id: "offline-chat",
+  name: "Chat",
+  type: "group",
+  avatar: "C",
+  color: "#000",
+  status: "",
+  unread: 0,
+  lastMessagePreview: "",
+  lastMessageTime: 0,
 };
 const message: Message = {
-  id: "offline-message", chatId: chat.id, authorId: "peer", kind: "text", text: "Original text",
-  createdAt: 1, status: "sent", read: false, messageState: "normal",
+  id: "offline-message",
+  chatId: chat.id,
+  authorId: "peer",
+  kind: "text",
+  text: "Original text",
+  createdAt: 1,
+  status: "sent",
+  read: false,
+  messageState: "normal",
 };
-const membersById = new Map([
-  ["peer", { id: "peer", name: "れんや", avatar: "R", color: "#000" }],
-]);
+const membersById = new Map([["peer", { id: "peer", name: "れんや", avatar: "R", color: "#000" }]]);
 function render(overrides: Partial<Message>, highlight?: string) {
-  return renderToStaticMarkup(createElement(MessageBubble, {
-    message: { ...message, ...overrides }, chat, membersById, showAvatar: false, showName: false, highlight,
-  }));
+  return renderToStaticMarkup(
+    createElement(MessageBubble, {
+      message: { ...message, ...overrides },
+      chat,
+      membersById,
+      showAvatar: false,
+      showName: false,
+      highlight,
+    }),
+  );
 }
 
 test("images and videos omit the outer bubble framing while text keeps it", () => {
@@ -40,9 +59,16 @@ test("images and videos omit the outer bubble framing while text keeps it", () =
     expect(html).not.toContain("background:var(--vy-msg-in)");
   }
   expect(render({})).toContain("vy-bubble-pad");
-  expect(render({ messageState: "revoked-by-other", revokedSnapshot: {
-    ...message, kind: "image", imageSrc: "/offline-media",
-  } })).not.toContain("vy-bubble-pad");
+  expect(
+    render({
+      messageState: "revoked-by-other",
+      revokedSnapshot: {
+        ...message,
+        kind: "image",
+        imageSrc: "/offline-media",
+      },
+    }),
+  ).not.toContain("vy-bubble-pad");
 });
 
 test("video playback uses native controls outside a button and has no permanent play overlay", () => {
@@ -55,7 +81,9 @@ test("video playback uses native controls outside a button and has no permanent 
   const buttonOpen = beforeVideo.lastIndexOf("<button");
   expect(buttonOpen < 0 || beforeVideo.lastIndexOf("</button>") > buttonOpen).toBe(true);
   expect(html).not.toContain('aria-label="動画を拡大"');
-  expect(html).not.toContain("pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35");
+  expect(html).not.toContain(
+    "pointer-events-none absolute inset-0 flex items-center justify-center bg-black/35",
+  );
 });
 
 test("placeholder mentions render the matching member name, including search highlighting", () => {
@@ -96,9 +124,11 @@ test("revoked content has one status label and retains its snapshot", () => {
 });
 
 test("call event shows hours in a compact inline card", () => {
-  const html = renderToStaticMarkup(createElement(CallEventMessage, {
-    meta: { video: false, group: false, outcome: "ended", durationSec: 3661 },
-  }));
+  const html = renderToStaticMarkup(
+    createElement(CallEventMessage, {
+      meta: { video: false, group: false, outcome: "ended", durationSec: 3661 },
+    }),
+  );
   expect(html).toContain("通話時間 1時間1分01秒");
   expect(html).toContain("h-8 w-8");
   expect(html).not.toContain("h-11 w-11");
@@ -108,10 +138,18 @@ test("local deletion confirms irreversible DB deletion and removes only the matc
   let confirmation = "";
   let args: string[] = [];
   globalThis.window = {
-    confirm: (text: string) => { confirmation = text; return true; },
-    alert: () => { throw new Error("Unexpected alert"); },
+    confirm: (text: string) => {
+      confirmation = text;
+      return true;
+    },
+    alert: () => {
+      throw new Error("Unexpected alert");
+    },
   } as unknown as Window & typeof globalThis;
-  api.line.deleteRevokedMessage = async (...values) => { args = values; return { ok: true }; };
+  api.line.deleteRevokedMessage = async (...values) => {
+    args = values;
+    return { ok: true };
+  };
   const otherChat = { ...message, chatId: "another-chat" };
   const otherMessage = { ...message, id: "another-message" };
   useStore.setState({ accountId: "offline-account", messages: [message, otherChat, otherMessage] });
@@ -125,8 +163,16 @@ test("local deletion confirms irreversible DB deletion and removes only the matc
 test("cancelled, failed and stale-account deletion preserve messages", async () => {
   let calls = 0;
   let alerts = 0;
-  globalThis.window = { confirm: () => false, alert: () => { alerts++; } } as unknown as Window & typeof globalThis;
-  api.line.deleteRevokedMessage = async () => { calls++; return { ok: false }; };
+  globalThis.window = {
+    confirm: () => false,
+    alert: () => {
+      alerts++;
+    },
+  } as unknown as Window & typeof globalThis;
+  api.line.deleteRevokedMessage = async () => {
+    calls++;
+    return { ok: false };
+  };
   useStore.setState({ accountId: "offline-account", messages: [message] });
   await deleteRevokedMessageFromDevice("offline-account", chat.id, message.id);
   expect(calls).toBe(0);
@@ -139,7 +185,8 @@ test("cancelled, failed and stale-account deletion preserve messages", async () 
 });
 
 test("switching accounts during deletion leaves the new account's messages intact", async () => {
-  globalThis.window = { confirm: () => true, alert: () => {} } as unknown as Window & typeof globalThis;
+  globalThis.window = { confirm: () => true, alert: () => {} } as unknown as Window &
+    typeof globalThis;
   api.line.deleteRevokedMessage = async () => {
     useStore.setState({ accountId: "new-account", messages: [message] });
     return { ok: true };

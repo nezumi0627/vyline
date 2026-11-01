@@ -14,7 +14,9 @@ import {
   IconSpark,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
-const StickerEmojiPanel = lazy(async () => ({ default: (await import("@/components/sticker-emoji-panel")).StickerEmojiPanel }));
+const StickerEmojiPanel = lazy(async () => ({
+  default: (await import("@/components/sticker-emoji-panel")).StickerEmojiPanel,
+}));
 import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
@@ -591,7 +593,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
         onChange={onFileChange}
       />
       {picker && (
-        <Suspense fallback={<div role="status" className="px-3 py-2 text-xs text-[var(--vy-text-dim)]">スタンプを読み込んでいます…</div>}>
+        <Suspense
+          fallback={
+            <div role="status" className="px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+              スタンプを読み込んでいます…
+            </div>
+          }
+        >
           <StickerEmojiPanel
             accountId={accountId}
             onPickSticker={(packageId, stickerId, isPremium) => {
@@ -602,17 +610,17 @@ export function MessageInput({ chatId }: { chatId: string }) {
               insertLineEmoji(packageId, sticonId);
             }}
             onSendCombinationSticker={async (
-            items: Array<{
-              packageId: string;
-              stickerId: string;
-              x?: number;
-              y?: number;
-              size?: number;
-            }>,
-          ) => {
-            await sendCombinationSticker(chatId, items);
-            setPicker(false);
-          }}
+              items: Array<{
+                packageId: string;
+                stickerId: string;
+                x?: number;
+                y?: number;
+                size?: number;
+              }>,
+            ) => {
+              await sendCombinationSticker(chatId, items);
+              setPicker(false);
+            }}
           />
         </Suspense>
       )}

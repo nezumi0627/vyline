@@ -1,4 +1,14 @@
-import { lazy, memo, Suspense, useEffect, useMemo, useRef, useState, useCallback, type UIEvent } from "react";
+import {
+  lazy,
+  memo,
+  Suspense,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useCallback,
+  type UIEvent,
+} from "react";
 import { useStore, displayName, shouldMaskStreamerAvatars, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useCall } from "@/hooks/useCall";
@@ -7,14 +17,20 @@ import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
 import { createChatMessageSelector } from "@/lib/chatMessageSelector";
 import { buildChatMessageRowIndex, missingMessagePageRequestKey } from "@/lib/chatMessageRowIndex";
 import { resolveInitialChatScrollPosition } from "@/lib/initialChatScroll";
-import { countReceivedMessages, findFirstUnreadReceivedMessage, findUnreadAnchorByCount } from "@/lib/readReceiptSelection";
+import {
+  countReceivedMessages,
+  findFirstUnreadReceivedMessage,
+  findUnreadAnchorByCount,
+} from "@/lib/readReceiptSelection";
 import { createChatDayLabels } from "@/lib/chatDayLabels";
 import { canDirectCall, directCallHint } from "@/utils/callAllowlist";
 import { MessageBubble } from "@/components/message-bubble";
 import { MessageInput } from "@/components/message-input";
 import { ProfileDrawer } from "@/components/profile-drawer";
 import { MemberProfilePopover } from "@/components/member-profile";
-const CallOverlay = lazy(async () => ({ default: (await import("@/components/call-overlay")).CallOverlay }));
+const CallOverlay = lazy(async () => ({
+  default: (await import("@/components/call-overlay")).CallOverlay,
+}));
 import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
@@ -59,7 +75,12 @@ function canGroupImageMessage(message: Message): boolean {
   return message.kind === "image" && Boolean(message.imageSrc) && !message.replyToId;
 }
 
-function shouldGroupAdjacentImages(left: Message, right: Message, day: string, nextDay: string): boolean {
+function shouldGroupAdjacentImages(
+  left: Message,
+  right: Message,
+  day: string,
+  nextDay: string,
+): boolean {
   return (
     canGroupImageMessage(left) &&
     canGroupImageMessage(right) &&
@@ -186,7 +207,10 @@ function ChatAreaBase() {
     setCallHint(null);
   }, [endCall]);
 
-  const messageById = useMemo(() => new Map(chatMessages.map((message) => [message.id, message])), [chatMessages]);
+  const messageById = useMemo(
+    () => new Map(chatMessages.map((message) => [message.id, message])),
+    [chatMessages],
+  );
 
   const matches = searchResultIds;
   const matchIds = useMemo(() => new Set(matches), [matches]);
@@ -201,26 +225,42 @@ function ChatAreaBase() {
     }
     let cancelled = false;
     const timer = window.setTimeout(() => {
-      void api.line.searchMessages(accountId, activeChatId, search.q, regexSearch).then((result) => {
-        if (cancelled || useStore.getState().activeChatId !== activeChatId) return;
-        setSearchResultIds(result.messages.map((message) => message.id));
-        setSearchNotice(result.truncated ? (regexSearch
-          ? "新しいメッセージ最大1,000件を検索しています。結果は上位100件です。"
-          : "結果は上位100件です。必要なら検索語を絞ってください。") : "");
-        useStore.getState().mergeIncomingMessages(activeChatId, result.messages, { silent: true });
-        setSearch((current) => ({ ...current, index: Math.min(current.index, Math.max(0, result.messages.length - 1)) }));
-      }).catch((error: unknown) => {
-        if (cancelled) return;
-        setSearchResultIds([]);
-        setSearchNotice(error instanceof Error ? error.message : "検索に失敗しました");
-      });
+      void api.line
+        .searchMessages(accountId, activeChatId, search.q, regexSearch)
+        .then((result) => {
+          if (cancelled || useStore.getState().activeChatId !== activeChatId) return;
+          setSearchResultIds(result.messages.map((message) => message.id));
+          setSearchNotice(
+            result.truncated
+              ? regexSearch
+                ? "新しいメッセージ最大1,000件を検索しています。結果は上位100件です。"
+                : "結果は上位100件です。必要なら検索語を絞ってください。"
+              : "",
+          );
+          useStore
+            .getState()
+            .mergeIncomingMessages(activeChatId, result.messages, { silent: true });
+          setSearch((current) => ({
+            ...current,
+            index: Math.min(current.index, Math.max(0, result.messages.length - 1)),
+          }));
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setSearchResultIds([]);
+          setSearchNotice(error instanceof Error ? error.message : "検索に失敗しました");
+        });
     }, 180);
-    return () => { cancelled = true; window.clearTimeout(timer); };
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
   }, [accountId, activeChatId, regexSearch, search.open, search.q]);
 
   useEffect(() => {
     const onFind = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "f" || !activeChatId) return;
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "f" || !activeChatId)
+        return;
       event.preventDefault();
       setSearch((current) => ({ ...current, open: true }));
       requestAnimationFrame(() => {
@@ -266,8 +306,7 @@ function ChatAreaBase() {
       const next = chatMessages[i + 1];
       const sameAuthorAsNext =
         next && next.authorId === lastInRow.authorId && dayLabels[i + 1] === dl;
-      const sameAuthorAsPrev =
-        prev && prev.authorId === m.authorId && dayLabels[i - 1] === lastDay;
+      const sameAuthorAsPrev = prev && prev.authorId === m.authorId && dayLabels[i - 1] === lastDay;
       const groupIds = mediaGroup?.map((item) => item.id) ?? [m.id];
       if (unreadAnchorId && groupIds.includes(unreadAnchorId)) {
         out.push({
@@ -295,8 +334,16 @@ function ChatAreaBase() {
       });
     }
     return out;
-  }, [chatMessages, matchIds, search.open, search.q, activeMatchId, highlightMessageId,
-    initialChatScrollMessageId, initialChatScrollPending]);
+  }, [
+    chatMessages,
+    matchIds,
+    search.open,
+    search.q,
+    activeMatchId,
+    highlightMessageId,
+    initialChatScrollMessageId,
+    initialChatScrollPending,
+  ]);
   const messageRowKeyById = useMemo(() => buildChatMessageRowIndex(rows), [rows]);
 
   const estimateMsgHeight = useCallback((row: MsgRow): number => {
@@ -413,11 +460,19 @@ function ChatAreaBase() {
     const requestKey = `unread:${activeChatId}:${chatMessages[0]?.id ?? "empty"}:${receivedCount}`;
     if (jumpRequestKeyRef.current === requestKey) return;
     jumpRequestKeyRef.current = requestKey;
-    window.dispatchEvent(new CustomEvent("vyline:load-older-messages", {
-      detail: { chatMid: activeChatId },
-    }));
-  }, [activeChatId, chatMessages, initialChatScrollMessageId, initialChatScrollPending,
-    initialChatScrollUnreadCount, olderState]);
+    window.dispatchEvent(
+      new CustomEvent("vyline:load-older-messages", {
+        detail: { chatMid: activeChatId },
+      }),
+    );
+  }, [
+    activeChatId,
+    chatMessages,
+    initialChatScrollMessageId,
+    initialChatScrollPending,
+    initialChatScrollUnreadCount,
+    olderState,
+  ]);
 
   useEffect(() => {
     if (!activeChatId) return;
@@ -427,7 +482,8 @@ function ChatAreaBase() {
       const state = useStore.getState();
       if (!state.initialChatScrollPending || state.initialChatScrollUnreadCount <= 0) return;
       const target =
-        findUnreadAnchorByCount(chatMessages, activeChatId, state.initialChatScrollUnreadCount)?.id ??
+        findUnreadAnchorByCount(chatMessages, activeChatId, state.initialChatScrollUnreadCount)
+          ?.id ??
         findFirstUnreadReceivedMessage(chatMessages, activeChatId)?.id ??
         state.initialChatScrollMessageId;
       useStore.setState({
@@ -444,16 +500,18 @@ function ChatAreaBase() {
   // 返信・未読の対象が現在のページより古ければ、必要なページだけ追加取得する。
   useEffect(() => {
     if (!activeChatId || initialChatScrollPending) return;
-    const targetId = highlightMessageId ?? (
-      openedChatRef.current !== activeChatId ? initialChatScrollMessageId : null
-    );
+    const targetId =
+      highlightMessageId ??
+      (openedChatRef.current !== activeChatId ? initialChatScrollMessageId : null);
     if (!targetId || messageRowKeyById.has(targetId) || olderState.loading) return;
     if (!olderState.hasMore) {
-      useStore.getState().showNotice(
-        highlightMessageId === targetId
-          ? "対象メッセージが読み込み済みの履歴にありません"
-          : "未読メッセージの位置を特定できませんでした",
-      );
+      useStore
+        .getState()
+        .showNotice(
+          highlightMessageId === targetId
+            ? "対象メッセージが読み込み済みの履歴にありません"
+            : "未読メッセージの位置を特定できませんでした",
+        );
       if (highlightMessageId === targetId) {
         useStore.setState({ highlightMessageId: null });
       } else {
@@ -474,18 +532,34 @@ function ChatAreaBase() {
     );
     if (!requestKey) return;
     jumpRequestKeyRef.current = requestKey;
-    window.dispatchEvent(new CustomEvent("vyline:load-older-messages", {
-      detail: { chatMid: activeChatId, targetMessageId: targetId },
-    }));
-  }, [activeChatId, chatMessages, highlightMessageId, initialChatScrollMessageId, initialChatScrollPending,
-    messageRowKeyById, olderState, scrollToBottom]);
+    window.dispatchEvent(
+      new CustomEvent("vyline:load-older-messages", {
+        detail: { chatMid: activeChatId, targetMessageId: targetId },
+      }),
+    );
+  }, [
+    activeChatId,
+    chatMessages,
+    highlightMessageId,
+    initialChatScrollMessageId,
+    initialChatScrollPending,
+    messageRowKeyById,
+    olderState,
+    scrollToBottom,
+  ]);
 
   // 開いた瞬間だけ位置を決める。未読があればその先頭、なければ末尾に置き、
   // 以後の受信・画像の高さ確定・ページ追加では利用者のスクロール位置を動かさない。
   useEffect(() => {
     if (!activeChatId || initialChatScrollPending || openedChatRef.current === activeChatId) return;
-    const key = initialChatScrollMessageId ? messageRowKeyById.get(initialChatScrollMessageId) : undefined;
-    const position = resolveInitialChatScrollPosition(initialChatScrollMessageId, key, olderState.hasMore);
+    const key = initialChatScrollMessageId
+      ? messageRowKeyById.get(initialChatScrollMessageId)
+      : undefined;
+    const position = resolveInitialChatScrollPosition(
+      initialChatScrollMessageId,
+      key,
+      olderState.hasMore,
+    );
     if (position === "waiting" || position === "missing") return;
     let settleFrame = 0;
     const frame = requestAnimationFrame(() => {
@@ -503,7 +577,15 @@ function ChatAreaBase() {
       cancelAnimationFrame(frame);
       if (settleFrame) cancelAnimationFrame(settleFrame);
     };
-  }, [activeChatId, initialChatScrollMessageId, initialChatScrollPending, messageRowKeyById, olderState.hasMore, scrollToBottom, scrollToKey]);
+  }, [
+    activeChatId,
+    initialChatScrollMessageId,
+    initialChatScrollPending,
+    messageRowKeyById,
+    olderState.hasMore,
+    scrollToBottom,
+    scrollToKey,
+  ]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
@@ -706,10 +788,15 @@ function ChatAreaBase() {
               aria-pressed={regexSearch}
               aria-label="正規表現検索を切り替え"
               title={regexSearch ? "正規表現 ON" : "正規表現 OFF"}
-              className={cn("h-9 rounded-lg border px-2 font-mono text-xs", regexSearch
-                ? "border-[var(--vy-accent)] text-[var(--vy-accent)]"
-                : "border-[var(--vy-border)] text-[var(--vy-text-dim)]")}
-            >.*</button>
+              className={cn(
+                "h-9 rounded-lg border px-2 font-mono text-xs",
+                regexSearch
+                  ? "border-[var(--vy-accent)] text-[var(--vy-accent)]"
+                  : "border-[var(--vy-border)] text-[var(--vy-text-dim)]",
+              )}
+            >
+              .*
+            </button>
             <button
               type="button"
               disabled={!matches.length}
@@ -741,7 +828,9 @@ function ChatAreaBase() {
           </div>
         )}
         {search.open && searchNotice && (
-          <div role="status" className="px-4 py-1 text-xs text-[var(--vy-text-dim)]">{searchNotice}</div>
+          <div role="status" className="px-4 py-1 text-xs text-[var(--vy-text-dim)]">
+            {searchNotice}
+          </div>
         )}
 
         {/* pinned announcement banner */}
@@ -874,7 +963,9 @@ function ChatAreaBase() {
                 >
                   <MessageBubble
                     message={item.message}
-                    replied={item.message.replyToId ? messageById.get(item.message.replyToId) : undefined}
+                    replied={
+                      item.message.replyToId ? messageById.get(item.message.replyToId) : undefined
+                    }
                     membersById={membersById}
                     mediaGroup={item.mediaGroup}
                     chat={chat}

@@ -33,7 +33,9 @@ export async function hydrateDismissedChatState(): Promise<void> {
     ]);
     if (dismissed) dismissedCache = dismissed;
     if (restored) restoredCache = restored;
-  } catch { /* Keep the localStorage fallback available. */ }
+  } catch {
+    /* Keep the localStorage fallback available. */
+  }
 }
 
 export function getDismissedChatMids(accountId: string): Set<string> {
