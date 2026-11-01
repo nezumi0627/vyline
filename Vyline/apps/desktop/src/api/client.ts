@@ -634,7 +634,7 @@ export const api = {
       request<UnsendResponse>("POST", `/line/${accountId}/unsendMessage`, { messageId }),
 
     restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
-      request<{ ok: true; text?: string | null; contentType?: string }>(
+      request<{ ok: boolean; error?: string; text?: string | null; contentType?: string }>(
         "POST",
         `/line/${accountId}/restore?chatMid=${encodeURIComponent(chatMid)}`,
         { messageId },
@@ -953,6 +953,15 @@ export const api = {
       ),
 
     /** 既読にする */
+    markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>
+      request<{ ok: boolean; error?: string; lastMessageId?: string }>(
+        "POST",
+        `/line/${accountId}/sendChatChecked`,
+        {
+          chatMid,
+          lastMessageId,
+        },
+      ),
     sendChatChecked: (accountId: string, chatMid: string, lastMessageId?: string) =>
       request<{ ok: boolean }>("POST", `/line/${accountId}/sendChatChecked`, {
         chatMid,

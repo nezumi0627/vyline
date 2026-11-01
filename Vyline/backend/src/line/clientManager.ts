@@ -28,6 +28,7 @@ import {
   updateSessionMeta,
   getProtocolTokenState,
 } from "../storage/tokenStore.js";
+import { ProtocolSqliteStorage } from "../storage/protocolSqliteStorage.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import {
   warmLineCache,
@@ -383,7 +384,7 @@ function loginInit(accountId: string) {
   const deviceMode = process.env.VYLINE_DEVICE;
   return {
     profile: getVylineProfile(),
-    storagePath: storagePathForAccount(accountId),
+    storage: new ProtocolSqliteStorage(accountId, storagePathForAccount(accountId)),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
@@ -769,7 +770,7 @@ async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
 
   const init = {
     profile: getVylineProfile(),
-    storagePath: entry.storageFile,
+    storage: new ProtocolSqliteStorage(accountId, entry.storageFile),
     ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
   };
   const client = shouldRefreshBeforeRestore
@@ -819,7 +820,7 @@ export async function loginWithAuthToken(
 
   const client = await vylineLoginToken(authToken, {
     profile: getVylineProfile(),
-    storagePath,
+    storage: new ProtocolSqliteStorage(accountId, storagePath),
     ...(deviceMode ? { deviceMode } : {}),
   });
 
@@ -982,7 +983,10 @@ export async function loginContentWithQRCode(
       },
       {
         profile: getVylineProfile(),
-        storagePath: `${storagePathForAccount(accountId)}.content-secondary`,
+        storage: new ProtocolSqliteStorage(
+          accountId,
+          `${storagePathForAccount(accountId)}.content-secondary`,
+        ),
         deviceMode: "ANDROIDSECONDARY",
       },
     );

@@ -49,6 +49,39 @@ export function pushTalkEvent(accountId: string, payload: TalkPollEventPayload):
   return buf.seq;
 }
 
+export function currentTalkEventSequence(accountId: string): number {
+  return buffers.get(accountId)?.seq ?? 0;
+}
+
+export function pushTalkEventAtSequence(
+  accountId: string,
+  payload: TalkPollEventPayload,
+  seq: number,
+): void {
+  const buf = buffers.get(accountId) ?? { seq: 0, events: [] };
+  if (buf.events.some((event) => event.seq === seq)) return;
+  buf.events.push({ ...payload, seq } as TalkPollEvent);
+  buf.events.sort((a, b) => a.seq - b.seq);
+  if (buf.events.length > MAX_EVENTS) buf.events.splice(0, buf.events.length - MAX_EVENTS);
+  buf.seq = Math.max(buf.seq, seq);
+  buffers.set(accountId, buf);
+}
+
+export function restoreTalkEventBuffer(
+  accountId: string,
+  events: TalkPollEvent[],
+  seq: number,
+): void {
+  const current = buffers.get(accountId);
+  if (current && current.seq >= seq) return;
+  const merged = new Map<number, TalkPollEvent>();
+  for (const event of current?.events ?? []) merged.set(event.seq, event);
+  for (const event of events) merged.set(event.seq, event);
+  const ordered = [...merged.values()].sort((a, b) => a.seq - b.seq);
+  if (ordered.length > MAX_EVENTS) ordered.splice(0, ordered.length - MAX_EVENTS);
+  buffers.set(accountId, { seq: Math.max(current?.seq ?? 0, seq), events: ordered });
+}
+
 export function drainTalkEvents(
   accountId: string,
   afterSeq: number,

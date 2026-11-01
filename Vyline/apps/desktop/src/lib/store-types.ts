@@ -21,7 +21,14 @@ export type MentionInfo = {
   E: number;
 };
 
-export type MessageStatus = "sending" | "sent" | "read" | "failed";
+export type MessageStatus =
+  | "sending"
+  | "sent"
+  | "read"
+  | "failed"
+  | "uncertain"
+  | "rejected"
+  | "restricted";
 export type MessageKind =
   | "text"
   | "sticker"
@@ -48,8 +55,9 @@ export type LinkPreview = {
   url: string;
   title: string;
   description: string;
-  thumb: string;
-  site: string;
+  thumb?: string;
+  site?: string;
+  imageId?: string;
 };
 
 export type MessageState = "normal" | "edited" | "revoked-by-other" | "revoked-by-self";
@@ -189,6 +197,9 @@ export type Chat = {
   muted?: boolean;
   /** 退出・キック済みグループ */
   left?: boolean;
+  /** サーバー上のグループ設定 */
+  notificationDisabled?: boolean;
+  preventedJoinByTicket?: boolean;
   /** 外部バックアップから復元された履歴を持つ */
   restoredHistory?: boolean;
   unread: number;
@@ -207,6 +218,9 @@ export type Settings = {
   readReceipts: boolean;
   showReaderList: boolean;
   streamerMode: boolean;
+  streamerMaskNames: boolean;
+  streamerMaskAvatars: boolean;
+  streamerMaskUrls: boolean;
   compactDensity: boolean;
   fontScale: number;
   enterToSend: boolean;
@@ -218,11 +232,17 @@ export type Settings = {
   showBackground: boolean;
   /** 画像送信時に圧縮せず元画質で送る（通信量は増加） */
   highQualityImages: boolean;
+  /** 表示したメディアを端末キャッシュへ保存する */
+  mediaAutoSave: boolean;
+  /** 1メッセージあたりに取得・表示するURLプレビュー件数（0で無効） */
+  linkPreviewLimit: number;
   /** HTTP/SOCKS プロキシ（例: http://127.0.0.1:7890） */
   proxyEnabled: boolean;
   proxyUrl: string;
   /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
   notificationsEnabled: boolean;
+  webNotificationsEnabled?: boolean;
+  hideNotificationContent?: boolean;
   /** ベータ: プロフィールにブロック確認導線を表示 */
   betaBlockCheckManual: boolean;
   /** ベータ: 友だち全員のブロック状態を自動確認 */
@@ -231,6 +251,10 @@ export type Settings = {
   betaMidSearch: boolean;
   /** ベータ: Agent I AIアシスタント */
   betaAgentI: boolean;
+  /** ベータ: ブロック一覧をSQLiteへ差分キャッシュ */
+  betaBlockedListSqliteSync: boolean;
+  /** Agent I等の外部AI機能を許可する */
+  aiEnabled: boolean;
   /** ベータ: Windows版LINEのメモリから認証候補を確認 */
   betaWindowsLineTokens: boolean;
 };

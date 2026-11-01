@@ -33,6 +33,7 @@ export interface MessageLogEntry {
   senderName?: string;
   contentType: string;
   text?: string | null;
+  messageId?: string;
   media?: {
     contentType: string;
     mediaId?: string;

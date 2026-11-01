@@ -130,12 +130,13 @@ describe("soft deletion", () => {
     ).toBe("server replay");
     expect(await restoreDeletedMessage(accountId, chatMid, message.id)).toBe(true);
     expect((await getStoredMessages(accountId, chatMid, 10))[0]?.text).toBe("server replay");
+    await releaseAccountChatCache(accountId);
     await rm(accountDir(accountId), { recursive: true, force: true });
   });
 });
 
 describe("bounded account cache", () => {
-  test("flushes dirty history before evicting an older account", async () => {
+  test("keeps history available across account switches without pinning full account caches", async () => {
     const firstAccount = `cache-first-${crypto.randomUUID()}`;
     const secondAccount = `cache-second-${crypto.randomUUID()}`;
     const chatMid = "u-cache";
@@ -157,11 +158,8 @@ describe("bounded account cache", () => {
 
       const stats = getChatCacheStats();
       expect(stats.cachedAccounts).toBeLessThanOrEqual(stats.maxCachedAccounts);
-      expect(stats.cachedAccountIds).toContain(secondAccount);
-      expect(stats.cachedAccountIds).not.toContain(firstAccount);
 
-      // Reloading the evicted account proves that eviction did not discard its
-      // dirty in-memory mutation before SQLite persistence completed.
+      // Account switching must not lose history even when it is not resident.
       expect((await getStoredMessages(firstAccount, chatMid, 10))[0]?.text).toBe(
         "must survive eviction",
       );

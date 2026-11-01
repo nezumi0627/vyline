@@ -1,5 +1,5 @@
 import type { Chat as LineChat, Message as LineMessage } from "@vyline/types";
-import { extractStickerId, lineStickerUrl } from "../utils/lineMedia.js";
+import { extractStickerId, lineCdnProxy, lineStickerUrl } from "../utils/lineMedia.js";
 import { getCombinationStickerPreview } from "../utils/combinationStickers.js";
 import {
   contentTypeLabel,
@@ -164,6 +164,8 @@ export function mapChat(
     statusMessage: !isGroup ? c.statusMessage : undefined,
     backgroundUrl: c.backgroundUrl,
     isSelf: c.isSelf,
+    notificationDisabled: c.notificationDisabled,
+    preventedJoinByTicket: c.preventedJoinByTicket,
     left,
     restoredHistory: c.restoredHistory,
     unread: c.unreadCount ?? 0,
@@ -198,13 +200,38 @@ function messageStatus(m: LineMessage): MessageStatus {
   return "sent";
 }
 
+function stickerImageUrlFromText(text: string | null | undefined): string | undefined {
+  if (!text) return undefined;
+  const value = text.trim().replace(/[),.!?;]+$/, "");
+  let parsed: URL;
+  try {
+    parsed = new URL(value, "http://localhost");
+  } catch {
+    return undefined;
+  }
+
+  const source = parsed.pathname === "/api/cdn/line" ? parsed.searchParams.get("u") : value;
+  if (!source) return undefined;
+  try {
+    const image = new URL(source);
+    if (
+      image.protocol !== "https:" ||
+      image.hostname.toLowerCase() !== "stickershop.line-scdn.net" ||
+      !/^\/stickershop\/v1\/sticker\/[^/]+\/android\/sticker\.png$/i.test(image.pathname)
+    ) {
+      return undefined;
+    }
+    return lineCdnProxy(image.href);
+  } catch {
+    return undefined;
+  }
+}
+
 function messageKind(m: LineMessage): MessageKind {
   const ct = m.contentType;
   if (ct === "E2EE_UNAVAILABLE") return "system";
   if (isCallContent(ct)) return "call";
   if (isSystemLikeContent(ct)) return "system";
-  if (isStickerContent(ct) || Boolean(extractStickerId(m.contentMetadata ?? null)))
-    return "sticker";
   if (isVideoContent(ct)) return "video";
   if (isImageContent(ct)) return "image";
   if (isAudioContent(ct)) return "audio";
@@ -213,6 +240,9 @@ function messageKind(m: LineMessage): MessageKind {
   if (isContactContent(ct)) return "contact";
   if (isFlexContentType(ct)) return "flex";
   if (isRichContentType(ct)) return "rich";
+  if (isStickerContent(ct)) return "sticker";
+  if (stickerImageUrlFromText(m.text)) return "image";
+  if (extractStickerId(m.contentMetadata ?? null)) return "sticker";
   const text = sanitizeText(m.text);
   // text が Flex JSON のときは flex 扱い（メタ欠落・誤 contentType 対策）
   if (text?.startsWith("{") && /"type"\s*:\s*"(bubble|carousel)"/.test(text)) {
@@ -302,8 +332,13 @@ export function mapMessage(
   chatId: string,
   accountId: string,
   _contactCache?: Map<string, ContactInfo>,
+  mediaAutoSave = true,
 ): Message {
   const kind = messageKind(m);
+  const stickerTextImageUrl =
+    kind === "image" && !isImageContent(m.contentType)
+      ? stickerImageUrlFromText(m.text)
+      : undefined;
   const messageState =
     m.messageState ??
     (m.contentType === "UNSENT" || m.contentType === "UNSEND"
@@ -319,11 +354,13 @@ export function mapMessage(
 
   let imageSrc: string | undefined;
   let audioSrc: string | undefined;
-  if ((kind === "image" || kind === "video") && accountId) {
-    imageSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=1`;
+  if (stickerTextImageUrl) {
+    imageSrc = stickerTextImageUrl;
+  } else if ((kind === "image" || kind === "video") && accountId) {
+    imageSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=1&save=${mediaAutoSave ? "1" : "0"}`;
   }
   if (kind === "audio" && accountId) {
-    audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0`;
+    audioSrc = `/api/line/${encodeURIComponent(accountId)}/media/${encodeURIComponent(chatId)}/${encodeURIComponent(m.id)}?preview=0&save=${mediaAutoSave ? "1" : "0"}`;
   }
 
   const isPersonalChat = chatId.startsWith("u");
@@ -346,7 +383,12 @@ export function mapMessage(
         m.contentMetadata as Record<string, unknown> | null,
         (mid) => _contactCache?.get(mid)?.name,
       );
-      text = chatEvent ?? (text || systemEventLabel(m.contentType, m.contentMetadata ?? null));
+      const rawEventMarker = /^\(?CHATEVENT\)?$/i.test(text?.trim() ?? "");
+      text =
+        chatEvent ??
+        (!text || rawEventMarker
+          ? systemEventLabel(m.contentType, m.contentMetadata ?? null)
+          : text);
     }
   }
 
@@ -455,7 +497,15 @@ export function mapMessage(
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
     history: m.history?.length ? m.history : undefined,
     ...(m.revokedSnapshot
-      ? { revokedSnapshot: mapMessage(m.revokedSnapshot, chatId, accountId, _contactCache) }
+      ? {
+          revokedSnapshot: mapMessage(
+            m.revokedSnapshot,
+            chatId,
+            accountId,
+            _contactCache,
+            mediaAutoSave,
+          ),
+        }
       : {}),
     contact,
     location,

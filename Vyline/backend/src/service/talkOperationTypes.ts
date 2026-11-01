@@ -9,7 +9,6 @@ export function isReadOperationType(type: string): boolean {
     type === "RECEIVE_MESSAGE_RECEIPT" ||
     type === "28" ||
     type === "RECEIVE_READ_WATERMARK" ||
-    type === "91" ||
-    type === "29"
+    type === "91"
   );
 }
