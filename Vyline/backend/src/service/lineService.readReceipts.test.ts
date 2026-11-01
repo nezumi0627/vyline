@@ -76,14 +76,22 @@ describe("reconcileChatUnreadWithLocalRead", () => {
   });
 
   it("keeps the server count when message ID ordering is unknown", () => {
-    expect(reconcileChatUnreadWithLocalRead({ ...chat, lastMessageId: "opaque" }, "opaque").unreadCount).toBe(3);
+    expect(
+      reconcileChatUnreadWithLocalRead({ ...chat, lastMessageId: "opaque" }, "opaque").unreadCount,
+    ).toBe(3);
   });
 });
 
 describe("setBoundedCacheEntry", () => {
   it("evicts the least recently inserted key when the cache reaches its cap", () => {
-    const cache = new Map([["old", 1], ["newer", 2]]);
+    const cache = new Map([
+      ["old", 1],
+      ["newer", 2],
+    ]);
     setBoundedCacheEntry(cache, "latest", 3, 2);
-    expect([...cache]).toEqual([["newer", 2], ["latest", 3]]);
+    expect([...cache]).toEqual([
+      ["newer", 2],
+      ["latest", 3],
+    ]);
   });
 });

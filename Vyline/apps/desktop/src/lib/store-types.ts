@@ -21,7 +21,14 @@ export type MentionInfo = {
   E: number;
 };
 
-export type MessageStatus = "sending" | "sent" | "read" | "failed" | "uncertain" | "rejected" | "restricted";
+export type MessageStatus =
+  | "sending"
+  | "sent"
+  | "read"
+  | "failed"
+  | "uncertain"
+  | "rejected"
+  | "restricted";
 export type MessageKind =
   | "text"
   | "sticker"

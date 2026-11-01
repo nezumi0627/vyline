@@ -1,14 +1,29 @@
 import { expect, test } from "bun:test";
-import { countReceivedMessages, findFirstUnreadReceivedMessage, findLatestReceivedMessage, isAtOrBeforeReadPosition, markReceivedMessagesReadThrough, resolveInitialUnreadScrollTarget, rollbackReceiptAttempt } from "./readReceiptSelection.js";
+import {
+  countReceivedMessages,
+  findFirstUnreadReceivedMessage,
+  findLatestReceivedMessage,
+  isAtOrBeforeReadPosition,
+  markReceivedMessagesReadThrough,
+  resolveInitialUnreadScrollTarget,
+  rollbackReceiptAttempt,
+} from "./readReceiptSelection.js";
 
 const message = (id: string, createdAt: number, authorId = "peer", chatId = "c") => ({
-  id, createdAt, authorId, chatId,
+  id,
+  createdAt,
+  authorId,
+  chatId,
 });
 
 test("selects the latest received message by timestamp and numeric ID without sorting", () => {
   const messages = [
-    message("100", 10), message("9", 10), message("2", 11),
-    message("1000", 99, "me"), message("pending_1", 99), message("999", 99, "peer", "other"),
+    message("100", 10),
+    message("9", 10),
+    message("2", 11),
+    message("1000", 99, "me"),
+    message("pending_1", 99),
+    message("999", 99, "peer", "other"),
   ];
   expect(findLatestReceivedMessage(messages, "c")?.id).toBe("2");
 });
@@ -26,12 +41,17 @@ test("read-through uses the same timestamp then ID ordering as latest selection"
 });
 
 test("finds the earliest unread received message using the shared position ordering", () => {
-  expect(findFirstUnreadReceivedMessage([
-    { ...message("z", 10), read: false },
-    { ...message("a", 10), read: false },
-    { ...message("0", 9), read: true },
-    { ...message("pending_1", 1), read: false },
-  ], "c")?.id).toBe("a");
+  expect(
+    findFirstUnreadReceivedMessage(
+      [
+        { ...message("z", 10), read: false },
+        { ...message("a", 10), read: false },
+        { ...message("0", 9), read: true },
+        { ...message("pending_1", 1), read: false },
+      ],
+      "c",
+    )?.id,
+  ).toBe("a");
 });
 
 test("preserves the captured unread target when hydration sees messages already marked read", () => {
@@ -57,12 +77,17 @@ test("uses the chat unread count when group message readCount marks messages rea
 });
 
 test("counts only received persisted messages when resolving an unread window", () => {
-  expect(countReceivedMessages([
-    message("1", 1),
-    message("2", 2, "me"),
-    message("pending_3", 3),
-    message("4", 4, "peer", "other"),
-  ], "c")).toBe(1);
+  expect(
+    countReceivedMessages(
+      [
+        message("1", 1),
+        message("2", 2, "me"),
+        message("pending_3", 3),
+        message("4", 4, "peer", "other"),
+      ],
+      "c",
+    ),
+  ).toBe(1);
 });
 
 test("read-through preserves the source array when nothing changes", () => {

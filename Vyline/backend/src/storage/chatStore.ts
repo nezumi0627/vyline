@@ -52,7 +52,11 @@ import {
   writeStoredMessage,
 } from "./chatStoreRelational.js";
 import { migrateOnce, sqlite } from "./sqlite.js";
-import { decodeOperationBatch, encodeOperationBatch, operationBatchId } from "./operationInboxCodec.js";
+import {
+  decodeOperationBatch,
+  encodeOperationBatch,
+  operationBatchId,
+} from "./operationInboxCodec.js";
 
 const log = childLogger("chatStore");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -186,17 +190,19 @@ const deferredWrites = new Map<string, DeferredWrites>();
 const chatMigrationChecked = new Set<string>();
 
 function withoutDeletedPreview(accountId: string, chat: StoredChat): StoredChat {
-  if (!chat.lastMessageId || !isStoredMessageDeleted(accountId, chat.mid, chat.lastMessageId)) return chat;
+  if (!chat.lastMessageId || !isStoredMessageDeleted(accountId, chat.mid, chat.lastMessageId))
+    return chat;
   const db = memory.get(accountId);
-  const latest = dirty.has(accountId) && db
-    ? Object.values(db.messages[chat.mid] ?? {})
-      .filter((message) => !isStoredMessageDeleted(accountId, chat.mid, message.id))
-      .sort(compareMessagesNewestFirst)[0]
-    : readLatestStoredMessage(accountId, chat.mid);
+  const latest =
+    dirty.has(accountId) && db
+      ? Object.values(db.messages[chat.mid] ?? {})
+          .filter((message) => !isStoredMessageDeleted(accountId, chat.mid, message.id))
+          .sort(compareMessagesNewestFirst)[0]
+      : readLatestStoredMessage(accountId, chat.mid);
   const updated = { ...chat, hasMessages: Boolean(latest) };
-  delete updated.lastMessageId;
-  delete updated.lastMessageTime;
-  delete updated.lastMessagePreview;
+  updated.lastMessageId = undefined;
+  updated.lastMessageTime = undefined;
+  updated.lastMessagePreview = undefined;
   if (latest) {
     updated.lastMessageId = latest.id;
     updated.lastMessageTime = latest.createdTime;
@@ -241,7 +247,8 @@ async function ensureChatDbImported(accountId: string): Promise<void> {
   if (chatMigrationChecked.has(accountId)) return;
   await ensureDataDir();
   ensureRelationalChatSchema();
-  const migration = sqlite.query("SELECT 1 FROM app_migrations WHERE name = ?")
+  const migration = sqlite
+    .query("SELECT 1 FROM app_migrations WHERE name = ?")
     .get(`chatdb-json-v1:${accountId}`);
   if (migration) {
     chatMigrationChecked.add(accountId);
@@ -259,9 +266,13 @@ async function ensureChatDbImported(accountId: string): Promise<void> {
       throw err;
     }
   }
-  const initial: ChatDb | null = parsed ? {
-    meta: parsed.meta ?? {}, chats: parsed.chats ?? {}, messages: parsed.messages ?? {},
-  } : null;
+  const initial: ChatDb | null = parsed
+    ? {
+        meta: parsed.meta ?? {},
+        chats: parsed.chats ?? {},
+        messages: parsed.messages ?? {},
+      }
+    : null;
   importChatJsonOnce(accountId, initial);
   chatMigrationChecked.add(accountId);
 }
@@ -316,7 +327,14 @@ function scheduleSave(
   dirty.add(accountId);
   let pending = deferredWrites.get(accountId);
   if (!pending) {
-    pending = { full: false, meta: false, syncState: false, boxOrder: false, chats: new Set(), messages: new Map() };
+    pending = {
+      full: false,
+      meta: false,
+      syncState: false,
+      boxOrder: false,
+      chats: new Set(),
+      messages: new Map(),
+    };
     deferredWrites.set(accountId, pending);
   }
   if (!changes) pending.full = true;
@@ -359,8 +377,12 @@ async function flushDb(accountId: string): Promise<void> {
   if (!dirty.has(accountId)) return;
   dirty.delete(accountId);
   const pending = deferredWrites.get(accountId) ?? {
-    full: true, meta: true, syncState: false, boxOrder: false,
-    chats: new Set<string>(), messages: new Map<string, Set<string>>(),
+    full: true,
+    meta: true,
+    syncState: false,
+    boxOrder: false,
+    chats: new Set<string>(),
+    messages: new Map<string, Set<string>>(),
   };
   deferredWrites.delete(accountId);
   const db = memory.get(accountId);
@@ -368,29 +390,38 @@ async function flushDb(accountId: string): Promise<void> {
   try {
     await ensureDataDir();
     ensureRelationalChatSchema();
-    sqlite.transaction(() => {
-      if (pending.full || pending.meta) writeChatMeta(accountId, db.meta);
-      else {
-        if (pending.boxOrder) writeChatBoxOrder(accountId, db.meta.boxOrder ?? []);
-        if (pending.syncState) writeChatSyncState(accountId, db.meta.lastOpRevision, db.meta.chatsSyncedAt ?? new Date().toISOString());
-      }
-      const chatMids = pending.full ? Object.keys(db.chats) : pending.chats;
-      for (const mid of chatMids) {
-        const chat = db.chats[mid];
-        if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
-      }
-      const messageEntries = pending.full
-        ? Object.entries(db.messages).map(([mid, messages]) => [mid, Object.keys(messages)] as const)
-        : [...pending.messages].map(([mid, ids]) => [mid, [...ids]] as const);
-      for (const [chatMid, messageIds] of messageEntries) {
-        const messages = db.messages[chatMid];
-        for (const id of messageIds) {
-          const message = messages?.[id];
-          if (!message) continue;
-          writeStoredMessage(accountId, chatMid, message);
+    sqlite
+      .transaction(() => {
+        if (pending.full || pending.meta) writeChatMeta(accountId, db.meta);
+        else {
+          if (pending.boxOrder) writeChatBoxOrder(accountId, db.meta.boxOrder ?? []);
+          if (pending.syncState)
+            writeChatSyncState(
+              accountId,
+              db.meta.lastOpRevision,
+              db.meta.chatsSyncedAt ?? new Date().toISOString(),
+            );
         }
-      }
-    }).immediate();
+        const chatMids = pending.full ? Object.keys(db.chats) : pending.chats;
+        for (const mid of chatMids) {
+          const chat = db.chats[mid];
+          if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
+        }
+        const messageEntries = pending.full
+          ? Object.entries(db.messages).map(
+              ([mid, messages]) => [mid, Object.keys(messages)] as const,
+            )
+          : [...pending.messages].map(([mid, ids]) => [mid, [...ids]] as const);
+        for (const [chatMid, messageIds] of messageEntries) {
+          const messages = db.messages[chatMid];
+          for (const id of messageIds) {
+            const message = messages?.[id];
+            if (!message) continue;
+            writeStoredMessage(accountId, chatMid, message);
+          }
+        }
+      })
+      .immediate();
     // Dirty-mode account snapshots are only needed while a deferred write is
     // pending. Keeping every restored account resident after flush pins its
     // complete message history in memory without helping the SQLite read path.
@@ -417,18 +448,23 @@ export async function upsertChats(
     await ensureChatDbImported(accountId);
     const db = memory.get(accountId);
     const stamp = new Date().toISOString();
-    sqlite.transaction(() => {
-      for (const incoming of chats) {
-        const readUpTo = readLocalReadPosition(accountId, incoming.mid)?.messageId;
-        const chat = withoutDeletedPreview(accountId, reconcileStoredUnreadWithReadPosition(incoming, readUpTo));
-        writeStoredChat(accountId, chat);
-        if (db) db.chats[chat.mid] = chat;
-      }
-      if (meta?.boxOrder) {
-        writeChatBoxOrder(accountId, meta.boxOrder);
-      }
-      writeChatSyncState(accountId, meta?.lastOpRevision, stamp);
-    }).immediate();
+    sqlite
+      .transaction(() => {
+        for (const incoming of chats) {
+          const readUpTo = readLocalReadPosition(accountId, incoming.mid)?.messageId;
+          const chat = withoutDeletedPreview(
+            accountId,
+            reconcileStoredUnreadWithReadPosition(incoming, readUpTo),
+          );
+          writeStoredChat(accountId, chat);
+          if (db) db.chats[chat.mid] = chat;
+        }
+        if (meta?.boxOrder) {
+          writeChatBoxOrder(accountId, meta.boxOrder);
+        }
+        writeChatSyncState(accountId, meta?.lastOpRevision, stamp);
+      })
+      .immediate();
     if (db) {
       if (meta?.boxOrder) db.meta.boxOrder = meta.boxOrder;
       if (meta?.lastOpRevision != null) db.meta.lastOpRevision = meta.lastOpRevision;
@@ -439,7 +475,10 @@ export async function upsertChats(
   const db = await getDb(accountId);
   for (const chat of chats) {
     const readUpTo = db.meta.localReadUpTo?.[chat.mid]?.messageId;
-    db.chats[chat.mid] = withoutDeletedPreview(accountId, reconcileStoredUnreadWithReadPosition(chat, readUpTo));
+    db.chats[chat.mid] = withoutDeletedPreview(
+      accountId,
+      reconcileStoredUnreadWithReadPosition(chat, readUpTo),
+    );
   }
   if (meta?.boxOrder) db.meta.boxOrder = meta.boxOrder;
   if (meta?.lastOpRevision != null) db.meta.lastOpRevision = meta.lastOpRevision;
@@ -452,11 +491,14 @@ export async function upsertChats(
 }
 
 /** Persisted read position wins over a stale unread count for messages already read. */
-export function reconcileStoredUnreadWithReadPosition<T extends {
-  lastMessageId?: string;
-  unreadCount?: number;
-}>(chat: T, readUpTo?: string): T {
-  if (chat.unreadCount == null || chat.unreadCount <= 0 || !readUpTo || !chat.lastMessageId) return chat;
+export function reconcileStoredUnreadWithReadPosition<
+  T extends {
+    lastMessageId?: string;
+    unreadCount?: number;
+  },
+>(chat: T, readUpTo?: string): T {
+  if (chat.unreadCount == null || chat.unreadCount <= 0 || !readUpTo || !chat.lastMessageId)
+    return chat;
   try {
     if (BigInt(readUpTo) >= BigInt(chat.lastMessageId)) return { ...chat, unreadCount: 0 };
   } catch {
@@ -478,39 +520,47 @@ export async function upsertMessages(
     const previousById = cachedChat
       ? cachedChat
       : new Map(
-          readStoredMessagesByIds(accountId, chatMid, messages.map((message) => message.id))
-            .map((message) => [message.id, message] as const),
+          readStoredMessagesByIds(
+            accountId,
+            chatMid,
+            messages.map((message) => message.id),
+          ).map((message) => [message.id, message] as const),
         );
     const stamp = new Date().toISOString();
-    sqlite.transaction(() => {
-      for (const message of messages) {
-        if (isStoredMessageDeleted(accountId, chatMid, message.id)) continue;
-        const prev = previousById instanceof Map
-          ? previousById.get(message.id)
-          : previousById[message.id];
-        const prevRevoked = Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
-        const incomingRevoked = Boolean(message.revokedSnapshot) || Boolean(message.messageState?.startsWith("revoked"));
-        const next: StoredMessage = {
-          ...message,
-          savedAt: prev?.savedAt ?? message.savedAt,
-          history: prev?.history?.length ? prev.history : message.history,
-          ...mergeStoredReadState(prev, message),
-        };
-        const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
-        if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
-        if (prevRevoked && !incomingRevoked) {
-          next.messageState = prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
-          next.contentType = prev ? prev.contentType : message.contentType;
-          next.text = prev ? prev.text : message.text;
+    sqlite
+      .transaction(() => {
+        for (const message of messages) {
+          if (isStoredMessageDeleted(accountId, chatMid, message.id)) continue;
+          const prev =
+            previousById instanceof Map ? previousById.get(message.id) : previousById[message.id];
+          const prevRevoked =
+            Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
+          const incomingRevoked =
+            Boolean(message.revokedSnapshot) ||
+            Boolean(message.messageState?.startsWith("revoked"));
+          const next: StoredMessage = {
+            ...message,
+            savedAt: prev?.savedAt ?? message.savedAt,
+            history: prev?.history?.length ? prev.history : message.history,
+            ...mergeStoredReadState(prev, message),
+          };
+          const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
+          if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
+          if (prevRevoked && !incomingRevoked) {
+            next.messageState =
+              prev?.messageState ?? (prev?.isMyMessage ? "revoked-by-self" : "revoked-by-other");
+            next.contentType = prev ? prev.contentType : message.contentType;
+            next.text = prev ? prev.text : message.text;
+          }
+          applyLocalReadWatermark({ [next.id]: next }, localReadMessageId);
+          if (!prev || !isDeepStrictEqual(prev, next)) {
+            writeStoredMessage(accountId, chatMid, next);
+            if (db) (db.messages[chatMid] ??= {})[next.id] = next;
+          }
         }
-        applyLocalReadWatermark({ [next.id]: next }, localReadMessageId);
-        if (!prev || !isDeepStrictEqual(prev, next)) {
-          writeStoredMessage(accountId, chatMid, next);
-          if (db) (db.messages[chatMid] ??= {})[next.id] = next;
-        }
-      }
-      writeMessagesSyncedAt(accountId, chatMid, stamp);
-    }).immediate();
+        writeMessagesSyncedAt(accountId, chatMid, stamp);
+      })
+      .immediate();
     if (db) db.meta.messagesSyncedAt = { ...db.meta.messagesSyncedAt, [chatMid]: stamp };
     return;
   }
@@ -540,7 +590,10 @@ export async function upsertMessages(
     if (!prev || !isDeepStrictEqual(prev, next)) byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
-  const watermarkUpdates = applyLocalReadWatermark(byChat, db.meta.localReadUpTo?.[chatMid]?.messageId);
+  const watermarkUpdates = applyLocalReadWatermark(
+    byChat,
+    db.meta.localReadUpTo?.[chatMid]?.messageId,
+  );
   db.meta.messagesSyncedAt = db.meta.messagesSyncedAt ?? {};
   db.meta.messagesSyncedAt[chatMid] = new Date().toISOString();
   scheduleSave(accountId, {
@@ -588,16 +641,22 @@ export async function markStoredMessagesReadThrough(
   if (!dirty.has(accountId)) {
     await ensureChatDbImported(accountId);
     const current = readLocalReadPosition(accountId, chatMid)?.messageId;
-    try { if (current && BigInt(current) > BigInt(messageId)) return; } catch { /* replace malformed cursor */ }
+    try {
+      if (current && BigInt(current) > BigInt(messageId)) return;
+    } catch {
+      /* replace malformed cursor */
+    }
     const at = new Date().toISOString();
     const db = memory.get(accountId);
     const chat = db?.chats[chatMid] ?? readStoredChatById(accountId, chatMid);
     if (chat) chat.unreadCount = 0;
-    sqlite.transaction(() => {
-      writeLocalReadPosition(accountId, chatMid, messageId, at);
-      if (chat) writeStoredChat(accountId, chat);
-      markMessagesReadThrough(accountId, chatMid, messageId);
-    }).immediate();
+    sqlite
+      .transaction(() => {
+        writeLocalReadPosition(accountId, chatMid, messageId, at);
+        if (chat) writeStoredChat(accountId, chat);
+        markMessagesReadThrough(accountId, chatMid, messageId);
+      })
+      .immediate();
     if (db) applyLocalReadWatermark(db.messages[chatMid] ?? {}, messageId);
     if (db) {
       db.meta.localReadUpTo = { ...db.meta.localReadUpTo, [chatMid]: { messageId, at } };
@@ -635,9 +694,9 @@ export async function markMessageRevoked(
   let db = memory.get(accountId);
   if (dirty.has(accountId)) db = await getDb(accountId);
   else await ensureChatDbImported(accountId);
-  const stored = db?.messages[chatMid]?.[messageId] ?? (!dirty.has(accountId)
-    ? readStoredMessage(accountId, chatMid, messageId)
-    : undefined);
+  const stored =
+    db?.messages[chatMid]?.[messageId] ??
+    (!dirty.has(accountId) ? readStoredMessage(accountId, chatMid, messageId) : undefined);
   if (!stored) return;
   if (stored.messageState?.startsWith("revoked")) return;
   stored.revokedSnapshot = stored.revokedSnapshot ?? snapshotFromStoredMessage(stored);
@@ -672,21 +731,28 @@ export async function deleteRevokedMessage(
   await ensureChatDbImported(accountId);
   const db = memory.get(accountId);
   let updatedChat: StoredChat | undefined;
-  const result = sqlite.transaction(() => {
-    if (isStoredMessageDeleted(accountId, chatMid, messageId)) return "deleted" as const;
-    const stored = db?.messages[chatMid]?.[messageId] ?? readStoredMessage(accountId, chatMid, messageId);
-    if (!stored) return "not-found" as const;
-    if (!stored.messageState?.startsWith("revoked") && !stored.revokedSnapshot && stored.contentType !== "UNSENT") {
-      return "not-revoked" as const;
-    }
-    deleteStoredMessage(accountId, chatMid, messageId);
-    const chat = db?.chats[chatMid] ?? readStoredChatById(accountId, chatMid);
-    if (chat?.lastMessageId === messageId) {
-      updatedChat = withoutDeletedPreview(accountId, chat);
-      writeStoredChat(accountId, updatedChat);
-    }
-    return "deleted" as const;
-  }).immediate();
+  const result = sqlite
+    .transaction(() => {
+      if (isStoredMessageDeleted(accountId, chatMid, messageId)) return "deleted" as const;
+      const stored =
+        db?.messages[chatMid]?.[messageId] ?? readStoredMessage(accountId, chatMid, messageId);
+      if (!stored) return "not-found" as const;
+      if (
+        !stored.messageState?.startsWith("revoked") &&
+        !stored.revokedSnapshot &&
+        stored.contentType !== "UNSENT"
+      ) {
+        return "not-revoked" as const;
+      }
+      deleteStoredMessage(accountId, chatMid, messageId);
+      const chat = db?.chats[chatMid] ?? readStoredChatById(accountId, chatMid);
+      if (chat?.lastMessageId === messageId) {
+        updatedChat = withoutDeletedPreview(accountId, chat);
+        writeStoredChat(accountId, updatedChat);
+      }
+      return "deleted" as const;
+    })
+    .immediate();
   if (result === "deleted") {
     // Commit can fail after all statements succeed (for example, deferred constraints).
     if (db && updatedChat) db.chats[chatMid] = updatedChat;
@@ -703,7 +769,11 @@ export async function filterLocallyDeletedMessages<T extends { id: string }>(
   messages: T[],
 ): Promise<T[]> {
   await ensureChatDbImported(accountId);
-  const deletedIds = getDeletedMessageIds(accountId, chatMid, messages.map((message) => message.id));
+  const deletedIds = getDeletedMessageIds(
+    accountId,
+    chatMid,
+    messages.map((message) => message.id),
+  );
   return messages.filter((message) => !deletedIds.has(message.id));
 }
 
@@ -716,9 +786,9 @@ export async function restoreRevokedMessage(
   let db = memory.get(accountId);
   if (dirty.has(accountId)) db = await getDb(accountId);
   else await ensureChatDbImported(accountId);
-  const stored = db?.messages[chatMid]?.[messageId] ?? (!dirty.has(accountId)
-    ? readStoredMessage(accountId, chatMid, messageId)
-    : undefined);
+  const stored =
+    db?.messages[chatMid]?.[messageId] ??
+    (!dirty.has(accountId) ? readStoredMessage(accountId, chatMid, messageId) : undefined);
   if (!stored) return null;
   const snapshot = stored.revokedSnapshot;
   const lastNormal = stored.history?.length
@@ -766,9 +836,11 @@ export async function getMessageHistory(
   chatMid: string,
   messageId: string,
 ): Promise<Message["history"]> {
-  if (dirty.has(accountId)) return (await getDb(accountId)).messages[chatMid]?.[messageId]?.history ?? [];
+  if (dirty.has(accountId))
+    return (await getDb(accountId)).messages[chatMid]?.[messageId]?.history ?? [];
   await ensureChatDbImported(accountId);
-  return sqlite.query(`SELECT state, text, content_type AS contentType, updated_time AS updatedTime
+  return sqlite
+    .query(`SELECT state, text, content_type AS contentType, updated_time AS updatedTime
     FROM chat_message_history_v2 WHERE account_id=? AND chat_mid=? AND message_id=? ORDER BY position`)
     .all(accountId, chatMid, messageId) as Message["history"];
 }
@@ -803,7 +875,8 @@ export async function getMessages(
   const beforeId = opts?.beforeMessageId;
   let rows: Array<{ message_id: string }>;
   if (beforeTime == null) {
-    rows = sqlite.query(`SELECT message_id FROM chat_messages_v2
+    rows = sqlite
+      .query(`SELECT message_id FROM chat_messages_v2
       WHERE account_id = ? AND chat_mid = ?
       ORDER BY created_time DESC, CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = ''
         THEN 1 ELSE 0 END DESC,
@@ -812,14 +885,16 @@ export async function getMessages(
       .all(accountId, chatMid, queryLimit) as Array<{ message_id: string }>;
   } else {
     if (beforeId == null) {
-      rows = sqlite.query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND created_time < ?
+      rows = sqlite
+        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND created_time < ?
           ORDER BY created_time DESC, CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = ''
             THEN 1 ELSE 0 END DESC,
             CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
             message_id DESC LIMIT ?`)
         .all(accountId, chatMid, beforeTime, queryLimit) as Array<{ message_id: string }>;
     } else if (/^\d+$/.test(beforeId)) {
-      rows = sqlite.query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ?
+      rows = sqlite
+        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ?
           AND (created_time < ? OR (created_time = ? AND
             (message_id != '' AND message_id NOT GLOB '*[^0-9]*' AND (length(message_id) < length(?) OR
               (length(message_id) = length(?) AND message_id < ?)))))
@@ -827,9 +902,19 @@ export async function getMessages(
             THEN 1 ELSE 0 END DESC,
             CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
             message_id DESC LIMIT ?`)
-        .all(accountId, chatMid, beforeTime, beforeTime, beforeId, beforeId, beforeId, queryLimit) as Array<{ message_id: string }>;
+        .all(
+          accountId,
+          chatMid,
+          beforeTime,
+          beforeTime,
+          beforeId,
+          beforeId,
+          beforeId,
+          queryLimit,
+        ) as Array<{ message_id: string }>;
     } else {
-      rows = sqlite.query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ?
+      rows = sqlite
+        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ?
           AND (created_time < ? OR (created_time = ? AND
             (message_id = '' OR message_id GLOB '*[^0-9]*') AND message_id < ? OR
             (created_time = ? AND message_id != '' AND message_id NOT GLOB '*[^0-9]*')))
@@ -837,14 +922,28 @@ export async function getMessages(
             THEN 1 ELSE 0 END DESC,
             CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
             message_id DESC LIMIT ?`)
-        .all(accountId, chatMid, beforeTime, beforeTime, beforeId, beforeTime, queryLimit) as Array<{ message_id: string }>;
+        .all(
+          accountId,
+          chatMid,
+          beforeTime,
+          beforeTime,
+          beforeId,
+          beforeTime,
+          queryLimit,
+        ) as Array<{ message_id: string }>;
     }
   }
-  const messages = readStoredMessagesByIds(accountId, chatMid, rows.map((row) => row.message_id));
+  const messages = readStoredMessagesByIds(
+    accountId,
+    chatMid,
+    rows.map((row) => row.message_id),
+  );
   if (!dirty.has(accountId) || !pendingIds?.size) return messages.slice(0, pageLimit);
 
   const byId = new Map(
-    messages.filter((message) => !pendingIds.has(message.id)).map((message) => [message.id, message]),
+    messages
+      .filter((message) => !pendingIds.has(message.id))
+      .map((message) => [message.id, message]),
   );
   const cached = (await getDb(accountId)).messages[chatMid] ?? {};
   const before = opts?.beforeDeliveredTime;
@@ -855,7 +954,8 @@ export async function getMessages(
     if (
       before == null ||
       message.createdTime < before ||
-      (message.createdTime === before && cursorId != null &&
+      (message.createdTime === before &&
+        cursorId != null &&
         compareMessagesNewestFirst(message, { id: cursorId, createdTime: before }) > 0)
     ) {
       byId.set(id, message);
@@ -877,8 +977,10 @@ export async function findStoredMessageById(
     return null;
   }
   await ensureChatDbImported(accountId);
-  const row = sqlite.query(`SELECT chat_mid FROM chat_messages_v2
-    WHERE account_id = ? AND message_id = ? LIMIT 1`).get(accountId, messageId) as { chat_mid: string } | null;
+  const row = sqlite
+    .query(`SELECT chat_mid FROM chat_messages_v2
+    WHERE account_id = ? AND message_id = ? LIMIT 1`)
+    .get(accountId, messageId) as { chat_mid: string } | null;
   const message = row ? readStoredMessage(accountId, row.chat_mid, messageId) : undefined;
   return row && message ? { chatMid: row.chat_mid, message } : null;
 }
@@ -958,13 +1060,19 @@ export async function searchStoredMessages(
     }
     const candidates = scanStoredMessageRows(accountId, chatMid, MESSAGE_REGEX_SCAN_LIMIT + 1);
     truncated = candidates.length > MESSAGE_REGEX_SCAN_LIMIT;
-    const matched = candidates.slice(0, MESSAGE_REGEX_SCAN_LIMIT)
+    const matched = candidates
+      .slice(0, MESSAGE_REGEX_SCAN_LIMIT)
       .filter((row) => typeof row.text === "string" && pattern.test(row.text.slice(0, 8_000)))
       .map((row) => row.message_id);
     truncated ||= matched.length > MESSAGE_SEARCH_RESULT_LIMIT;
     ids = matched.slice(0, MESSAGE_SEARCH_RESULT_LIMIT);
   } else {
-    const rows = searchStoredMessageRows(accountId, chatMid, value, MESSAGE_SEARCH_RESULT_LIMIT + 1);
+    const rows = searchStoredMessageRows(
+      accountId,
+      chatMid,
+      value,
+      MESSAGE_SEARCH_RESULT_LIMIT + 1,
+    );
     truncated = rows.length > MESSAGE_SEARCH_RESULT_LIMIT;
     ids = rows.slice(0, MESSAGE_SEARCH_RESULT_LIMIT).map((row) => row.message_id);
   }
@@ -1059,11 +1167,14 @@ export async function getCacheMeta(accountId: string): Promise<ChatDbMeta> {
   return { ...meta };
 }
 
-export async function getOperationSyncCursor(accountId: string): Promise<{
-  revision: string;
-  globalRevision: string;
-  individualRevision: string;
-} | undefined> {
+export async function getOperationSyncCursor(accountId: string): Promise<
+  | {
+      revision: string;
+      globalRevision: string;
+      individualRevision: string;
+    }
+  | undefined
+> {
   await ensureChatDbImported(accountId);
   return readStoredOperationSyncCursor(accountId);
 }
@@ -1074,12 +1185,19 @@ export async function saveOperationSyncCursor(
 ): Promise<void> {
   await ensureChatDbImported(accountId);
   await flushDb(accountId);
-  if (dirty.has(accountId)) throw new Error("pending message writes could not be committed before sync cursor");
+  if (dirty.has(accountId))
+    throw new Error("pending message writes could not be committed before sync cursor");
   const meta = readChatMeta(accountId);
-  sqlite.transaction(() => {
-    writeStoredOperationSyncCursor(accountId, cursor);
-    writeChatSyncState(accountId, cursor.revision, meta.chatsSyncedAt ?? new Date().toISOString());
-  }).immediate();
+  sqlite
+    .transaction(() => {
+      writeStoredOperationSyncCursor(accountId, cursor);
+      writeChatSyncState(
+        accountId,
+        cursor.revision,
+        meta.chatsSyncedAt ?? new Date().toISOString(),
+      );
+    })
+    .immediate();
   const db = memory.get(accountId);
   if (db) db.meta.lastOpRevision = cursor.revision;
 }
@@ -1093,17 +1211,19 @@ export async function stageOperationInboxBatch<T>(
   await ensureChatDbImported(accountId);
   const payload = encodeOperationBatch(operations);
   const batchId = operationBatchId(startCursor, cursor, payload);
-  sqlite.transaction(() => insertOperationInboxBatch(accountId, batchId, payload, cursor)).immediate();
+  sqlite
+    .transaction(() => insertOperationInboxBatch(accountId, batchId, payload, cursor))
+    .immediate();
   return batchId;
 }
 
-export async function getPendingOperationInboxBatches<T>(
-  accountId: string,
-): Promise<Array<{
-  batchId: string;
-  operations: T[];
-  cursor: { revision: string; globalRevision: string; individualRevision: string };
-}>> {
+export async function getPendingOperationInboxBatches<T>(accountId: string): Promise<
+  Array<{
+    batchId: string;
+    operations: T[];
+    cursor: { revision: string; globalRevision: string; individualRevision: string };
+  }>
+> {
   await ensureChatDbImported(accountId);
   return readOperationInboxBatches(accountId).map((batch) => ({
     batchId: batch.batchId,
@@ -1121,40 +1241,58 @@ export async function completeOperationInboxBatch(
 ): Promise<number[]> {
   await ensureChatDbImported(accountId);
   await flushDb(accountId);
-  if (dirty.has(accountId)) throw new Error("pending message writes could not be committed before inbox acknowledgement");
+  if (dirty.has(accountId))
+    throw new Error("pending message writes could not be committed before inbox acknowledgement");
   const meta = readChatMeta(accountId);
   const sequences: number[] = [];
-  sqlite.transaction(() => {
-    const state = sqlite.query(`SELECT last_seq AS lastSeq FROM talk_event_outbox_state_v1 WHERE account_id=?`)
-      .get(accountId) as { lastSeq: number } | null;
-    let nextSeq = Math.max(state?.lastSeq ?? 0, sequenceFloor);
-    for (const event of events) {
-      nextSeq += 1;
-      sqlite.query(`INSERT INTO talk_event_outbox_v1(account_id,seq,payload_json,created_at) VALUES (?,?,?,?)`)
-        .run(accountId, nextSeq, encodeOperationBatch([event]), new Date().toISOString());
-      sequences.push(nextSeq);
-    }
-    if (events.length > 0) {
-      sqlite.query(`INSERT INTO talk_event_outbox_state_v1(account_id,last_seq) VALUES (?,?)
+  sqlite
+    .transaction(() => {
+      const state = sqlite
+        .query("SELECT last_seq AS lastSeq FROM talk_event_outbox_state_v1 WHERE account_id=?")
+        .get(accountId) as { lastSeq: number } | null;
+      let nextSeq = Math.max(state?.lastSeq ?? 0, sequenceFloor);
+      for (const event of events) {
+        nextSeq += 1;
+        sqlite
+          .query(
+            "INSERT INTO talk_event_outbox_v1(account_id,seq,payload_json,created_at) VALUES (?,?,?,?)",
+          )
+          .run(accountId, nextSeq, encodeOperationBatch([event]), new Date().toISOString());
+        sequences.push(nextSeq);
+      }
+      if (events.length > 0) {
+        sqlite
+          .query(`INSERT INTO talk_event_outbox_state_v1(account_id,last_seq) VALUES (?,?)
         ON CONFLICT(account_id) DO UPDATE SET last_seq=excluded.last_seq`)
-        .run(accountId, nextSeq);
-      sqlite.query(`DELETE FROM talk_event_outbox_v1 WHERE account_id=? AND seq<=?`)
-        .run(accountId, Math.max(0, nextSeq - 400));
-    }
-    writeStoredOperationSyncCursor(accountId, cursor);
-    writeChatSyncState(accountId, cursor.revision, meta.chatsSyncedAt ?? new Date().toISOString());
-    deleteOperationInboxBatch(accountId, batchId);
-  }).immediate();
+          .run(accountId, nextSeq);
+        sqlite
+          .query("DELETE FROM talk_event_outbox_v1 WHERE account_id=? AND seq<=?")
+          .run(accountId, Math.max(0, nextSeq - 400));
+      }
+      writeStoredOperationSyncCursor(accountId, cursor);
+      writeChatSyncState(
+        accountId,
+        cursor.revision,
+        meta.chatsSyncedAt ?? new Date().toISOString(),
+      );
+      deleteOperationInboxBatch(accountId, batchId);
+    })
+    .immediate();
   const db = memory.get(accountId);
   if (db) db.meta.lastOpRevision = cursor.revision;
   return sequences;
 }
 
-export async function getTalkEventOutbox<T>(accountId: string): Promise<{ events: Array<{ seq: number; event: T }>; seq: number }> {
+export async function getTalkEventOutbox<T>(
+  accountId: string,
+): Promise<{ events: Array<{ seq: number; event: T }>; seq: number }> {
   await ensureChatDbImported(accountId);
-  const rows = sqlite.query(`SELECT seq,payload_json AS payload FROM talk_event_outbox_v1
-    WHERE account_id=? ORDER BY seq`).all(accountId) as Array<{ seq: number; payload: string }>;
-  const state = sqlite.query(`SELECT last_seq AS lastSeq FROM talk_event_outbox_state_v1 WHERE account_id=?`)
+  const rows = sqlite
+    .query(`SELECT seq,payload_json AS payload FROM talk_event_outbox_v1
+    WHERE account_id=? ORDER BY seq`)
+    .all(accountId) as Array<{ seq: number; payload: string }>;
+  const state = sqlite
+    .query("SELECT last_seq AS lastSeq FROM talk_event_outbox_state_v1 WHERE account_id=?")
     .get(accountId) as { lastSeq: number } | null;
   return {
     events: rows.map((row) => ({ seq: row.seq, event: decodeOperationBatch<T>(row.payload)[0]! })),
@@ -1210,34 +1348,42 @@ export async function importChatDb(
     }
   }
 
-  sqlite.transaction(() => {
-    for (const chat of Object.values(data.chats ?? {})) {
-      writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
-      chatCount++;
-    }
-    for (const [chatMid, messages] of Object.entries(data.messages ?? {})) {
-      for (const message of Object.values(messages)) writeStoredMessage(accountId, chatMid, message);
-    }
-    for (const chatMid of importedChatMids) {
-      const latest = readLatestStoredMessage(accountId, chatMid);
-      if (!latest) continue;
-      const existing = data.chats?.[chatMid] ?? readStoredChatById(accountId, chatMid) ?? {
-        mid: chatMid, name: chatMid, kind: "direct" as const, hasMessages: false, updatedAt: latest.savedAt,
-      };
-      writeStoredChat(accountId, {
-        ...existing,
-        hasMessages: true,
-        lastMessageTime: latest.createdTime,
-        lastMessageId: latest.id,
-        lastMessagePreview: previewForMessage(latest),
-      });
-    }
-    if (data.meta?.boxOrder) meta.boxOrder = data.meta.boxOrder;
-    if (data.meta?.chatsSyncedAt) meta.chatsSyncedAt = data.meta.chatsSyncedAt;
-    meta.messagesSyncedAt = meta.messagesSyncedAt ?? {};
-    Object.assign(meta.messagesSyncedAt, data.meta?.messagesSyncedAt ?? {});
-    writeChatMeta(accountId, meta);
-  }).immediate();
+  sqlite
+    .transaction(() => {
+      for (const chat of Object.values(data.chats ?? {})) {
+        writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
+        chatCount++;
+      }
+      for (const [chatMid, messages] of Object.entries(data.messages ?? {})) {
+        for (const message of Object.values(messages))
+          writeStoredMessage(accountId, chatMid, message);
+      }
+      for (const chatMid of importedChatMids) {
+        const latest = readLatestStoredMessage(accountId, chatMid);
+        if (!latest) continue;
+        const existing = data.chats?.[chatMid] ??
+          readStoredChatById(accountId, chatMid) ?? {
+            mid: chatMid,
+            name: chatMid,
+            kind: "direct" as const,
+            hasMessages: false,
+            updatedAt: latest.savedAt,
+          };
+        writeStoredChat(accountId, {
+          ...existing,
+          hasMessages: true,
+          lastMessageTime: latest.createdTime,
+          lastMessageId: latest.id,
+          lastMessagePreview: previewForMessage(latest),
+        });
+      }
+      if (data.meta?.boxOrder) meta.boxOrder = data.meta.boxOrder;
+      if (data.meta?.chatsSyncedAt) meta.chatsSyncedAt = data.meta.chatsSyncedAt;
+      meta.messagesSyncedAt = meta.messagesSyncedAt ?? {};
+      Object.assign(meta.messagesSyncedAt, data.meta?.messagesSyncedAt ?? {});
+      writeChatMeta(accountId, meta);
+    })
+    .immediate();
   memory.delete(accountId);
   return { chats: chatCount, messages: messageCount };
 }
@@ -1254,9 +1400,14 @@ export async function importChatDbFromSqlite(
   const alias = `vyline_restore_${randomUUID().replaceAll("-", "")}`;
   sqlite.query(`ATTACH DATABASE ? AS ${alias}`).run(backupPath);
   try {
-    const info = sqlite.query(`SELECT schema_name,version,account_id FROM ${alias}.backup_info LIMIT 1`)
+    const info = sqlite
+      .query(`SELECT schema_name,version,account_id FROM ${alias}.backup_info LIMIT 1`)
       .get() as { schema_name: string; version: number; account_id: string } | null;
-    if (info?.schema_name !== "vyline-backup" || info.version !== 1 || info.account_id !== accountId) {
+    if (
+      info?.schema_name !== "vyline-backup" ||
+      info.version !== 1 ||
+      info.account_id !== accountId
+    ) {
       throw new Error("backup database is not compatible with this account");
     }
 
@@ -1267,10 +1418,19 @@ export async function importChatDbFromSqlite(
     const notDeleted = ` AND NOT EXISTS (SELECT 1 FROM main.chat_message_tombstones_v2 tombstone
       WHERE tombstone.account_id=source.account_id AND tombstone.chat_mid=source.chat_mid
         AND tombstone.message_id=source.message_id)`;
-    const chats = (sqlite.query(`SELECT source.mid FROM ${alias}.chat_records_v2 source WHERE source.account_id=?${pickClause("mid")}`)
-      .all(accountId, ...pickArgs) as Array<{ mid: string }>).map((row) => row.mid);
-    const messageCount = (sqlite.query(`SELECT COUNT(*) AS count FROM ${alias}.chat_messages_v2 source
-      WHERE source.account_id=?${pickClause("chat_mid")}${notDeleted}`).get(accountId, ...pickArgs) as { count: number }).count;
+    const chats = (
+      sqlite
+        .query(
+          `SELECT source.mid FROM ${alias}.chat_records_v2 source WHERE source.account_id=?${pickClause("mid")}`,
+        )
+        .all(accountId, ...pickArgs) as Array<{ mid: string }>
+    ).map((row) => row.mid);
+    const messageCount = (
+      sqlite
+        .query(`SELECT COUNT(*) AS count FROM ${alias}.chat_messages_v2 source
+      WHERE source.account_id=?${pickClause("chat_mid")}${notDeleted}`)
+        .get(accountId, ...pickArgs) as { count: number }
+    ).count;
     const tables = [
       "chat_records_v2",
       "chat_messages_v2",
@@ -1288,48 +1448,58 @@ export async function importChatDbFromSqlite(
       "chat_message_history_v2",
     ] as const;
 
-    sqlite.transaction(() => {
-      for (const table of relationTables) {
-        sqlite.query(`DELETE FROM main.${table} WHERE account_id=? AND EXISTS (
+    sqlite
+      .transaction(() => {
+        for (const table of relationTables) {
+          sqlite
+            .query(`DELETE FROM main.${table} WHERE account_id=? AND EXISTS (
           SELECT 1 FROM ${alias}.chat_messages_v2 source
           WHERE source.account_id=? AND source.chat_mid=main.${table}.chat_mid
             AND source.message_id=main.${table}.message_id${pickClause("chat_mid")})`)
-          .run(accountId, accountId, ...pickArgs);
-      }
-      for (const table of tables) {
-        const columns = sqlite.query(`PRAGMA main.table_info('${table}')`).all() as Array<{ name: string }>;
-        const columnList = columns.map(({ name }) => `"${name}"`).join(",");
-        const projection = columns.map(({ name }) => name === "account_id" ? "? AS account_id" : `source."${name}"`).join(",");
-        const filterColumn = table === "chat_records_v2" ? "mid" : "chat_mid";
-        sqlite.query(`INSERT OR REPLACE INTO main.${table} (${columnList})
+            .run(accountId, accountId, ...pickArgs);
+        }
+        for (const table of tables) {
+          const columns = sqlite.query(`PRAGMA main.table_info('${table}')`).all() as Array<{
+            name: string;
+          }>;
+          const columnList = columns.map(({ name }) => `"${name}"`).join(",");
+          const projection = columns
+            .map(({ name }) => (name === "account_id" ? "? AS account_id" : `source."${name}"`))
+            .join(",");
+          const filterColumn = table === "chat_records_v2" ? "mid" : "chat_mid";
+          sqlite
+            .query(`INSERT OR REPLACE INTO main.${table} (${columnList})
           SELECT ${projection} FROM ${alias}.${table} source
           WHERE source.account_id=?${pickClause(filterColumn)}${table === "chat_records_v2" ? "" : notDeleted}`)
-          .run(accountId, accountId, ...pickArgs);
-      }
-      for (const chatMid of chats) {
-        const localReadId = readLocalReadPosition(accountId, chatMid)?.messageId;
-        if (localReadId && /^\d+$/.test(localReadId)) {
-          const readCursor = localReadId.replace(/^0+/, "") || "0";
-          sqlite.query(`UPDATE main.chat_messages_v2 SET seen=1
+            .run(accountId, accountId, ...pickArgs);
+        }
+        for (const chatMid of chats) {
+          const localReadId = readLocalReadPosition(accountId, chatMid)?.messageId;
+          if (localReadId && /^\d+$/.test(localReadId)) {
+            const readCursor = localReadId.replace(/^0+/, "") || "0";
+            sqlite
+              .query(`UPDATE main.chat_messages_v2 SET seen=1
             WHERE account_id=? AND chat_mid=? AND is_my_message=0
               AND message_id != '' AND message_id NOT GLOB '*[^0-9]*'
               AND (length(CASE WHEN ltrim(message_id,'0')='' THEN '0' ELSE ltrim(message_id,'0') END)<length(?)
                 OR (length(CASE WHEN ltrim(message_id,'0')='' THEN '0' ELSE ltrim(message_id,'0') END)=length(?)
                   AND CASE WHEN ltrim(message_id,'0')='' THEN '0' ELSE ltrim(message_id,'0') END<=?))`)
-            .run(accountId, chatMid, readCursor, readCursor, readCursor);
+              .run(accountId, chatMid, readCursor, readCursor, readCursor);
+          }
+          const latest = readLatestStoredMessage(accountId, chatMid);
+          const chat = readStoredChatById(accountId, chatMid);
+          if (latest && chat)
+            writeStoredChat(accountId, {
+              ...chat,
+              hasMessages: true,
+              lastMessageTime: latest.createdTime,
+              lastMessageId: latest.id,
+              lastMessagePreview: previewForMessage(latest),
+            });
+          else if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
         }
-        const latest = readLatestStoredMessage(accountId, chatMid);
-        const chat = readStoredChatById(accountId, chatMid);
-        if (latest && chat) writeStoredChat(accountId, {
-          ...chat,
-          hasMessages: true,
-          lastMessageTime: latest.createdTime,
-          lastMessageId: latest.id,
-          lastMessagePreview: previewForMessage(latest),
-        });
-        else if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
-      }
-    }).immediate();
+      })
+      .immediate();
     memory.delete(accountId);
     return { chats: chats.length, messages: messageCount };
   } finally {
@@ -1449,15 +1619,18 @@ export async function mergeImportedChatDb(
   const filtered: ChatDbRecords = { chats: incoming.chats, messages: {} };
   let deletedCount = 0;
   for (const [mid, messages] of Object.entries(incoming.messages ?? {})) {
-    filtered.messages[mid] = Object.fromEntries(Object.entries(messages).filter(([, message]) => {
-      if (!isStoredMessageDeleted(accountId, mid, message.id)) return true;
-      deletedCount++;
-      return false;
-    }));
+    filtered.messages[mid] = Object.fromEntries(
+      Object.entries(messages).filter(([, message]) => {
+        if (!isStoredMessageDeleted(accountId, mid, message.id)) return true;
+        deletedCount++;
+        return false;
+      }),
+    );
   }
   const result = mergeChatDbRecords(db, filtered);
   result.skippedMessages += deletedCount;
-  for (const chat of Object.values(db.chats)) db.chats[chat.mid] = withoutDeletedPreview(accountId, chat);
+  for (const chat of Object.values(db.chats))
+    db.chats[chat.mid] = withoutDeletedPreview(accountId, chat);
   const messageWrites = new Map<string, Set<string>>();
   for (const [chatMid, messages] of Object.entries(incoming.messages ?? {})) {
     messageWrites.set(chatMid, new Set(Object.keys(messages)));
@@ -1515,10 +1688,14 @@ export async function rebuildAccountChatDb(
         name: string;
         type: string;
       }>;
-      backup.exec(`CREATE TABLE ${table} (${columns.map((column) =>
-        `"${column.name}" ${column.type || ""}`.trim(),
-      ).join(",")})`);
-      const rows = sqlite.query(`SELECT * FROM main.${table} WHERE account_id=?`).all(accountId) as Array<Record<string, unknown>>;
+      backup.exec(
+        `CREATE TABLE ${table} (${columns
+          .map((column) => `"${column.name}" ${column.type || ""}`.trim())
+          .join(",")})`,
+      );
+      const rows = sqlite
+        .query(`SELECT * FROM main.${table} WHERE account_id=?`)
+        .all(accountId) as Array<Record<string, unknown>>;
       if (rows.length === 0) continue;
       const names = columns.map((column) => `"${column.name}"`).join(",");
       const placeholders = columns.map(() => "?").join(",");
@@ -1536,21 +1713,26 @@ export async function rebuildAccountChatDb(
   } finally {
     backup.close();
   }
-  const messageCount = (sqlite.query("SELECT COUNT(*) AS count FROM chat_messages_v2 WHERE account_id=?")
-    .get(accountId) as { count: number }).count;
-  sqlite.transaction(() => {
-    for (const chat of chats) {
-      const latest = readLatestStoredMessage(accountId, chat.mid);
-      if (!latest) continue;
-      writeStoredChat(accountId, {
-        ...chat,
-        hasMessages: true,
-        lastMessageTime: latest.createdTime,
-        lastMessageId: latest.id,
-        lastMessagePreview: previewForMessage(latest),
-      });
-    }
-  }).immediate();
+  const messageCount = (
+    sqlite
+      .query("SELECT COUNT(*) AS count FROM chat_messages_v2 WHERE account_id=?")
+      .get(accountId) as { count: number }
+  ).count;
+  sqlite
+    .transaction(() => {
+      for (const chat of chats) {
+        const latest = readLatestStoredMessage(accountId, chat.mid);
+        if (!latest) continue;
+        writeStoredChat(accountId, {
+          ...chat,
+          hasMessages: true,
+          lastMessageTime: latest.createdTime,
+          lastMessageId: latest.id,
+          lastMessagePreview: previewForMessage(latest),
+        });
+      }
+    })
+    .immediate();
   memory.delete(accountId);
   return { chats: chats.length, messages: messageCount, backupFile };
 }
@@ -1567,11 +1749,14 @@ export async function listChatsWithCounts(
   if (dirty.has(accountId)) {
     const db = await getDb(accountId);
     return Object.keys(db.chats).map((mid) => ({
-      mid, name: db.chats[mid]?.name ?? mid, messageCount: Object.keys(db.messages[mid] ?? {}).length,
+      mid,
+      name: db.chats[mid]?.name ?? mid,
+      messageCount: Object.keys(db.messages[mid] ?? {}).length,
     }));
   }
   await ensureChatDbImported(accountId);
-  return sqlite.query(`SELECT c.mid, c.name,
+  return sqlite
+    .query(`SELECT c.mid, c.name,
       COUNT(m.message_id) AS messageCount
     FROM chat_records_v2 c LEFT JOIN chat_messages_v2 m
       ON m.account_id = c.account_id AND m.chat_mid = c.mid

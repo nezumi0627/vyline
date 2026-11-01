@@ -13,17 +13,20 @@ beforeAll(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "vyline-protocol-kv-"));
   process.env.VYLINE_DATA_DIR = dataDir;
   storagePath = join(dataDir, `storage-${accountId}.json`);
-  await writeFile(storagePath, JSON.stringify({
-    authMarker: "legacy-value",
-    e2eeKey: { keyId: 7, privateKey: "offline-secret-fixture" },
-  }));
+  await writeFile(
+    storagePath,
+    JSON.stringify({
+      authMarker: "legacy-value",
+      e2eeKey: { keyId: 7, privateKey: "offline-secret-fixture" },
+    }),
+  );
   ({ ProtocolSqliteStorage } = await import("./protocolSqliteStorage.js"));
   ({ closeSqlite } = await import("./sqlite.js"));
 });
 
 afterAll(async () => {
   closeSqlite();
-  delete process.env.VYLINE_DATA_DIR;
+  process.env.VYLINE_DATA_DIR = undefined;
   await rm(dataDir, { recursive: true, force: true });
 });
 
@@ -37,10 +40,14 @@ test("imports legacy protocol keys once and stores later keys by account and key
   expect(await readFile(storagePath, "utf8")).toContain("legacy-value");
 
   const { sqlite } = await import("./sqlite.js");
-  expect(sqlite.query("SELECT COUNT(*) AS count FROM protocol_kv WHERE account_id=?").get(accountId))
-    .toEqual({ count: 82 });
-  expect(sqlite.query("SELECT value FROM protocol_kv WHERE account_id=? AND key=?")
-    .get(accountId, "authMarker")).toEqual({ value: '"updated"' });
+  expect(
+    sqlite.query("SELECT COUNT(*) AS count FROM protocol_kv WHERE account_id=?").get(accountId),
+  ).toEqual({ count: 82 });
+  expect(
+    sqlite
+      .query("SELECT value FROM protocol_kv WHERE account_id=? AND key=?")
+      .get(accountId, "authMarker"),
+  ).toEqual({ value: '"updated"' });
 });
 
 test("delete and clear affect only the selected protocol account", async () => {

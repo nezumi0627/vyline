@@ -33,12 +33,35 @@ test("indexes a regular message row without a media group", () => {
 });
 
 test("requests each older page once while a jump target is still missing", () => {
-  expect(missingMessagePageRequestKey("chat", "target", "oldest", false, true, false, null))
-    .toBe("chat\u0000target\u0000oldest");
-  expect(missingMessagePageRequestKey("chat", "target", "older", false, true, false, "chat\u0000target\u0000oldest"))
-    .toBe("chat\u0000target\u0000older");
-  expect(missingMessagePageRequestKey("chat", "target", "oldest", false, true, false, "chat\u0000target\u0000oldest"))
-    .toBeNull();
-  expect(missingMessagePageRequestKey("chat", "target", "oldest", false, false, false, null)).toBeNull();
-  expect(missingMessagePageRequestKey("chat", "target", "oldest", true, true, false, null)).toBeNull();
+  expect(missingMessagePageRequestKey("chat", "target", "oldest", false, true, false, null)).toBe(
+    "chat\u0000target\u0000oldest",
+  );
+  expect(
+    missingMessagePageRequestKey(
+      "chat",
+      "target",
+      "older",
+      false,
+      true,
+      false,
+      "chat\u0000target\u0000oldest",
+    ),
+  ).toBe("chat\u0000target\u0000older");
+  expect(
+    missingMessagePageRequestKey(
+      "chat",
+      "target",
+      "oldest",
+      false,
+      true,
+      false,
+      "chat\u0000target\u0000oldest",
+    ),
+  ).toBeNull();
+  expect(
+    missingMessagePageRequestKey("chat", "target", "oldest", false, false, false, null),
+  ).toBeNull();
+  expect(
+    missingMessagePageRequestKey("chat", "target", "oldest", true, true, false, null),
+  ).toBeNull();
 });

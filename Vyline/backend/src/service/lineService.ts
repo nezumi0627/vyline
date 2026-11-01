@@ -726,7 +726,12 @@ const READ_RANGE_BG_MS = Number(process.env.VYLINE_READ_RANGE_BG_MS ?? 60_000);
 const readRangeBgAt = new Map<string, number>();
 const MAX_EPHEMERAL_CACHE_ENTRIES = 2_048;
 
-export function setBoundedCacheEntry<K, V>(map: Map<K, V>, key: K, value: V, maxSize: number): void {
+export function setBoundedCacheEntry<K, V>(
+  map: Map<K, V>,
+  key: K,
+  value: V,
+  maxSize: number,
+): void {
   map.delete(key);
   map.set(key, value);
   while (map.size > maxSize) {
@@ -739,15 +744,20 @@ export function setBoundedCacheEntry<K, V>(map: Map<K, V>, key: K, value: V, max
 type ChatsCacheEntry = { at: number; chats: Chat[] };
 const chatsCache = new Map<string, ChatsCacheEntry>();
 // Keep membership outside chat rows: history imports/upserts must not resurrect exited groups.
-const chatMembershipStorage = new VylineStorage<Record<string, boolean>>("chatMembership", () => ({}));
+const chatMembershipStorage = new VylineStorage<Record<string, boolean>>(
+  "chatMembership",
+  () => ({}),
+);
 
 async function applyKnownChatMembership(accountId: string, chats: Chat[]): Promise<Chat[]> {
   const membership = await chatMembershipStorage.load(accountId);
-  return chats.map((chat) => membership[chat.mid] === false ? { ...chat, left: true } : chat);
+  return chats.map((chat) => (membership[chat.mid] === false ? { ...chat, left: true } : chat));
 }
 
 async function rememberExitedChat(accountId: string, chatMid: string): Promise<void> {
-  await chatMembershipStorage.mutate(accountId, (membership) => { membership[chatMid] = false; });
+  await chatMembershipStorage.mutate(accountId, (membership) => {
+    membership[chatMid] = false;
+  });
 }
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
 const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
@@ -1426,10 +1436,15 @@ export async function fetchContactsBatch(
         if (mapped.thumbnailUrl) put.thumbnailUrl = mapped.thumbnailUrl;
         if (mapped.statusMessage) put.statusMessage = mapped.statusMessage;
         toPut.push(put);
-        setBoundedCacheEntry(contactProfileCache, `${accountId}:${mapped.mid}`, {
-          at: Date.now(),
-          profile: mapped,
-        }, 1_024);
+        setBoundedCacheEntry(
+          contactProfileCache,
+          `${accountId}:${mapped.mid}`,
+          {
+            at: Date.now(),
+            profile: mapped,
+          },
+          1_024,
+        );
       }
     } catch (err) {
       log.debug(
@@ -1467,10 +1482,15 @@ export async function fetchContactsBatch(
               if (mapped.thumbnailUrl) put.thumbnailUrl = mapped.thumbnailUrl;
               if (mapped.statusMessage) put.statusMessage = mapped.statusMessage;
               toPut.push(put);
-              setBoundedCacheEntry(contactProfileCache, `${accountId}:${mapped.mid}`, {
-                at: Date.now(),
-                profile: mapped,
-              }, 1_024);
+              setBoundedCacheEntry(
+                contactProfileCache,
+                `${accountId}:${mapped.mid}`,
+                {
+                  at: Date.now(),
+                  profile: mapped,
+                },
+                1_024,
+              );
             }
           }
         } catch {
@@ -1506,10 +1526,15 @@ export async function fetchContactsBatch(
       if (mapped.thumbnailUrl) put.thumbnailUrl = mapped.thumbnailUrl;
       if (mapped.statusMessage) put.statusMessage = mapped.statusMessage;
       toPut.push(put);
-      setBoundedCacheEntry(contactProfileCache, `${accountId}:${mapped.mid}`, {
-        at: Date.now(),
-        profile: mapped,
-      }, 1_024);
+      setBoundedCacheEntry(
+        contactProfileCache,
+        `${accountId}:${mapped.mid}`,
+        {
+          at: Date.now(),
+          profile: mapped,
+        },
+        1_024,
+      );
     } catch {
       /* fallback also failed — leave as MID */
     }
@@ -1869,7 +1894,12 @@ export async function fetchContactProfile(
         const bg = await fetchHomeProfileBackgroundUrl(accountId, targetMid);
         if (bg) {
           next.backgroundUrl = bg;
-          setBoundedCacheEntry(contactProfileCache, cacheKey, { at: Date.now(), profile: next }, 1_024);
+          setBoundedCacheEntry(
+            contactProfileCache,
+            cacheKey,
+            { at: Date.now(), profile: next },
+            1_024,
+          );
           return next;
         }
       } catch {
@@ -2424,7 +2454,10 @@ export type ReadReceiptsResult = {
   readSnapshotV4?: ReturnType<typeof getReadSnapshotV4>;
 };
 
-export type ReadWatermarksResult = Pick<ReadReceiptsResult, "peerReadUpTo" | "memberReadWatermarks"> & {
+export type ReadWatermarksResult = Pick<
+  ReadReceiptsResult,
+  "peerReadUpTo" | "memberReadWatermarks"
+> & {
   readSnapshotV4?: NonNullable<ReadReceiptsResult["readSnapshotV4"]>;
 };
 
@@ -2476,9 +2509,10 @@ export async function getReadReceiptsForChat(
   const receipts: ReadReceiptsResult["receipts"] = {};
   if (watermarks.readSnapshotV4 && !watermarks.readSnapshotV4.stale) {
     const intervalIndex = indexReadIntervalsV4(watermarks.readSnapshotV4.intervals);
-    const ownMid = chatMid.startsWith("c") || chatMid.startsWith("r")
-      ? await resolveMyMid(requireClient(accountId), accountId)
-      : "";
+    const ownMid =
+      chatMid.startsWith("c") || chatMid.startsWith("r")
+        ? await resolveMyMid(requireClient(accountId), accountId)
+        : "";
     for (const id of messageIds) {
       const readers = readersAtMessageV4(intervalIndex, id);
       if (chatMid.startsWith("u")) {
@@ -2651,7 +2685,9 @@ function chatFromMessageBox(
     if (typeof raw.notificationDisabled === "boolean") {
       chat.notificationDisabled = raw.notificationDisabled;
     }
-    const groupExtra = (raw.extra as { groupExtra?: { preventedJoinByTicket?: unknown } } | undefined)?.groupExtra;
+    const groupExtra = (
+      raw.extra as { groupExtra?: { preventedJoinByTicket?: unknown } } | undefined
+    )?.groupExtra;
     if (typeof groupExtra?.preventedJoinByTicket === "boolean") {
       chat.preventedJoinByTicket = groupExtra.preventedJoinByTicket;
     }
@@ -2807,7 +2843,8 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   }));
   await chatMembershipStorage.mutate(accountId, (membership) => {
     for (const chat of storedChats) {
-      if (chat.kind === "group" || chat.kind === "room") membership[chat.mid] = joinedMids.has(chat.mid);
+      if (chat.kind === "group" || chat.kind === "room")
+        membership[chat.mid] = joinedMids.has(chat.mid);
     }
     for (const box of messageBoxes) {
       const mid = String(box.id);
@@ -2926,8 +2963,12 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       ...(typeof raw.notificationDisabled === "boolean"
         ? { notificationDisabled: raw.notificationDisabled }
         : {}),
-      ...(typeof (raw.extra as { groupExtra?: { preventedJoinByTicket?: unknown } } | undefined)?.groupExtra?.preventedJoinByTicket === "boolean"
-        ? { preventedJoinByTicket: (raw.extra as { groupExtra: { preventedJoinByTicket: boolean } }).groupExtra.preventedJoinByTicket }
+      ...(typeof (raw.extra as { groupExtra?: { preventedJoinByTicket?: unknown } } | undefined)
+        ?.groupExtra?.preventedJoinByTicket === "boolean"
+        ? {
+            preventedJoinByTicket: (raw.extra as { groupExtra: { preventedJoinByTicket: boolean } })
+              .groupExtra.preventedJoinByTicket,
+          }
         : {}),
     });
     seen.add(chat.mid);
@@ -3307,21 +3348,28 @@ export async function processFetchedOperations(
     message?: unknown;
     revision?: number | bigint;
   }>,
-  afterProcessed: (events: readonly TalkPollEventPayload[]) => Promise<number[] | void> = async () => undefined,
+  afterProcessed: (
+    events: readonly TalkPollEventPayload[],
+  ) => Promise<number[] | undefined> = async () => undefined,
 ): Promise<void> {
   const stagedEvents: TalkPollEventPayload[] = [];
-  let committedSequences: number[] | void;
+  let committedSequences: number[] | undefined;
   await processOperationBatch(
     ops,
     async (op) => {
       try {
         await processSingleOperation(accountId, op, (event) => stagedEvents.push(event));
       } catch (err) {
-        log.warn({ accountId, err, opType: op.type }, "operation processing failed; sync cursor will not advance");
+        log.warn(
+          { accountId, err, opType: op.type },
+          "operation processing failed; sync cursor will not advance",
+        );
         throw err;
       }
     },
-    async () => { committedSequences = await afterProcessed(stagedEvents); },
+    async () => {
+      committedSequences = await afterProcessed(stagedEvents);
+    },
     async () => {
       for (const [index, event] of stagedEvents.entries()) {
         const seq = committedSequences?.[index];
@@ -3512,7 +3560,11 @@ export async function pollTalkEvents(
 ): Promise<{ cursor: number; events: TalkPollEvent[]; reset: boolean; seq: number }> {
   requireClient(accountId);
   const durable = await getTalkEventOutbox<TalkPollEventPayload>(accountId);
-  restoreTalkEventBuffer(accountId, durable.events.map(({ seq, event }) => ({ ...event, seq }) as TalkPollEvent), durable.seq);
+  restoreTalkEventBuffer(
+    accountId,
+    durable.events.map(({ seq, event }) => ({ ...event, seq }) as TalkPollEvent),
+    durable.seq,
+  );
   return drainTalkEvents(accountId, cursor);
 }
 
@@ -3897,7 +3949,9 @@ async function fetchMessagesInner(
   const pageCursor = opts?.beforeMessageId
     ? {
         beforeMessageId: opts.beforeMessageId,
-        ...(opts.beforeDeliveredTime != null ? { beforeDeliveredTime: opts.beforeDeliveredTime } : {}),
+        ...(opts.beforeDeliveredTime != null
+          ? { beforeDeliveredTime: opts.beforeDeliveredTime }
+          : {}),
       }
     : undefined;
   const merged = await getStoredMessages(
@@ -4319,7 +4373,12 @@ async function determinePlainMediaFlow(
         typeof res.cacheTtlMillis === "bigint"
           ? Number(res.cacheTtlMillis)
           : Number(res.cacheTtlMillis ?? 0);
-      pruneTimedCache(mediaFlowCache, (entry) => entry.expiresAt, Date.now(), MEDIA_FLOW_CACHE_MAX_SIZE);
+      pruneTimedCache(
+        mediaFlowCache,
+        (entry) => entry.expiresAt,
+        Date.now(),
+        MEDIA_FLOW_CACHE_MAX_SIZE,
+      );
       mediaFlowCache.set(key, {
         flowMap,
         expiresAt: now + Math.max(60_000, Math.min(ttl || 0, 6 * 60 * 60 * 1000)),
@@ -6124,13 +6183,23 @@ export async function getGroupCallStatus(
     const started = gc.started != null ? Number(gc.started) : Number.NaN;
     if (Number.isFinite(started)) status.started = started;
     const at = Date.now();
-    pruneTimedCache(groupCallStatusCache, (entry) => entry.at + GROUP_CALL_STATUS_CACHE_MS, at, GROUP_CALL_STATUS_CACHE_MAX_SIZE);
+    pruneTimedCache(
+      groupCallStatusCache,
+      (entry) => entry.at + GROUP_CALL_STATUS_CACHE_MS,
+      at,
+      GROUP_CALL_STATUS_CACHE_MAX_SIZE,
+    );
     groupCallStatusCache.set(key, { at, status });
     return status;
   } catch (err) {
     log.debug({ accountId, chatMid, err }, "getGroupCall failed — offline");
     const at = Date.now();
-    pruneTimedCache(groupCallStatusCache, (entry) => entry.at + GROUP_CALL_STATUS_CACHE_MS, at, GROUP_CALL_STATUS_CACHE_MAX_SIZE);
+    pruneTimedCache(
+      groupCallStatusCache,
+      (entry) => entry.at + GROUP_CALL_STATUS_CACHE_MS,
+      at,
+      GROUP_CALL_STATUS_CACHE_MAX_SIZE,
+    );
     groupCallStatusCache.set(key, { at, status: fallback });
     return fallback;
   }

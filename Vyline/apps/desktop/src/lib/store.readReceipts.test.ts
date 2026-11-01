@@ -5,7 +5,13 @@ const originalFetch = globalThis.fetch;
 
 afterEach(() => {
   globalThis.fetch = originalFetch;
-  useStore.setState({ accountId: null, chats: [], messages: [], activeChatId: null, readDisabledMids: {} });
+  useStore.setState({
+    accountId: null,
+    chats: [],
+    messages: [],
+    activeChatId: null,
+    readDisabledMids: {},
+  });
 });
 
 test("manual mark-all sends receipts even when automatic receipts are disabled", async () => {
@@ -23,15 +29,48 @@ test("manual mark-all sends receipts even when automatic receipts are disabled",
     settings: { ...state.settings, readReceipts: false },
     readDisabledMids: { "c-disabled-chat": true },
     chats: [
-      { id: "u-unread-chat", name: "DM", type: "friend", avatar: "D", color: "#000", status: "", unread: 2, lastMessagePreview: "", lastMessageTime: 1 },
-      { id: "c-disabled-chat", name: "Group", type: "group", avatar: "G", color: "#000", status: "", unread: 1, lastMessagePreview: "", lastMessageTime: 1 },
-      { id: "u-read-chat", name: "Read", type: "friend", avatar: "R", color: "#000", status: "", unread: 0, lastMessagePreview: "", lastMessageTime: 1 },
+      {
+        id: "u-unread-chat",
+        name: "DM",
+        type: "friend",
+        avatar: "D",
+        color: "#000",
+        status: "",
+        unread: 2,
+        lastMessagePreview: "",
+        lastMessageTime: 1,
+      },
+      {
+        id: "c-disabled-chat",
+        name: "Group",
+        type: "group",
+        avatar: "G",
+        color: "#000",
+        status: "",
+        unread: 1,
+        lastMessagePreview: "",
+        lastMessageTime: 1,
+      },
+      {
+        id: "u-read-chat",
+        name: "Read",
+        type: "friend",
+        avatar: "R",
+        color: "#000",
+        status: "",
+        unread: 0,
+        lastMessagePreview: "",
+        lastMessageTime: 1,
+      },
     ],
   }));
 
   await useStore.getState().markAllChatsRead();
 
   expect(requests).toHaveLength(2);
-  expect(requests.map((request) => request.body.chatMid).sort()).toEqual(["c-disabled-chat", "u-unread-chat"]);
+  expect(requests.map((request) => request.body.chatMid).sort()).toEqual([
+    "c-disabled-chat",
+    "u-unread-chat",
+  ]);
   expect(useStore.getState().chats.every((chat) => chat.unread === 0)).toBe(true);
 });

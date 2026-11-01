@@ -255,7 +255,11 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (selectedChatMidRef.current !== chatMid) return;
         if (res.ok && res.messages) {
           const asc = [...res.messages].reverse();
-          if (asc.length === 0 && messagesRef.current.some((m) => m.to === chatMid || m.from === chatMid)) return;
+          if (
+            asc.length === 0 &&
+            messagesRef.current.some((m) => m.to === chatMid || m.from === chatMid)
+          )
+            return;
           setMessages(asc);
           setHasMoreMessages(res.hasMore ?? res.messages.length >= limit);
           if (res.fromCache) setFromLocalCache(true);
@@ -296,7 +300,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         if (gen !== messagesGen.current) return;
         if (selectedChatMidRef.current !== chatMid) return;
         if (!res.ok || !res.messages || res.timedOut) {
-          window.dispatchEvent(new CustomEvent("vyline:older-messages-failed", { detail: { chatMid } }));
+          window.dispatchEvent(
+            new CustomEvent("vyline:older-messages-failed", { detail: { chatMid } }),
+          );
           // A transient request failure says nothing about whether older pages exist.
           if (targetMessageId && useStore.getState().accountId === accountId) {
             useStore.getState().showNotice("過去のメッセージを読み込めませんでした");
@@ -318,7 +324,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         setHasMoreMessages(shouldContinue);
         resolveMessageAuthors(fresh);
       } catch {
-        window.dispatchEvent(new CustomEvent("vyline:older-messages-failed", { detail: { chatMid } }));
+        window.dispatchEvent(
+          new CustomEvent("vyline:older-messages-failed", { detail: { chatMid } }),
+        );
         // Keep hasMoreMessages unchanged so the user can retry after reconnecting.
         if (targetMessageId && useStore.getState().accountId === accountId) {
           useStore.getState().showNotice("過去のメッセージを読み込めませんでした");

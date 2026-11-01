@@ -14,11 +14,17 @@ beforeAll(async () => {
     configurable: true,
     value: {
       getItem: (key: string) => values.get(key) ?? null,
-      setItem: (key: string, value: string) => { values.set(key, value); },
-      removeItem: (key: string) => { values.delete(key); },
+      setItem: (key: string, value: string) => {
+        values.set(key, value);
+      },
+      removeItem: (key: string) => {
+        values.delete(key);
+      },
     },
   });
-  ({ indexedDbStateStorage: storage, indexedDbPersistStorage: persistStorage } = await import("./indexedDbStorage.js"));
+  ({ indexedDbStateStorage: storage, indexedDbPersistStorage: persistStorage } = await import(
+    "./indexedDbStorage.js"
+  ));
   betaConsent = await import("./betaConsent.js");
   tosConsent = await import("./tosConsent.js");
 });
@@ -42,7 +48,8 @@ test("reads the legacy browser value but does not keep writing to localStorage",
 test("reads old Zustand JSON into the structured persistence shape", async () => {
   values.set("vyline:auth", JSON.stringify({ state: { activeAccountId: "offline" }, version: 0 }));
   expect(await persistStorage.getItem("vyline:auth")).toEqual({
-    state: { activeAccountId: "offline" }, version: 0,
+    state: { activeAccountId: "offline" },
+    version: 0,
   });
   await persistStorage.setItem("vyline:auth", { state: { activeAccountId: "next" }, version: 0 });
   expect(JSON.parse(values.get("vyline:auth")!).state.activeAccountId).toBe("offline");

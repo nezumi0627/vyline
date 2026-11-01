@@ -12,4 +12,3 @@ test("durable operation payload preserves BigInt and binary fields without chang
   expect(decoded[0]?.message.chunks[0]).toEqual(Buffer.from([0, 1, 254, 255]));
   expect(source.message.chunks[0]).toEqual(new Uint8Array([0, 1, 254, 255]));
 });
-

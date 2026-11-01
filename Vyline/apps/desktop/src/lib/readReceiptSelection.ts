@@ -29,9 +29,13 @@ export function findLatestReceivedMessage<T extends ReadReceiptCandidate>(
 ): T | undefined {
   let latest: T | undefined;
   for (const message of messages) {
-    if (message.chatId !== chatId || message.authorId === "me" || message.id.startsWith("pending_")) continue;
-    if (!latest || message.createdAt > latest.createdAt ||
-      (message.createdAt === latest.createdAt && compareIdsDescending(message.id, latest.id) > 0)) {
+    if (message.chatId !== chatId || message.authorId === "me" || message.id.startsWith("pending_"))
+      continue;
+    if (
+      !latest ||
+      message.createdAt > latest.createdAt ||
+      (message.createdAt === latest.createdAt && compareIdsDescending(message.id, latest.id) > 0)
+    ) {
       latest = message;
     }
   }
@@ -44,7 +48,12 @@ export function findFirstUnreadReceivedMessage<T extends ReadReceiptCandidate & 
 ): T | undefined {
   let first: T | undefined;
   for (const message of messages) {
-    if (message.chatId !== chatId || message.authorId === "me" || message.read || message.id.startsWith("pending_")) {
+    if (
+      message.chatId !== chatId ||
+      message.authorId === "me" ||
+      message.read ||
+      message.id.startsWith("pending_")
+    ) {
       continue;
     }
     if (!first || isAtOrBeforeReadPosition(message, first)) first = message;
@@ -60,8 +69,11 @@ export function findUnreadAnchorByCount<T extends ReadReceiptCandidate>(
 ): T | undefined {
   if (!Number.isFinite(unreadCount) || unreadCount <= 0) return undefined;
   const received = messages
-    .filter((message) =>
-      message.chatId === chatId && message.authorId !== "me" && !message.id.startsWith("pending_"),
+    .filter(
+      (message) =>
+        message.chatId === chatId &&
+        message.authorId !== "me" &&
+        !message.id.startsWith("pending_"),
     )
     .sort((left, right) => {
       if (left.createdAt !== right.createdAt) return left.createdAt - right.createdAt;
@@ -82,7 +94,9 @@ export function countReceivedMessages<T extends ReadReceiptCandidate>(
 }
 
 /** Preserve the anchor captured before opening marked its messages read. */
-export function resolveInitialUnreadScrollTarget<T extends ReadReceiptCandidate & { read?: boolean }>(
+export function resolveInitialUnreadScrollTarget<
+  T extends ReadReceiptCandidate & { read?: boolean },
+>(
   messages: readonly T[],
   chatId: string,
   preservedTargetId: string | null,

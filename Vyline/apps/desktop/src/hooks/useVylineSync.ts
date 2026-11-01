@@ -237,7 +237,9 @@ export function useVylineSync(enabled = true) {
       line.readyChatId === storeChatId &&
       useStore.getState().initialChatScrollPending &&
       useStore.getState().activeChatId === storeChatId;
-    const wait = resolvingInitialScroll ? 0 : Math.max(0, 300 - (Date.now() - lastHydrateAt.current));
+    const wait = resolvingInitialScroll
+      ? 0
+      : Math.max(0, 300 - (Date.now() - lastHydrateAt.current));
     if (wait === 0) {
       run();
       return;

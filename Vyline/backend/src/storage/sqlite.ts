@@ -12,7 +12,8 @@ function getDatabase(): Database {
   const dataDir = process.env.VYLINE_DATA_DIR ?? join(dir, "..", "..", "data");
   const path = join(dataDir, "vyline.sqlite");
   if (connection) {
-    if (connectionPath !== path) throw new Error("VYLINE_DATA_DIR cannot change after SQLite initialization");
+    if (connectionPath !== path)
+      throw new Error("VYLINE_DATA_DIR cannot change after SQLite initialization");
     return connection;
   }
   const durability = getSqliteDurability(process.env);
@@ -20,9 +21,9 @@ function getDatabase(): Database {
   if (process.platform !== "win32") chmodSync(dataDir, 0o700);
   const db = new Database(path);
   if (process.platform !== "win32") chmodSync(path, 0o600);
-  const journal = db.query(`PRAGMA journal_mode = ${durability.journalMode}`).get() as
-    | { journal_mode?: string }
-    | null;
+  const journal = db.query(`PRAGMA journal_mode = ${durability.journalMode}`).get() as {
+    journal_mode?: string;
+  } | null;
   if (journal?.journal_mode?.toUpperCase() !== durability.journalMode) {
     db.close();
     throw new Error(`SQLite could not enable ${durability.journalMode} journal mode`);
@@ -64,11 +65,13 @@ export function closeSqlite(): void {
 
 /** Run a legacy import exactly once and record it atomically with its writes. */
 export function migrateOnce(name: string, migrate: () => void): void {
-  sqlite.transaction(() => {
-    if (sqlite.query("SELECT 1 FROM app_migrations WHERE name = ?").get(name)) return;
-    migrate();
-    sqlite
-      .query("INSERT INTO app_migrations (name, applied_at) VALUES (?, ?)")
-      .run(name, new Date().toISOString());
-  }).immediate();
+  sqlite
+    .transaction(() => {
+      if (sqlite.query("SELECT 1 FROM app_migrations WHERE name = ?").get(name)) return;
+      migrate();
+      sqlite
+        .query("INSERT INTO app_migrations (name, applied_at) VALUES (?, ?)")
+        .run(name, new Date().toISOString());
+    })
+    .immediate();
 }

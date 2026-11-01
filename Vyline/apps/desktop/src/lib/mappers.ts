@@ -311,7 +311,11 @@ export function mapMessage(
         (mid) => _contactCache?.get(mid)?.name,
       );
       const rawEventMarker = /^\(?CHATEVENT\)?$/i.test(text?.trim() ?? "");
-      text = chatEvent ?? (!text || rawEventMarker ? systemEventLabel(m.contentType, m.contentMetadata ?? null) : text);
+      text =
+        chatEvent ??
+        (!text || rawEventMarker
+          ? systemEventLabel(m.contentType, m.contentMetadata ?? null)
+          : text);
     }
   }
 
@@ -415,7 +419,15 @@ export function mapMessage(
     originalText: m.originalText || (meta?.ORIGINAL_TEXT as string | undefined),
     history: m.history?.length ? m.history : undefined,
     ...(m.revokedSnapshot
-      ? { revokedSnapshot: mapMessage(m.revokedSnapshot, chatId, accountId, _contactCache, mediaAutoSave) }
+      ? {
+          revokedSnapshot: mapMessage(
+            m.revokedSnapshot,
+            chatId,
+            accountId,
+            _contactCache,
+            mediaAutoSave,
+          ),
+        }
       : {}),
     contact,
     location,

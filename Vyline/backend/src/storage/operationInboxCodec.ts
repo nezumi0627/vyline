@@ -16,7 +16,8 @@ function encodeValue(value: unknown, ancestors: WeakSet<object>): unknown {
     ancestors.add(value);
     const record: Record<string, unknown> = {};
     for (const [key, child] of Object.entries(value)) {
-      if (child !== undefined && typeof child !== "function") record[key] = encodeValue(child, ancestors);
+      if (child !== undefined && typeof child !== "function")
+        record[key] = encodeValue(child, ancestors);
     }
     ancestors.delete(value);
     return record;
@@ -32,7 +33,9 @@ function decodeValue(value: unknown): unknown {
   if (record[TAG] === "bytes" && typeof record.value === "string") {
     return Buffer.from(record.value, "base64");
   }
-  return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, decodeValue(child)]));
+  return Object.fromEntries(
+    Object.entries(record).map(([key, child]) => [key, decodeValue(child)]),
+  );
 }
 
 export function encodeOperationBatch(operations: readonly unknown[]): string {

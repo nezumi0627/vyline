@@ -80,7 +80,9 @@ export async function getPersistedRaw(key: string): Promise<string | null> {
       try {
         await writeIndexed(key, legacy);
         localRemove(key);
-      } catch { /* preserve and use legacy data */ }
+      } catch {
+        /* preserve and use legacy data */
+      }
     }
     return legacy;
   } catch {
@@ -115,7 +117,9 @@ export async function getPersistedValue<T>(key: string): Promise<T | null> {
     try {
       await writeIndexed(key, value);
       localRemove(key);
-    } catch { /* preserve and use legacy data */ }
+    } catch {
+      /* preserve and use legacy data */
+    }
     return value;
   } catch {
     return legacy as T;
@@ -180,7 +184,9 @@ export const indexedDbPersistStorage: PersistStorage<any> = {
       try {
         await writeIndexed(name, value);
         localRemove(name);
-      } catch { /* preserve and use legacy data */ }
+      } catch {
+        /* preserve and use legacy data */
+      }
       return value;
     } catch {
       return null;
@@ -190,10 +196,16 @@ export const indexedDbPersistStorage: PersistStorage<any> = {
     try {
       await writeIndexed(name, value);
       localRemove(name);
-    } catch { /* Keep the in-memory store usable. */ }
+    } catch {
+      /* Keep the in-memory store usable. */
+    }
   },
   async removeItem(name) {
-    try { await writeIndexed(name, null); } catch { /* remove local fallback below */ }
+    try {
+      await writeIndexed(name, null);
+    } catch {
+      /* remove local fallback below */
+    }
     localRemove(name);
   },
 };

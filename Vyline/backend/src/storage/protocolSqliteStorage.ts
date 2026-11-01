@@ -33,7 +33,9 @@ function ensureLegacyImported(accountId: string, legacyPath: string): void {
 
   migrateOnce(migrationName, () => {
     if (!legacy) return;
-    const insert = sqlite.query(`INSERT OR IGNORE INTO protocol_kv(account_id,key,value) VALUES(?,?,?)`);
+    const insert = sqlite.query(
+      "INSERT OR IGNORE INTO protocol_kv(account_id,key,value) VALUES(?,?,?)",
+    );
     for (const [key, value] of Object.entries(legacy)) {
       const serialized = JSON.stringify(value);
       if (serialized === undefined) continue;
@@ -43,20 +45,26 @@ function ensureLegacyImported(accountId: string, legacyPath: string): void {
 }
 
 export class ProtocolSqliteStorage implements BaseStorage {
-  constructor(private readonly accountId: string, private readonly legacyPath: string) {}
+  constructor(
+    private readonly accountId: string,
+    private readonly legacyPath: string,
+  ) {}
 
   async get(key: Storage["Key"]): Promise<ProtocolValue | undefined> {
     ensureLegacyImported(this.accountId, this.legacyPath);
-    const row = sqlite.query("SELECT value FROM protocol_kv WHERE account_id=? AND key=?")
+    const row = sqlite
+      .query("SELECT value FROM protocol_kv WHERE account_id=? AND key=?")
       .get(this.accountId, key) as { value: string } | null;
-    return row ? JSON.parse(row.value) as ProtocolValue : undefined;
+    return row ? (JSON.parse(row.value) as ProtocolValue) : undefined;
   }
 
   async set(key: Storage["Key"], value: ProtocolValue): Promise<void> {
     ensureLegacyImported(this.accountId, this.legacyPath);
     const serialized = JSON.stringify(value);
-    if (serialized === undefined) throw new TypeError(`Unsupported protocol storage value for key: ${key}`);
-    sqlite.query(`INSERT INTO protocol_kv(account_id,key,value) VALUES(?,?,?)
+    if (serialized === undefined)
+      throw new TypeError(`Unsupported protocol storage value for key: ${key}`);
+    sqlite
+      .query(`INSERT INTO protocol_kv(account_id,key,value) VALUES(?,?,?)
       ON CONFLICT(account_id,key) DO UPDATE SET value=excluded.value`)
       .run(this.accountId, key, serialized);
   }
@@ -73,7 +81,8 @@ export class ProtocolSqliteStorage implements BaseStorage {
 
   async migrate(target: BaseStorage): Promise<void> {
     ensureLegacyImported(this.accountId, this.legacyPath);
-    const rows = sqlite.query("SELECT key,value FROM protocol_kv WHERE account_id=? ORDER BY key")
+    const rows = sqlite
+      .query("SELECT key,value FROM protocol_kv WHERE account_id=? ORDER BY key")
       .all(this.accountId) as Array<{ key: string; value: string }>;
     for (const row of rows) await target.set(row.key, JSON.parse(row.value) as ProtocolValue);
   }

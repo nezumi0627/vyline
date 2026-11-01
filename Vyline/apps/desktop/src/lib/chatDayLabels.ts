@@ -16,11 +16,12 @@ export function createChatDayLabels(
     const key = date.getFullYear() * 10_000 + (date.getMonth() + 1) * 100 + date.getDate();
     const cached = labels.get(key);
     if (cached) return cached;
-    const label = key === today
-      ? "今日"
-      : key === yesterday
-        ? "昨日"
-        : `${date.getMonth() + 1}月${date.getDate()}日`;
+    const label =
+      key === today
+        ? "今日"
+        : key === yesterday
+          ? "昨日"
+          : `${date.getMonth() + 1}月${date.getDate()}日`;
     labels.set(key, label);
     return label;
   });
