@@ -170,20 +170,28 @@ function SidebarBase() {
     setMidNotice("");
     setMidLoading(true);
     const timer = window.setTimeout(() => {
-      void api.line.contactProfile(accountId, midQuery).then((response) => {
-        if (cancelled) return;
-        setMidProfile(response.ok && response.profile ? {
-          mid: midQuery,
-          displayName: response.profile.displayName,
-          thumbnailUrl: response.profile.thumbnailUrl,
-          statusMessage: response.profile.statusMessage,
-          backgroundUrl: response.profile.backgroundUrl,
-        } : null);
-      }).catch(() => {
-        if (!cancelled) setMidProfile(null);
-      }).finally(() => {
-        if (!cancelled) setMidLoading(false);
-      });
+      void api.line
+        .contactProfile(accountId, midQuery)
+        .then((response) => {
+          if (cancelled) return;
+          setMidProfile(
+            response.ok && response.profile
+              ? {
+                  mid: midQuery,
+                  displayName: response.profile.displayName,
+                  thumbnailUrl: response.profile.thumbnailUrl,
+                  statusMessage: response.profile.statusMessage,
+                  backgroundUrl: response.profile.backgroundUrl,
+                }
+              : null,
+          );
+        })
+        .catch(() => {
+          if (!cancelled) setMidProfile(null);
+        })
+        .finally(() => {
+          if (!cancelled) setMidLoading(false);
+        });
     }, 350);
     return () => {
       cancelled = true;
@@ -377,8 +385,16 @@ function SidebarBase() {
                   if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
                   setBlockBusy(true);
                   const req = isBlocked
-                    ? api.line.unblockContact(accountId, mid, streamerSettings.betaBlockedListSqliteSync)
-                    : api.line.blockContact(accountId, mid, streamerSettings.betaBlockedListSqliteSync);
+                    ? api.line.unblockContact(
+                        accountId,
+                        mid,
+                        streamerSettings.betaBlockedListSqliteSync,
+                      )
+                    : api.line.blockContact(
+                        accountId,
+                        mid,
+                        streamerSettings.betaBlockedListSqliteSync,
+                      );
                   void req
                     .then((res) => {
                       if (!res.ok) {
@@ -532,7 +548,9 @@ function SidebarBase() {
 
       {midQuery && midQuery !== self.mid && (
         <div className="mx-3 mb-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
-          {midLoading && <p className="text-xs text-[var(--vy-text-dim)]">MIDからプロフィールを検索中…</p>}
+          {midLoading && (
+            <p className="text-xs text-[var(--vy-text-dim)]">MIDからプロフィールを検索中…</p>
+          )}
           {midProfile && (
             <button
               type="button"
@@ -540,16 +558,33 @@ function SidebarBase() {
               aria-label={`${midProfile.displayName || "名前未設定"}のプロフィールを表示`}
               className="flex w-full items-center gap-3 rounded-lg text-left outline-none transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
             >
-              <Avatar glyph={midProfile.displayName?.slice(0, 1) || "?"} imageUrl={midProfile.thumbnailUrl} color="var(--vy-accent)" size={42} />
+              <Avatar
+                glyph={midProfile.displayName?.slice(0, 1) || "?"}
+                imageUrl={midProfile.thumbnailUrl}
+                color="var(--vy-accent)"
+                size={42}
+              />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-semibold">{midProfile.displayName || "名前未設定"}</span>
-                <span className="block truncate font-mono text-[0.65rem] text-[var(--vy-text-dim)]">{midProfile.mid}</span>
+                <span className="block truncate text-sm font-semibold">
+                  {midProfile.displayName || "名前未設定"}
+                </span>
+                <span className="block truncate font-mono text-[0.65rem] text-[var(--vy-text-dim)]">
+                  {midProfile.mid}
+                </span>
               </span>
-              <span className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs">プロフィール</span>
+              <span className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs">
+                プロフィール
+              </span>
             </button>
           )}
-          {midNotice && <p role="status" className="mt-2 text-xs text-[var(--vy-text-dim)]">{midNotice}</p>}
-          {!midLoading && !midProfile && !midNotice && <p className="text-xs text-[var(--vy-text-dim)]">プロフィールを取得できませんでした</p>}
+          {midNotice && (
+            <p role="status" className="mt-2 text-xs text-[var(--vy-text-dim)]">
+              {midNotice}
+            </p>
+          )}
+          {!midLoading && !midProfile && !midNotice && (
+            <p className="text-xs text-[var(--vy-text-dim)]">プロフィールを取得できませんでした</p>
+          )}
         </div>
       )}
 
@@ -662,13 +697,16 @@ function SidebarBase() {
             if (!accountId || midAddBusy) return;
             setMidAddBusy(true);
             setMidNotice("");
-            void api.line.addFriendByMid(accountId, midProfile.mid)
+            void api.line
+              .addFriendByMid(accountId, midProfile.mid)
               .then(async (response) => {
                 if (!response.ok) throw new Error(response.error ?? "追加できませんでした");
                 setMidNotice("友だち追加を依頼しました");
                 await refreshChats();
               })
-              .catch((error) => setMidNotice(error instanceof Error ? error.message : "友だち追加に失敗しました"))
+              .catch((error) =>
+                setMidNotice(error instanceof Error ? error.message : "友だち追加に失敗しました"),
+              )
               .finally(() => setMidAddBusy(false));
           }}
         />
@@ -854,7 +892,11 @@ const ChatRow = memo(function ChatRow({
             <span
               className={cn(
                 "vy-sidebar-preview truncate",
-                active ? "opacity-90" : hasUrlPreview ? "font-medium text-[var(--vy-text)]" : "text-[var(--vy-text-dim)]",
+                active
+                  ? "opacity-90"
+                  : hasUrlPreview
+                    ? "font-medium text-[var(--vy-text)]"
+                    : "text-[var(--vy-text-dim)]",
               )}
               title={hasUrlPreview ? previewText : undefined}
             >

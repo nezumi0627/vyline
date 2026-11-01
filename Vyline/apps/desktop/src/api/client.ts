@@ -191,7 +191,12 @@ export const api = {
       ),
   },
   agentI: {
-    chat: async (accountId: string, prompt: string, history?: AgentIHistoryItem[], authMode: "anonymous" | "authenticated" = "anonymous") => {
+    chat: async (
+      accountId: string,
+      prompt: string,
+      history?: AgentIHistoryItem[],
+      authMode: "anonymous" | "authenticated" = "anonymous",
+    ) => {
       await requireAgentIConsent();
       return request<{ ok: boolean; text?: string; error?: string }>(
         "POST",
@@ -513,7 +518,11 @@ export const api = {
     contactProfile: (accountId: string, targetMid: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/contact/${targetMid}`),
     addFriendByMid: (accountId: string, mid: string) =>
-      request<{ ok: boolean; error?: string }>("POST", `/line/${accountId}/contacts/${encodeURIComponent(mid)}/add`, {}),
+      request<{ ok: boolean; error?: string }>(
+        "POST",
+        `/line/${accountId}/contacts/${encodeURIComponent(mid)}/add`,
+        {},
+      ),
 
     /** Vyline プロフィール/グループキャッシュ */
     vylineCache: (accountId: string) =>
@@ -713,7 +722,12 @@ export const api = {
         error?: string;
       }>("POST", `/line/${accountId}/block-verification`, mid ? { mid } : {}),
 
-    createGroup: (accountId: string, name: string, memberMids: string[], mode: "group" | "room" = "group") =>
+    createGroup: (
+      accountId: string,
+      name: string,
+      memberMids: string[],
+      mode: "group" | "room" = "group",
+    ) =>
       request<{
         ok: boolean;
         chat?: { chatMid: string; name: string };
@@ -723,22 +737,45 @@ export const api = {
       }>("POST", `/line/${accountId}/chats/create-group`, { name, memberMids, mode }),
 
     updateChatName: (accountId: string, chatMid: string, name: string) =>
-      request<{ ok: boolean; error?: string }>("PATCH", `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}`, { name }),
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}`,
+        { name },
+      ),
 
-    updateChatPicture: (accountId: string, chatMid: string, bytes: ArrayBuffer, mime = "image/jpeg") =>
-      fetch(`${BASE}/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/picture`, {
-        method: "POST", headers: { "Content-Type": mime }, body: bytes,
-      }).then(async (res) => {
-        const result = await res.json() as { ok: boolean; error?: string };
-        if (!res.ok || !result.ok) throw new Error(result.error ?? `画像の更新に失敗しました (${res.status})`);
+    updateChatPicture: (
+      accountId: string,
+      chatMid: string,
+      bytes: ArrayBuffer,
+      mime = "image/jpeg",
+    ) =>
+      fetch(
+        `${BASE}/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/picture`,
+        {
+          method: "POST",
+          headers: { "Content-Type": mime },
+          body: bytes,
+        },
+      ).then(async (res) => {
+        const result = (await res.json()) as { ok: boolean; error?: string };
+        if (!res.ok || !result.ok)
+          throw new Error(result.error ?? `画像の更新に失敗しました (${res.status})`);
         return result;
       }),
 
     updateGroupNotifications: (accountId: string, chatMid: string, disabled: boolean) =>
-      request<{ ok: boolean; error?: string }>("PATCH", `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`, { notificationDisabled: disabled }),
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`,
+        { notificationDisabled: disabled },
+      ),
 
     updateGroupInviteTicket: (accountId: string, chatMid: string, prevented: boolean) =>
-      request<{ ok: boolean; error?: string }>("PATCH", `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`, { preventedJoinByTicket: prevented }),
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`,
+        { preventedJoinByTicket: prevented },
+      ),
 
     featureLocks: (accountId: string) =>
       request<{
@@ -806,10 +843,14 @@ export const api = {
 
     /** 既読にする */
     markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean; lastMessageId?: string; error?: string }>("POST", `/line/${accountId}/read`, {
-        chatMid,
-        lastMessageId,
-      }),
+      request<{ ok: boolean; lastMessageId?: string; error?: string }>(
+        "POST",
+        `/line/${accountId}/read`,
+        {
+          chatMid,
+          lastMessageId,
+        },
+      ),
 
     /** 自分の送信メッセージの既読状態（軽量） */
     readReceipts: (
@@ -829,14 +870,15 @@ export const api = {
     },
 
     linkPreview: (accountId: string, url: string) =>
-      request<{ ok: boolean; preview: { title: string; description: string; site: string; imageId?: string } | null }>(
-        "POST",
-        `/line/${encodeURIComponent(accountId)}/link-preview`,
-        { url },
-      ),
+      request<{
+        ok: boolean;
+        preview: { title: string; description: string; site: string; imageId?: string } | null;
+      }>("POST", `/line/${encodeURIComponent(accountId)}/link-preview`, { url }),
 
     linkPreviewImage: (accountId: string, imageId: string) =>
-      requestBlob(`/line/${encodeURIComponent(accountId)}/link-preview/image/${encodeURIComponent(imageId)}`),
+      requestBlob(
+        `/line/${encodeURIComponent(accountId)}/link-preview/image/${encodeURIComponent(imageId)}`,
+      ),
 
     /** Talk Push バッファから新着取得 */
     pollEvents: (accountId: string, cursor = 0) =>
@@ -1217,19 +1259,20 @@ export const api = {
   debug: {
     health: () => request<{ ok: boolean; uptime: number }>("GET", "/debug/health"),
 
-    vylineStatus: () => request<{
-      ok: boolean;
-      profileVersion?: string;
-      installedVersion?: string | null;
-      method?: string;
-      deviceMode?: string;
-      device?: string;
-      systemName?: string;
-      systemVersion?: string;
-      ntSuffix?: string;
-      userAgent?: string;
-      xLineApplication?: string;
-    }>("GET", "/debug/vyline/status"),
+    vylineStatus: () =>
+      request<{
+        ok: boolean;
+        profileVersion?: string;
+        installedVersion?: string | null;
+        method?: string;
+        deviceMode?: string;
+        device?: string;
+        systemName?: string;
+        systemVersion?: string;
+        ntSuffix?: string;
+        userAgent?: string;
+        xLineApplication?: string;
+      }>("GET", "/debug/vyline/status"),
 
     tokens: () => request<{ ok: boolean; tokens: Record<string, unknown> }>("GET", "/debug/tokens"),
   },

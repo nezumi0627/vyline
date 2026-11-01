@@ -76,7 +76,8 @@ export function useVirtualList<T>({
     if (!el) return;
     const previous = previousAnchor.current;
     const priorLayout = previousLayout.current;
-    const layoutChanged = priorLayout !== null &&
+    const layoutChanged =
+      priorLayout !== null &&
       (priorLayout.rows !== rows || priorLayout.offsets !== offsets.offsets);
     if (layoutChanged && previous?.atBottom) {
       const bottom = Math.max(0, el.scrollHeight - el.clientHeight);
@@ -117,7 +118,7 @@ export function useVirtualList<T>({
     if (!el) return;
     const updateViewportHeight = () => {
       const nextHeight = el.clientHeight;
-      setViewportHeight((current) => current === nextHeight ? current : nextHeight);
+      setViewportHeight((current) => (current === nextHeight ? current : nextHeight));
     };
     updateViewportHeight();
     if (typeof ResizeObserver === "undefined") return;

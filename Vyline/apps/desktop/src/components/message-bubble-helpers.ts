@@ -1,6 +1,8 @@
 export function mentionLabel(value: string, all?: boolean, name?: string): string {
   if (all) return "ALL";
-  const visible = value.replace(/^@/, "").replace(/[\s\u2800\u200B-\u200D\u2060\uFEFF\uFFFC]/gu, "");
+  const visible = value
+    .replace(/^@/, "")
+    .replace(/(?:[\s\u2800\u200B\u200C\u2060\uFEFF\uFFFC]|\u200D)/gu, "");
   return visible ? value.replace(/^@/, "") : name || "メンバー";
 }
 

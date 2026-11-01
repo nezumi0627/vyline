@@ -172,11 +172,22 @@ function FlexBoxNode({ c, parentLayout }: { c: FlexComponent; parentLayout: Flex
   return (
     <div
       className={cls}
-      style={{ ...boxStyle(c), ...marginStyle(c, parentLayout), ...flexStyle(c.flex, parentLayout), ...cp.style }}
+      style={{
+        ...boxStyle(c),
+        ...marginStyle(c, parentLayout),
+        ...flexStyle(c.flex, parentLayout),
+        ...cp.style,
+      }}
       onClick={cp.onClick}
     >
       {(Array.isArray(c.contents) ? c.contents : []).map((ch, i) => (
-        <FlexNode key={i} c={ch} parentLayout={c.layout === "horizontal" || c.layout === "baseline" ? c.layout : "vertical"} />
+        <FlexNode
+          key={i}
+          c={ch}
+          parentLayout={
+            c.layout === "horizontal" || c.layout === "baseline" ? c.layout : "vertical"
+          }
+        />
       ))}
     </div>
   );
@@ -203,11 +214,11 @@ function FlexTextNode({ c, parentLayout }: { c: FlexComponent; parentLayout: Fle
   const pStyle: CSSProperties = {};
   if (maxLines) {
     Object.assign(pStyle, {
-        display: "-webkit-box",
-        WebkitLineClamp: maxLines,
-        WebkitBoxOrient: "vertical",
-        whiteSpace: "normal",
-        overflow: "hidden",
+      display: "-webkit-box",
+      WebkitLineClamp: maxLines,
+      WebkitBoxOrient: "vertical",
+      whiteSpace: "normal",
+      overflow: "hidden",
     });
   }
   const lineSpacing = /^\d+(?:\.\d+)?px$/.exec(String(c.lineSpacing ?? ""));
@@ -300,12 +311,19 @@ function FlexIconNode({ c, parentLayout }: { c: FlexComponent; parentLayout: Fle
   const cp = clickProps(c.action);
   return (
     <div
-      className={cn("MdIco", EX_SIZE[c.size as string] ?? "ExMd", c.flex != null ? flexCls(c.flex) : undefined, GRV[c.gravity as string], positionClass(c))}
+      className={cn(
+        "MdIco",
+        EX_SIZE[c.size as string] ?? "ExMd",
+        c.flex != null ? flexCls(c.flex) : undefined,
+        GRV[c.gravity as string],
+        positionClass(c),
+      )}
       style={{
         ...marginStyle(c, parentLayout),
         ...flexStyle(c.flex, parentLayout),
         ...offsetStyle(c),
-        fontSize: c.scaling === true ? scaledFontSize(c.size as string | undefined, true) : undefined,
+        fontSize:
+          c.scaling === true ? scaledFontSize(c.size as string | undefined, true) : undefined,
         ...cp.style,
       }}
       onClick={cp.onClick}
@@ -327,7 +345,14 @@ function FlexButtonNode({ c, parentLayout }: { c: FlexComponent; parentLayout: F
     positionClass(c),
   );
   return (
-    <div className={cls} style={{ ...marginStyle(c, parentLayout), ...flexStyle(c.flex, parentLayout), ...offsetStyle(c) }}>
+    <div
+      className={cls}
+      style={{
+        ...marginStyle(c, parentLayout),
+        ...flexStyle(c.flex, parentLayout),
+        ...offsetStyle(c),
+      }}
+    >
       <a
         onClick={(e) => {
           e.preventDefault();
@@ -345,11 +370,19 @@ function FlexButtonNode({ c, parentLayout }: { c: FlexComponent; parentLayout: F
   );
 }
 
-function FlexSeparatorNode({ c, horizontal, parentLayout }: { c: FlexComponent; horizontal: boolean; parentLayout: FlexLayout }) {
+function FlexSeparatorNode({
+  c,
+  horizontal,
+  parentLayout,
+}: { c: FlexComponent; horizontal: boolean; parentLayout: FlexLayout }) {
   return (
     <div
       className={cn("MdSep", horizontal ? "MdSepB" : undefined, positionClass(c))}
-      style={{ borderColor: (c.color as string) || "#d4d6da", ...marginStyle(c, parentLayout), ...offsetStyle(c) }}
+      style={{
+        borderColor: (c.color as string) || "#d4d6da",
+        ...marginStyle(c, parentLayout),
+        ...offsetStyle(c),
+      }}
     />
   );
 }
@@ -372,10 +405,7 @@ function FlexVideoNode({ c, parentLayout }: { c: FlexComponent; parentLayout: Fl
     );
   }
   return (
-    <div
-      className={positionClass(c)}
-      style={wrapperStyle}
-    >
+    <div className={positionClass(c)} style={wrapperStyle}>
       <video
         src={String(c.url ?? "")}
         poster={c.previewUrl ? String(c.previewUrl) : undefined}
@@ -391,7 +421,10 @@ function FlexVideoNode({ c, parentLayout }: { c: FlexComponent; parentLayout: Fl
   );
 }
 
-function FlexNode({ c, parentLayout = "vertical" }: { c: FlexComponent; parentLayout?: FlexLayout }) {
+function FlexNode({
+  c,
+  parentLayout = "vertical",
+}: { c: FlexComponent; parentLayout?: FlexLayout }) {
   switch (c.type) {
     case "box":
       return <FlexBoxNode c={c} parentLayout={parentLayout} />;

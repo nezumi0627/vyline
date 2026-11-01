@@ -234,10 +234,14 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "TalkService.updateChat: NOTIFICATION_SETTING または PREVENTED_JOIN_BY_TICKET",
       tags: ["chats"],
       params: [acc, chatMid],
-      requestBody: body([], {
-        notificationDisabled: { type: "boolean" },
-        preventedJoinByTicket: { type: "boolean" },
-      }, "2項目のうち1つだけ指定"),
+      requestBody: body(
+        [],
+        {
+          notificationDisabled: { type: "boolean" },
+          preventedJoinByTicket: { type: "boolean" },
+        },
+        "2項目のうち1つだけ指定",
+      ),
       responses: { "200": okRes() },
     },
   ],
@@ -434,7 +438,8 @@ const routes: Array<[string, Method, OpSpec]> = [
     {
       op: "fetchLinkPreview",
       summary: "URLプレビュー取得",
-      description: "Vyline 拡張。公開HTTP(S) URLのOpen Graph/Twitter Card情報を取得し、安全な画像キャッシュを返す",
+      description:
+        "Vyline 拡張。公開HTTP(S) URLのOpen Graph/Twitter Card情報を取得し、安全な画像キャッシュを返す",
       tags: ["messages"],
       params: [acc],
       requestBody: body(["url"], { url: { type: "string", format: "uri", maxLength: 2048 } }),
@@ -735,7 +740,8 @@ const routes: Array<[string, Method, OpSpec]> = [
     {
       op: "deleteFriend",
       summary: "友だちリストから削除",
-      description: "LINE: TalkService.updateContactSetting(CONTACT_SETTING_DELETE)。トーク履歴は削除しない。",
+      description:
+        "LINE: TalkService.updateContactSetting(CONTACT_SETTING_DELETE)。トーク履歴は削除しない。",
       tags: ["contacts"],
       params: [acc, pathParam("mid", "対象ユーザー MID")],
       responses: { "200": okRes(), "400": jsonRes("user MID required") },

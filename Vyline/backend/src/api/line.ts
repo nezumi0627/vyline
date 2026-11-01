@@ -25,7 +25,12 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { childLogger } from "../logger.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
-import { deleteRevokedMessage, filterLocallyDeletedMessages, rebuildAccountChatDb, searchStoredMessages } from "../storage/chatStore.js";
+import {
+  deleteRevokedMessage,
+  filterLocallyDeletedMessages,
+  rebuildAccountChatDb,
+  searchStoredMessages,
+} from "../storage/chatStore.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
@@ -331,7 +336,10 @@ function handleError(err: unknown, c: Context<any, any, any>) {
     );
   }
   if (code === "MESSAGE_NOT_OWNED" || message.toUpperCase().includes("MESSAGE_NOT_OWNED")) {
-    return c.json({ ok: false, error: "自分が送信したメッセージのみ取り消せます。", code: "MESSAGE_NOT_OWNED" }, 403);
+    return c.json(
+      { ok: false, error: "自分が送信したメッセージのみ取り消せます。", code: "MESSAGE_NOT_OWNED" },
+      403,
+    );
   }
   const isTimeout =
     message.includes("timed out") ||
@@ -352,24 +360,35 @@ function handleError(err: unknown, c: Context<any, any, any>) {
 
 async function handleSendError(err: unknown, c: Context<any, any, any>) {
   const message = err instanceof Error ? err.message : String(err);
-  const code = err && typeof err === "object" && "code" in err
-    ? String((err as { code?: unknown }).code ?? "")
-    : "";
+  const code =
+    err && typeof err === "object" && "code" in err
+      ? String((err as { code?: unknown }).code ?? "")
+      : "";
   if (/ABUSE_BLOCK|RATE_LIMIT|TOO_MANY_REQUESTS|TOO MANY REQUESTS/i.test(`${code} ${message}`)) {
     return c.json(
-      { ok: false, error: "送信が制限されています。再送を停止しました。", deliveryStatus: "restricted" },
+      {
+        ok: false,
+        error: "送信が制限されています。再送を停止しました。",
+        deliveryStatus: "restricted",
+      },
       429,
     );
   }
   const response = handleError(err, c);
   if (response.status < 500) {
-    const body = await response.clone().json().catch(() => null);
+    const body = await response
+      .clone()
+      .json()
+      .catch(() => null);
     return c.json(
       { ...(body && typeof body === "object" ? body : {}), deliveryStatus: "rejected" },
       response.status as 400 | 401 | 403 | 404 | 409 | 413 | 422 | 429,
     );
   }
-  const body = await response.clone().json().catch(() => null);
+  const body = await response
+    .clone()
+    .json()
+    .catch(() => null);
   return c.json(
     { ...(body && typeof body === "object" ? body : {}), deliveryStatus: "unknown" },
     response.status as 500 | 502 | 504,
@@ -450,8 +469,11 @@ lineRouter.get("/:accountId/messages/:chatMid", async (c) => {
     }
     if (force) fetchOpts.force = true;
     if (localOnly) fetchOpts.localOnly = true;
-    const messages = await filterLocallyDeletedMessages(accountId, chatMid,
-      await fetchMessages(accountId, chatMid, limit, fetchOpts));
+    const messages = await filterLocallyDeletedMessages(
+      accountId,
+      chatMid,
+      await fetchMessages(accountId, chatMid, limit, fetchOpts),
+    );
     return c.json({
       ok: true,
       messages,
@@ -508,12 +530,27 @@ lineRouter.get("/:accountId/events/poll", async (c) => {
       reset,
       seq,
     } = await pollTalkEvents(accountId, Number.isFinite(cursor) ? cursor : 0);
-    const visible = await Promise.all(events.map(async (event) => {
-      const id = event.kind === "message" ? event.message.id : "messageId" in event ? event.messageId : undefined;
-      if (!id) return event;
-      return (await filterLocallyDeletedMessages(accountId, event.chatMid, [{ id }])).length ? event : null;
-    }));
-    return c.json({ ok: true, cursor: next, events: visible.filter((event) => event !== null), reset, seq });
+    const visible = await Promise.all(
+      events.map(async (event) => {
+        const id =
+          event.kind === "message"
+            ? event.message.id
+            : "messageId" in event
+              ? event.messageId
+              : undefined;
+        if (!id) return event;
+        return (await filterLocallyDeletedMessages(accountId, event.chatMid, [{ id }])).length
+          ? event
+          : null;
+      }),
+    );
+    return c.json({
+      ok: true,
+      cursor: next,
+      events: visible.filter((event) => event !== null),
+      reset,
+      seq,
+    });
   } catch (err) {
     return handleError(err, c);
   }
@@ -534,8 +571,11 @@ lineRouter.get("/:accountId/messages/:chatMid/delta", async (c) => {
   }
 
   try {
-    const messages = await filterLocallyDeletedMessages(accountId, chatMid,
-      await fetchMessagesSince(accountId, chatMid, after, limit));
+    const messages = await filterLocallyDeletedMessages(
+      accountId,
+      chatMid,
+      await fetchMessagesSince(accountId, chatMid, after, limit),
+    );
     return c.json({ ok: true, messages });
   } catch (err) {
     return handleError(err, c);
@@ -568,7 +608,8 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
       });
     }
     const { bytes, contentType } = await fetchMessageMedia(accountId, chatMid, messageId, preview);
-    if (shouldSave) await writeMediaStorage(accountId, chatMid, messageId, bytes, contentType, preview);
+    if (shouldSave)
+      await writeMediaStorage(accountId, chatMid, messageId, bytes, contentType, preview);
     return new Response(bytes as unknown as BodyInit, {
       status: 200,
       headers: {
@@ -602,8 +643,11 @@ lineRouter.get("/:accountId/export/:chatMid", async (c) => {
   }
 
   try {
-    const messages = await filterLocallyDeletedMessages(accountId, chatMid,
-      await fetchMessages(accountId, chatMid, limit));
+    const messages = await filterLocallyDeletedMessages(
+      accountId,
+      chatMid,
+      await fetchMessages(accountId, chatMid, limit),
+    );
     const stamp = new Date().toISOString().replace(/[:.]/g, "-");
     const filename = `vyline-${chatMid.slice(0, 12)}-${stamp}.${format}`;
 
@@ -660,7 +704,9 @@ lineRouter.post("/:accountId/contacts/:mid/add", async (c) => {
   const client = getClient(accountId);
   if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
   try {
-    const body: { reference?: string } = await c.req.json<{ reference?: string }>().catch(() => ({}));
+    const body: { reference?: string } = await c.req
+      .json<{ reference?: string }>()
+      .catch(() => ({}));
     const result = await addFriendByMid(accountId, client, {
       userMid: mid,
       ...(body.reference ? { reference: body.reference } : {}),
@@ -996,9 +1042,14 @@ lineRouter.post("/:accountId/restore", async (c) => {
 
 lineRouter.delete("/:accountId/messages/:chatMid/:messageId", async (c) => {
   try {
-    const result = await deleteRevokedMessage(c.req.param("accountId"), c.req.param("chatMid"), c.req.param("messageId"));
+    const result = await deleteRevokedMessage(
+      c.req.param("accountId"),
+      c.req.param("chatMid"),
+      c.req.param("messageId"),
+    );
     if (result === "not-found") return c.json({ ok: false, error: "message not found" }, 404);
-    if (result === "not-revoked") return c.json({ ok: false, error: "message is not revoked" }, 409);
+    if (result === "not-revoked")
+      return c.json({ ok: false, error: "message is not revoked" }, 409);
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
@@ -1334,7 +1385,8 @@ lineRouter.patch("/:accountId/chats/:chatMid/settings", async (c) => {
     return c.json({ ok: false, error: "provide exactly one supported setting" }, 400);
   }
   try {
-    if (hasNotification) await updateGroupNotifications(accountId, chatMid, body.notificationDisabled!);
+    if (hasNotification)
+      await updateGroupNotifications(accountId, chatMid, body.notificationDisabled!);
     else await updateGroupJoinTicket(accountId, chatMid, body.preventedJoinByTicket!);
     return c.json({ ok: true });
   } catch (err) {
@@ -1498,7 +1550,12 @@ lineRouter.post("/:accountId/chats/create-group", async (c) => {
     return c.json({ ok: false, error: "mode must be group or room" }, 400);
   }
   try {
-    const chat = await createGroupChat(accountId, body.name ?? "グループ", body.memberMids, body.mode);
+    const chat = await createGroupChat(
+      accountId,
+      body.name ?? "グループ",
+      body.memberMids,
+      body.mode,
+    );
     return c.json({ ok: true, chat });
   } catch (err) {
     return handleError(err, c);
@@ -1659,7 +1716,8 @@ lineRouter.post("/:accountId/call/end", async (c) => {
   if (!body.sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
   try {
     const current = await getDirectCallStatus(body.sessionId);
-    if (!current || current.accountId !== accountId) return c.json({ ok: false, error: "call not found" }, 404);
+    if (!current || current.accountId !== accountId)
+      return c.json({ ok: false, error: "call not found" }, 404);
     await stopDirectCall(body.sessionId);
     return c.json({ ok: true });
   } catch (err) {
@@ -1672,7 +1730,8 @@ lineRouter.get("/:accountId/call/status", async (c) => {
   const sessionId = c.req.query("sessionId");
   if (!sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
   const session = await getDirectCallStatus(sessionId);
-  if (!session || session.accountId !== accountId) return c.json({ ok: false, error: "not found" }, 404);
+  if (!session || session.accountId !== accountId)
+    return c.json({ ok: false, error: "not found" }, 404);
   return c.json({ ok: true, session });
 });
 
@@ -1681,7 +1740,8 @@ lineRouter.post("/:accountId/call/ws-ticket", async (c) => {
   const body = await c.req.json<{ sessionId?: string }>().catch((): { sessionId?: string } => ({}));
   if (!body.sessionId) return c.json({ ok: false, error: "sessionId required" }, 400);
   const session = await getDirectCallStatus(body.sessionId);
-  if (!session || session.accountId !== accountId) return c.json({ ok: false, error: "call not found" }, 404);
+  if (!session || session.accountId !== accountId)
+    return c.json({ ok: false, error: "call not found" }, 404);
   const { createCallWsTicket } = await import("../call/callWsTicket.js");
   return c.json({ ok: true, ticket: createCallWsTicket(accountId, body.sessionId) });
 });

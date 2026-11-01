@@ -11,7 +11,7 @@ test("blank mention placeholders use the resolved name", () => {
 });
 
 test("call durations roll seconds into minutes and hours", () => {
-  for (const value of [undefined, 0, -1, NaN, Infinity]) {
+  for (const value of [undefined, 0, -1, Number.NaN, Number.POSITIVE_INFINITY]) {
     expect(formatCallDuration(value)).toBeNull();
   }
   expect(formatCallDuration(9)).toBe("9秒");

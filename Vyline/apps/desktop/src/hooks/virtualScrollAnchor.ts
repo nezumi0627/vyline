@@ -7,7 +7,11 @@ export function adjustScrollTopForAnchor(
   return Math.max(0, scrollTop + nextAnchorTop - previousAnchorTop);
 }
 
-export function isAtScrollEnd(scrollHeight: number, clientHeight: number, scrollTop: number): boolean {
+export function isAtScrollEnd(
+  scrollHeight: number,
+  clientHeight: number,
+  scrollTop: number,
+): boolean {
   // A small tolerance covers fractional CSS pixels without stealing a user's
   // intentional scroll just above the newest message.
   return scrollHeight - clientHeight - scrollTop <= 1;

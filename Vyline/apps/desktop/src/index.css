@@ -314,13 +314,27 @@ html.vy-compact {
   font-size: 94%;
 }
 /* Scale typography utilities only. Keep rem-based layout dimensions stable. */
-.text-xs { font-size: calc(0.75rem * var(--vy-font-scale, 1)) !important; }
-.text-sm { font-size: calc(0.875rem * var(--vy-font-scale, 1)) !important; }
-.text-base { font-size: calc(1rem * var(--vy-font-scale, 1)) !important; }
-.text-lg { font-size: calc(1.125rem * var(--vy-font-scale, 1)) !important; }
-.text-xl { font-size: calc(1.25rem * var(--vy-font-scale, 1)) !important; }
-.text-2xl { font-size: calc(1.5rem * var(--vy-font-scale, 1)) !important; }
-.text-3xl { font-size: calc(1.875rem * var(--vy-font-scale, 1)) !important; }
+.text-xs {
+  font-size: calc(0.75rem * var(--vy-font-scale, 1)) !important;
+}
+.text-sm {
+  font-size: calc(0.875rem * var(--vy-font-scale, 1)) !important;
+}
+.text-base {
+  font-size: calc(1rem * var(--vy-font-scale, 1)) !important;
+}
+.text-lg {
+  font-size: calc(1.125rem * var(--vy-font-scale, 1)) !important;
+}
+.text-xl {
+  font-size: calc(1.25rem * var(--vy-font-scale, 1)) !important;
+}
+.text-2xl {
+  font-size: calc(1.5rem * var(--vy-font-scale, 1)) !important;
+}
+.text-3xl {
+  font-size: calc(1.875rem * var(--vy-font-scale, 1)) !important;
+}
 html.vy-compact .vy-msg-stack-gap {
   margin-top: 0.2rem !important;
 }
