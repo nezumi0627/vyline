@@ -113,8 +113,10 @@ function broadcastState(call: ManagedCall) {
 
 function broadcastPcm(call: ManagedCall, pcm: ArrayBuffer) {
   for (const ws of call.wsClients) {
-    const bufferedAmount = (ws as ServerWebSocket<CallWsData> & { getBufferedAmount?: () => number })
-      .getBufferedAmount?.() ?? 0;
+    const bufferedAmount =
+      (
+        ws as ServerWebSocket<CallWsData> & { getBufferedAmount?: () => number }
+      ).getBufferedAmount?.() ?? 0;
     if (bufferedAmount > MAX_WS_AUDIO_BUFFER_BYTES) {
       call.wsClients.delete(ws);
       try {

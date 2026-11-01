@@ -77,36 +77,37 @@ let legacyImported = false;
 function ensureLegacyImported(): void {
   if (legacyImported) return;
   ensureSchema();
-  if (existsSync(TOKENS_FILE)) migrateOnce("tokens-json-v2", () => {
-    const entries = JSON.parse(readFileSync(TOKENS_FILE, "utf8")) as TokenMap;
-    const insert = sqlite.query(`
+  if (existsSync(TOKENS_FILE))
+    migrateOnce("tokens-json-v2", () => {
+      const entries = JSON.parse(readFileSync(TOKENS_FILE, "utf8")) as TokenMap;
+      const insert = sqlite.query(`
       INSERT OR IGNORE INTO account_tokens (
         account_id, auth_token, storage_file, saved_at, mid, display_name, picture_path,
         status_message, premium_active, premium_plan_type, premium_plan_is_number,
         premium_valid_until, premium_on_free_trial, premium_will_expire
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const [accountId, entry] of Object.entries(entries)) {
-      if (typeof entry?.authToken !== "string" || !entry.authToken) continue;
-      const premium = entry.premium;
-      insert.run(
-        accountId,
-        entry.authToken,
-        entry.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
-        entry.savedAt ?? new Date().toISOString(),
-        entry.mid ?? null,
-        entry.displayName ?? null,
-        entry.picturePath ?? null,
-        entry.statusMessage ?? null,
-        premium ? (premium.active ? 1 : 0) : null,
-        premium?.planType == null ? null : String(premium.planType),
-        typeof premium?.planType === "number" ? 1 : 0,
-        premium?.validUntil ?? null,
-        premium?.onFreeTrial == null ? null : premium.onFreeTrial ? 1 : 0,
-        premium?.willExpire == null ? null : premium.willExpire ? 1 : 0,
-      );
-    }
-  });
+      for (const [accountId, entry] of Object.entries(entries)) {
+        if (typeof entry?.authToken !== "string" || !entry.authToken) continue;
+        const premium = entry.premium;
+        insert.run(
+          accountId,
+          entry.authToken,
+          entry.storageFile ?? join(DATA_DIR, `storage-${accountId}.json`),
+          entry.savedAt ?? new Date().toISOString(),
+          entry.mid ?? null,
+          entry.displayName ?? null,
+          entry.picturePath ?? null,
+          entry.statusMessage ?? null,
+          premium ? (premium.active ? 1 : 0) : null,
+          premium?.planType == null ? null : String(premium.planType),
+          typeof premium?.planType === "number" ? 1 : 0,
+          premium?.validUntil ?? null,
+          premium?.onFreeTrial == null ? null : premium.onFreeTrial ? 1 : 0,
+          premium?.willExpire == null ? null : premium.willExpire ? 1 : 0,
+        );
+      }
+    });
   legacyImported = true;
 }
 
@@ -161,7 +162,8 @@ function rowFor(accountId: string, entry: TokenEntry) {
 }
 
 function upsertToken(accountId: string, entry: TokenEntry): void {
-  sqlite.query(`
+  sqlite
+    .query(`
   INSERT INTO account_tokens (
     account_id, auth_token, storage_file, saved_at, mid, display_name, picture_path,
     status_message, premium_active, premium_plan_type, premium_plan_is_number,
@@ -176,7 +178,8 @@ function upsertToken(accountId: string, entry: TokenEntry): void {
     premium_valid_until = excluded.premium_valid_until,
     premium_on_free_trial = excluded.premium_on_free_trial,
     premium_will_expire = excluded.premium_will_expire
-`).run(...rowFor(accountId, entry));
+`)
+    .run(...rowFor(accountId, entry));
 }
 
 export async function loadTokens(): Promise<TokenMap> {

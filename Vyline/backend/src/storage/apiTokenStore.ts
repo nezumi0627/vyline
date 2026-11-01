@@ -61,7 +61,13 @@ function ensureLegacyImported(): void {
     `);
       for (const item of tokens) {
         const scopes = parseApiScopes(item.scopes) ?? [];
-        insertToken.run(item.token, item.name, item.createdAt, item.lastUsedAt ?? null, item.accountId ?? null);
+        insertToken.run(
+          item.token,
+          item.name,
+          item.createdAt,
+          item.lastUsedAt ?? null,
+          item.accountId ?? null,
+        );
         scopes.forEach((scope, position) => insertScope.run(item.token, position, scope));
       }
     });
@@ -85,12 +91,12 @@ function listFromDatabase(): ApiTokenMetadata[] {
       "SELECT token, name, account_id AS accountId, created_at AS createdAt, last_used_at AS lastUsedAt FROM api_tokens ORDER BY id",
     )
     .all() as Array<{
-      token: string;
-      name: string;
-      accountId: string | null;
-      createdAt: string;
-      lastUsedAt: string | null;
-    }>;
+    token: string;
+    name: string;
+    accountId: string | null;
+    createdAt: string;
+    lastUsedAt: string | null;
+  }>;
   const scopes = sqlite
     .query("SELECT token, scope FROM api_token_scopes ORDER BY token, position")
     .all() as Array<{ token: string; scope: string }>;
@@ -145,7 +151,9 @@ export async function validateToken(token: string): Promise<ApiTokenMetadata | n
   ensureLegacyImported();
   const digest = hashApiToken(token);
   const item = sqlite
-    .query("SELECT name, account_id AS accountId, created_at AS createdAt FROM api_tokens WHERE token = ?")
+    .query(
+      "SELECT name, account_id AS accountId, created_at AS createdAt FROM api_tokens WHERE token = ?",
+    )
     .get(digest) as Omit<ApiTokenMetadata, "scopes" | "lastUsedAt"> | null;
   if (!item) return null;
   const scopes = sqlite

@@ -32,7 +32,8 @@ let legacyImported = false;
 function ensureLegacyImported(): void {
   if (legacyImported) return;
   ensureSchema();
-  if (existsSync(LOCKS_FILE)) migrateOnce("feature-locks-json-v2", () => {
+  if (existsSync(LOCKS_FILE))
+    migrateOnce("feature-locks-json-v2", () => {
       const data = JSON.parse(readFileSync(LOCKS_FILE, "utf8")) as Record<
         string,
         AccountFeatureLocks
@@ -50,7 +51,7 @@ function ensureLegacyImported(): void {
           locks.createGroupBannedReason ?? null,
         );
       }
-  });
+    });
   legacyImported = true;
 }
 
@@ -60,13 +61,11 @@ function read(accountId: string): AccountFeatureLocks {
       `SELECT create_group_banned, create_group_banned_at, create_group_banned_reason
        FROM account_feature_locks WHERE account_id = ?`,
     )
-    .get(accountId) as
-    | {
-        create_group_banned: number;
-        create_group_banned_at: string | null;
-        create_group_banned_reason: string | null;
-      }
-    | null;
+    .get(accountId) as {
+    create_group_banned: number;
+    create_group_banned_at: string | null;
+    create_group_banned_reason: string | null;
+  } | null;
   if (!row) return {};
   return {
     createGroupBanned: row.create_group_banned === 1,

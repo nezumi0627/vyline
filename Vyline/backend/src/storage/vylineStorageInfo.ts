@@ -61,13 +61,15 @@ async function dirSize(target: string): Promise<number> {
 async function sqliteFilesSize(): Promise<number> {
   const databasePath = join(VYLINE_DATA_DIR, "vyline.sqlite");
   const paths = [databasePath, `${databasePath}-wal`, `${databasePath}-shm`];
-  const sizes = await Promise.all(paths.map(async (path) => {
-    try {
-      return (await stat(path)).size;
-    } catch {
-      return 0;
-    }
-  }));
+  const sizes = await Promise.all(
+    paths.map(async (path) => {
+      try {
+        return (await stat(path)).size;
+      } catch {
+        return 0;
+      }
+    }),
+  );
   return sizes.reduce((total, size) => total + size, 0);
 }
 

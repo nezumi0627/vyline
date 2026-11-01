@@ -21,11 +21,7 @@ export function createCallWsTicket(accountId: string, sessionId: string): string
   return ticket;
 }
 
-export function consumeCallWsTicket(
-  ticket: string,
-  accountId: string,
-  sessionId: string,
-): boolean {
+export function consumeCallWsTicket(ticket: string, accountId: string, sessionId: string): boolean {
   const grant = tickets.get(ticket);
   if (!grant || grant.expiresAt <= Date.now()) {
     tickets.delete(ticket);

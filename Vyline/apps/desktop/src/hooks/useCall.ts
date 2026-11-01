@@ -41,7 +41,9 @@ export function useCall(accountId: string | null) {
   const mutedRef = useRef(false);
   const generationRef = useRef(0);
   const callRef = useRef(call);
-  useEffect(() => { callRef.current = call; }, [call]);
+  useEffect(() => {
+    callRef.current = call;
+  }, [call]);
 
   const micStartedRef = useRef(false);
 
@@ -85,7 +87,11 @@ export function useCall(accountId: string | null) {
         audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true },
         video: false,
       });
-      if (generationRef.current !== generation || wsRef.current !== ws || ws.readyState !== WebSocket.OPEN) {
+      if (
+        generationRef.current !== generation ||
+        wsRef.current !== ws ||
+        ws.readyState !== WebSocket.OPEN
+      ) {
         stream.getTracks().forEach((track) => track.stop());
         return;
       }
@@ -136,13 +142,20 @@ export function useCall(accountId: string | null) {
       try {
         const result = await api.line.callWsTicket(accId, sessionId);
         if (generationRef.current !== generation) return;
-        if (!result.ok || !result.ticket) throw new Error(result.error ?? "通話接続を認証できませんでした");
+        if (!result.ok || !result.ticket)
+          throw new Error(result.error ?? "通話接続を認証できませんでした");
         ticket = result.ticket;
       } catch (error) {
         if (generationRef.current !== generation) return;
-        setCall((prev) => prev?.sessionId === sessionId
-          ? { ...prev, state: "failed", error: error instanceof Error ? error.message : "通話接続に失敗しました" }
-          : prev);
+        setCall((prev) =>
+          prev?.sessionId === sessionId
+            ? {
+                ...prev,
+                state: "failed",
+                error: error instanceof Error ? error.message : "通話接続に失敗しました",
+              }
+            : prev,
+        );
         return;
       }
       const scheme = location.protocol === "https:" ? "wss" : "ws";
@@ -243,7 +256,8 @@ export function useCall(accountId: string | null) {
       try {
         res = await api.line.callStart(accountId, to, callType);
       } catch (error) {
-        if (generationRef.current !== generation) return { ok: false as const, error: "call cancelled" };
+        if (generationRef.current !== generation)
+          return { ok: false as const, error: "call cancelled" };
         const errorMessage = error instanceof Error ? error.message : String(error);
         const noAnswer = isNoAnswerCallFailure(errorMessage);
         setCall({

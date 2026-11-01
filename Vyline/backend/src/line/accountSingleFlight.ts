@@ -9,8 +9,10 @@ export function runAccountSingleFlight<T>(
 
   const task = Promise.resolve().then(work);
   pendingByAccount.set(accountId, task);
-  void task.finally(() => {
-    if (pendingByAccount.get(accountId) === task) pendingByAccount.delete(accountId);
-  }).catch(() => undefined);
+  void task
+    .finally(() => {
+      if (pendingByAccount.get(accountId) === task) pendingByAccount.delete(accountId);
+    })
+    .catch(() => undefined);
   return task;
 }

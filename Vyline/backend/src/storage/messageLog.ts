@@ -18,7 +18,9 @@ const IMPORT_BATCH_SIZE = 500;
 const MAX_IMPORT_CACHE_ACCOUNTS = 32;
 
 function maxLogBytes(): number {
-  const configured = Number(process.env.VYLINE_MESSAGE_LOG_RETENTION_BYTES ?? DEFAULT_RETENTION_BYTES);
+  const configured = Number(
+    process.env.VYLINE_MESSAGE_LOG_RETENTION_BYTES ?? DEFAULT_RETENTION_BYTES,
+  );
   return Number.isFinite(configured) && configured > 0 ? configured : DEFAULT_RETENTION_BYTES;
 }
 
@@ -137,22 +139,48 @@ function legacyLogPath(accountId: string): string {
 
 type SqlValue = string | number | bigint | null | boolean | Uint8Array;
 
-function entryValues(entry: MessageLogEntry, entryBytes: number, legacyKey: string | null): SqlValue[] {
+function entryValues(
+  entry: MessageLogEntry,
+  entryBytes: number,
+  legacyKey: string | null,
+): SqlValue[] {
   const media = entry.media;
   return [
-    entry.accountId, entry.ts, entry.tsMillis, entry.kind, entry.direction, entry.chatMid,
-    entry.chatName ?? null, Number(Object.hasOwn(entry, "chatName")),
-    entry.senderMid, entry.senderName ?? null, Number(Object.hasOwn(entry, "senderName")),
-    entry.contentType, entry.text ?? null, Number(Object.hasOwn(entry, "text")),
-    entry.messageId ?? null, Number(media != null), media?.contentType ?? null,
-    media?.mediaId ?? null, Number(media != null && Object.hasOwn(media, "mediaId")),
-    media?.imageSetId ?? null, Number(media != null && Object.hasOwn(media, "imageSetId")),
-    media?.attachmentName ?? null, Number(media != null && Object.hasOwn(media, "attachmentName")),
-    media?.durationMillis ?? null, Number(media != null && Object.hasOwn(media, "durationMillis")),
-    media?.fileSize ?? null, Number(media != null && Object.hasOwn(media, "fileSize")),
-    media?.stickerId ?? null, Number(media != null && Object.hasOwn(media, "stickerId")),
-    media?.packageId ?? null, Number(media != null && Object.hasOwn(media, "packageId")),
-    entry.locKey ?? null, Number(Object.hasOwn(entry, "locKey")), entryBytes, legacyKey,
+    entry.accountId,
+    entry.ts,
+    entry.tsMillis,
+    entry.kind,
+    entry.direction,
+    entry.chatMid,
+    entry.chatName ?? null,
+    Number(Object.hasOwn(entry, "chatName")),
+    entry.senderMid,
+    entry.senderName ?? null,
+    Number(Object.hasOwn(entry, "senderName")),
+    entry.contentType,
+    entry.text ?? null,
+    Number(Object.hasOwn(entry, "text")),
+    entry.messageId ?? null,
+    Number(media != null),
+    media?.contentType ?? null,
+    media?.mediaId ?? null,
+    Number(media != null && Object.hasOwn(media, "mediaId")),
+    media?.imageSetId ?? null,
+    Number(media != null && Object.hasOwn(media, "imageSetId")),
+    media?.attachmentName ?? null,
+    Number(media != null && Object.hasOwn(media, "attachmentName")),
+    media?.durationMillis ?? null,
+    Number(media != null && Object.hasOwn(media, "durationMillis")),
+    media?.fileSize ?? null,
+    Number(media != null && Object.hasOwn(media, "fileSize")),
+    media?.stickerId ?? null,
+    Number(media != null && Object.hasOwn(media, "stickerId")),
+    media?.packageId ?? null,
+    Number(media != null && Object.hasOwn(media, "packageId")),
+    entry.locKey ?? null,
+    Number(Object.hasOwn(entry, "locKey")),
+    entryBytes,
+    legacyKey,
   ];
 }
 
@@ -166,43 +194,53 @@ const INSERT_SQL = `INSERT OR IGNORE INTO message_logs (
 ) VALUES (${Array.from({ length: 35 }, () => "?").join(",")})`;
 
 function trimLog(accountId: string): void {
-  const state = sqlite.query("SELECT total_bytes FROM message_log_state WHERE account_id=?")
+  const state = sqlite
+    .query("SELECT total_bytes FROM message_log_state WHERE account_id=?")
     .get(accountId) as { total_bytes: number } | null;
   const total = state?.total_bytes ?? 0;
   const byteLimit = maxLogBytes();
   if (total <= byteLimit) return;
 
-  sqlite.query(`WITH cumulative AS (
+  sqlite
+    .query(`WITH cumulative AS (
       SELECT id, SUM(entry_bytes) OVER (ORDER BY id DESC) AS bytes_from_newest
       FROM message_logs WHERE account_id=?
     )
     DELETE FROM message_logs WHERE account_id=? AND id IN (
       SELECT id FROM cumulative WHERE bytes_from_newest > ?
-    )`).run(accountId, accountId, byteLimit);
-  const remaining = sqlite.query("SELECT COALESCE(SUM(entry_bytes),0) AS total FROM message_logs WHERE account_id=?")
+    )`)
+    .run(accountId, accountId, byteLimit);
+  const remaining = sqlite
+    .query("SELECT COALESCE(SUM(entry_bytes),0) AS total FROM message_logs WHERE account_id=?")
     .get(accountId) as { total: number };
-  sqlite.query(`INSERT INTO message_log_state(account_id,total_bytes) VALUES(?,?)
+  sqlite
+    .query(`INSERT INTO message_log_state(account_id,total_bytes) VALUES(?,?)
     ON CONFLICT(account_id) DO UPDATE SET total_bytes=excluded.total_bytes`)
     .run(accountId, remaining.total);
 }
 
-function insertBatch(rows: Array<{ entry: MessageLogEntry; bytes: number; legacyKey: string | null }>): void {
+function insertBatch(
+  rows: Array<{ entry: MessageLogEntry; bytes: number; legacyKey: string | null }>,
+): void {
   if (!rows.length) return;
   const firstAccount = rows[0]!.entry.accountId;
   let insertedBytes = 0;
-  sqlite.transaction(() => {
-    const insert = sqlite.query(INSERT_SQL);
-    for (const row of rows) {
-      const result = insert.run(...entryValues(row.entry, row.bytes, row.legacyKey));
-      if (result.changes) insertedBytes += row.bytes;
-    }
-    if (insertedBytes) {
-      sqlite.query(`INSERT INTO message_log_state(account_id,total_bytes) VALUES(?,?)
+  sqlite
+    .transaction(() => {
+      const insert = sqlite.query(INSERT_SQL);
+      for (const row of rows) {
+        const result = insert.run(...entryValues(row.entry, row.bytes, row.legacyKey));
+        if (result.changes) insertedBytes += row.bytes;
+      }
+      if (insertedBytes) {
+        sqlite
+          .query(`INSERT INTO message_log_state(account_id,total_bytes) VALUES(?,?)
         ON CONFLICT(account_id) DO UPDATE SET total_bytes=total_bytes+excluded.total_bytes`)
-        .run(firstAccount, insertedBytes);
-    }
-    trimLog(firstAccount);
-  }).immediate();
+          .run(firstAccount, insertedBytes);
+      }
+      trimLog(firstAccount);
+    })
+    .immediate();
 }
 
 async function importLegacyLog(accountId: string): Promise<void> {
@@ -214,7 +252,7 @@ async function importLegacyLog(accountId: string): Promise<void> {
   let batch: Array<{ entry: MessageLogEntry; bytes: number; legacyKey: string | null }> = [];
   if (existsSync(path)) {
     const input = createReadStream(path);
-    const lines = createInterface({ input, crlfDelay: Infinity });
+    const lines = createInterface({ input, crlfDelay: Number.POSITIVE_INFINITY });
     let lineNumber = 0;
     try {
       for await (const line of lines) {
@@ -222,10 +260,20 @@ async function importLegacyLog(accountId: string): Promise<void> {
         if (!line.trim()) continue;
         try {
           const parsed = JSON.parse(line) as MessageLogEntry;
-          if (!parsed || typeof parsed !== "object" || typeof parsed.tsMillis !== "number" ||
-              typeof parsed.chatMid !== "string" || typeof parsed.senderMid !== "string") continue;
+          if (
+            !parsed ||
+            typeof parsed !== "object" ||
+            typeof parsed.tsMillis !== "number" ||
+            typeof parsed.chatMid !== "string" ||
+            typeof parsed.senderMid !== "string"
+          )
+            continue;
           const entry = { ...parsed, accountId };
-          batch.push({ entry, bytes: Buffer.byteLength(line, "utf8") + 1, legacyKey: `${path}:${lineNumber}` });
+          batch.push({
+            entry,
+            bytes: Buffer.byteLength(line, "utf8") + 1,
+            legacyKey: `${path}:${lineNumber}`,
+          });
         } catch {
           /* skip malformed legacy lines while retaining the source file */
         }
@@ -240,10 +288,13 @@ async function importLegacyLog(accountId: string): Promise<void> {
     }
   }
   insertBatch(batch);
-  sqlite.transaction(() => {
-    sqlite.query("INSERT OR IGNORE INTO app_migrations(name,applied_at) VALUES(?,?)")
-      .run(migrationName, new Date().toISOString());
-  }).immediate();
+  sqlite
+    .transaction(() => {
+      sqlite
+        .query("INSERT OR IGNORE INTO app_migrations(name,applied_at) VALUES(?,?)")
+        .run(migrationName, new Date().toISOString());
+    })
+    .immediate();
 }
 
 async function ensureImported(accountId: string): Promise<void> {
@@ -255,7 +306,9 @@ async function ensureImported(accountId: string): Promise<void> {
   const active = imports.get(accountId);
   if (active) return active;
   const task = importLegacyLog(accountId)
-    .then(() => { rememberImportedAccount(accountId); })
+    .then(() => {
+      rememberImportedAccount(accountId);
+    })
     .finally(() => imports.delete(accountId));
   imports.set(accountId, task);
   return task;
@@ -263,9 +316,14 @@ async function ensureImported(accountId: string): Promise<void> {
 
 function fromRow(row: LogRow): MessageLogEntry {
   const entry: MessageLogEntry = {
-    ts: row.ts, tsMillis: row.tsMillis, accountId: row.accountId, kind: row.kind,
-    direction: row.direction, chatMid: row.chatMid,
-    senderMid: row.senderMid, contentType: row.contentType,
+    ts: row.ts,
+    tsMillis: row.tsMillis,
+    accountId: row.accountId,
+    kind: row.kind,
+    direction: row.direction,
+    chatMid: row.chatMid,
+    senderMid: row.senderMid,
+    contentType: row.contentType,
   };
   if (row.chatNamePresent) entry.chatName = row.chatName ?? "";
   if (row.senderNamePresent) entry.senderName = row.senderName ?? "";
@@ -273,7 +331,9 @@ function fromRow(row: LogRow): MessageLogEntry {
   if (row.messageId != null) entry.messageId = row.messageId;
   if (row.locKeyPresent) entry.locKey = row.locKey ?? "";
   if (row.mediaPresent) {
-    const media: NonNullable<MessageLogEntry["media"]> = { contentType: row.mediaContentType ?? "" };
+    const media: NonNullable<MessageLogEntry["media"]> = {
+      contentType: row.mediaContentType ?? "",
+    };
     if (row.mediaIdPresent) media.mediaId = row.mediaId ?? "";
     if (row.imageSetIdPresent) media.imageSetId = row.imageSetId ?? "";
     if (row.attachmentNamePresent) media.attachmentName = row.attachmentName ?? "";
@@ -298,12 +358,16 @@ export async function appendMessageLog(entry: MessageLogEntry): Promise<void> {
 }
 
 /** 直近N件をSQLiteの順序インデックスから取得する（デバッグ・復元用） */
-export async function readRecentMessageLog(accountId: string, limit = 200): Promise<MessageLogEntry[]> {
+export async function readRecentMessageLog(
+  accountId: string,
+  limit = 200,
+): Promise<MessageLogEntry[]> {
   const boundedLimit = Math.max(0, Math.floor(limit));
   if (!boundedLimit) return [];
   try {
     await ensureImported(accountId);
-    const rows = sqlite.query(`SELECT id,ts,ts_millis AS tsMillis,account_id AS accountId,kind,direction,
+    const rows = sqlite
+      .query(`SELECT id,ts,ts_millis AS tsMillis,account_id AS accountId,kind,direction,
       chat_mid AS chatMid,chat_name AS chatName,chat_name_present AS chatNamePresent,
       sender_mid AS senderMid,sender_name AS senderName,sender_name_present AS senderNamePresent,
       content_type AS contentType,text,text_present AS textPresent,message_id AS messageId,
@@ -314,7 +378,8 @@ export async function readRecentMessageLog(accountId: string, limit = 200): Prom
       file_size AS fileSize,file_size_present AS fileSizePresent,sticker_id AS stickerId,
       sticker_id_present AS stickerIdPresent,package_id AS packageId,package_id_present AS packageIdPresent,
       loc_key AS locKey,loc_key_present AS locKeyPresent FROM message_logs
-      WHERE account_id=? ORDER BY id DESC LIMIT ?`).all(accountId, boundedLimit) as LogRow[];
+      WHERE account_id=? ORDER BY id DESC LIMIT ?`)
+      .all(accountId, boundedLimit) as LogRow[];
     return rows.reverse().map(fromRow);
   } catch (err) {
     log.debug({ accountId, err }, "message log read failed");
@@ -326,7 +391,8 @@ export async function readRecentMessageLog(accountId: string, limit = 200): Prom
 export async function replayMissingLogs(accountId: string, knownIds: Set<string>): Promise<number> {
   try {
     await ensureImported(accountId);
-    const rows = sqlite.query(`SELECT message_id FROM message_logs
+    const rows = sqlite
+      .query(`SELECT message_id FROM message_logs
       WHERE account_id=? AND message_id IS NOT NULL ORDER BY id`)
       .all(accountId) as Array<{ message_id: string }>;
     let added = 0;

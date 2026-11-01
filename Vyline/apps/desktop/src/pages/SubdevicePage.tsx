@@ -15,11 +15,13 @@ export function SubdevicePage() {
   const navigate = useNavigate();
   const [name, setName] = useState("");
   const [message, setMessage] = useState("接続情報を確認しています…");
-  const pairingToken = params.get("pairing") ?? new URLSearchParams(window.location.hash.slice(1)).get("pairing");
+  const pairingToken =
+    params.get("pairing") ?? new URLSearchParams(window.location.hash.slice(1)).get("pairing");
   const setAccountId = useStore((s) => s.setAccountId);
 
   useEffect(() => {
-    if (pairingToken) window.history.replaceState(window.history.state, "", window.location.pathname);
+    if (pairingToken)
+      window.history.replaceState(window.history.state, "", window.location.pathname);
     let cancelled = false;
     const connect = async () => {
       try {

@@ -98,7 +98,11 @@ export async function vylineGetProfile(
   accountId: string,
   mid: string,
 ): Promise<VylineProfileLite | null> {
-  return ((await storage.getCacheEntries(accountId, "profiles", [mid])).get(mid) as VylineProfileLite | undefined) ?? null;
+  return (
+    ((await storage.getCacheEntries(accountId, "profiles", [mid])).get(mid) as
+      | VylineProfileLite
+      | undefined) ?? null
+  );
 }
 
 export async function vylineGetProfiles(
@@ -172,7 +176,11 @@ export async function vylinePutProfile(
 ): Promise<void> {
   if (!entry.mid) return;
   const previous = await storage.getCacheEntries(accountId, "profiles", [entry.mid]);
-  const value = mergeProfile(previous.get(entry.mid) as VylineProfileLite | undefined, entry, Date.now());
+  const value = mergeProfile(
+    previous.get(entry.mid) as VylineProfileLite | undefined,
+    entry,
+    Date.now(),
+  );
   await storage.putCacheEntries(accountId, "profiles", [{ key: entry.mid, value }]);
 }
 
@@ -187,10 +195,15 @@ export async function vylinePutProfiles(
   const updates = new Map<string, VylineProfileLite>();
   for (const entry of entries) {
     if (!entry.mid) continue;
-    const old = updates.get(entry.mid) ?? (previous.get(entry.mid) as VylineProfileLite | undefined);
+    const old =
+      updates.get(entry.mid) ?? (previous.get(entry.mid) as VylineProfileLite | undefined);
     updates.set(entry.mid, mergeProfile(old, entry, now));
   }
-  await storage.putCacheEntries(accountId, "profiles", [...updates].map(([key, value]) => ({ key, value })));
+  await storage.putCacheEntries(
+    accountId,
+    "profiles",
+    [...updates].map(([key, value]) => ({ key, value })),
+  );
   log.debug({ accountId, count: entries.length }, "VylineCache profiles put");
 }
 
@@ -198,7 +211,11 @@ export async function vylineGetGroup(
   accountId: string,
   chatMid: string,
 ): Promise<VylineGroupLite | null> {
-  return ((await storage.getCacheEntries(accountId, "groups", [chatMid])).get(chatMid) as VylineGroupLite | undefined) ?? null;
+  return (
+    ((await storage.getCacheEntries(accountId, "groups", [chatMid])).get(chatMid) as
+      | VylineGroupLite
+      | undefined) ?? null
+  );
 }
 
 export async function vylinePutGroup(accountId: string, entry: VylineGroupInput): Promise<void> {

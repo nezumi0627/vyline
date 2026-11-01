@@ -15,12 +15,7 @@ import {
   type VylineClient,
 } from "@vyline/protocol";
 import { childLogger } from "../logger.js";
-import {
-  saveToken,
-  getToken,
-  loadTokens,
-  deleteToken,
-} from "../storage/tokenStore.js";
+import { saveToken, getToken, loadTokens, deleteToken } from "../storage/tokenStore.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { ProtocolSqliteStorage } from "../storage/protocolSqliteStorage.js";
 import { currentTalkEventSequence } from "./talkEventBuffer.js";
@@ -117,11 +112,16 @@ export function runSendRpc<T>(
   sendQueue.set(accountId, started);
   let timeoutId: ReturnType<typeof setTimeout>;
   const timeout = new Promise<T>((_, reject) => {
-    timeoutId = setTimeout(() => reject(new Error(`send timed out after ${timeoutMs}ms`)), timeoutMs);
+    timeoutId = setTimeout(
+      () => reject(new Error(`send timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
   });
-  void started.finally(() => {
-    if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
-  }).catch(() => undefined);
+  void started
+    .finally(() => {
+      if (sendQueue.get(accountId) === started) sendQueue.delete(accountId);
+    })
+    .catch(() => undefined);
   return Promise.race([started, timeout]).finally(() => clearTimeout(timeoutId));
 }
 
@@ -226,7 +226,11 @@ function revisionFromStorage(value: string): number | bigint {
   return Number.isFinite(numeric) ? numeric : 0;
 }
 
-function cursorStorageValue(cursor: { revision: number | bigint; globalRev: number | bigint; individualRev: number | bigint }) {
+function cursorStorageValue(cursor: {
+  revision: number | bigint;
+  globalRev: number | bigint;
+  individualRev: number | bigint;
+}) {
   return {
     revision: String(cursor.revision),
     globalRevision: String(cursor.globalRev),
@@ -351,7 +355,10 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           }
         }
 
-        await waitForAbortableDelay(ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS, abort.signal);
+        await waitForAbortableDelay(
+          ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS,
+          abort.signal,
+        );
         errorStreak = 0;
       } catch (err) {
         if (abort.signal.aborted) break;
@@ -401,7 +408,11 @@ async function watchAuthToken(client: VylineClient, accountId: string): Promise<
 
   let lastToken = String(client.authToken ?? client.base.authToken ?? "");
   let persistTail: Promise<void> = Promise.resolve();
-  const persist = (reason: string, tokenOverride?: string, profileOverride?: VylineClient["base"]["profile"]): Promise<void> => {
+  const persist = (
+    reason: string,
+    tokenOverride?: string,
+    profileOverride?: VylineClient["base"]["profile"],
+  ): Promise<void> => {
     const token = tokenOverride ?? client.authToken ?? client.base.authToken;
     const profile = profileOverride ?? client.base.profile;
     const meta: {
@@ -417,10 +428,12 @@ async function watchAuthToken(client: VylineClient, accountId: string): Promise<
       (profile as { pictureStatus?: string } | undefined)?.pictureStatus;
     if (pic) meta.picturePath = String(pic);
     if (profile?.statusMessage) meta.statusMessage = String(profile.statusMessage);
-    const task = persistTail.catch(() => undefined).then(async () => {
-      await saveToken(accountId, token, meta);
-      log.debug({ accountId, reason }, "session persisted");
-    });
+    const task = persistTail
+      .catch(() => undefined)
+      .then(async () => {
+        await saveToken(accountId, token, meta);
+        log.debug({ accountId, reason }, "session persisted");
+      });
     persistTail = task.catch((err) => {
       log.warn({ accountId, reason, err }, "session persist failed");
     });

@@ -16,9 +16,17 @@ beforeAll(async () => {
   process.env.VYLINE_DATA_DIR = dataDir;
   const settingsDir = join(dataDir, "plugin-settings");
   await mkdir(settingsDir, { recursive: true });
-  await writeFile(join(settingsDir, "offline.sample.json"), JSON.stringify({ color: "blue", count: 2 }));
-  await writeFile(join(dataDir, "plugin-states.json"), JSON.stringify({ offline: { sample: true } }));
-  ({ getPluginSetting, setPluginSetting, getPluginStates, setStoredPluginState } = await import("./pluginStorage.js"));
+  await writeFile(
+    join(settingsDir, "offline.sample.json"),
+    JSON.stringify({ color: "blue", count: 2 }),
+  );
+  await writeFile(
+    join(dataDir, "plugin-states.json"),
+    JSON.stringify({ offline: { sample: true } }),
+  );
+  ({ getPluginSetting, setPluginSetting, getPluginStates, setStoredPluginState } = await import(
+    "./pluginStorage.js"
+  ));
   ({ closeSqlite } = await import("../storage/sqlite.js"));
 });
 

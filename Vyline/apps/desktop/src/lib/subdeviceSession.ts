@@ -17,7 +17,11 @@ export async function setSubdeviceSessionToken(token: string | null): Promise<vo
   version++;
   cached = token;
   if (token === null) {
-    try { await indexedDbStateStorage.removeItem(KEY); } catch { /* local fallback was removed */ }
+    try {
+      await indexedDbStateStorage.removeItem(KEY);
+    } catch {
+      /* local fallback was removed */
+    }
   } else {
     await setPersistedRaw(KEY, token);
   }

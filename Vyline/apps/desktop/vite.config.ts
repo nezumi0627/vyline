@@ -2,14 +2,23 @@ import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 import { resolve } from "node:path";
 
-const backendTarget = process.env.VYLINE_BACKEND_URL ??
+const backendTarget =
+  process.env.VYLINE_BACKEND_URL ??
   `http://127.0.0.1:${process.env.VYLINE_BACKEND_PORT ?? process.env.PORT ?? 3001}`;
 
 function proxyConfig(ws = false) {
   return {
     target: backendTarget,
     ...(ws ? { ws: true } : {}),
-    configure(proxy: { on: (event: string, handler: (proxyReq: { setHeader: (name: string, value: string) => void }, req: { socket: { remoteAddress?: string } }) => void) => void }) {
+    configure(proxy: {
+      on: (
+        event: string,
+        handler: (
+          proxyReq: { setHeader: (name: string, value: string) => void },
+          req: { socket: { remoteAddress?: string } },
+        ) => void,
+      ) => void;
+    }) {
       proxy.on("proxyReq", (proxyReq, req) => {
         if (req.socket.remoteAddress) {
           proxyReq.setHeader("x-vyline-proxy-client-address", req.socket.remoteAddress);

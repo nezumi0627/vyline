@@ -18,8 +18,8 @@ beforeAll(async () => {
 });
 
 afterAll(async () => {
-  delete process.env.VYLINE_DATA_DIR;
-  delete process.env.VYLINE_STORAGE_DIR;
+  process.env.VYLINE_DATA_DIR = undefined;
+  process.env.VYLINE_STORAGE_DIR = undefined;
   await rm(dataDir, { recursive: true, force: true });
 });
 

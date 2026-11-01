@@ -42,7 +42,16 @@ test("Origin policy allows configured and same-origin requests only", () => {
 });
 
 test("LAN protection covers API aliases and direct routes without protecting static assets", () => {
-  for (const path of ["/line/a/chats", "/api/line/a/chats", "/debug/tokens", "/auth/accounts", "/api/beta/agent-i/x", "/docs", "/openapi.json", "/metrics"]) {
+  for (const path of [
+    "/line/a/chats",
+    "/api/line/a/chats",
+    "/debug/tokens",
+    "/auth/accounts",
+    "/api/beta/agent-i/x",
+    "/docs",
+    "/openapi.json",
+    "/metrics",
+  ]) {
     expect(isLanProtectedPath(path)).toBe(true);
   }
   expect(isLanProtectedPath("/subdevice")).toBe(false);

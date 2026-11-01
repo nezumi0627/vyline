@@ -9,7 +9,11 @@
  */
 
 import { Hono } from "hono";
-import { detectInstalledDesktop, ensureValidE2EEIdentity, resolveDeviceMode } from "@vyline/protocol";
+import {
+  detectInstalledDesktop,
+  ensureValidE2EEIdentity,
+  resolveDeviceMode,
+} from "@vyline/protocol";
 import { childLogger } from "../logger.js";
 import { loadTokens } from "../storage/tokenStore.js";
 import { listAccounts, getClient } from "../line/clientManager.js";

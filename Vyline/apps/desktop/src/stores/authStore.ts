@@ -240,10 +240,12 @@ export const useAuthStore = create<AuthState>()(
             set({ error: message });
             return { ok: false, error: message };
           }
-          set((state) => ({ loginMethods: {
-            ...state.loginMethods,
-            [accountId]: state.loginMethods[accountId] ?? "restored",
-          } }));
+          set((state) => ({
+            loginMethods: {
+              ...state.loginMethods,
+              [accountId]: state.loginMethods[accountId] ?? "restored",
+            },
+          }));
           await get().refreshAccounts();
           set({ activeAccountId: accountId });
           return { ok: true };

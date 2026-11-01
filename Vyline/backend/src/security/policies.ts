@@ -47,8 +47,10 @@ export function isApiTokenAuthorizedForAccount(
   tokenAccountId: string | null,
   requestedAccountId?: string,
 ): boolean {
-  return tokenAccountId !== null &&
-    (requestedAccountId === undefined || tokenAccountId === requestedAccountId);
+  return (
+    tokenAccountId !== null &&
+    (requestedAccountId === undefined || tokenAccountId === requestedAccountId)
+  );
 }
 
 export function isAllowedOrigin(
@@ -90,10 +92,7 @@ export function isPublicPairingRequest(path: string, method: string): boolean {
 }
 
 export function isSubdeviceHeartbeatPath(path: string, method: string): boolean {
-  return (
-    method === "POST" &&
-    /^\/auth\/subdevices\/heartbeat$/.test(withoutApiPrefix(path))
-  );
+  return method === "POST" && /^\/auth\/subdevices\/heartbeat$/.test(withoutApiPrefix(path));
 }
 
 export function isSubdeviceManagementPath(path: string): boolean {
@@ -116,7 +115,8 @@ export function authorizeSubdeviceRoute(
   deviceAccountId: string | null,
 ): "allow" | "unauthorized" | "forbidden" {
   if (!deviceAccountId) return "unauthorized";
-  if (isSubdeviceManagementPath(path) && !isSubdeviceHeartbeatPath(path, method)) return "forbidden";
+  if (isSubdeviceManagementPath(path) && !isSubdeviceHeartbeatPath(path, method))
+    return "forbidden";
   const accountId = subdeviceAccountIdFromPath(path);
   if (accountId !== null) return accountId === deviceAccountId ? "allow" : "forbidden";
   return isSubdeviceHeartbeatPath(path, method) ? "allow" : "forbidden";

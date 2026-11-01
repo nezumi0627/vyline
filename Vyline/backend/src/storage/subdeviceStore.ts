@@ -48,33 +48,34 @@ let legacyImported = false;
 function ensureLegacyImported(): void {
   if (legacyImported) return;
   ensureSchema();
-  if (existsSync(FILE)) migrateOnce("subdevices-json-v2", () => {
-    const state = JSON.parse(readFileSync(FILE, "utf8")) as State;
-    const insertDevice = sqlite.query(`
+  if (existsSync(FILE))
+    migrateOnce("subdevices-json-v2", () => {
+      const state = JSON.parse(readFileSync(FILE, "utf8")) as State;
+      const insertDevice = sqlite.query(`
       INSERT OR IGNORE INTO subdevices
         (id, account_id, name, platform, created_at, last_seen_at, blocked, token_hash)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const device of state.devices ?? []) {
-      insertDevice.run(
-        device.id,
-        device.accountId,
-        device.name,
-        device.platform,
-        device.createdAt,
-        device.lastSeenAt,
-        device.blocked ? 1 : 0,
-        device.tokenHash,
-      );
-    }
-    const insertPairing = sqlite.query(`
+      for (const device of state.devices ?? []) {
+        insertDevice.run(
+          device.id,
+          device.accountId,
+          device.name,
+          device.platform,
+          device.createdAt,
+          device.lastSeenAt,
+          device.blocked ? 1 : 0,
+          device.tokenHash,
+        );
+      }
+      const insertPairing = sqlite.query(`
       INSERT OR IGNORE INTO subdevice_pairings (id, token_hash, expires_at, account_id)
       VALUES (?, ?, ?, ?)
     `);
-    for (const pairing of state.pairings ?? []) {
-      insertPairing.run(pairing.id, pairing.tokenHash, pairing.expiresAt, pairing.accountId);
-    }
-  });
+      for (const pairing of state.pairings ?? []) {
+        insertPairing.run(pairing.id, pairing.tokenHash, pairing.expiresAt, pairing.accountId);
+      }
+    });
   legacyImported = true;
 }
 
@@ -185,9 +186,7 @@ export async function getSubdeviceSession(raw: string) {
         last_seen_at AS lastSeenAt, blocked
       FROM subdevices WHERE token_hash = ? AND blocked = 0
     `)
-    .get(hash(raw)) as
-    | (Omit<Subdevice, "tokenHash" | "blocked"> & { blocked: number })
-    | null;
+    .get(hash(raw)) as (Omit<Subdevice, "tokenHash" | "blocked"> & { blocked: number }) | null;
   return row ? { ...row, blocked: row.blocked === 1 } : null;
 }
 

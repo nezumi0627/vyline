@@ -30,7 +30,10 @@ function ensureSettingsImported(accountId: string, pluginId: string): void {
   try {
     settings = JSON.parse(readFileSync(path, "utf8")) as Record<string, unknown>;
   } catch (err) {
-    log.error({ accountId, pluginId, err }, "legacy plugin settings import failed; source retained");
+    log.error(
+      { accountId, pluginId, err },
+      "legacy plugin settings import failed; source retained",
+    );
     return;
   }
   migrateOnce(name, () => {
@@ -44,23 +47,35 @@ function ensureSettingsImported(accountId: string, pluginId: string): void {
 
 export function getPluginSetting(accountId: string, pluginId: string, key: string): unknown {
   ensureSettingsImported(accountId, pluginId);
-  const row = sqlite.query(`SELECT payload FROM plugin_settings
-    WHERE account_id = ? AND plugin_id = ? AND setting_key = ?`).get(accountId, pluginId, key) as { payload: string } | null;
+  const row = sqlite
+    .query(`SELECT payload FROM plugin_settings
+    WHERE account_id = ? AND plugin_id = ? AND setting_key = ?`)
+    .get(accountId, pluginId, key) as { payload: string } | null;
   return row ? JSON.parse(row.payload) : undefined;
 }
 
-export function setPluginSetting(accountId: string, pluginId: string, key: string, value: unknown): void {
+export function setPluginSetting(
+  accountId: string,
+  pluginId: string,
+  key: string,
+  value: unknown,
+): void {
   ensureSettingsImported(accountId, pluginId);
   if (value === undefined) {
-    sqlite.query("DELETE FROM plugin_settings WHERE account_id = ? AND plugin_id = ? AND setting_key = ?")
+    sqlite
+      .query(
+        "DELETE FROM plugin_settings WHERE account_id = ? AND plugin_id = ? AND setting_key = ?",
+      )
       .run(accountId, pluginId, key);
     return;
   }
   const payload = JSON.stringify(value);
   if (payload === undefined) return;
-  sqlite.query(`INSERT INTO plugin_settings (account_id, plugin_id, setting_key, payload)
+  sqlite
+    .query(`INSERT INTO plugin_settings (account_id, plugin_id, setting_key, payload)
     VALUES (?, ?, ?, ?) ON CONFLICT(account_id, plugin_id, setting_key)
-    DO UPDATE SET payload = excluded.payload`).run(accountId, pluginId, key, payload);
+    DO UPDATE SET payload = excluded.payload`)
+    .run(accountId, pluginId, key, payload);
 }
 
 export function getPluginStates(accountId: string): Record<string, boolean> {
@@ -69,26 +84,33 @@ export function getPluginStates(accountId: string): Record<string, boolean> {
   const name = "plugin-states-json-v2";
   if (existsSync(path) && !sqlite.query("SELECT 1 FROM app_migrations WHERE name = ?").get(name)) {
     try {
-      const states = JSON.parse(readFileSync(path, "utf8")) as Record<string, Record<string, boolean>>;
+      const states = JSON.parse(readFileSync(path, "utf8")) as Record<
+        string,
+        Record<string, boolean>
+      >;
       migrateOnce(name, () => {
-        const insert = sqlite.query(`INSERT OR IGNORE INTO plugin_states (account_id, plugin_id, enabled)
+        const insert =
+          sqlite.query(`INSERT OR IGNORE INTO plugin_states (account_id, plugin_id, enabled)
           VALUES (?, ?, ?)`);
         for (const [id, plugins] of Object.entries(states)) {
-          for (const [pluginId, enabled] of Object.entries(plugins)) insert.run(id, pluginId, enabled ? 1 : 0);
+          for (const [pluginId, enabled] of Object.entries(plugins))
+            insert.run(id, pluginId, enabled ? 1 : 0);
         }
       });
     } catch (err) {
       log.error({ err }, "legacy plugin state import failed; source retained");
     }
   }
-  const rows = sqlite.query("SELECT plugin_id, enabled FROM plugin_states WHERE account_id = ?")
+  const rows = sqlite
+    .query("SELECT plugin_id, enabled FROM plugin_states WHERE account_id = ?")
     .all(accountId) as Array<{ plugin_id: string; enabled: number }>;
   return Object.fromEntries(rows.map((row) => [row.plugin_id, row.enabled === 1]));
 }
 
 export function setStoredPluginState(accountId: string, pluginId: string, enabled: boolean): void {
   ensureSchema();
-  sqlite.query(`INSERT INTO plugin_states (account_id, plugin_id, enabled) VALUES (?, ?, ?)
+  sqlite
+    .query(`INSERT INTO plugin_states (account_id, plugin_id, enabled) VALUES (?, ?, ?)
     ON CONFLICT(account_id, plugin_id) DO UPDATE SET enabled = excluded.enabled`)
     .run(accountId, pluginId, enabled ? 1 : 0);
 }

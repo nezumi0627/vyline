@@ -328,13 +328,16 @@ export default {
     // Only trust this forwarding header from the loopback Vite proxy. Remote clients
     // connecting directly to the backend cannot assert their own local status.
     const forwardedAddress = loopback
-      ? req.headers.get("x-vyline-proxy-client-address") ??
+      ? (req.headers.get("x-vyline-proxy-client-address") ??
         (process.env.VYLINE_TRUST_PROXY === "true"
           ? req.headers.get("x-forwarded-for")?.split(",", 1)[0]?.trim()
-          : null)
+          : null))
       : null;
     const clientAddress = forwardedAddress || address;
-    const local = clientAddress === "127.0.0.1" || clientAddress === "::1" || clientAddress === "::ffff:127.0.0.1";
+    const local =
+      clientAddress === "127.0.0.1" ||
+      clientAddress === "::1" ||
+      clientAddress === "::ffff:127.0.0.1";
     const headers = new Headers(req.headers);
     headers.set("x-vyline-local-request", local ? "1" : "0");
     const request = new Request(req, { headers });

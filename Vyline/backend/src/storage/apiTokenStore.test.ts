@@ -61,7 +61,10 @@ test("hashes legacy and new API tokens while preserving validation and revocatio
     hashApiToken(legacyToken),
     hashApiToken(created.token),
   ]);
-  expect(await tokenStore.validateToken(created.token)).toMatchObject({ accountId: "account-1", scopes: ["write"] });
+  expect(await tokenStore.validateToken(created.token)).toMatchObject({
+    accountId: "account-1",
+    scopes: ["write"],
+  });
   expect(await tokenStore.revokeToken(created.token)).toBe(true);
   expect(await tokenStore.validateToken(created.token)).toBeNull();
 });

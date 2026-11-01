@@ -10,9 +10,11 @@ export function directCallHint(): string {
 
 export function isNoAnswerCallFailure(error?: string): boolean {
   const message = error?.toLowerCase() ?? "";
-  return message.includes("planet reply timeout")
-    || message.includes("planet call released")
-    || /\b(?:busy|user busy|callee busy)\b/.test(message);
+  return (
+    message.includes("planet reply timeout") ||
+    message.includes("planet call released") ||
+    /\b(?:busy|user busy|callee busy)\b/.test(message)
+  );
 }
 
 export type CallUiState =
