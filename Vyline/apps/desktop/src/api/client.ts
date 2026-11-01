@@ -145,6 +145,18 @@ async function request<T>(
   }
 }
 
+async function requestBlobGet(path: string): Promise<Blob> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE}${path}`, { headers: authHeaders() });
+  } catch (err) {
+    if (isBackendDown(err)) throw new Error("BACKEND_DOWN");
+    throw new Error(`backend に接続できません: ${String(err)}`);
+  }
+  if (!response.ok) throw new Error(`ダウンロードに失敗しました: HTTP ${response.status}`);
+  return response.blob();
+}
+
 async function uploadBinary<T>(path: string, body: Blob, extraHeaders?: HeadersInit): Promise<T> {
   let res: Response;
   try {
@@ -459,6 +471,32 @@ export const api = {
       );
     },
 
+    searchMessages: (accountId: string, chatMid: string, query: string, regex = false) => {
+      const params = new URLSearchParams({ q: query });
+      if (regex) params.set("regex", "1");
+      return request<{ ok: boolean; messages: Message[]; truncated: boolean }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(chatMid)}/search?${params}`,
+      );
+    },
+
+    linkPreview: (accountId: string, url: string) =>
+      request<{
+        ok: boolean;
+        preview: {
+          url: string;
+          title: string;
+          description: string;
+          site: string;
+          imageId?: string;
+        } | null;
+      }>("POST", `/line/${encodeURIComponent(accountId)}/link-preview`, { url }),
+
+    linkPreviewImage: (accountId: string, imageId: string) =>
+      requestBlobGet(
+        `/line/${encodeURIComponent(accountId)}/link-preview/image/${encodeURIComponent(imageId)}`,
+      ),
+
     /** チャット履歴を JSON / TXT でダウンロード（復号済み） */
     exportChat: async (accountId: string, chatMid: string, format: "json" | "txt" = "json") => {
       const res = await fetch(
@@ -630,6 +668,51 @@ export const api = {
         }>;
       }>("GET", `/line/${accountId}/stickers`),
 
+    stickers: (accountId: string) => api.line.getOwnedStickers(accountId),
+
+    commonGroups: (accountId: string, targetMid: string, excludeChatId?: string) =>
+      request<{
+        ok: boolean;
+        groups?: Array<{
+          chatMid: string;
+          name: string;
+          thumbnailUrl?: string;
+          memberMids: string[];
+        }>;
+        error?: string;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/getCommonGroupIds/${encodeURIComponent(targetMid)}${
+          excludeChatId ? `?exclude=${encodeURIComponent(excludeChatId)}` : ""
+        }`,
+      ),
+
+    createGroup: (
+      accountId: string,
+      name: string,
+      memberMids: string[],
+      mode: "group" | "room" = "group",
+    ) =>
+      request<{
+        ok: boolean;
+        chat?: { chatMid: string; name: string };
+        error?: string;
+        code?: string;
+        createGroupBanned?: boolean;
+      }>("POST", `/line/${encodeURIComponent(accountId)}/createChat`, { name, memberMids, mode }),
+
+    updateChatPicture: (
+      accountId: string,
+      chatMid: string,
+      bytes: ArrayBuffer,
+      mime = "image/jpeg",
+    ) =>
+      uploadBinary<{ ok: boolean; error?: string }>(
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/picture`,
+        new Blob([bytes], { type: mime }),
+        { "Content-Type": mime },
+      ),
+
     unsendMessage: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsendMessage`, { messageId }),
 
@@ -638,6 +721,12 @@ export const api = {
         "POST",
         `/line/${accountId}/restore?chatMid=${encodeURIComponent(chatMid)}`,
         { messageId },
+      ),
+
+    deleteRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "DELETE",
+        `/line/${encodeURIComponent(accountId)}/messages/${encodeURIComponent(chatMid)}/${encodeURIComponent(messageId)}`,
       ),
 
     editMessage: (accountId: string, chatMid: string, messageId: string, text: string) =>
@@ -655,6 +744,25 @@ export const api = {
     /** 相手ユーザーのプロフィール取得 (アイコン URL 用) */
     getContact: (accountId: string, targetMid: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/getContact/${targetMid}`),
+
+    contactProfile: (accountId: string, targetMid: string) =>
+      request<ProfileResponse>(
+        "GET",
+        `/line/${accountId}/getContact/${encodeURIComponent(targetMid)}`,
+      ),
+
+    chatMembers: (accountId: string, chatMid: string) =>
+      request<{
+        ok: boolean;
+        members?: Array<{ mid: string; displayName: string; thumbnailUrl?: string }>;
+      }>("GET", `/line/${accountId}/getChatMembers/${encodeURIComponent(chatMid)}`),
+
+    addFriendByMid: (accountId: string, mid: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/contacts/${encodeURIComponent(mid)}/add`,
+        {},
+      ),
 
     /** Vyline プロフィール/グループキャッシュ */
     getVylineCache: (accountId: string) =>
@@ -849,22 +957,28 @@ export const api = {
         `/line/${accountId}/plugins/${encodeURIComponent(pluginId)}/${enabled ? "enable" : "disable"}`,
       ),
 
-    blockContact: (accountId: string, mid: string) =>
+    blockContact: (accountId: string, mid: string, sqliteDiffSync = false) =>
       request<{ ok: boolean; error?: string }>(
         "POST",
-        `/line/${accountId}/blockContact/${encodeURIComponent(mid)}`,
+        `/line/${accountId}/blockContact/${encodeURIComponent(mid)}${sqliteDiffSync ? "?sqliteDiffSync=1" : ""}`,
       ),
 
-    unblockContact: (accountId: string, mid: string) =>
+    unblockContact: (accountId: string, mid: string, sqliteDiffSync = false) =>
       request<{ ok: boolean; error?: string }>(
         "DELETE",
-        `/line/${accountId}/unblockContact/${encodeURIComponent(mid)}`,
+        `/line/${accountId}/unblockContact/${encodeURIComponent(mid)}${sqliteDiffSync ? "?sqliteDiffSync=1" : ""}`,
       ),
 
     getBlockedContactIds: (accountId: string) =>
       request<{ ok: boolean; mids?: string[]; error?: string }>(
         "GET",
         `/line/${accountId}/getBlockedContactIds`,
+      ),
+
+    blockedContacts: (accountId: string, sqliteDiffSync = false) =>
+      request<{ ok: boolean; mids?: string[]; error?: string }>(
+        "GET",
+        `/line/${accountId}/getBlockedContactIds${sqliteDiffSync ? "?sqliteDiffSync=1" : ""}`,
       ),
 
     verifyFriendBlockStatus: (accountId: string, mid?: string) =>
@@ -938,6 +1052,12 @@ export const api = {
         `/line/${accountId}/messages/${encodeURIComponent(messageId)}/react`,
         { reaction },
       ),
+
+    react: (
+      accountId: string,
+      messageId: string,
+      reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
+    ) => api.line.reactToMessage(accountId, messageId, reaction),
 
     reindexMessages: (accountId: string) =>
       request<{ ok: boolean; chats?: number; messages?: number; error?: string }>(
@@ -1417,6 +1537,10 @@ export const api = {
           "DELETE",
           `/line/${accountId}/removeChatRoomAnnouncement/${encodeURIComponent(chatMid)}/${seq}`,
         ),
+      create: (accountId: string, chatMid: string, text: string, messageId?: string) =>
+        api.line.announce.createChatRoomAnnouncement(accountId, chatMid, text, messageId),
+      remove: (accountId: string, chatMid: string, seq: string) =>
+        api.line.announce.removeChatRoomAnnouncement(accountId, chatMid, seq),
     },
 
     notes: {

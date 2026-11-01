@@ -40,7 +40,6 @@ export function CallOverlay({
   imageUrl,
   state,
   error,
-  transport,
   onClose,
   onMutedChange,
 }: {
@@ -51,7 +50,6 @@ export function CallOverlay({
   imageUrl?: string;
   state: CallUiState;
   error?: string;
-  transport?: string;
   onClose: () => void;
   onMutedChange?: (muted: boolean) => void;
 }) {
@@ -98,11 +96,6 @@ export function CallOverlay({
           <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
             {error ?? statusLabel(state, kind)}
           </p>
-          {transport && !error && (
-            <p className="mt-1 text-xs text-[var(--vy-text-dim)] opacity-70">
-              transport: {transport}
-            </p>
-          )}
           {connected && (
             <p
               className="mt-1 font-mono text-lg tabular-nums"

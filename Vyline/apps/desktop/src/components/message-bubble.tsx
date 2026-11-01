@@ -4,6 +4,7 @@ import {
   formatTime,
   memberDisplayName,
   memberGlyph,
+  shouldMaskStreamerAvatars,
   type Message,
   type Chat,
 } from "@/lib/store";
@@ -25,7 +26,6 @@ import {
   IconPlay,
   IconChevron,
   IconDownload,
-  IconAtSign,
   IconPin,
   IconHeart,
   IconClose,
@@ -35,10 +35,50 @@ import { copyText, downloadUrl } from "@/utils/clipboard";
 import { segmentUnicodeEmoji } from "@/utils/lineSticon";
 import { lineCdnProxy, hideBrokenMedia } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
+import { mentionLabel } from "./message-bubble-helpers";
+import { previewUrlsForText, splitMessageUrls } from "@/lib/messageUrls";
+
+export type PostNotificationTarget = {
+  kind: "note" | "album";
+  homeId: string;
+  postId?: string;
+  albumId?: string;
+};
+
+export async function deleteRevokedMessageFromDevice(
+  accountId: string | null,
+  chatId: string,
+  messageId: string,
+) {
+  if (
+    !accountId ||
+    useStore.getState().accountId !== accountId ||
+    !window.confirm(
+      "このメッセージをこの端末のローカルDBから完全に削除します。削除後は復元できません。相手の端末には影響しません。削除しますか？",
+    )
+  )
+    return;
+  try {
+    const result = await api.line.deleteRevokedMessage(accountId, chatId, messageId);
+    if (!result.ok) throw new Error("削除に失敗しました");
+    useStore.setState((state) =>
+      state.accountId !== accountId
+        ? {}
+        : {
+            messages: state.messages.filter(
+              (item) => item.chatId !== chatId || item.id !== messageId,
+            ),
+          },
+    );
+  } catch {
+    window.alert("この端末からの削除に失敗しました。もう一度お試しください。");
+  }
+}
 
 function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: boolean }) {
   const [revealed, setRevealed] = useState(false);
   if (revealed) {
+    if (video) return <VideoPlayer src={src.replace(/preview=1/, "preview=0")} />;
     return (
       <img
         src={src}
@@ -61,80 +101,201 @@ function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: b
   );
 }
 
-function LinkPreviewCard({ preview }: { preview: NonNullable<Message["linkPreview"]> }) {
+function VideoPlayer({ src }: { src: string }) {
   return (
-    <a
-      href={preview.url}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="mt-2 flex gap-3 overflow-hidden rounded-xl border-l-2 bg-[color-mix(in_oklab,var(--vy-text)_6%,transparent)] p-2.5 transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
-      style={{ borderColor: "var(--vy-accent)" }}
-    >
-      <span
-        className="flex h-14 w-14 shrink-0 items-center justify-center rounded-lg text-2xl"
-        style={{ background: "color-mix(in oklab, var(--vy-accent) 20%, transparent)" }}
-        aria-hidden
-      >
-        {preview.thumb}
-      </span>
-      <span className="min-w-0">
-        <span className="block truncate text-xs font-medium" style={{ color: "var(--vy-accent)" }}>
-          {preview.site}
-        </span>
-        <span className="block truncate text-sm font-semibold">{preview.title}</span>
-        <span className="line-clamp-2 block text-xs opacity-80">{preview.description}</span>
-      </span>
-    </a>
+    <video
+      src={src}
+      controls
+      playsInline
+      preload="metadata"
+      aria-label="動画を再生"
+      className="h-auto w-[260px] max-w-full rounded-xl object-cover"
+    />
   );
 }
 
-export type PostNotificationTarget =
-  | { kind: "note"; postId?: string; homeId?: string }
-  | { kind: "album"; albumId?: string; homeId?: string };
-
-function PostNotificationCard({
-  message,
-  onOpen,
-}: {
-  message: Message;
-  onOpen: (target: PostNotificationTarget) => void;
-}) {
-  const notification = message.postNotification;
-  if (!notification || notification.kind === "unknown") return null;
-
+function LinkPreviewCard({
+  preview,
+  accountId,
+}: { preview: NonNullable<Message["linkPreview"]>; accountId: string | null }) {
+  const [thumbnail, setThumbnail] = useState<string>();
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    let objectUrl: string | undefined;
+    setThumbnail(undefined);
+    if (preview.imageId && accountId) {
+      void api.line
+        .linkPreviewImage(accountId, preview.imageId)
+        .then((blob) => {
+          if (cancelled) return;
+          objectUrl = URL.createObjectURL(blob);
+          setThumbnail(objectUrl);
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [accountId, preview.imageId]);
+  let parsedUrl: URL;
+  try {
+    parsedUrl = new URL(preview.url);
+    if (
+      (parsedUrl.protocol !== "http:" && parsedUrl.protocol !== "https:") ||
+      parsedUrl.username ||
+      parsedUrl.password
+    )
+      return null;
+  } catch {
+    return null;
+  }
   return (
-    <div className="my-1 flex w-full justify-center px-2">
+    <div className="mt-2 flex w-full max-w-[360px] min-w-0 overflow-hidden rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] text-[var(--vy-text)] shadow-sm">
+      <a
+        href={parsedUrl.toString()}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerPolicy="no-referrer"
+        onClick={(event) => event.stopPropagation()}
+        className="flex min-w-0 flex-1 items-center gap-2 p-2"
+      >
+        {thumbnail ? (
+          <img
+            src={thumbnail}
+            alt=""
+            loading="lazy"
+            decoding="async"
+            referrerPolicy="no-referrer"
+            className="h-11 w-11 shrink-0 rounded-md object-cover"
+          />
+        ) : (
+          <span
+            className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lg"
+            style={{ background: "color-mix(in oklab, var(--vy-accent) 18%, var(--vy-surface))" }}
+            aria-hidden
+          >
+            {preview.thumb || "↗"}
+          </span>
+        )}
+        <span className="min-w-0 flex-1 self-center leading-tight">
+          <span className="block truncate text-xs font-semibold">
+            {preview.title || preview.site || parsedUrl.hostname}
+          </span>
+          <span
+            className="mt-1 block truncate text-[11px] font-medium text-[var(--vy-text)]"
+            title={preview.url}
+          >
+            {preview.url}
+          </span>
+        </span>
+      </a>
       <button
         type="button"
-        onClick={() =>
-          onOpen(
-            notification.kind === "note"
-              ? { kind: "note", postId: notification.postId, homeId: notification.homeId }
-              : { kind: "album", albumId: notification.albumId, homeId: notification.homeId },
-          )
-        }
-        className="w-full max-w-[360px] overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] text-left shadow-sm transition-colors hover:bg-[var(--vy-surface-2)]"
+        onClick={(event) => {
+          event.stopPropagation();
+          void copyText(preview.url).then((ok) => {
+            if (!ok) return;
+            setCopied(true);
+            window.setTimeout(() => setCopied(false), 1400);
+          });
+        }}
+        aria-label={copied ? "URLをコピーしました" : "URLをコピー"}
+        title={copied ? "コピーしました" : "URLをコピー"}
+        className="m-1 flex shrink-0 items-center gap-1 rounded-md bg-[var(--vy-surface-2)] px-2 text-[11px] font-medium text-[var(--vy-text)] transition-colors hover:text-[var(--vy-accent)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-[var(--vy-accent)]"
       >
-        <div className="px-4 py-3">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--vy-accent)]">
-            {notification.kind === "album" ? "Album" : "Note"}
-          </p>
-          <p className="mt-1 text-sm font-semibold text-[var(--vy-text)]">
-            {notification.kind === "album"
-              ? notification.title || "アルバムが更新されました"
-              : "ノートが作成されました"}
-          </p>
-          {notification.kind === "album" && notification.mediaCount != null && (
-            <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-              {notification.mediaCount}件のメディア
-            </p>
-          )}
-          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            クリックして{notification.kind === "album" ? "アルバム" : "ノート"}を開く
-          </p>
-        </div>
+        <span aria-hidden>{copied ? "✓" : "⧉"}</span>
+        {copied ? "コピー済み" : "コピー"}
       </button>
     </div>
+  );
+}
+
+function InlineUrl({ value, href }: { value: string; href: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <>
+      <a
+        href={href}
+        target="_blank"
+        rel="noopener noreferrer"
+        referrerPolicy="no-referrer"
+        onClick={(event) => event.stopPropagation()}
+        className="break-all font-medium text-current underline decoration-current/70 underline-offset-2 hover:decoration-current"
+      >
+        {value}
+      </a>
+      <button
+        type="button"
+        onClick={(event) => {
+          event.stopPropagation();
+          void copyText(value).then((ok) => {
+            if (ok) {
+              setCopied(true);
+              window.setTimeout(() => setCopied(false), 1400);
+            }
+          });
+        }}
+        aria-label={copied ? "URLをコピーしました" : "URLをコピー"}
+        title={copied ? "コピーしました" : "URLをコピー"}
+        className="mx-0.5 inline-flex align-middle rounded px-1 text-[0.75em] text-current hover:bg-[color-mix(in_oklab,currentColor_12%,transparent)]"
+      >
+        {copied ? "✓" : "⧉ コピー"}
+      </button>
+    </>
+  );
+}
+
+function MessageLinkPreviews({
+  text,
+  accountId,
+  disabled,
+  excludeUrl,
+}: { text: string; accountId: string | null; disabled: boolean; excludeUrl?: string }) {
+  const limit = useStore((state) => state.settings.linkPreviewLimit ?? 3);
+  const urls = previewUrlsForText(text, limit).filter((url) => url !== excludeUrl);
+  const [found, setFound] = useState<Record<string, NonNullable<Message["linkPreview"]>>>({});
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountId || disabled || urls.length === 0)
+      return () => {
+        cancelled = true;
+      };
+    void (async () => {
+      for (const url of urls) {
+        try {
+          const result = await api.line.linkPreview(accountId, url);
+          if (cancelled || useStore.getState().accountId !== accountId) return;
+          if (result.ok && result.preview) {
+            const metadata = result.preview;
+            const preview: NonNullable<Message["linkPreview"]> = {
+              url,
+              title: metadata.title || new URL(url).hostname,
+              description: metadata.description || "",
+              site: metadata.site || new URL(url).hostname,
+              ...(metadata.imageId ? { imageId: metadata.imageId } : {}),
+            };
+            setFound((previous) => ({ ...previous, [url]: preview }));
+          }
+        } catch {
+          /* A missing preview never blocks the original URL. */
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, disabled, limit, text]);
+  if (!accountId || disabled) return null;
+  return (
+    <>
+      {urls.map((url) =>
+        found[url] ? (
+          <LinkPreviewCard key={url} preview={found[url]} accountId={accountId} />
+        ) : null,
+      )}
+    </>
   );
 }
 
@@ -267,38 +428,91 @@ function ReplyQuote({
 
 /** 通常テキスト内の Unicode 絵文字を LINE サイズ感（1.15em）で一貫描画 */
 function TextRuns({ value }: { value: string }) {
-  const runs = segmentUnicodeEmoji(value);
+  const settings = useStore((s) => s.settings);
+  const visibleText =
+    settings.streamerMode && settings.streamerMaskUrls
+      ? value.replace(/https?:\/\/[^\s<>]+/gi, "[URL]")
+      : value;
+  const parts = splitMessageUrls(visibleText);
   return (
     <>
-      {runs.map((r, i) =>
-        r.type === "emoji" ? (
-          <span key={i} className="inline-block text-[1.15em] leading-none align-[-0.05em]">
-            {r.value}
-          </span>
+      {parts.map((part, i) =>
+        part.type === "url" ? (
+          <InlineUrl key={`url-${i}`} value={part.value} href={part.href} />
         ) : (
-          <span key={i}>{r.value}</span>
+          segmentUnicodeEmoji(part.value).map((run, j) =>
+            run.type === "emoji" ? (
+              <span
+                key={`${i}-${j}`}
+                className="inline-block text-[1.15em] leading-none align-[-0.05em]"
+              >
+                {run.value}
+              </span>
+            ) : (
+              <span key={`${i}-${j}`}>{run.value}</span>
+            ),
+          )
         ),
       )}
     </>
   );
 }
 
-/** LINE 準拠のメンション色（青 #457ed7 / @ALL は橙 #f5a623） */
-const MENTION_COLOR = "#457ed7";
-const MENTION_ALL_COLOR = "#e07b00";
+/** Dark theme and green outgoing bubbles both need clear mention contrast. */
+const MENTION_COLOR = "#ffe08a";
+const MENTION_ALL_COLOR = "#ffad75";
 
-function MentionSpan({ seg }: { seg: Extract<DraftSegment, { type: "mention" }> }) {
+function MentionSpan({
+  seg,
+  memberName,
+  chatId,
+}: {
+  seg: Extract<DraftSegment, { type: "mention" }>;
+  memberName?: string;
+  chatId: string;
+}) {
   const all = Boolean(seg.all);
+  const openMemberProfile = useStore((s) => s.openMemberProfile);
+  const profileName = useStore((s) =>
+    seg.mid && (seg.mid === s.self.mid || seg.mid === "me")
+      ? s.self.name
+      : s.chats.find((c) => c.id === seg.mid)?.name,
+  );
+  const streamerSettings = useStore((s) => s.settings);
+  const streamerMode = streamerSettings.streamerMode;
+  const label = all
+    ? "ALL"
+    : memberDisplayName(mentionLabel(seg.value, false, memberName || profileName), streamerMode);
+  const style = {
+    background: all ? "rgba(255,173,117,0.16)" : "rgba(255,224,138,0.14)",
+    color: all ? MENTION_ALL_COLOR : MENTION_COLOR,
+  };
+  if (!all && seg.mid) {
+    return (
+      <span
+        role="button"
+        tabIndex={0}
+        aria-label={`@${label} のプロフィールを開く`}
+        onClick={(event) => {
+          event.stopPropagation();
+          openMemberProfile(chatId, seg.mid!);
+        }}
+        onKeyDown={(event) => {
+          if (event.key !== "Enter" && event.key !== " ") return;
+          event.preventDefault();
+          event.stopPropagation();
+          openMemberProfile(chatId, seg.mid!);
+        }}
+        className="inline rounded-[0.25em] px-0.5 align-baseline font-semibold underline decoration-current/60 underline-offset-2 cursor-pointer hover:brightness-125 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
+        style={style}
+      >
+        @{label}
+      </span>
+    );
+  }
   return (
-    <span
-      className="inline-flex items-center gap-0.5 rounded-[0.25em] px-0.5 align-baseline"
-      style={{
-        background: all ? "rgba(245,166,35,0.16)" : "rgba(69,126,215,0.14)",
-        color: all ? MENTION_ALL_COLOR : MENTION_COLOR,
-      }}
-    >
-      <IconAtSign size={11} className="shrink-0" />
-      {seg.value.replace(/^@/, "")}
+    <span className="inline rounded-[0.25em] px-0.5 align-baseline font-semibold" style={style}>
+      @{label}
     </span>
   );
 }
@@ -318,13 +532,19 @@ function MentionImage({ seg }: { seg: Extract<DraftSegment, { type: "sticon" }> 
 function Highlighted({
   text,
   query,
+  regex = false,
   sticons,
   mentions,
+  membersById,
+  chatId,
 }: {
   text: string;
   query?: string;
+  regex?: boolean;
   sticons?: import("@/utils/lineSticon").SticonResource[];
   mentions?: import("@/utils/mention").MentionInfo[];
+  membersById?: ReadonlyMap<string, NonNullable<Chat["members"]>[number]>;
+  chatId: string;
 }) {
   const segments: DraftSegment[] =
     (sticons && sticons.length > 0) || (mentions && mentions.length > 0)
@@ -333,7 +553,15 @@ function Highlighted({
 
   const renderSegment = (seg: DraftSegment, i: number) => {
     if (seg.type === "sticon") return <MentionImage key={i} seg={seg} />;
-    if (seg.type === "mention") return <MentionSpan key={i} seg={seg} />;
+    if (seg.type === "mention")
+      return (
+        <MentionSpan
+          key={i}
+          seg={seg}
+          chatId={chatId}
+          memberName={membersById?.get(seg.mid ?? "")?.name}
+        />
+      );
     return <TextRuns key={i} value={seg.value} />;
   };
 
@@ -345,16 +573,52 @@ function Highlighted({
     <>
       {segments.map((seg, i) => {
         if (seg.type === "sticon") return <MentionImage key={i} seg={seg} />;
-        if (seg.type === "mention") return <MentionSpan key={i} seg={seg} />;
-        const idx = seg.value.toLowerCase().indexOf(query.toLowerCase());
-        if (idx < 0) return <TextRuns key={i} value={seg.value} />;
+        if (seg.type === "mention")
+          return (
+            <MentionSpan
+              key={i}
+              seg={seg}
+              chatId={chatId}
+              memberName={membersById?.get(seg.mid ?? "")?.name}
+            />
+          );
+        const ranges: Array<{ start: number; end: number }> = [];
+        if (regex) {
+          try {
+            const matcher = new RegExp(query, "gi");
+            for (const match of seg.value.matchAll(matcher)) {
+              if (match[0].length)
+                ranges.push({ start: match.index!, end: match.index! + match[0].length });
+              if (ranges.length >= 100) break;
+            }
+          } catch {
+            /* invalid patterns are rejected by the search API */
+          }
+        } else {
+          const source = seg.value.toLocaleLowerCase();
+          const needle = query.toLocaleLowerCase();
+          let start = 0;
+          while (needle && ranges.length < 100) {
+            const idx = source.indexOf(needle, start);
+            if (idx < 0) break;
+            ranges.push({ start: idx, end: idx + needle.length });
+            start = idx + needle.length;
+          }
+        }
+        if (!ranges.length) return <TextRuns key={i} value={seg.value} />;
         return (
           <span key={i}>
-            <TextRuns value={seg.value.slice(0, idx)} />
-            <mark className="rounded bg-[var(--vy-accent)] px-0.5 text-[var(--vy-accent-contrast)]">
-              {seg.value.slice(idx, idx + query.length)}
-            </mark>
-            <TextRuns value={seg.value.slice(idx + query.length)} />
+            {ranges.map((range, index) => (
+              <span key={index}>
+                <TextRuns
+                  value={seg.value.slice(index === 0 ? 0 : ranges[index - 1]!.end, range.start)}
+                />
+                <mark className="rounded bg-amber-300 px-0.5 text-black ring-1 ring-amber-500/80 shadow-[0_0_0_1px_rgba(0,0,0,0.35)]">
+                  {seg.value.slice(range.start, range.end)}
+                </mark>
+              </span>
+            ))}
+            <TextRuns value={seg.value.slice(ranges[ranges.length - 1]!.end)} />
           </span>
         );
       })}
@@ -391,11 +655,7 @@ function stickerAnimationUrl(url?: string): string {
 
 function isStickerImageSrc(src?: string): boolean {
   return Boolean(
-    src &&
-      (src.startsWith("http") ||
-        src.startsWith("/api/") ||
-        src.startsWith("/demo/") ||
-        src.startsWith("data:")),
+    src && (src.startsWith("http") || src.startsWith("/api/") || src.startsWith("data:")),
   );
 }
 
@@ -508,38 +768,40 @@ function ReactionBadges({
 export const MessageBubble = memo(
   function MessageBubble({
     message,
+    replied,
+    membersById,
     chat,
     showAvatar,
     showName,
     highlight,
+    highlightRegex,
     mediaGroup,
-    onOpenPostNotification,
   }: {
     message: Message;
+    replied?: Message;
+    membersById: ReadonlyMap<string, NonNullable<Chat["members"]>[number]>;
     chat: Chat;
     showAvatar: boolean;
     showName: boolean;
     highlight?: string;
+    highlightRegex?: boolean;
     mediaGroup?: Message[];
-    onOpenPostNotification: (target: PostNotificationTarget) => void;
   }) {
     const isMe = message.authorId === "me";
+    const accountId = useStore((s) => s.accountId);
     const settings = useStore((s) => s.settings);
     const streamerMode = settings.streamerMode;
+    const maskUrls = streamerMode && settings.streamerMaskUrls;
     const revokeMessage = useStore((s) => s.revokeMessage);
     const restoreRevokedMessage = useStore((s) => s.restoreRevokedMessage);
     const fetchMessageHistory = useStore((s) => s.fetchMessageHistory);
     const editMessage = useStore((s) => s.editMessage);
     const retryMessage = useStore((s) => s.retryMessage);
+    const refreshMessages = useStore((s) => s.refreshMessages);
     const markRead = useStore((s) => s.markRead);
     const setReplyTo = useStore((s) => s.setReplyTo);
     const scrollToMessage = useStore((s) => s.scrollToMessage);
     const openMemberProfile = useStore((s) => s.openMemberProfile);
-    // 全メッセージ購読は再レンダーを誘発するため、返信先メッセージのみ購読
-    // （find は同一オブジェクト参照を返すので、そのメッセージが変わらない限り再レンダーしない）
-    const replied = useStore((s) =>
-      message.replyToId ? s.messages.find((m) => m.id === message.replyToId) : undefined,
-    );
     const self = useStore((s) => s.self);
     const [menu, setMenu] = useState<{ x: number; y: number } | null>(null);
     const [editing, setEditing] = useState(false);
@@ -553,15 +815,7 @@ export const MessageBubble = memo(
     const [lightboxMedia, setLightboxMedia] = useState<Message | null>(null);
     const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
     const longPressFired = useRef(false);
-    const isRevoked =
-      message.messageState.startsWith("revoked") ||
-      Boolean(message.revokedSnapshot) ||
-      Boolean(
-        message.history?.length &&
-          message.history.some(
-            (h) => h.state === "normal" || h.state === "edited" || h.contentType === "UNSENT",
-          ),
-      );
+    const isRevoked = message.messageState.startsWith("revoked");
     const displayMessage = isRevoked && message.revokedSnapshot ? message.revokedSnapshot : message;
     const revokedHistoryText =
       message.history && message.history.length > 0
@@ -620,13 +874,15 @@ export const MessageBubble = memo(
       message.revokedSnapshot?.text,
     ]);
 
-    const author = chat.members?.find((m) => m.id === message.authorId);
+    const author = membersById.get(message.authorId);
+    const framelessMedia =
+      (message.kind === "image" || message.kind === "video") && Boolean(message.imageSrc);
     const mediaItems = mediaGroup?.filter((item) => item.kind === "image" && item.imageSrc) ?? [];
     const repliedAuthor =
       replied?.authorId === "me"
         ? self.name
         : memberDisplayName(
-            chat.members?.find((m) => m.id === replied?.authorId)?.name ?? "メンバー",
+            membersById.get(replied?.authorId ?? "")?.name ?? "メンバー",
             streamerMode,
           );
 
@@ -658,9 +914,8 @@ export const MessageBubble = memo(
     };
 
     const react = (type: number, mine: boolean) => {
-      const state = useStore.getState();
-      const accountId = state.accountId;
-      if ((!accountId && !state.demoMode) || message.id.startsWith("pending_")) return;
+      const accountId = useStore.getState().accountId;
+      if (!accountId || message.id.startsWith("pending_")) return;
       // 公式アカウント（BOT）はリアクション不可
       if (chat.isOfficial) {
         window.alert("公式アカウントにはリアクションできません");
@@ -683,17 +938,9 @@ export const MessageBubble = memo(
       const store = useStore.getState();
       const myMid = store.self?.mid ?? "";
       store.setMessageReaction(message.id, mine ? "UNDO" : name, myMid);
-      if (store.demoMode) {
-        store.showNotice(mine ? "リアクションを外しました" : "リアクションを追加しました");
-        return;
-      }
       // 削除も同じタイプを送ってサーバ側でトグル（"UNDO" はサーバが ILLEGAL_ARGUMENT で拒否する）
       void api.line
-        .reactToMessage(
-          accountId!,
-          message.id,
-          name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
-        )
+        .react(accountId, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
         .then((res) => {
           if (!res.ok) {
             window.alert(res.error ?? "リアクションに失敗しました");
@@ -703,25 +950,13 @@ export const MessageBubble = memo(
     };
 
     const handleAnnounce = () => {
-      const state = useStore.getState();
-      const accountId = state.accountId;
-      if (!accountId && !state.demoMode) return;
+      const accountId = useStore.getState().accountId;
+      if (!accountId) return;
       const text = message.text ?? message.altText ?? "";
       if (!text) return;
       const chatId = chat.id;
-      if (state.demoMode) {
-        state.addAnnouncement(chatId, {
-          announcementSeq: String(Date.now()),
-          text,
-          link: `line://nv/chatMsg?chatId=${chatId}&messageId=${message.id}`,
-          creatorMid: state.self?.mid ?? "demo-self",
-          createdTime: Date.now(),
-        });
-        state.showNotice("アナウンスに追加しました");
-        return;
-      }
       void api.line.announce
-        .createChatRoomAnnouncement(accountId!, chatId, text, message.id)
+        .create(accountId, chatId, text, message.id)
         .then((res) => {
           if (res.ok && res.data) {
             useStore.getState().addAnnouncement(chatId, {
@@ -867,6 +1102,17 @@ export const MessageBubble = memo(
             },
           ]
         : []),
+      ...(isRevoked
+        ? [
+            {
+              label: "この端末から完全に削除",
+              icon: <IconTrash size={16} />,
+              danger: true,
+              onClick: () =>
+                void deleteRevokedMessageFromDevice(accountId, message.chatId, message.id),
+            },
+          ]
+        : []),
       ...(message.edited && message.originalText
         ? [
             {
@@ -897,13 +1143,16 @@ export const MessageBubble = memo(
       (message.revokedSnapshot || (message.history && message.history.length > 0))
         ? [
             {
-              label: "復元",
+              label: "取り消し表示を解除",
               icon: <IconCheck size={16} />,
               onClick: () => restoreRevokedMessage(message.chatId, message.id),
             },
           ]
         : []),
-      ...(isMe && !isRevoked && message.status !== "sending" && !message.id.startsWith("pending_")
+      ...(isMe &&
+      !isRevoked &&
+      (message.status === "sent" || message.status === "read") &&
+      !message.id.startsWith("pending_")
         ? [
             {
               label: "送信を取り消し",
@@ -929,6 +1178,10 @@ export const MessageBubble = memo(
     const readReceipt = (() => {
       if (!isMe || isRevoked) return null;
       if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
+      if (message.status === "restricted")
+        return <span className="text-[var(--vy-danger)]">送信制限 · 再送停止</span>;
+      if (message.status === "rejected")
+        return <span className="text-[var(--vy-danger)]">送信拒否 · 内容を確認</span>;
       if (message.status === "failed")
         return (
           <button
@@ -940,6 +1193,31 @@ export const MessageBubble = memo(
             }}
           >
             送信失敗 · 再送
+          </button>
+        );
+      if (message.status === "uncertain")
+        return (
+          <button
+            type="button"
+            className="cursor-pointer underline decoration-dotted underline-offset-2 text-[var(--vy-danger)]"
+            title="通信が切れる直前に送信された可能性があります。履歴を確認してから再送してください。"
+            onClick={async (e) => {
+              e.stopPropagation();
+              await refreshMessages(message.chatId, { force: true });
+              const pending = useStore
+                .getState()
+                .messages.find((item) => item.id === message.id && item.status === "uncertain");
+              if (!pending?.retry) return;
+              if (
+                window.confirm(
+                  "履歴で送信を確認できませんでした。送信済みの可能性は残っています。再送すると相手に同じ内容が重複して届く場合があります。それでも再送しますか？",
+                )
+              ) {
+                await retryMessage(message.id);
+              }
+            }}
+          >
+            送信結果不明 · 履歴を確認
           </button>
         );
       if (!message.read) return <span className="opacity-60">送信済み</span>;
@@ -960,10 +1238,7 @@ export const MessageBubble = memo(
       chat.type === "group" && message.readBy
         ? message.readBy.map((id) => ({
             id,
-            name: memberDisplayName(
-              chat.members?.find((m) => m.id === id)?.name ?? id,
-              streamerMode,
-            ),
+            name: memberDisplayName(membersById.get(id)?.name ?? id, streamerMode),
           }))
         : [];
 
@@ -976,10 +1251,6 @@ export const MessageBubble = memo(
 
     if (message.kind === "call" && !isRevoked) {
       return <CallEventMessage meta={message.callMeta} isMe={isMe} />;
-    }
-
-    if (message.postNotification && message.postNotification.kind !== "unknown" && !isRevoked) {
-      return <PostNotificationCard message={message} onOpen={onOpenPostNotification} />;
     }
 
     if (message.kind === "system" && !isRevoked) {
@@ -1047,7 +1318,7 @@ export const MessageBubble = memo(
     const readerList = showReaders && readers.length > 0 && (
       <div className="vy-fade-in mt-1 flex flex-wrap gap-1.5 px-1">
         {readers.map((r) => {
-          const mem = chat.members?.find((m) => m.id === r.id);
+          const mem = membersById.get(r.id);
           return (
             <button
               key={r.id}
@@ -1059,7 +1330,7 @@ export const MessageBubble = memo(
                 glyph={memberGlyph(mem?.avatar ?? "•", streamerMode)}
                 color={mem?.color ?? "#888"}
                 size={16}
-                imageUrl={streamerMode ? undefined : mem?.avatarUrl}
+                imageUrl={shouldMaskStreamerAvatars(streamerMode) ? undefined : mem?.avatarUrl}
               />
               {r.name}
             </button>
@@ -1077,6 +1348,8 @@ export const MessageBubble = memo(
     );
 
     const renderBubbleContent = (target: Message) => {
+      const frameless =
+        (target.kind === "image" || target.kind === "video") && Boolean(target.imageSrc);
       if (target.kind === "call") {
         return <CallEventMessage meta={target.callMeta} isMe={target.authorId === "me"} />;
       }
@@ -1128,6 +1401,8 @@ export const MessageBubble = memo(
                 text={target.text ?? ""}
                 sticons={target.sticons}
                 mentions={target.mentions}
+                membersById={membersById}
+                chatId={chat.id}
               />
             ) : (
               target.text
@@ -1224,13 +1499,20 @@ export const MessageBubble = memo(
       return (
         <div
           className={cn(
-            "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+            "vy-msg-enter relative select-none rounded-msg text-[length:inherit] leading-relaxed",
+            !frameless && "vy-bubble-pad shadow-sm",
+            isRevoked && !frameless && "border border-dotted",
           )}
           style={{
-            background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
+            background: frameless ? undefined : isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
             color: isMe ? "var(--vy-msg-out-text)" : "var(--vy-msg-in-text)",
-            borderTopRightRadius: isMe && settings.bubbleTail ? 6 : undefined,
-            borderTopLeftRadius: !isMe && settings.bubbleTail ? 6 : undefined,
+            borderColor: isRevoked
+              ? isMe
+                ? "color-mix(in oklab, var(--vy-accent) 55%, transparent)"
+                : "var(--vy-border)"
+              : undefined,
+            borderTopRightRadius: !frameless && isMe && settings.bubbleTail ? 6 : undefined,
+            borderTopLeftRadius: !!frameless && isMe && settings.bubbleTail ? 6 : undefined,
           }}
         >
           {replyQuote}
@@ -1243,14 +1525,7 @@ export const MessageBubble = memo(
                 video={target.kind === "video"}
               />
             ) : target.kind === "video" ? (
-              <div className="relative overflow-hidden rounded-xl">
-                <video
-                  src={target.imageSrc.replace(/preview=1/, "preview=0")}
-                  controls
-                  preload="metadata"
-                  className="h-auto w-[260px] max-w-full object-cover"
-                />
-              </div>
+              <VideoPlayer src={target.imageSrc.replace(/preview=1/, "preview=0")} />
             ) : (
               <button
                 type="button"
@@ -1295,13 +1570,26 @@ export const MessageBubble = memo(
                     showOriginal && target.originalText ? target.originalText : (target.text ?? "")
                   }
                   query={highlight}
+                  regex={highlightRegex}
                   sticons={target.sticons}
                   mentions={target.mentions}
+                  membersById={membersById}
+                  chatId={chat.id}
                 />
               </p>
             </div>
           )}
-          {target.linkPreview && !streamerMode && <LinkPreviewCard preview={target.linkPreview} />}
+          {target.linkPreview && !maskUrls && (
+            <LinkPreviewCard preview={target.linkPreview} accountId={accountId} />
+          )}
+          {target.kind === "text" && (
+            <MessageLinkPreviews
+              text={showOriginal && target.originalText ? target.originalText : (target.text ?? "")}
+              accountId={accountId}
+              disabled={maskUrls}
+              excludeUrl={target.linkPreview?.url}
+            />
+          )}
         </div>
       );
     };
@@ -1321,7 +1609,7 @@ export const MessageBubble = memo(
                   glyph={memberGlyph(author.avatar, streamerMode)}
                   color={author.color}
                   size={32}
-                  imageUrl={streamerMode ? undefined : author.avatarUrl}
+                  imageUrl={shouldMaskStreamerAvatars(streamerMode) ? undefined : author.avatarUrl}
                 />
               </button>
             )}
@@ -1330,7 +1618,7 @@ export const MessageBubble = memo(
 
         <div
           className={cn(
-            "min-w-0 flex flex-col",
+            "flex min-w-0 max-w-full flex-col",
             message.kind === "flex" || message.kind === "rich"
               ? "max-w-[min(100%,360px)]"
               : "max-w-[74%]",
@@ -1349,32 +1637,9 @@ export const MessageBubble = memo(
           )}
 
           {isRevoked ? (
-            <div
-              className={cn(
-                "relative overflow-hidden rounded-msg border border-dashed px-3 py-2.5 shadow-sm",
-                isRevoked && message.authorId === "me"
-                  ? "bg-[color-mix(in_oklab,var(--vy-accent)_7%,transparent)]"
-                  : "bg-[color-mix(in_oklab,var(--vy-text)_5%,var(--vy-surface-2))]",
-              )}
-              style={{
-                borderColor:
-                  isRevoked && message.authorId === "me"
-                    ? "color-mix(in oklab, var(--vy-accent) 55%, transparent)"
-                    : "var(--vy-border)",
-              }}
-            >
-              <span
-                className={cn(
-                  "absolute right-2 top-2 rounded-full border px-2 py-0.5 text-[0.62rem] font-semibold tracking-wide",
-                  isRevoked && message.authorId === "me"
-                    ? "border-[color-mix(in_oklab,var(--vy-accent)_50%,transparent)] bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
-                    : "border-[var(--vy-border)] bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] text-[var(--vy-text-dim)]",
-                )}
-              >
-                取り消し済み
-              </span>
-              <div className="pr-16">{renderBubbleContent(revokedDisplayMessage)}</div>
-              <div className="mt-2 flex items-center gap-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
+            <div {...pressHandlers} className="max-w-[min(74%,560px)]">
+              {renderBubbleContent(revokedDisplayMessage)}
+              <div className="mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]">
                 <IconTrash className="h-3.5 w-3.5 shrink-0 opacity-80" />
                 <span>{formatTime(message.createdAt)}</span>
                 <span className="opacity-70">
@@ -1434,6 +1699,8 @@ export const MessageBubble = memo(
                   text={message.text ?? ""}
                   sticons={message.sticons}
                   mentions={message.mentions}
+                  membersById={membersById}
+                  chatId={chat.id}
                 />
               ) : (
                 message.text
@@ -1569,13 +1836,20 @@ export const MessageBubble = memo(
             <div
               {...pressHandlers}
               className={cn(
-                "vy-msg-enter vy-bubble-pad relative select-none rounded-msg text-[length:inherit] leading-relaxed shadow-sm",
+                "vy-msg-enter relative select-none rounded-msg text-[length:inherit] leading-relaxed",
+                !framelessMedia && "vy-bubble-pad shadow-sm",
               )}
               style={{
-                background: isMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
+                background: framelessMedia
+                  ? undefined
+                  : isMe
+                    ? "var(--vy-msg-out)"
+                    : "var(--vy-msg-in)",
                 color: isMe ? "var(--vy-msg-out-text)" : "var(--vy-msg-in-text)",
-                borderTopRightRadius: isMe && settings.bubbleTail ? 6 : undefined,
-                borderTopLeftRadius: !isMe && settings.bubbleTail ? 6 : undefined,
+                borderTopRightRadius:
+                  !framelessMedia && isMe && settings.bubbleTail ? 6 : undefined,
+                borderTopLeftRadius:
+                  !framelessMedia && !isMe && settings.bubbleTail ? 6 : undefined,
               }}
             >
               {replyQuote}
@@ -1615,9 +1889,16 @@ export const MessageBubble = memo(
                     mediaItems.length === 2 ? "grid-cols-2" : "grid-cols-3",
                   )}
                 >
-                  {mediaItems.map((item) => (
-                    <SpoilerMedia key={item.id} src={item.imageSrc!} alt="送信された画像" />
-                  ))}
+                  {mediaItems.map((item) =>
+                    item.kind === "video" ? (
+                      <VideoPlayer
+                        key={item.id}
+                        src={item.imageSrc!.replace(/preview=1/, "preview=0")}
+                      />
+                    ) : (
+                      <SpoilerMedia key={item.id} src={item.imageSrc!} alt="送信された画像" />
+                    ),
+                  )}
                 </div>
               )}
               {mediaItems.length <= 1 &&
@@ -1630,14 +1911,7 @@ export const MessageBubble = memo(
                     video={message.kind === "video"}
                   />
                 ) : message.kind === "video" ? (
-                  <div className="relative overflow-hidden rounded-xl">
-                    <video
-                      src={message.imageSrc.replace(/preview=1/, "preview=0")}
-                      controls
-                      preload="metadata"
-                      className="h-auto w-[260px] max-w-full object-cover"
-                    />
-                  </div>
+                  <VideoPlayer src={message.imageSrc.replace(/preview=1/, "preview=0")} />
                 ) : (
                   <button
                     type="button"
@@ -1685,15 +1959,26 @@ export const MessageBubble = memo(
                           : (message.text ?? "")
                       }
                       query={highlight}
+                      regex={highlightRegex}
                       sticons={message.sticons}
                       mentions={message.mentions}
+                      membersById={membersById}
+                      chatId={chat.id}
                     />
                   </p>
                 </div>
               )}
-              {message.linkPreview && !streamerMode && (
-                <LinkPreviewCard preview={message.linkPreview} />
+              {message.linkPreview && !maskUrls && (
+                <LinkPreviewCard preview={message.linkPreview} accountId={accountId} />
               )}
+              <MessageLinkPreviews
+                text={
+                  showOriginal && message.originalText ? message.originalText : (message.text ?? "")
+                }
+                accountId={accountId}
+                disabled={maskUrls}
+                excludeUrl={message.linkPreview?.url}
+              />
             </div>
           )}
 
@@ -1789,9 +2074,11 @@ export const MessageBubble = memo(
     // 同じなら再レンダーしない（大量メッセージ表示時の不要な再描画を防ぐ）
     return (
       prev.message === next.message &&
+      prev.membersById === next.membersById &&
       prev.showAvatar === next.showAvatar &&
       prev.showName === next.showName &&
       prev.highlight === next.highlight &&
+      prev.highlightRegex === next.highlightRegex &&
       prev.chat.type === next.chat.type &&
       prev.chat.isOfficial === next.chat.isOfficial &&
       prev.chat.members === next.chat.members

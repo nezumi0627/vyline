@@ -1,5 +1,5 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { accountDraftKey, useStore } from "@/lib/store";
+import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { api } from "@/api/client";
 import { compressImageFile } from "@/utils/compressImage";
@@ -14,7 +14,9 @@ import {
   IconSpark,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
-import { StickerEmojiPanel } from "@/components/sticker-emoji-panel";
+const StickerEmojiPanel = lazy(async () => ({
+  default: (await import("@/components/sticker-emoji-panel")).StickerEmojiPanel,
+}));
 import { FloatNotice } from "@/components/float-notice";
 import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
@@ -109,16 +111,15 @@ async function blobToBase64(blob: Blob): Promise<string> {
 }
 
 export function MessageInput({ chatId }: { chatId: string }) {
-  const accountId = useStore((s) => s.accountId);
-  const draftKey = accountDraftKey(accountId, chatId);
-  const draft = useStore((s) => s.drafts[draftKey] ?? "");
+  const draft = useStore((s) => s.drafts[chatId] ?? "");
   const setDraft = useStore((s) => s.setDraft);
   const sendMessage = useStore((s) => s.sendMessage);
   const sendSticker = useStore((s) => s.sendSticker);
   const sendCombinationSticker = useStore((s) => s.sendCombinationSticker);
   const sendAudio = useStore((s) => s.sendAudio);
+  const accountId = useStore((s) => s.accountId);
   const enterToSend = useStore((s) => s.settings.enterToSend);
-  const agentEnabled = useStore((s) => s.settings.betaAgentI);
+  const agentEnabled = useStore((s) => s.settings.aiEnabled);
   const replyToId = useStore((s) => s.replyToId);
   const setReplyTo = useStore((s) => s.setReplyTo);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
@@ -126,7 +127,6 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const chats = useStore((s) => s.chats);
   const self = useStore((s) => s.self);
   const blockedMids = useStore((s) => s.blockedMids);
-  const lockedChatMids = useStore((s) => s.lockedChatMids);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const [picker, setPicker] = useState(false);
@@ -134,7 +134,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const [recording, setRecording] = useState(false);
   const [recSeconds, setRecSeconds] = useState(0);
   // 下書きの本文（￼ プレースホルダ）と絵文字メタデータを同一ストアに永続化して、チャット切替・再起動後もズレないようにする
-  const draftSticons = useStore((s) => s.draftSticons[draftKey] ?? NO_STICONS);
+  const draftSticons = useStore((s) => s.draftSticons[chatId] ?? NO_STICONS);
   const setDraftSticons = useStore((s) => s.setDraftSticons);
   const setDraftMentions = useStore((s) => s.setDraftMentions);
   const [overlayScrollTop, setOverlayScrollTop] = useState(0);
@@ -164,15 +164,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
-  const pendingMediaRef = useRef(pendingMedia);
-  pendingMediaRef.current = pendingMedia;
 
   useEffect(() => {
-    for (const item of pendingMediaRef.current) URL.revokeObjectURL(item.url);
+    for (const item of pendingMedia) URL.revokeObjectURL(item.url);
     setPendingMedia([]);
-    return () => {
-      for (const item of pendingMediaRef.current) URL.revokeObjectURL(item.url);
-    };
   }, [chatId]);
 
   // ￼ プレースホルダの実幅（1em 比）を計測し、絵文字画像を同じ幅に描画する。
@@ -202,14 +197,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
   const chat = chats.find((c) => c.id === chatId);
   // ブロック中の友だちには送信 UI を出さない
   const blocked = chat?.type === "friend" && blockedMids.includes(chatId);
-  const locked = lockedChatMids.includes(chatId);
 
   // メンションピッカー表示時にグループメンバー未ロードなら自動取得
   useEffect(() => {
     if (!mentionPicker || !accountId || chat?.type !== "group" || chat?.members?.length) return;
     let cancelled = false;
     void api.line
-      .getChatMembers(accountId, chatId)
+      .chatMembers(accountId, chatId)
       .then(
         (res: {
           ok: boolean;
@@ -384,14 +378,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
             );
           }
           const dataBase64 = await blobToBase64(prepared.blob);
-          const filename =
-            item.kind === "image" && prepared.mime === "image/jpeg" && prepared.blob !== item.file
-              ? `${(item.file.name || "image").replace(/\.[^.]+$/, "")}.jpg`
-              : item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg");
           return {
             dataBase64,
             mimeType: prepared.mime,
-            filename,
+            filename: item.file.name || (item.kind === "video" ? "video.mp4" : "image.jpg"),
             mediaType: item.kind,
           };
         }),
@@ -419,8 +409,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function insertAtCursor(chunk: string): number {
     const ta = taRef.current;
-    const state = useStore.getState();
-    const current = state.drafts[accountDraftKey(state.accountId, chatId)] ?? "";
+    const current = useStore.getState().drafts[chatId] ?? "";
     const start = ta?.selectionStart ?? current.length;
     const end = ta?.selectionEnd ?? current.length;
     const next = current.slice(0, start) + chunk + current.slice(end);
@@ -435,15 +424,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
   }
 
   function insertLineEmoji(packageId: string, sticonId: string) {
-    const state = useStore.getState();
-    const key = accountDraftKey(state.accountId, chatId);
-    const text = state.drafts[key] ?? "";
+    const text = useStore.getState().drafts[chatId] ?? "";
     const start = insertAtCursor(STICON_PLACEHOLDER);
     // 本文のプレースホルダ順 = リソース順。挿入位置より前のプレースホルダ数に合わせてリソースを差し込む
     const before = text.slice(0, start).split(STICON_PLACEHOLDER).length - 1;
-    const prev = state.draftSticons[key] ?? [];
+    const prev = useStore.getState().draftSticons[chatId] ?? [];
     // 挿入後の本文に合わせて S/E を再計算する（範囲が無いと $ 文字が誤置換される fallback 経路に入るため）
-    const next = recomputeSticonRanges(useStore.getState().drafts[key] ?? "", [
+    const next = recomputeSticonRanges(useStore.getState().drafts[chatId] ?? "", [
       ...prev.slice(0, before),
       { productId: packageId, sticonId },
       ...prev.slice(before),
@@ -453,12 +440,11 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function send() {
     const state = useStore.getState();
-    const key = accountDraftKey(state.accountId, chatId);
-    const text = state.drafts[key] ?? draft;
+    const text = state.drafts[chatId] ?? draft;
     if (!text.trim() && !text.includes(STICON_PLACEHOLDER)) return;
-    const ranged = recomputeSticonRanges(text, state.draftSticons[key] ?? []);
+    const ranged = recomputeSticonRanges(text, state.draftSticons[chatId] ?? []);
     const sticonMeta = buildSticonMetadata(ranged) ?? {};
-    const mentionMeta = buildMentionMetadata(state.draftMentions[key] ?? []);
+    const mentionMeta = buildMentionMetadata(state.draftMentions[chatId] ?? []);
     const meta = mentionMeta ? { ...sticonMeta, MENTION: mentionMeta } : sticonMeta;
     void sendMessage(chatId, text, {
       contentMetadata: Object.keys(meta).length ? meta : undefined,
@@ -539,13 +525,12 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   function onDraftChange(value: string, caret?: number) {
     const state = useStore.getState();
-    const key = accountDraftKey(state.accountId, chatId);
-    const oldText = state.drafts[key] ?? "";
+    const oldText = state.drafts[chatId] ?? "";
     setDraft(chatId, value);
-    setDraftSticons(chatId, syncSticonsToText(value, state.draftSticons[key] ?? []));
+    setDraftSticons(chatId, syncSticonsToText(value, state.draftSticons[chatId] ?? []));
     setDraftMentions(
       chatId,
-      recomputeMentionsOnEdit(oldText, value, state.draftMentions[key] ?? []),
+      recomputeMentionsOnEdit(oldText, value, state.draftMentions[chatId] ?? []),
     );
     const trig = chat?.type === "group" ? detectMentionTrigger(value, caret ?? value.length) : null;
     setMentionPicker(trig);
@@ -555,8 +540,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   function insertMention(opt: { mid?: string; all?: boolean; name: string }) {
     const state = useStore.getState();
     const ta = taRef.current;
-    const key = accountDraftKey(state.accountId, chatId);
-    const text = state.drafts[key] ?? "";
+    const text = state.drafts[chatId] ?? "";
     const start = mentionPicker?.start ?? ta?.selectionStart ?? text.length;
     const end = mentionPicker
       ? start + 1 + mentionPicker.query.length
@@ -565,7 +549,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     const next = text.slice(0, start) + label + text.slice(end);
     setDraft(chatId, next);
     setDraftMentions(chatId, [
-      ...recomputeMentionsOnEdit(text, next, state.draftMentions[key] ?? []),
+      ...recomputeMentionsOnEdit(text, next, state.draftMentions[chatId] ?? []),
       { S: start, E: start + label.length, mid: opt.mid, all: opt.all, name: opt.name },
     ]);
     setMentionPicker(null);
@@ -609,28 +593,36 @@ export function MessageInput({ chatId }: { chatId: string }) {
         onChange={onFileChange}
       />
       {picker && (
-        <StickerEmojiPanel
-          accountId={accountId}
-          onPickSticker={(packageId, stickerId, isPremium) => {
-            void sendSticker(chatId, packageId, stickerId, isPremium);
-            setPicker(false);
-          }}
-          onPickEmoji={(packageId, sticonId) => {
-            insertLineEmoji(packageId, sticonId);
-          }}
-          onSendCombinationSticker={async (
-            items: Array<{
-              packageId: string;
-              stickerId: string;
-              x?: number;
-              y?: number;
-              size?: number;
-            }>,
-          ) => {
-            await sendCombinationSticker(chatId, items);
-            setPicker(false);
-          }}
-        />
+        <Suspense
+          fallback={
+            <div role="status" className="px-3 py-2 text-xs text-[var(--vy-text-dim)]">
+              スタンプを読み込んでいます…
+            </div>
+          }
+        >
+          <StickerEmojiPanel
+            accountId={accountId}
+            onPickSticker={(packageId, stickerId, isPremium) => {
+              void sendSticker(chatId, packageId, stickerId, isPremium);
+              setPicker(false);
+            }}
+            onPickEmoji={(packageId, sticonId) => {
+              insertLineEmoji(packageId, sticonId);
+            }}
+            onSendCombinationSticker={async (
+              items: Array<{
+                packageId: string;
+                stickerId: string;
+                x?: number;
+                y?: number;
+                size?: number;
+              }>,
+            ) => {
+              await sendCombinationSticker(chatId, items);
+              setPicker(false);
+            }}
+          />
+        </Suspense>
       )}
 
       {replyMsg && (
@@ -693,10 +685,6 @@ export function MessageInput({ chatId }: { chatId: string }) {
           >
             <IconSend size={19} />
           </button>
-        </div>
-      ) : locked ? (
-        <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
-          ロック中のため操作できません
         </div>
       ) : blocked ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
@@ -795,7 +783,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
             </div>
           )}
           {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
-          <div className="vy-input-row flex items-end gap-1.5 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
+          <div className="vy-input-row flex items-end gap-1 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
             <PlusMenu chatId={chatId} />
             <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
               <IconPaperclip size={20} />

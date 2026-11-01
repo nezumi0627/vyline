@@ -2177,6 +2177,22 @@ async function fetchContactProfileInner(
   }
 }
 
+/** MID を使ってLINEの友だち追加を依頼する。 */
+export async function addFriendByMid(
+  accountId: string,
+  mid: string,
+  reference?: string,
+): Promise<void> {
+  if (!/^u[0-9a-f]{32}$/i.test(mid)) throw new Error("ユーザーMIDが正しくありません");
+  const client = getClient(accountId);
+  if (!client) throw new NotLoggedInError(accountId);
+  await client.base.relation.addFriendByMid({
+    mid,
+    ...(reference ? { reference } : {}),
+    trackingMetaType: 5,
+  });
+}
+
 /** メッセージを既読にする（最新メッセージ ID を渡す） */
 export async function markAsRead(
   accountId: string,
@@ -2955,9 +2971,14 @@ async function fetchChatsCore(
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
   let joinedChatsFetchFailed = false;
+  let messageBoxesFetchFailed = false;
 
   const [messageBoxes, joinedChats, users, storedChats, cacheMeta] = await Promise.all([
-    fetchMessageBoxesCached(accountId, client, { forChats: true }),
+    fetchMessageBoxesCached(accountId, client, { forChats: true }).catch((err) => {
+      messageBoxesFetchFailed = true;
+      log.warn({ accountId, err }, "message box fetch failed — preserving cached chats");
+      return [] as any[];
+    }),
     client.fetchJoinedChats().catch((err) => {
       joinedChatsFetchFailed = true;
       log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
@@ -2971,10 +2992,17 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     getCacheMeta(accountId),
   ]);
   const joinedMids = new Set(joinedChats.map((chat) => chat.mid));
-  if (!messageBoxes.length && !joinedMids.size && !users.length && storedChats.length) {
+  if (
+    !messageBoxesFetchFailed &&
+    !joinedChatsFetchFailed &&
+    !messageBoxes.length &&
+    !joinedMids.size &&
+    !users.length &&
+    storedChats.length
+  ) {
     throw new Error("empty chat sync; retaining cached roster");
   }
-  if (!joinedChatsFetchFailed) {
+  if (!joinedChatsFetchFailed && !messageBoxesFetchFailed) {
     await chatMembershipStorage.mutate(accountId, (membership) => {
       for (const chat of storedChats) {
         if (chat.kind === "group" || chat.kind === "room")

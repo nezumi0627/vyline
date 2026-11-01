@@ -39,7 +39,12 @@ import {
   removeMediaStorageEntry,
   writeMediaStorage,
 } from "../storage/mediaStorage.js";
-import { rebuildAccountChatDb } from "../storage/chatStore.js";
+import {
+  deleteRevokedMessage,
+  rebuildAccountChatDb,
+  searchStoredMessages,
+} from "../storage/chatStore.js";
+import { fetchLinkPreview, readLinkPreviewImage } from "../service/linkPreviewService.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
 import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
@@ -81,6 +86,7 @@ import { getClient, getContentClient } from "../line/clientManager.js";
 import {
   fetchProfile,
   fetchContactProfile,
+  addFriendByMid,
   markAsRead,
   markAllAsRead,
   markAsReadBatch,
@@ -174,6 +180,28 @@ import {
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
 lineRouter.route("/:accountId/recordings", recordingRouter);
+
+lineRouter.post("/:accountId/link-preview", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ url?: unknown }>().catch((): { url?: unknown } => ({}));
+  if (typeof body.url !== "string" || body.url.length > 2048) {
+    return c.json({ ok: false, error: "invalid URL" }, 400);
+  }
+  try {
+    const preview = await fetchLinkPreview(body.url, accountId);
+    return c.json({ ok: true, preview });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.get("/:accountId/link-preview/image/:imageId", (c) => {
+  const image = readLinkPreviewImage(c.req.param("imageId"));
+  if (!image) return c.json({ ok: false, error: "preview image not found" }, 404);
+  c.header("Cache-Control", "private, max-age=14400, immutable");
+  c.header("X-Content-Type-Options", "nosniff");
+  return c.body(new Uint8Array(image.bytes), 200, { "Content-Type": image.contentType });
+});
 
 // ─── notes（LINE ノート / Timeline） ───
 lineRouter.get("/:accountId/notes", async (c) => {
@@ -972,6 +1000,18 @@ lineRouter.get("/:accountId/getPreviousMessagesV2WithRequest/:chatMid", async (c
   }
 });
 
+lineRouter.get("/:accountId/messages/:chatMid/search", async (c) => {
+  const { accountId, chatMid } = c.req.param();
+  const query = c.req.query("q") ?? "";
+  const regex = c.req.query("regex") === "1";
+  try {
+    const result = await searchStoredMessages(accountId, chatMid, query, regex);
+    return c.json({ ok: true, ...result });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 // ─── POST /line/:accountId/chatdb/rebuild ────
 // 既存DBを退避して、復元・同期混在後の時系列と最新チャット要約を正規化する。
 lineRouter.post("/:accountId/chatdb/rebuild", async (c) => {
@@ -1131,6 +1171,18 @@ lineRouter.get("/:accountId/getContact/:targetMid", async (c) => {
     const profile = await fetchContactProfile(accountId, targetMid);
     if (!profile) return c.json({ ok: false, error: "contact not found" }, 404);
     return c.json({ ok: true, profile });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/contacts/:mid/add", async (c) => {
+  const accountId = c.req.param("accountId");
+  const mid = c.req.param("mid");
+  const body = await c.req.json<{ reference?: string }>().catch((): { reference?: string } => ({}));
+  try {
+    await addFriendByMid(accountId, mid, body.reference);
+    return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
   }
@@ -1461,6 +1513,21 @@ lineRouter.post("/:accountId/restore", async (c) => {
       return c.json({ ok: false, error: "no history to restore" }, 400);
     }
     return c.json({ ok: true, text: restored.text, contentType: restored.contentType });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/messages/:chatMid/:messageId", async (c) => {
+  const { accountId, chatMid, messageId } = c.req.param();
+  try {
+    const result = await deleteRevokedMessage(accountId, chatMid, messageId);
+    if (result === "not-found")
+      return c.json({ ok: false, error: "メッセージが見つかりません" }, 404);
+    if (result === "not-revoked") {
+      return c.json({ ok: false, error: "取り消し済みメッセージのみ削除できます" }, 409);
+    }
+    return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
   }
@@ -1853,8 +1920,17 @@ lineRouter.post("/:accountId/chats/:chatMid/leave", async (c) => {
 lineRouter.post("/:accountId/blockContact/:mid", async (c) => {
   const accountId = c.req.param("accountId");
   const mid = c.req.param("mid");
+  const sqliteDiffSync = c.req.query("sqliteDiffSync") === "1";
   try {
     await blockContactMid(accountId, mid);
+    if (sqliteDiffSync) {
+      try {
+        const { setBlockedContactMid } = await import("../storage/blockedContactStore.js");
+        await setBlockedContactMid(accountId, mid, true);
+      } catch (err) {
+        log.warn({ accountId, err }, "blocked-contact SQLite cache update failed");
+      }
+    }
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
@@ -1864,8 +1940,17 @@ lineRouter.post("/:accountId/blockContact/:mid", async (c) => {
 lineRouter.delete("/:accountId/unblockContact/:mid", async (c) => {
   const accountId = c.req.param("accountId");
   const mid = c.req.param("mid");
+  const sqliteDiffSync = c.req.query("sqliteDiffSync") === "1";
   try {
     await unblockContactMid(accountId, mid);
+    if (sqliteDiffSync) {
+      try {
+        const { setBlockedContactMid } = await import("../storage/blockedContactStore.js");
+        await setBlockedContactMid(accountId, mid, false);
+      } catch (err) {
+        log.warn({ accountId, err }, "blocked-contact SQLite cache update failed");
+      }
+    }
     return c.json({ ok: true });
   } catch (err) {
     return handleError(err, c);
@@ -1874,10 +1959,28 @@ lineRouter.delete("/:accountId/unblockContact/:mid", async (c) => {
 
 lineRouter.get("/:accountId/getBlockedContactIds", async (c) => {
   const accountId = c.req.param("accountId");
+  const sqliteDiffSync = c.req.query("sqliteDiffSync") === "1";
   try {
     const mids = await getBlockedContactIds(accountId);
+    if (sqliteDiffSync) {
+      try {
+        const { syncBlockedContactMids } = await import("../storage/blockedContactStore.js");
+        await syncBlockedContactMids(accountId, mids);
+      } catch (err) {
+        log.warn({ accountId, err }, "blocked-contact SQLite cache update failed");
+      }
+    }
     return c.json({ ok: true, mids });
   } catch (err) {
+    if (sqliteDiffSync) {
+      try {
+        const { listBlockedContactMids } = await import("../storage/blockedContactStore.js");
+        const mids = await listBlockedContactMids(accountId);
+        if (mids.length) return c.json({ ok: true, mids, stale: true });
+      } catch (cacheErr) {
+        log.warn({ accountId, err: cacheErr }, "blocked-contact SQLite fallback failed");
+      }
+    }
     return handleError(err, c);
   }
 });
@@ -1914,12 +2017,21 @@ lineRouter.post("/:accountId/setNotificationsEnabled", async (c) => {
 
 lineRouter.post("/:accountId/createChat", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ name?: string; memberMids?: string[] }>();
+  const body = await c.req.json<{
+    name?: string;
+    memberMids?: string[];
+    mode?: "group" | "room";
+  }>();
   if (!body.memberMids?.length) {
     return c.json({ ok: false, error: "memberMids required" }, 400);
   }
   try {
-    const chat = await createGroupChat(accountId, body.name ?? "グループ", body.memberMids);
+    const chat = await createGroupChat(
+      accountId,
+      body.name ?? "グループ",
+      body.memberMids,
+      body.mode ?? "group",
+    );
     return c.json({ ok: true, chat });
   } catch (err) {
     return handleError(err, c);
