@@ -734,6 +734,33 @@ export const api = {
         { "Content-Type": mime },
       ),
 
+    deleteFriend: (accountId: string, mid: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "DELETE",
+        `/line/${encodeURIComponent(accountId)}/contacts/${encodeURIComponent(mid)}`,
+      ),
+
+    updateChatName: (accountId: string, chatMid: string, name: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}`,
+        { name },
+      ),
+
+    updateGroupNotifications: (accountId: string, chatMid: string, disabled: boolean) =>
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`,
+        { notificationDisabled: disabled },
+      ),
+
+    updateGroupInviteTicket: (accountId: string, chatMid: string, prevented: boolean) =>
+      request<{ ok: boolean; error?: string }>(
+        "PATCH",
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/settings`,
+        { preventedJoinByTicket: prevented },
+      ),
+
     unsendMessage: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsendMessage`, { messageId }),
 

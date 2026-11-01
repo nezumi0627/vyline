@@ -129,7 +129,10 @@ import {
   updateMyProfileBackground,
   updateChatName,
   updateChatPicture,
+  updateGroupNotifications,
+  updateGroupJoinTicket,
   renameContact,
+  deleteContactMid,
   getBlockedContactIds,
   verifyFriendBlockStatus,
   createGroupChat,
@@ -823,6 +826,12 @@ function isLiffError(res: unknown): { statusCode: number; statusMessage: string 
 // ─── error helper ─────────────────────────────
 
 function handleError(err: unknown, c: Context<any, any, any>) {
+  if (err && typeof err === "object" && "code" in err) {
+    const code = String((err as { code?: unknown }).code ?? "");
+    if (code === "PROTECTED_CONTACT_DELETE") {
+      return c.json({ ok: false, error: "この友だちは保護対象のため削除できません", code }, 403);
+    }
+  }
   if (err instanceof NotLoggedInError || err instanceof LiffNotLoggedInError) {
     return c.json({ ok: false, error: "not logged in" }, 401);
   }
@@ -1866,6 +1875,26 @@ lineRouter.patch("/:accountId/chats/:chatMid", async (c) => {
   }
 });
 
+lineRouter.patch("/:accountId/chats/:chatMid/settings", async (c) => {
+  const { accountId, chatMid } = c.req.param();
+  const body = await c.req.json<{
+    notificationDisabled?: boolean;
+    preventedJoinByTicket?: boolean;
+  }>();
+  try {
+    if (typeof body.notificationDisabled === "boolean") {
+      await updateGroupNotifications(accountId, chatMid, body.notificationDisabled);
+    } else if (typeof body.preventedJoinByTicket === "boolean") {
+      await updateGroupJoinTicket(accountId, chatMid, body.preventedJoinByTicket);
+    } else {
+      return c.json({ ok: false, error: "group setting required" }, 400);
+    }
+    return c.json({ ok: true });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
 // ─── POST /line/:accountId/chats/:chatMid/picture
 
 lineRouter.post("/:accountId/chats/:chatMid/picture", async (c) => {
@@ -1900,6 +1929,19 @@ lineRouter.patch("/:accountId/updateContactSetting/:mid", async (c) => {
     });
     return c.json({ ok: true });
   } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.delete("/:accountId/contacts/:mid", async (c) => {
+  const { accountId, mid } = c.req.param();
+  try {
+    await deleteContactMid(accountId, mid);
+    return c.json({ ok: true });
+  } catch (err) {
+    if (err instanceof Error && err.message === "user MID required") {
+      return c.json({ ok: false, error: err.message }, 400);
+    }
     return handleError(err, c);
   }
 });

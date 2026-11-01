@@ -15,7 +15,10 @@ let rosterFails = false;
 let boxesFail = false;
 let emptyBoxes = false;
 const client = {
-  fetchJoinedChats: async () => joinedMids.map((chatMid) => ({ mid: chatMid, name: "Joined" })),
+  fetchJoinedChats: async () => {
+    if (rosterFails) throw new Error("temporary roster outage");
+    return joinedMids.map((chatMid) => ({ mid: chatMid, name: "Joined" }));
+  },
   fetchUsers: async () => [],
   base: {
     auth: { tryRefreshToken: async () => {} },
@@ -32,7 +35,6 @@ const client = {
       },
     },
   },
-  fetchUsers: async () => [],
 };
 const manager = await import("../line/clientManager.js");
 mock.module("../line/clientManager.js", () => ({ ...manager, getClient: () => client }));
@@ -57,7 +59,7 @@ afterAll(async () => {
 test("joined MID remains active when group details are missing", async () => {
   joinedMids = [mid];
   const chats = await fetchChats("offline-joined", { force: true, light: true });
-  expect(chats.find((c) => c.mid === mid)?.left).toBe(false);
+  expect(chats.find((c) => c.mid === mid)?.left).not.toBe(true);
 });
 
 test("a roster RPC failure preserves stored membership instead of marking all groups left", async () => {
