@@ -17,6 +17,7 @@ export function AgentIActionDialog({
   onApply?: (text: string) => void;
 }) {
   const accountId = useStore((s) => s.accountId);
+  const aiEnabled = useStore((s) => s.settings.aiEnabled);
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
@@ -49,6 +50,11 @@ export function AgentIActionDialog({
   };
 
   useEffect(() => {
+    if (!aiEnabled) {
+      setLoading(false);
+      setError("AI機能は設定で無効になっています");
+      return;
+    }
     if (sourceText) {
       setLoading(false);
       return;
@@ -75,7 +81,7 @@ export function AgentIActionDialog({
     return () => {
       cancelled = true;
     };
-  }, [accountId, prompt, sourceText]);
+  }, [accountId, aiEnabled, prompt, sourceText]);
 
   return (
     <div

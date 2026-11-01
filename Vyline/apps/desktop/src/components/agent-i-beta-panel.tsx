@@ -1,4 +1,4 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 
@@ -52,10 +52,36 @@ export function AgentIBetaPanel() {
   const [chatId, setChatId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [authMode, setAuthMode] = useState<"anonymous" | "authenticated">("anonymous");
+  const [yahooCookie, setYahooCookie] = useState("");
+  const [cookieConfigured, setCookieConfigured] = useState(false);
+  const [cookieBusy, setCookieBusy] = useState(false);
   const selectedChatName = useMemo(
     () => chats.find((chat) => chat.id === chatId)?.name ?? "",
     [chats, chatId],
   );
+
+  useEffect(() => {
+    let cancelled = false;
+    setYahooCookie("");
+    setCookieConfigured(false);
+    setAuthMode("anonymous");
+    if (!accountId)
+      return () => {
+        cancelled = true;
+      };
+    void api.agentI
+      .credentialStatus(accountId)
+      .then((response) => {
+        if (!cancelled && response.ok) setCookieConfigured(response.yahooCookieConfigured === true);
+      })
+      .catch(() => {
+        if (!cancelled) setCookieConfigured(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
 
   const sourceForChat = (id: string) =>
     messages
@@ -69,7 +95,7 @@ export function AgentIBetaPanel() {
     setLoading(true);
     setError("");
     try {
-      const response = await api.agentI.chat(accountId, text.trim());
+      const response = await api.agentI.chat(accountId, text.trim(), undefined, authMode);
       if (!response.ok || !response.text)
         throw new Error(response.error ?? "回答を返しませんでした");
       setResult(response.text);
@@ -97,6 +123,96 @@ export function AgentIBetaPanel() {
       <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed">
         入力内容と明示的に選択したトーク本文は、回答生成のためYahooのAgent
         Iへ送信されます。LINEへ自動送信はしません。
+      </div>
+      <div className="mt-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
+        <p className="text-sm font-semibold">接続モード</p>
+        <div className="mt-2 flex gap-2">
+          {(["anonymous", "authenticated"] as const).map((mode) => (
+            <button
+              key={mode}
+              type="button"
+              onClick={() => setAuthMode(mode)}
+              className={`rounded-lg border px-3 py-2 text-xs ${authMode === mode ? "border-[var(--vy-accent)] text-[var(--vy-text)]" : "border-[var(--vy-border)] text-[var(--vy-text-dim)]"}`}
+            >
+              {mode === "anonymous" ? "匿名" : "Yahooログイン済み"}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+          Vylineが接続するYahoo Web
+          APIの匿名／ログイン別上限は公開資料で確認できません。LINE公式アプリ内Agent
+          iの無料3回/日・LYPプレミアム10回/日という枠は別機能で、この接続には適用できません。ログインで上限が増える保証もありません。429応答時は自動再送せず、Retry-Afterがあれば待ち時間を表示します。
+        </p>
+        {authMode === "authenticated" && (
+          <div className="mt-3 rounded-xl border border-amber-500/40 bg-amber-500/10 p-3">
+            <p className="text-xs leading-relaxed">
+              Yahooの認証済みCookieをこのVylineバックエンドのメモリへ一時登録します。Cookieはディスク保存・ログ出力されず、Vylineを再起動すると消えます。Yahoo
+              Cookieはアカウントへのアクセス権を持つ秘密情報です。
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <input
+                type="password"
+                autoComplete="off"
+                spellCheck={false}
+                value={yahooCookie}
+                onChange={(event) => setYahooCookie(event.target.value)}
+                placeholder="Yahoo Cookie（ブラウザのCookieヘッダー）"
+                className="min-w-0 flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-xs"
+              />
+              <button
+                type="button"
+                disabled={cookieBusy || !accountId || !yahooCookie.trim()}
+                onClick={async () => {
+                  if (!accountId) return;
+                  setCookieBusy(true);
+                  setError("");
+                  try {
+                    const response = await api.agentI.setYahooCookie(accountId, yahooCookie.trim());
+                    if (!response.ok)
+                      throw new Error(response.error ?? "Cookieを登録できませんでした");
+                    setCookieConfigured(true);
+                    setYahooCookie("");
+                  } catch (cause) {
+                    setError(
+                      cause instanceof Error ? cause.message : "Cookieを登録できませんでした",
+                    );
+                  } finally {
+                    setCookieBusy(false);
+                  }
+                }}
+                className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                style={{ background: "var(--vy-accent)" }}
+              >
+                {cookieBusy ? "登録中…" : "一時登録"}
+              </button>
+              {cookieConfigured && (
+                <button
+                  type="button"
+                  disabled={cookieBusy}
+                  onClick={async () => {
+                    if (!accountId) return;
+                    setCookieBusy(true);
+                    try {
+                      await api.agentI.clearYahooCookie(accountId);
+                      setCookieConfigured(false);
+                      setAuthMode("anonymous");
+                    } finally {
+                      setCookieBusy(false);
+                    }
+                  }}
+                  className="rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs"
+                >
+                  Cookieを削除
+                </button>
+              )}
+            </div>
+            <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+              {cookieConfigured
+                ? "この起動中は登録済みです"
+                : "未登録。YahooアカウントのログインCookieだけを任意で登録できます。VylineのLINE tokenは使いません。"}
+            </p>
+          </div>
+        )}
       </div>
       <div className="mt-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
         <textarea

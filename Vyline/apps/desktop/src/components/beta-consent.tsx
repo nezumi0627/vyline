@@ -1,47 +1,13 @@
 import { useState } from "react";
-import { useStore } from "@/lib/store";
+import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Button, SettingsRow, TextField, Toggle } from "@/components/vy-ui";
 import { api } from "@/api/client";
 import { WindowsLineTokenBetaPanel } from "@/components/windows-line-token-beta-panel";
-
-const CONSENT_KEY = "vyline:beta-feature-consent-v1";
-const BLOCK_CHECK_FEATURE = "block-status-check";
-const MID_SEARCH_FEATURE = "mid-user-search";
-const AGENT_I_FEATURE = "agent-i-assistant";
-const WINDOWS_LINE_TOKEN_FEATURE = "windows-line-token-inspection";
-
-type ConsentLog = Record<string, { consentedAt: string; version: string }>;
-
-function readConsentLog(): ConsentLog {
-  try {
-    const raw = localStorage.getItem(CONSENT_KEY);
-    if (!raw) return {};
-    const parsed: unknown = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as ConsentLog) : {};
-  } catch {
-    return {};
-  }
-}
-
-export function hasBetaFeatureConsent(featureId: string): boolean {
-  return Boolean(readConsentLog()[featureId]);
-}
-
-function recordBetaFeatureConsent(featureId: string): boolean {
-  try {
-    localStorage.setItem(
-      CONSENT_KEY,
-      JSON.stringify({
-        ...readConsentLog(),
-        [featureId]: { consentedAt: new Date().toISOString(), version: "1" },
-      }),
-    );
-    return true;
-  } catch {
-    // 同意ログを保存できない環境では、機能を有効化しない。
-    return false;
-  }
-}
+import {
+  betaFeatureIdForSetting,
+  hasBetaFeatureConsent as isBetaFeatureConsentActive,
+  recordBetaFeatureDecision,
+} from "@/lib/betaConsent";
 
 export function BetaSection() {
   const settings = useStore((s) => s.settings);
@@ -72,34 +38,32 @@ export function BetaSection() {
       | "betaAgentI"
       | "betaWindowsLineTokens",
   ) => {
-    const feature =
-      key === "betaMidSearch"
-        ? MID_SEARCH_FEATURE
-        : key === "betaAgentI"
-          ? AGENT_I_FEATURE
-          : key === "betaWindowsLineTokens"
-            ? WINDOWS_LINE_TOKEN_FEATURE
-            : BLOCK_CHECK_FEATURE;
-    if (hasBetaFeatureConsent(feature)) {
+    const feature = betaFeatureIdForSetting(key);
+    if (isBetaFeatureConsentActive(feature)) {
       updateSetting(key, true);
       return;
     }
     setConsentPending(key);
   };
 
-  const agree = () => {
+  const agree = async () => {
     if (!consentPending) return;
-    const feature =
-      consentPending === "betaMidSearch"
-        ? MID_SEARCH_FEATURE
-        : consentPending === "betaAgentI"
-          ? AGENT_I_FEATURE
-          : consentPending === "betaWindowsLineTokens"
-            ? WINDOWS_LINE_TOKEN_FEATURE
-            : BLOCK_CHECK_FEATURE;
-    if (!recordBetaFeatureConsent(feature)) return;
-    updateSetting(consentPending, true);
+    const key = consentPending;
+    const recorded = await recordBetaFeatureDecision(betaFeatureIdForSetting(key), "accepted", {
+      featureVersion: "1",
+      appVersion: UPDATE_NOTES.version,
+    });
+    if (!recorded) return;
+    updateSetting(key, true);
     setConsentPending(null);
+  };
+
+  const disableBetaFeature = async (key: NonNullable<typeof consentPending>) => {
+    updateSetting(key, false);
+    await recordBetaFeatureDecision(betaFeatureIdForSetting(key), "withdrawn", {
+      featureVersion: "1",
+      appVersion: UPDATE_NOTES.version,
+    });
   };
 
   return (
@@ -120,7 +84,7 @@ export function BetaSection() {
             onChange={(value) =>
               value
                 ? requestEnable("betaBlockCheckManual")
-                : updateSetting("betaBlockCheckManual", false)
+                : void disableBetaFeature("betaBlockCheckManual")
             }
             label="プロフィールのブロック確認"
           />
@@ -134,7 +98,7 @@ export function BetaSection() {
             onChange={(value) =>
               value
                 ? requestEnable("betaBlockCheckAuto")
-                : updateSetting("betaBlockCheckAuto", false)
+                : void disableBetaFeature("betaBlockCheckAuto")
             }
             label="自動ブロック確認"
           />
@@ -146,7 +110,7 @@ export function BetaSection() {
           <Toggle
             checked={settings.betaMidSearch}
             onChange={(value) =>
-              value ? requestEnable("betaMidSearch") : updateSetting("betaMidSearch", false)
+              value ? requestEnable("betaMidSearch") : void disableBetaFeature("betaMidSearch")
             }
             label="MID検索"
           />
@@ -158,7 +122,7 @@ export function BetaSection() {
           <Toggle
             checked={settings.betaAgentI}
             onChange={(value) =>
-              value ? requestEnable("betaAgentI") : updateSetting("betaAgentI", false)
+              value ? requestEnable("betaAgentI") : void disableBetaFeature("betaAgentI")
             }
             label="Agent I AIアシスタント"
           />
@@ -172,7 +136,7 @@ export function BetaSection() {
             onChange={(value) =>
               value
                 ? requestEnable("betaWindowsLineTokens")
-                : updateSetting("betaWindowsLineTokens", false)
+                : void disableBetaFeature("betaWindowsLineTokens")
             }
             label="Windowsトークン確認"
           />
@@ -261,7 +225,83 @@ export function BetaSection() {
           </div>
         </div>
       )}
+      <SqliteBlockedListConsent />
     </Section>
+  );
+}
+
+function SqliteBlockedListConsent() {
+  const enabled = useStore((state) => state.settings.betaBlockedListSqliteSync);
+  const updateSetting = useStore((state) => state.updateSetting);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const setEnabled = async (next: boolean) => {
+    if (busy || next === Boolean(enabled)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      if (next) {
+        const accepted = window.confirm(
+          "ブロック一覧をアカウント別のVyline SQLiteに保存し、取得失敗時に最後の一覧を表示します。保存するのはブロック対象MIDです。同意して有効にしますか？",
+        );
+        const recorded = await recordBetaFeatureDecision(
+          betaFeatureIdForSetting("betaBlockedListSqliteSync"),
+          accepted ? "accepted" : "declined",
+          { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+        );
+        if (!accepted) {
+          setMessage(
+            recorded
+              ? "同意しなかったためOFFのままです。"
+              : "OFFのままです。選択履歴を保存できませんでした。",
+          );
+          return;
+        }
+        if (!recorded) {
+          setMessage("同意履歴を保存できなかったため、有効化しませんでした。");
+          return;
+        }
+        updateSetting("betaBlockedListSqliteSync", true);
+        setMessage("有効にしました。");
+        return;
+      }
+
+      updateSetting("betaBlockedListSqliteSync", false);
+      const recorded = await recordBetaFeatureDecision(
+        betaFeatureIdForSetting("betaBlockedListSqliteSync"),
+        "withdrawn",
+        { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+      );
+      setMessage(
+        recorded
+          ? "OFFにしました。保存済みキャッシュは保持し、利用しません。"
+          : "OFFにしましたが、選択履歴を保存できませんでした。",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      title="ブロックリスト差分同期（SQLite / Beta）"
+      description="同意するとブロック対象MIDをアカウント別SQLiteへ保存し、取得失敗時の表示に利用します。"
+    >
+      <div className="flex flex-col items-end gap-1">
+        <Toggle
+          checked={Boolean(enabled)}
+          onChange={(value) => void setEnabled(value)}
+          disabled={busy}
+          label="ブロックリスト差分同期"
+        />
+        {message && (
+          <span role="status" className="text-[11px] text-[var(--vy-text-dim)]">
+            {message}
+          </span>
+        )}
+      </div>
+    </SettingsRow>
   );
 }
 
