@@ -15,11 +15,11 @@ afterEach(() => {
 });
 
 test("manual mark-all sends receipts even when automatic receipts are disabled", async () => {
-  const requests: Array<{ url: string; body: { chatMid?: string } }> = [];
+  const requests: Array<{ url: string; body: { chatMids?: string[] } }> = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
     requests.push({
       url: String(input),
-      body: JSON.parse(String(init?.body ?? "{}")) as { chatMid?: string },
+      body: JSON.parse(String(init?.body ?? "{}")) as { chatMids?: string[] },
     });
     return Response.json({ ok: true, lastMessageId: "server-latest" });
   }) as typeof fetch;
@@ -67,10 +67,8 @@ test("manual mark-all sends receipts even when automatic receipts are disabled",
 
   await useStore.getState().markAllChatsRead();
 
-  expect(requests).toHaveLength(2);
-  expect(requests.map((request) => request.body.chatMid).sort()).toEqual([
-    "c-disabled-chat",
-    "u-unread-chat",
-  ]);
+  expect(requests).toHaveLength(1);
+  expect(requests[0]?.url).toContain("/read-all");
+  expect(requests[0]?.body.chatMids?.sort()).toEqual(["c-disabled-chat", "u-unread-chat"]);
   expect(useStore.getState().chats.every((chat) => chat.unread === 0)).toBe(true);
 });

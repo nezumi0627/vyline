@@ -41,6 +41,7 @@ import {
 } from "../storage/mediaStorage.js";
 import {
   deleteRevokedMessage,
+  filterLocallyDeletedMessages,
   rebuildAccountChatDb,
   searchStoredMessages,
 } from "../storage/chatStore.js";
@@ -1082,6 +1083,8 @@ lineRouter.get("/:accountId/media/:chatMid/:messageId", async (c) => {
   const preview = (c.req.query("preview") ?? "1") !== "0";
 
   try {
+    const [visible] = await filterLocallyDeletedMessages(accountId, chatMid, [{ id: messageId }]);
+    if (!visible) return c.json({ ok: false, error: "message deleted" }, 404);
     // サーバー側の永続保存を優先（端末乗り換え後もメディアを保持）
     const cached = await readMediaStorage(accountId, chatMid, messageId);
     // Older versions stored video thumbnails under the original media key.

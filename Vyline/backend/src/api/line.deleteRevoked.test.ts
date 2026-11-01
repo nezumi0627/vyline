@@ -165,9 +165,9 @@ test("HTTP history, local pages, media and queued events do not expose deleted m
   pushTalkEvent(account, { kind: "read", chatMid: chat });
   await store.markMessageRevoked(account, chat, "11");
   expect((await remove("11")).status).toBe(200);
-  const history = await router.request(`/${account}/messages/${chat}/11/history`);
+  const history = await router.request(`/${account}/getMessageHistory/${chat}/11`);
   expect(await history.json()).toEqual({ ok: true, history: [] });
-  const page = await router.request(`/${account}/messages/${chat}?local=1`);
+  const page = await router.request(`/${account}/getPreviousMessagesV2WithRequest/${chat}?local=1`);
   expect(
     ((await page.json()) as { messages: Array<{ id: string }> }).messages.some(
       (m) => m.id === "11",
@@ -180,14 +180,23 @@ test("HTTP history, local pages, media and queued events do not expose deleted m
   );
   let events: Response;
   try {
-    events = await router.request(`/${account}/events/poll`);
+    events = await router.request(`/${account}/fetchOperations`);
   } finally {
     client.mockRestore();
   }
   const payload = (await events.json()) as { cursor: number; events: Array<{ kind: string }> };
   expect(payload.events.map((event) => event.kind)).toEqual(["read"]);
   expect(payload.cursor).toBe(4);
-  expect((await router.request(`/${account}/media/${chat}/11`)).status).toBe(404);
+  const mediaClient = spyOn(manager, "getClient").mockReturnValue(
+    {} as NonNullable<ReturnType<typeof manager.getClient>>,
+  );
+  let mediaResponse: Response;
+  try {
+    mediaResponse = await router.request(`/${account}/media/${chat}/11`);
+  } finally {
+    mediaClient.mockRestore();
+  }
+  expect(mediaResponse.status).toBe(404);
   expect(
     (await store.filterLocallyDeletedMessages(account, chat, [message("11"), message("10")])).map(
       (m) => m.id,

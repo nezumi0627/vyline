@@ -2273,10 +2273,10 @@ export const useStore = create<State>()(
       },
 
       markAllChatsRead: async () => {
-        const { accountId, settings, readDisabledMids, demoMode } = get();
-        if (demoMode || !accountId || !settings.readReceipts) return;
+        const { accountId, demoMode } = get();
+        if (demoMode || !accountId) return;
         const unreadChatIds = get()
-          .chats.filter((chat) => chat.unread > 0 && !readDisabledMids[chat.id])
+          .chats.filter((chat) => chat.unread > 0)
           .map((chat) => chat.id);
         if (unreadChatIds.length === 0) return;
         for (const chatId of unreadChatIds) {
@@ -2466,6 +2466,8 @@ export const useStore = create<State>()(
           const res = await api.line.getMessageBoxes(accountId, { light: true, refresh: true });
           if (get().accountId !== accountId) return;
           if (res.ok && res.chats) {
+            // 空の定期応答は一時的な未取得として扱い、表示中キャッシュを消さない。
+            if (res.chats.length === 0 && get().chats.length > 0) return;
             const hidden = new Set(
               get()
                 .chats.filter((c) => c.hidden)
@@ -2473,8 +2475,8 @@ export const useStore = create<State>()(
             );
             const dismissed = getDismissedChatMids(accountId);
             const restored = new Set(getRestoredChatMids(accountId));
-            set((st) => ({
-              chats: res.chats
+            set((st) => {
+              const chats = res.chats
                 .filter((c) => (!dismissed.has(c.mid) || restored.has(c.mid)) && !c.left)
                 .map((c) => {
                   const base = mapChat(c, hidden.has(c.mid));
@@ -2513,8 +2515,29 @@ export const useStore = create<State>()(
                         lastMessageTime: c.lastMessageTime ?? prev.lastMessageTime,
                       }
                     : base;
-                }),
-            }));
+                });
+              const activeChatId =
+                st.activeChatId && chats.some((chat) => chat.id === st.activeChatId)
+                  ? st.activeChatId
+                  : null;
+              const activeChatWasRemoved = st.activeChatId !== null && activeChatId === null;
+              return {
+                chats,
+                ...(activeChatWasRemoved
+                  ? {
+                      activeChatId: null,
+                      ...(st.screen === "chat"
+                        ? {
+                            screen: "home" as const,
+                            messages: [],
+                            initialChatScrollMessageId: null,
+                            initialChatScrollUnreadCount: 0,
+                          }
+                        : {}),
+                    }
+                  : {}),
+              };
+            });
           }
         } catch {
           /* silent */

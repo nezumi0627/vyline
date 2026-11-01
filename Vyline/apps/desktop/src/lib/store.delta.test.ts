@@ -422,7 +422,7 @@ test("does not roll back an unsend into a new account after the old request fail
     authorId: "me",
     kind: "text" as const,
     text: "old account",
-    createdAt: 1,
+    createdAt: Date.now(),
     status: "sent" as const,
     read: false,
     messageState: "normal" as const,

@@ -2,7 +2,7 @@ import { describe, expect, it } from "bun:test";
 import { accountDraftKey, resolveChatToOpen, useStore } from "./store.js";
 
 describe("useStore account initialization", () => {
-  it("records every activated chat for the next startup", () => {
+  it("does not persist the last active chat for the next startup", () => {
     const storage = new Map<string, string>();
     Object.defineProperty(globalThis, "localStorage", {
       configurable: true,
@@ -15,10 +15,10 @@ describe("useStore account initialization", () => {
 
     useStore.getState()._activateChat("chat-last-opened", { history: false });
 
-    expect(storage.get("vyline:last-opened-chat:account-1")).toBe("chat-last-opened");
+    expect(storage.has("vyline:last-opened-chat:account-1")).toBe(false);
   });
 
-  it("restores the account's explicitly last opened chat before chat loading", () => {
+  it("does not restore a previously opened chat when selecting an account", () => {
     const storage = new Map<string, string>([
       ["vyline:last-opened-chat:account-1", "chat-last-opened"],
     ]);
@@ -33,10 +33,10 @@ describe("useStore account initialization", () => {
 
     useStore.getState().setAccountId("account-1");
 
-    expect(useStore.getState().activeChatId).toBe("chat-last-opened");
+    expect(useStore.getState().activeChatId).toBeNull();
   });
 
-  it("chooses the saved chat instead of the newest chat-list entry", () => {
+  it("opens only an explicit active chat that still exists", () => {
     const storage = new Map<string, string>([
       ["vyline:last-opened-chat:account-1", "chat-last-opened"],
     ]);
@@ -48,12 +48,18 @@ describe("useStore account initialization", () => {
       },
     });
 
-    expect(resolveChatToOpen("account-1", null, ["chat-newest-message", "chat-last-opened"])).toBe(
-      "chat-last-opened",
-    );
+    expect(
+      resolveChatToOpen("account-1", null, ["chat-newest-message", "chat-last-opened"]),
+    ).toBeNull();
+    expect(
+      resolveChatToOpen("account-1", "chat-last-opened", [
+        "chat-newest-message",
+        "chat-last-opened",
+      ]),
+    ).toBe("chat-last-opened");
   });
 
-  it("keeps the last opened chat when the persisted account is initialized", () => {
+  it("does not restore the active chat while resetting account data", () => {
     useStore.setState({
       accountId: null,
       activeChatId: "chat-last-opened",
@@ -62,10 +68,10 @@ describe("useStore account initialization", () => {
     useStore.getState().setAccountId("account-1");
     useStore.getState().resetAccountData();
 
-    expect(useStore.getState().activeChatId).toBe("chat-last-opened");
+    expect(useStore.getState().activeChatId).toBeNull();
   });
 
-  it("keeps per-chat read-disabled settings during reload hydration", () => {
+  it("clears per-chat read-disabled settings when resetting account data", () => {
     useStore.setState({
       accountId: "account-1",
       readDisabledMids: { "chat-read-disabled": true },
@@ -73,7 +79,7 @@ describe("useStore account initialization", () => {
 
     useStore.getState().resetAccountData();
 
-    expect(useStore.getState().readDisabledMids).toEqual({ "chat-read-disabled": true });
+    expect(useStore.getState().readDisabledMids).toEqual({});
   });
 
   it("clears the last opened chat when switching accounts", () => {

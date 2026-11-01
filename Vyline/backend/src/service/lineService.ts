@@ -90,6 +90,7 @@ import {
 import {
   getMessages,
   getTalkEventOutbox,
+  filterLocallyDeletedMessages,
   getStoredChats,
   getStoredMessages,
   getBootstrapPayload,
@@ -3804,7 +3805,35 @@ export async function pollTalkEvents(
     durable.events.map(({ seq, event }) => ({ ...event, seq }) as TalkPollEvent),
     durable.seq,
   );
-  return drainTalkEvents(accountId, cursor);
+  const batch = drainTalkEvents(accountId, cursor);
+  const messageIdsByChat = new Map<string, Set<string>>();
+  for (const event of batch.events) {
+    if (event.kind !== "message" && event.kind !== "revoke" && event.kind !== "reaction") {
+      continue;
+    }
+    const messageId = event.kind === "message" ? event.message.id : event.messageId;
+    const ids = messageIdsByChat.get(event.chatMid) ?? new Set<string>();
+    ids.add(messageId);
+    messageIdsByChat.set(event.chatMid, ids);
+  }
+  const visibleIdsByChat = new Map<string, Set<string>>();
+  await Promise.all(
+    [...messageIdsByChat].map(async ([chatMid, ids]) => {
+      const visible = await filterLocallyDeletedMessages(
+        accountId,
+        chatMid,
+        [...ids].map((id) => ({ id })),
+      );
+      visibleIdsByChat.set(chatMid, new Set(visible.map((message) => message.id)));
+    }),
+  );
+  const events = batch.events.filter((event) => {
+    if (event.kind !== "message" && event.kind !== "revoke" && event.kind !== "reaction")
+      return true;
+    const messageId = event.kind === "message" ? event.message.id : event.messageId;
+    return visibleIdsByChat.get(event.chatMid)?.has(messageId) ?? false;
+  });
+  return { ...batch, events };
 }
 
 /** afterMessageId より新しいメッセージのみ（軽量 delta — 既読・鍵準備省略） */
