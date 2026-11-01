@@ -22,6 +22,7 @@
       "tools/data/**",
       "data/**",
       "backend/data/**",
+      "**/cloudflare/worker-configuration.d.ts",
       "Vyline/backend/src/index.ts",
       "*.har"
     ]

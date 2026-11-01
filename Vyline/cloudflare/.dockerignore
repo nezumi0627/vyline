@@ -1,0 +1,11 @@
+node_modules
+.build-context/**/node_modules
+.build-context/**/.git
+.build-context/Vyline/backend/storage/cache
+.build-context/Vyline/backend/storage/saved-media
+.build-context/**/.tmp*
+.build-context/**/*.env
+.build-context/**/desktop-e2ee-keys.json
+.build-context/**/tokens.json
+.build-context/**/storage-*.json
+.build-context/**/chatdb-*.json

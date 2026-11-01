@@ -1,0 +1,19 @@
+{
+  "name": "@vyline/cloudflare",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "bun cli.ts dev",
+    "deploy": "bun cli.ts deploy",
+    "types": "wrangler types"
+  },
+  "devDependencies": {
+    "@cloudflare/containers": "^0.3.7",
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3",
+    "wrangler": "^4.136.0"
+  },
+  "overrides": {
+    "undici": "^7.30.1"
+  }
+}
