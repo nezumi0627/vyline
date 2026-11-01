@@ -174,10 +174,12 @@ function normalizeSnapshot(input: unknown, accountId: string): Snapshot | null {
         !isSafeRecordKey(messageId) ||
         !isRecord(message) ||
         message.id !== messageId ||
-        message.chatMid !== chatMid
+        (typeof message.chatMid === "string" && message.chatMid !== chatMid)
       )
         continue;
-      byChat[messageId] = message as unknown as StoredMessage;
+      // Relational exports omit the redundant chatMid column. The enclosing
+      // messages[chatMid] key is authoritative and is restored into snapshots.
+      byChat[messageId] = { ...message, chatMid } as unknown as StoredMessage;
     }
     if (Object.keys(byChat).length) messages[chatMid] = byChat;
   }

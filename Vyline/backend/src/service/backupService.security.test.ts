@@ -10,11 +10,13 @@ process.env.VYLINE_BACKUP_DIR = join(testRoot, "backups");
 const { createBackup, deleteBackup, listBackups, readBackup, restoreBackup } = await import(
   "./backupService.js"
 );
-const { upsertChats, upsertMessages, markStoredMessagesReadThrough } = await import(
+const { exportChatDb, upsertChats, upsertMessages, markStoredMessagesReadThrough } = await import(
   "../storage/chatStore.js"
 );
+const { closeSqlite } = await import("../storage/sqlite.js");
 
 afterAll(async () => {
+  closeSqlite();
   await rm(testRoot, { recursive: true, force: true });
 });
 
@@ -49,12 +51,20 @@ describe("VylineBackup path safety", () => {
       { mid: chatMid, name: "group", kind: "group", hasMessages: true, updatedAt: message.savedAt },
     ]);
     await upsertMessages(accountId, chatMid, [message]);
+    expect((await exportChatDb(accountId)).messages[chatMid]?.[message.id]?.messageState).toBe(
+      "revoked-by-other",
+    );
     await markStoredMessagesReadThrough(accountId, chatMid, message.id);
     const created = await createBackup(accountId, { includeMedia: false });
+    const rawSnapshot = JSON.parse(
+      await Bun.file(join(process.env.VYLINE_BACKUP_DIR!, `${created.id}.json`)).text(),
+    ) as { messages: Record<string, Record<string, { messageState?: string }>> };
+    expect(rawSnapshot.messages[chatMid]?.[message.id]?.messageState).toBe("revoked-by-other");
     const snapshot = await readBackup(accountId, created.id);
     expect(snapshot?.version).toBe(2);
     expect(snapshot?.integrity?.algorithm).toBe("sha256");
     expect(snapshot?.meta).toBeDefined();
+    expect(snapshot?.messages[chatMid]?.[message.id]?.messageState).toBe("revoked-by-other");
 
     // Existing state remains authoritative when an older snapshot is merged.
     const result = await restoreBackup(accountId, created.id, { includeMedia: false });

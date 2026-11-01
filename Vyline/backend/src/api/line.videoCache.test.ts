@@ -10,6 +10,7 @@ process.env.VYLINE_MEDIA_STORAGE_DIR = join(root, "storage", "saved-media");
 process.env.VYLINE_MEDIA_INDEX_PATH = join(root, "storage", "media-index.sqlite");
 
 const chatStore = await import("../storage/chatStore.js");
+const sqlite = await import("../storage/sqlite.js");
 const mediaStorage = await import("../storage/mediaStorage.js");
 const lineService = await import("../service/lineService.js");
 const { lineRouter } = await import("./lineMediaCompat.js");
@@ -21,6 +22,7 @@ afterEach(() => mock.restore());
 afterAll(async () => {
   await chatStore.releaseAccountChatCache(accountId);
   await mediaStorage.clearMediaStorageForAccount(accountId);
+  sqlite.closeSqlite();
   await rm(root, { recursive: true, force: true });
 });
 
@@ -64,6 +66,7 @@ test("original video request evicts a legacy preview image cached under the medi
 
   expect(response.status).toBe(200);
   expect(response.headers.get("content-type")).toBe("video/mp4");
+  await response.arrayBuffer();
   expect(fetchMedia).toHaveBeenCalledTimes(1);
   expect(await mediaStorage.statMediaStorage(accountId, chatMid, messageId)).toEqual({
     mediaType: "video",
