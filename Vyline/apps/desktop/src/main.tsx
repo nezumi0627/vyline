@@ -38,6 +38,7 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
             再読み込みしても解決しない場合は、ログを確認してください。
           </p>
           <button
+            type="button"
             className="rounded-md bg-primary px-4 py-2 text-primary-foreground"
             onClick={() => window.location.reload()}
           >
