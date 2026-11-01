@@ -1,3 +1,5 @@
+import { getPersistedValue, setPersistedValue } from "../lib/indexedDbStorage.js";
+
 export type CombinationStickerItem = {
   packageId: string;
   stickerId: string;
@@ -24,23 +26,40 @@ export const COMBO_ITEM_MIN_SIZE = 48;
 export const COMBO_ITEM_MAX_SIZE = 168;
 
 const STORAGE_KEY = (accountId: string) => `vyline:combinationStickerPreviews:${accountId}`;
+const previewMemory = new Map<string, Record<string, string>>();
 
 function loadPreviewStore(accountId: string): Record<string, string> {
+  const cached = previewMemory.get(accountId);
+  if (cached) return cached;
   try {
     const raw = localStorage.getItem(STORAGE_KEY(accountId));
     if (!raw) return {};
     const parsed = JSON.parse(raw);
-    return parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    const result = parsed && typeof parsed === "object" ? (parsed as Record<string, string>) : {};
+    previewMemory.set(accountId, result);
+    return result;
   } catch {
     return {};
   }
 }
 
 function savePreviewStore(accountId: string, store: Record<string, string>): void {
+  previewMemory.set(accountId, store);
   try {
-    localStorage.setItem(STORAGE_KEY(accountId), JSON.stringify(store));
+    void setPersistedValue(STORAGE_KEY(accountId), store);
   } catch {
     /* ignore quota/private mode */
+  }
+}
+
+export async function hydrateCombinationStickerPreviews(accountId: string): Promise<void> {
+  if (!accountId || previewMemory.has(accountId)) return;
+  try {
+    const parsed = await getPersistedValue<unknown>(STORAGE_KEY(accountId));
+    if (parsed && typeof parsed === "object")
+      previewMemory.set(accountId, parsed as Record<string, string>);
+  } catch {
+    /* Keep the legacy synchronous fallback available. */
   }
 }
 

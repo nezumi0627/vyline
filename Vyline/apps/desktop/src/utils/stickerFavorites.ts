@@ -1,6 +1,7 @@
 /**
- * スタンプ / 絵文字のお気に入り（localStorage 永続）
+ * スタンプ / 絵文字のお気に入り（IndexedDB 永続）
  */
+import { getPersistedValue, setPersistedValue } from "../lib/indexedDbStorage.js";
 
 export type StickerFavorite = {
   type: "sticker" | "emoji";
@@ -11,21 +12,37 @@ export type StickerFavorite = {
 };
 
 const KEY = (accountId: string) => `vyline:stickerFavorites:${accountId}`;
+const memory = new Map<string, StickerFavorite[]>();
 
 export function loadStickerFavorites(accountId: string): StickerFavorite[] {
+  const cached = memory.get(accountId);
+  if (cached) return cached;
   try {
     const raw = localStorage.getItem(KEY(accountId));
     if (!raw) return [];
     const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : [];
+    const favorites = Array.isArray(parsed) ? parsed : [];
+    memory.set(accountId, favorites);
+    return favorites;
   } catch {
     return [];
   }
 }
 
-export function saveStickerFavorites(accountId: string, favs: StickerFavorite[]): void {
+export async function hydrateStickerFavorites(accountId: string): Promise<void> {
+  if (!accountId || memory.has(accountId)) return;
   try {
-    localStorage.setItem(KEY(accountId), JSON.stringify(favs));
+    const parsed = await getPersistedValue<unknown>(KEY(accountId));
+    if (Array.isArray(parsed)) memory.set(accountId, parsed as StickerFavorite[]);
+  } catch {
+    /* Keep the localStorage compatibility path. */
+  }
+}
+
+export function saveStickerFavorites(accountId: string, favs: StickerFavorite[]): void {
+  memory.set(accountId, favs);
+  try {
+    void setPersistedValue(KEY(accountId), favs);
   } catch {
     /* quota / private mode */
   }

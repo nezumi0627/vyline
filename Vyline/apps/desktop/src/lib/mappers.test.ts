@@ -1,54 +1,76 @@
-import { describe, expect, it } from "bun:test";
-import type { Message } from "@vyline/types";
+import { expect, test } from "bun:test";
+import type { Message as LineMessage } from "@vyline/types";
 import { mapMessage } from "./mappers";
 
-function postNotification(contentMetadata: Message["contentMetadata"]): Message {
+function lineMessage(overrides: Partial<LineMessage>): LineMessage {
   return {
-    id: "1",
+    id: "message-1",
     from: "u-peer",
-    to: "c-chat",
-    text: null,
-    contentType: "POSTNOTIFICATION",
+    to: "u-self",
+    contentType: "TEXT",
+    text: "",
     createdTime: 1,
+    contentMetadata: {},
     isMyMessage: false,
-    contentMetadata,
-  };
+    ...overrides,
+  } as LineMessage;
 }
 
-describe("POSTNOTIFICATION mapping", () => {
-  it("extracts a note target from the GB notification URL", () => {
-    const result = mapMessage(
-      postNotification({
-        serviceType: "GB",
-        postEndUrl:
-          "https://line.me/R/group/home/posts/post?homeId=c-home&postId=p-note&noteEntryType=post_noti",
-        cafeId: "0",
-      }),
-      "c-chat",
-      "account",
-    );
+const stickerCdnUrl =
+  "https://stickershop.line-scdn.net/stickershop/v1/sticker/796164654/android/sticker.png";
+const stickerProxyUrl = `/api/cdn/line?u=${encodeURIComponent(stickerCdnUrl)}`;
 
-    expect(result.postNotification).toEqual({
-      kind: "note",
-      homeId: "c-home",
-      postId: "p-note",
-    });
-  });
+test("renders a sticker CDN URL stored as message text as an image", () => {
+  const mapped = mapMessage(lineMessage({ text: stickerProxyUrl }), "u-chat", "account-1");
 
-  it("extracts an albumIdV2 target", () => {
-    const result = mapMessage(
-      postNotification({
-        serviceType: "AB",
-        postEndUrl: "line://album?albumIdV2=a-album&homeId=c-home",
-      }),
-      "c-chat",
-      "account",
-    );
+  expect(mapped.kind).toBe("image");
+  expect(mapped.imageSrc).toBe(stickerProxyUrl);
+});
 
-    expect(result.postNotification).toMatchObject({
-      kind: "album",
-      homeId: "c-home",
-      albumId: "a-album",
-    });
-  });
+test("keeps IMAGE content as a normal media message even with sticker metadata and URL text", () => {
+  const mapped = mapMessage(
+    lineMessage({
+      contentType: "IMAGE",
+      text: stickerProxyUrl,
+      contentMetadata: { STKID: "796164654" },
+    }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.kind).toBe("image");
+  expect(mapped.imageSrc).toBe("/api/line/account-1/media/u-chat/message-1?preview=1&save=1");
+});
+
+test("does not persist media when automatic saving is disabled", () => {
+  const mapped = mapMessage(
+    lineMessage({ contentType: "IMAGE" }),
+    "u-chat",
+    "account-1",
+    undefined,
+    false,
+  );
+  expect(mapped.imageSrc).toBe("/api/line/account-1/media/u-chat/message-1?preview=1&save=0");
+});
+
+test("does not convert unrelated image URLs in ordinary text to images", () => {
+  const mapped = mapMessage(
+    lineMessage({ text: "https://example.com/photo.png" }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.kind).toBe("text");
+  expect(mapped.imageSrc).toBeUndefined();
+});
+
+test("does not expose the raw CHATEVENT marker when localized event data is absent", () => {
+  const mapped = mapMessage(
+    lineMessage({ contentType: "CHATEVENT", text: "(CHATEVENT)", contentMetadata: {} }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.kind).toBe("system");
+  expect(mapped.text).toBe("チャットイベント");
 });

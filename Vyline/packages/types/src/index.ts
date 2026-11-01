@@ -103,7 +103,7 @@ export interface Chat {
   isSelf?: boolean;
   /** TalkService.getChats の現在値 */
   notificationDisabled?: boolean;
-  /** 招待チケット経由での参加が禁止されている */
+  /** true の場合は招待チケット経由の参加を禁止 */
   preventedJoinByTicket?: boolean;
 }
 
@@ -213,6 +213,7 @@ export interface ApiOk {
 export interface ApiError {
   ok: false;
   error: string;
+  /** Request may have reached the service even though Vyline did not receive a conclusive reply. */
   deliveryStatus?: "unknown" | "rejected" | "restricted";
 }
 
@@ -249,9 +250,21 @@ export type EventsPollResponse = ApiResult<{
   seq?: number;
 }>;
 export type ReadReceiptsResponse = ApiResult<{
-  receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
+  receipts?: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
   peerReadUpTo?: string;
   memberReadWatermarks?: Array<{ mid: string; upTo: string }>;
+  readSnapshotV4?: {
+    version: number;
+    observedAt: string;
+    stale: boolean;
+    intervals: Array<{
+      readerMid: string;
+      startMessageId: string;
+      endMessageId: string;
+      startTime?: string;
+      endTime?: string;
+    }>;
+  };
   memberMids?: string[];
 }>;
 export type SendResponse = ApiResult<{ code?: string; message?: Message }>;
