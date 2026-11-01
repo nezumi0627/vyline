@@ -56,7 +56,8 @@ export async function hydrateCombinationStickerPreviews(accountId: string): Prom
   if (!accountId || previewMemory.has(accountId)) return;
   try {
     const parsed = await getPersistedValue<unknown>(STORAGE_KEY(accountId));
-    if (parsed && typeof parsed === "object") previewMemory.set(accountId, parsed as Record<string, string>);
+    if (parsed && typeof parsed === "object")
+      previewMemory.set(accountId, parsed as Record<string, string>);
   } catch {
     /* Keep the legacy synchronous fallback available. */
   }

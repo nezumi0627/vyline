@@ -150,9 +150,11 @@ export function StickerEmojiPanel({
     const applyCatalog = (value: Catalog) => {
       setCatalog(value);
       setPackId((prev) =>
-        prev && (value.stickerPacks.some((p) => p.packageId === prev) || value.emojiPacks.some((p) => p.packageId === prev))
+        prev &&
+        (value.stickerPacks.some((p) => p.packageId === prev) ||
+          value.emojiPacks.some((p) => p.packageId === prev))
           ? prev
-          : value.stickerPacks[0]?.packageId ?? value.emojiPacks[0]?.packageId ?? null,
+          : (value.stickerPacks[0]?.packageId ?? value.emojiPacks[0]?.packageId ?? null),
       );
     };
     const cached = getCachedStickersCatalog(accountId);
@@ -210,7 +212,12 @@ export function StickerEmojiPanel({
   const activePack = packs.find((p) => p.packageId === packId) ?? packs[0];
 
   useEffect(() => {
-    if (!accountId || activePack?.type !== "sticker" || availability[activePack.packageId] !== undefined) return;
+    if (
+      !accountId ||
+      activePack?.type !== "sticker" ||
+      availability[activePack.packageId] !== undefined
+    )
+      return;
     let cancelled = false;
     const packageId = activePack.packageId;
     void api.line

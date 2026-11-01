@@ -20,9 +20,12 @@ afterAll(async () => {
 });
 
 test("friend deletion rejects a group MID before contacting LINE", async () => {
-  const response = await router.request("/offline-delete-contact/contacts/c0123456789abcdef0123456789abcdef", {
-    method: "DELETE",
-  });
+  const response = await router.request(
+    "/offline-delete-contact/contacts/c0123456789abcdef0123456789abcdef",
+    {
+      method: "DELETE",
+    },
+  );
 
   expect(response.status).toBe(400);
   expect(await response.json()).toEqual({ ok: false, error: "user MID required" });

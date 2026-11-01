@@ -43,7 +43,13 @@ test("keeps IMAGE content as a normal media message even with sticker metadata a
 });
 
 test("does not persist media when automatic saving is disabled", () => {
-  const mapped = mapMessage(lineMessage({ contentType: "IMAGE" }), "u-chat", "account-1", undefined, false);
+  const mapped = mapMessage(
+    lineMessage({ contentType: "IMAGE" }),
+    "u-chat",
+    "account-1",
+    undefined,
+    false,
+  );
   expect(mapped.imageSrc).toBe("/api/line/account-1/media/u-chat/message-1?preview=1&save=0");
 });
 

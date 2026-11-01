@@ -17,8 +17,16 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
   const [name, setName] = useState("");
   const [mode, setMode] = useState<"group" | "room">("group");
   const [pictureFile, setPictureFile] = useState<File | null>(null);
-  const picturePreview = useMemo(() => pictureFile ? URL.createObjectURL(pictureFile) : "", [pictureFile]);
-  useEffect(() => () => { if (picturePreview) URL.revokeObjectURL(picturePreview); }, [picturePreview]);
+  const picturePreview = useMemo(
+    () => (pictureFile ? URL.createObjectURL(pictureFile) : ""),
+    [pictureFile],
+  );
+  useEffect(
+    () => () => {
+      if (picturePreview) URL.revokeObjectURL(picturePreview);
+    },
+    [picturePreview],
+  );
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -102,9 +110,18 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
       }
       if (pictureFile) {
         try {
-          await api.line.updateChatPicture(accountId, res.chat.chatMid, await pictureFile.arrayBuffer(), pictureFile.type);
+          await api.line.updateChatPicture(
+            accountId,
+            res.chat.chatMid,
+            await pictureFile.arrayBuffer(),
+            pictureFile.type,
+          );
         } catch (error) {
-          useStore.getState().showNotice(`グループは作成しましたが、画像を設定できませんでした: ${error instanceof Error ? error.message : "更新失敗"}`);
+          useStore
+            .getState()
+            .showNotice(
+              `グループは作成しましたが、画像を設定できませんでした: ${error instanceof Error ? error.message : "更新失敗"}`,
+            );
         }
       }
       await refreshChats();
@@ -189,33 +206,68 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                 className="w-full rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               />
               <fieldset className="space-y-2">
-                <legend className="text-xs font-semibold text-[var(--vy-text-dim)]">参加方法</legend>
+                <legend className="text-xs font-semibold text-[var(--vy-text-dim)]">
+                  参加方法
+                </legend>
                 <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm">
-                  <input type="radio" name="group-create-mode" checked={mode === "group"} onChange={() => setMode("group")} className="mt-0.5 accent-[var(--vy-accent)]" />
-                  <span><span className="block font-medium">グループ招待</span><span className="mt-0.5 block text-xs leading-relaxed text-[var(--vy-text-dim)]">招待を送り、相手が参加するとメンバーになります。</span></span>
+                  <input
+                    type="radio"
+                    name="group-create-mode"
+                    checked={mode === "group"}
+                    onChange={() => setMode("group")}
+                    className="mt-0.5 accent-[var(--vy-accent)]"
+                  />
+                  <span>
+                    <span className="block font-medium">グループ招待</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                      招待を送り、相手が参加するとメンバーになります。
+                    </span>
+                  </span>
                 </label>
                 <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm">
-                  <input type="radio" name="group-create-mode" checked={mode === "room"} onChange={() => setMode("room")} className="mt-0.5 accent-[var(--vy-accent)]" />
-                  <span><span className="block font-medium">招待なしで追加（複数人トーク）</span><span className="mt-0.5 block text-xs leading-relaxed text-[var(--vy-text-dim)]">選んだ友だちを参加済みメンバーとして作成します。グループ招待とは別のトーク形式です。</span></span>
+                  <input
+                    type="radio"
+                    name="group-create-mode"
+                    checked={mode === "room"}
+                    onChange={() => setMode("room")}
+                    className="mt-0.5 accent-[var(--vy-accent)]"
+                  />
+                  <span>
+                    <span className="block font-medium">招待なしで追加（複数人トーク）</span>
+                    <span className="mt-0.5 block text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                      選んだ友だちを参加済みメンバーとして作成します。グループ招待とは別のトーク形式です。
+                    </span>
+                  </span>
                 </label>
               </fieldset>
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2.5 text-sm">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--vy-surface)] text-lg">
-                  {pictureFile ? <img src={picturePreview} alt="" className="h-full w-full object-cover" /> : "＋"}
+                  {pictureFile ? (
+                    <img src={picturePreview} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    "＋"
+                  )}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block font-medium">グループアイコン</span>
-                  <span className="block truncate text-xs text-[var(--vy-text-dim)]">{pictureFile?.name ?? "画像を選択（5MB以下）"}</span>
+                  <span className="block truncate text-xs text-[var(--vy-text-dim)]">
+                    {pictureFile?.name ?? "画像を選択（5MB以下）"}
+                  </span>
                 </span>
-                <input type="file" accept="image/*" className="sr-only" onChange={(event) => {
-                  const file = event.currentTarget.files?.[0] ?? null;
-                  if (file && (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024)) {
-                    setMsg("画像は5MB以下の画像ファイルを選択してください");
-                    event.currentTarget.value = "";
-                    return;
-                  }
-                  setPictureFile(file);
-                }} />
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={(event) => {
+                    const file = event.currentTarget.files?.[0] ?? null;
+                    if (file && (!file.type.startsWith("image/") || file.size > 5 * 1024 * 1024)) {
+                      setMsg("画像は5MB以下の画像ファイルを選択してください");
+                      event.currentTarget.value = "";
+                      return;
+                    }
+                    setPictureFile(file);
+                  }}
+                />
               </label>
               <input
                 value={query}

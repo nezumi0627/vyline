@@ -44,7 +44,9 @@ export async function hydrateStickersCatalog(accountId: string): Promise<void> {
   const beforeRead = mem.get(accountId);
   if (beforeRead && Date.now() - beforeRead.at <= DISK_TTL_MS) return;
   try {
-    const parsed = await getPersistedValue<{ at: number; data: StickersCatalogCache }>(storageKey(accountId));
+    const parsed = await getPersistedValue<{ at: number; data: StickersCatalogCache }>(
+      storageKey(accountId),
+    );
     if (!parsed) return;
     if (
       mem.get(accountId) === beforeRead &&
@@ -71,7 +73,8 @@ export function getCachedStickersCatalog(accountId: string): StickersCatalogCach
   }
   if (cached) mem.delete(accountId);
   try {
-    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(storageKey(accountId));
+    const raw =
+      typeof localStorage === "undefined" ? null : localStorage.getItem(storageKey(accountId));
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       at: number;
@@ -92,7 +95,8 @@ export function isStickersCatalogFresh(accountId: string): boolean {
     return true;
   }
   try {
-    const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(storageKey(accountId));
+    const raw =
+      typeof localStorage === "undefined" ? null : localStorage.getItem(storageKey(accountId));
     if (!raw) return false;
     const parsed = JSON.parse(raw) as { at: number };
     return Date.now() - (parsed.at ?? 0) < MEM_TTL_MS;

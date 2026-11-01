@@ -137,7 +137,9 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const glyph = memberGlyph(member.avatar, streamerMode);
   const isBlocked = blockedMids.includes(member.id);
   const isOfficial = rich.userType === 2;
-  const canCall = Boolean(accountId && canDirectCall(member.id) && member.id !== selfMid && !isOfficial && !isBlocked);
+  const canCall = Boolean(
+    accountId && canDirectCall(member.id) && member.id !== selfMid && !isOfficial && !isBlocked,
+  );
 
   const blockMember = async () => {
     if (!accountId || busy) return;
@@ -147,8 +149,16 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
     setMsg(null);
     try {
       const res = isBlocked
-        ? await api.line.unblockContact(accountId, member.id, streamerSettings.betaBlockedListSqliteSync)
-        : await api.line.blockContact(accountId, member.id, streamerSettings.betaBlockedListSqliteSync);
+        ? await api.line.unblockContact(
+            accountId,
+            member.id,
+            streamerSettings.betaBlockedListSqliteSync,
+          )
+        : await api.line.blockContact(
+            accountId,
+            member.id,
+            streamerSettings.betaBlockedListSqliteSync,
+          );
       if (!res.ok) {
         setMsg(res.error ?? (isBlocked ? "ブロック解除に失敗しました" : "ブロックに失敗しました"));
         return;
@@ -180,17 +190,21 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       >
         <div
           className="vy-scale-in relative w-full max-h-[calc(100dvh-2rem)] max-w-xl overflow-y-auto vy-scroll rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl"
-          style={showBackground ? {
-            backgroundImage: `linear-gradient(180deg, rgba(8, 11, 16, 0.58), rgba(8, 11, 16, 0.78)), url(${backgroundUrl})`,
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-            color: "#f8fafc",
-            "--vy-text": "#f8fafc",
-            "--vy-text-dim": "rgba(235, 239, 244, 0.78)",
-            "--vy-surface": "rgba(12, 16, 22, 0.78)",
-            "--vy-surface-2": "rgba(31, 38, 48, 0.82)",
-            "--vy-border": "rgba(255, 255, 255, 0.2)",
-          } as CSSProperties : undefined}
+          style={
+            showBackground
+              ? ({
+                  backgroundImage: `linear-gradient(180deg, rgba(8, 11, 16, 0.58), rgba(8, 11, 16, 0.78)), url(${backgroundUrl})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  color: "#f8fafc",
+                  "--vy-text": "#f8fafc",
+                  "--vy-text-dim": "rgba(235, 239, 244, 0.78)",
+                  "--vy-surface": "rgba(12, 16, 22, 0.78)",
+                  "--vy-surface-2": "rgba(31, 38, 48, 0.82)",
+                  "--vy-border": "rgba(255, 255, 255, 0.2)",
+                } as CSSProperties)
+              : undefined
+          }
           onClick={(e) => e.stopPropagation()}
         >
           {showBackground && (
@@ -310,8 +324,10 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
                         }}
                         className="flex w-full items-center gap-2.5 rounded-xl px-2 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
                       >
-                          <Avatar glyph={g.avatar} color={g.color} size={32} imageUrl={g.avatarUrl} />
-                        <span className="truncate text-sm font-medium">{displayName(g, false)}</span>
+                        <Avatar glyph={g.avatar} color={g.color} size={32} imageUrl={g.avatarUrl} />
+                        <span className="truncate text-sm font-medium">
+                          {displayName(g, false)}
+                        </span>
                       </button>
                     </li>
                   ))}
@@ -322,15 +338,31 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
         </div>
       </div>
       {avatarOpen && !streamerMode && member.avatarUrl && (
-        <MediaLightbox src={member.avatarUrl} alt={`${name} のプロフィール画像`} onClose={() => setAvatarOpen(false)} />
+        <MediaLightbox
+          src={member.avatarUrl}
+          alt={`${name} のプロフィール画像`}
+          onClose={() => setAvatarOpen(false)}
+        />
       )}
       {backgroundOpen && showBackground && backgroundUrl && (
-        <MediaLightbox src={backgroundUrl} alt={`${name} のプロフィール背景`} onClose={() => setBackgroundOpen(false)} />
+        <MediaLightbox
+          src={backgroundUrl}
+          alt={`${name} のプロフィール背景`}
+          onClose={() => setBackgroundOpen(false)}
+        />
       )}
       {call && (
-        <CallOverlay kind={call.kind} name={name} glyph={glyph} color={member.color}
-          imageUrl={shouldMaskStreamerAvatars(streamerMode) ? undefined : member.avatarUrl} state={call.state} error={call.error}
-          onClose={() => void endCall()} onMutedChange={setMuted} />
+        <CallOverlay
+          kind={call.kind}
+          name={name}
+          glyph={glyph}
+          color={member.color}
+          imageUrl={shouldMaskStreamerAvatars(streamerMode) ? undefined : member.avatarUrl}
+          state={call.state}
+          error={call.error}
+          onClose={() => void endCall()}
+          onMutedChange={setMuted}
+        />
       )}
     </>
   );
