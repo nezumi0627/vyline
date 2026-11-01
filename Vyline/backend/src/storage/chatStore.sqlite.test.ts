@@ -288,13 +288,21 @@ test("migrates prior SQLite JSON payload rows and account metadata into relation
   expect((await chatStore.getStoredChats(oldAccount))[0]?.name).toBe("Old SQLite");
   expect((await chatStore.getCacheMeta(oldAccount)).boxOrder).toEqual(["c-old"]);
   const { sqlite } = await import("./sqlite.js");
+  const legacyTables = sqlite
+    .query(
+      "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('chat_messages','chat_records','chat_account_state') ORDER BY name",
+    )
+    .all();
+  expect(legacyTables).toEqual([
+    { name: "chat_account_state" },
+    { name: "chat_messages" },
+    { name: "chat_records" },
+  ]);
   expect(
     sqlite
-      .query(
-        "SELECT name FROM sqlite_master WHERE type='table' AND name IN ('chat_messages','chat_records','chat_account_state')",
-      )
-      .all(),
-  ).toEqual([]);
+      .query("SELECT payload FROM chat_messages WHERE account_id=? AND chat_mid=?")
+      .get(oldAccount, "c-old"),
+  ).toBeDefined();
 });
 
 test("keeps relational account metadata when no legacy JSON file exists", async () => {

@@ -328,9 +328,6 @@ function migrateOldSqliteRows(): void {
     for (const accountId of migratedAccounts) {
       recordImport.run(`chatdb-json-v1:${accountId}`, new Date().toISOString());
     }
-    sqlite.exec(
-      "DROP TABLE IF EXISTS chat_messages; DROP TABLE IF EXISTS chat_records; DROP TABLE IF EXISTS chat_account_state;",
-    );
   });
 }
 
