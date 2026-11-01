@@ -1,8 +1,9 @@
 import { useState } from "react";
-import { useStore } from "@/lib/store";
+import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Button, SettingsRow, TextField, Toggle } from "@/components/vy-ui";
 import { api } from "@/api/client";
 import { WindowsLineTokenBetaPanel } from "@/components/windows-line-token-beta-panel";
+import { recordBetaFeatureDecision } from "@/lib/betaConsent";
 
 const CONSENT_KEY = "vyline:beta-feature-consent-v1";
 const BLOCK_CHECK_FEATURE = "block-status-check";
@@ -261,7 +262,82 @@ export function BetaSection() {
           </div>
         </div>
       )}
+      <SqliteBlockedListConsent />
     </Section>
+  );
+}
+
+function SqliteBlockedListConsent() {
+  const enabled = useStore((state) => state.settings.betaBlockedListSqliteSync);
+  const updateSetting = useStore((state) => state.updateSetting);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  const setEnabled = async (next: boolean) => {
+    if (busy || next === Boolean(enabled)) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      if (next) {
+        const accepted = window.confirm(
+          "ブロック一覧をアカウント別のVyline SQLiteに保存し、取得失敗時に最後の一覧を表示します。保存するのはブロック対象MIDです。同意して有効にしますか？",
+        );
+        const recorded = await recordBetaFeatureDecision(
+          "blocked-list-sqlite-sync",
+          accepted ? "accepted" : "declined",
+          { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+        );
+        if (!accepted) {
+          setMessage(
+            recorded
+              ? "同意しなかったためOFFのままです。"
+              : "OFFのままです。選択履歴を保存できませんでした。",
+          );
+          return;
+        }
+        if (!recorded) {
+          setMessage("同意履歴を保存できなかったため、有効化しませんでした。");
+          return;
+        }
+        updateSetting("betaBlockedListSqliteSync", true);
+        setMessage("有効にしました。");
+        return;
+      }
+
+      updateSetting("betaBlockedListSqliteSync", false);
+      const recorded = await recordBetaFeatureDecision("blocked-list-sqlite-sync", "withdrawn", {
+        featureVersion: "1",
+        appVersion: UPDATE_NOTES.version,
+      });
+      setMessage(
+        recorded
+          ? "OFFにしました。保存済みキャッシュは保持し、利用しません。"
+          : "OFFにしましたが、選択履歴を保存できませんでした。",
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      title="ブロックリスト差分同期（SQLite / Beta）"
+      description="同意するとブロック対象MIDをアカウント別SQLiteへ保存し、取得失敗時の表示に利用します。"
+    >
+      <div className="flex flex-col items-end gap-1">
+        <Toggle
+          checked={Boolean(enabled)}
+          onChange={(value) => void setEnabled(value)}
+          disabled={busy}
+          label="ブロックリスト差分同期"
+        />
+        {message && (
+          <span role="status" className="text-[11px] text-[var(--vy-text-dim)]">
+            {message}
+          </span>
+        )}
+      </div>
+    </SettingsRow>
   );
 }
 

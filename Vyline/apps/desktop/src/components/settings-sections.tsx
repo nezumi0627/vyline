@@ -5,11 +5,14 @@ import type { AnimationMode } from "@/lib/store-types";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
+import { SupportSection } from "@/components/support-section";
 import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { QRCodeSVG } from "qrcode.react";
 import type { AccountSettings, SavedSession } from "@vyline/types";
+import { useThemeStore } from "@/stores/themeStore";
+import { createSettingsBackup, parseSettingsBackup } from "@/lib/settingsBackup";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -72,7 +75,8 @@ type Section =
   | "plugins"
   | "info"
   | "beta"
-  | "handoff";
+  | "handoff"
+  | "support";
 
 const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
@@ -88,6 +92,7 @@ const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
   { key: "plugins", label: "プラグイン", icon: <IconSpark size={18} /> },
   { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
   { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
+  { key: "support", label: "サポート", icon: <IconSpark size={18} /> },
   { key: "info", label: "情報", icon: <IconSpark size={18} /> },
 ];
 
@@ -586,6 +591,8 @@ export function SettingsSections() {
               {section === "info" && <InfoSection />}
 
               {section === "handoff" && <HandoffSection />}
+
+              {section === "support" && <SupportSection />}
 
               {section === "beta" && (
                 <>
@@ -1608,22 +1615,20 @@ function AdvancedSection() {
             type="button"
             onClick={() => {
               const state = useStore.getState();
-              const exportData = {
-                format: "vyline-local-settings",
-                version: 2,
-                exportedAt: new Date().toISOString(),
-                contents: ["theme", "preferences", "chat-view"],
+              const visualTheme = useThemeStore.getState();
+              const exportData = createSettingsBackup({
                 theme: state.theme,
                 settings: state.settings,
+                visualTheme: { themeId: visualTheme.themeId, custom: visualTheme.custom },
                 hiddenChats: state.chats.filter((c) => c.hidden).map((c) => c.id),
                 pinnedChats: state.chats.filter((c) => c.pinned).map((c) => c.id),
                 customOrder: state.customOrder,
                 localNames: Object.fromEntries(
-                  state.chats.filter((c) => c.localName).map((c) => [c.id, c.localName]),
+                  state.chats.filter((c) => c.localName).map((c) => [c.id, c.localName!]),
                 ),
                 mutedChats: state.chats.filter((c) => c.muted).map((c) => c.id),
                 sidebarWidth: state.sidebarWidth,
-              };
+              });
               const blob = new Blob([JSON.stringify(exportData, null, 2)], {
                 type: "application/json",
               });
@@ -1650,54 +1655,52 @@ function AdvancedSection() {
                 const file = input.files?.[0];
                 if (!file) return;
                 try {
-                  if (file.size > 1024 * 1024) throw new Error("設定ファイルが大きすぎます");
-                  const text = await file.text();
-                  const data = JSON.parse(text);
-                  if (!data || typeof data !== "object") throw new Error("Invalid format");
-                  if ("format" in data && data.format !== "vyline-local-settings")
-                    throw new Error("Unsupported format");
-                  const contents = Array.isArray(data.contents)
-                    ? data.contents.filter(
-                        (value: unknown): value is string => typeof value === "string",
-                      )
-                    : ["theme", "preferences", "chat-view"];
+                  if (file.size > 15_000_000) throw new Error("設定バックアップは15MBまでです");
+                  const state = useStore.getState();
+                  const visualTheme = useThemeStore.getState();
+                  const data = parseSettingsBackup(await file.text(), {
+                    settings: state.settings,
+                    theme: state.theme,
+                    visualTheme: { themeId: visualTheme.themeId, custom: visualTheme.custom },
+                  });
                   if (
                     !window.confirm(
-                      `次の設定を復元します: ${contents.join("、")}\n認証情報とトーク履歴は変更しません。`,
+                      "設定、テーマ、チャット一覧の表示状態をバックアップの内容に置き換えます。認証情報とトーク履歴は変更しません。",
                     )
                   )
                     return;
-                  const state = useStore.getState();
                   // テーマ
-                  if (data.theme && typeof data.theme === "object") state.setTheme(data.theme);
+                  if (data.theme) state.setTheme(data.theme);
+                  if (data.visualTheme) {
+                    useThemeStore.setState(data.visualTheme);
+                    useThemeStore.getState().applyActive();
+                  }
                   // 設定
-                  if (data.settings && typeof data.settings === "object") {
-                    for (const [k, v] of Object.entries(data.settings as Record<string, unknown>)) {
+                  if (data.settings) {
+                    for (const [k, v] of Object.entries(data.settings)) {
                       state.updateSetting(k as never, v as never);
                     }
                   }
                   // 非表示チャット
-                  if (Array.isArray(data.hiddenChats)) {
+                  if (data.hiddenChats) {
                     for (const id of data.hiddenChats) state.setHidden(id, true);
                   }
                   // ピン留め
-                  if (Array.isArray(data.pinnedChats)) {
+                  if (data.pinnedChats) {
                     for (const id of data.pinnedChats) {
                       if (!state.chats.find((c) => c.id === id)?.pinned) state.togglePin(id);
                     }
                   }
                   // カスタム順序
-                  if (Array.isArray(data.customOrder)) state.setCustomOrder(data.customOrder);
+                  if (data.customOrder) state.setCustomOrder(data.customOrder);
                   // ローカル名
-                  if (data.localNames && typeof data.localNames === "object") {
-                    for (const [id, name] of Object.entries(
-                      data.localNames as Record<string, string>,
-                    )) {
+                  if (data.localNames) {
+                    for (const [id, name] of Object.entries(data.localNames)) {
                       state.setLocalName(id, name);
                     }
                   }
                   // ミュート
-                  if (Array.isArray(data.mutedChats)) {
+                  if (data.mutedChats) {
                     for (const id of data.mutedChats) {
                       if (!state.chats.find((c) => c.id === id)?.muted) state.toggleMute(id);
                     }

@@ -1,9 +1,10 @@
 /**
- * stores/settingsStore.ts — ローカル設定（localStorage）
+ * stores/settingsStore.ts — ローカル設定（IndexedDB）
  */
 
 import { create } from "zustand";
 import { persist } from "zustand/middleware";
+import { indexedDbPersistStorage } from "../lib/indexedDbStorage.js";
 
 export type SettingsState = {
   /** チャットを開いたら自動既読（相手へ既読を送る） */
@@ -62,6 +63,6 @@ export const useSettingsStore = create<SettingsState>()(
       setFontScale: (v) => set({ fontScale: Math.min(1.25, Math.max(0.85, v)) }),
       setNotificationsEnabled: (v) => set({ notificationsEnabled: v }),
     }),
-    { name: "vyline:settings" },
+    { name: "vyline:settings", storage: indexedDbPersistStorage, skipHydration: true },
   ),
 );

@@ -3,8 +3,11 @@ import { childLogger } from "../logger.js";
 import {
   agentILimits,
   askAgentI,
+  clearAgentIYahooCookie,
+  hasAgentIYahooCookie,
   getAgentIHistory,
   resetAgentISession,
+  setAgentIYahooCookie,
   type AgentIHistoryItem,
 } from "../service/agentIService.js";
 import { getSubdeviceSession } from "../storage/subdeviceStore.js";
@@ -17,7 +20,7 @@ function isLanAccessEnabled() {
 }
 
 function accountIdFromPath(path: string): string {
-  const match = path.match(/\/([^/]+)\/(?:chat|history|session)$/);
+  const match = path.match(/\/([^/]+)\/(?:chat|history|session|credentials)$/);
   if (!match) return "";
   try {
     return decodeURIComponent(match[1]!);
@@ -59,20 +62,52 @@ function validHistory(value: unknown): AgentIHistoryItem[] {
 
 agentIRouter.post("/:accountId/chat", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ prompt?: unknown; history?: unknown }>().catch(() => null);
+  const body = await c.req
+    .json<{ prompt?: unknown; history?: unknown; authMode?: unknown }>()
+    .catch(() => null);
   if (!body || typeof body.prompt !== "string" || !body.prompt.trim()) {
     return c.json({ ok: false, error: "prompt is required" }, 400);
   }
   if (body.prompt.length > agentILimits.MAX_PROMPT_LENGTH) {
     return c.json({ ok: false, error: "prompt is too long" }, 422);
   }
+  const authMode = body.authMode === "authenticated" ? "authenticated" : "anonymous";
   try {
-    const result = await askAgentI(accountId, body.prompt, validHistory(body.history));
+    const result = await askAgentI(accountId, body.prompt, validHistory(body.history), authMode);
     return c.json({ ok: true, ...result });
   } catch (error) {
     log.warn({ err: error, accountId }, "agent i upstream request failed");
     return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
+});
+
+agentIRouter.get("/:accountId/credentials", (c) => {
+  return c.json({
+    ok: true,
+    yahooCookieConfigured: hasAgentIYahooCookie(c.req.param("accountId")),
+  });
+});
+
+agentIRouter.put("/:accountId/credentials", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req.json<{ yahooCookie?: unknown }>().catch(() => null);
+  if (!body || typeof body.yahooCookie !== "string") {
+    return c.json({ ok: false, error: "Yahoo Cookieを入力してください" }, 400);
+  }
+  try {
+    setAgentIYahooCookie(accountId, body.yahooCookie);
+    return c.json({ ok: true });
+  } catch (error) {
+    return c.json(
+      { ok: false, error: error instanceof Error ? error.message : "Cookieを保存できませんでした" },
+      400,
+    );
+  }
+});
+
+agentIRouter.delete("/:accountId/credentials", (c) => {
+  clearAgentIYahooCookie(c.req.param("accountId"));
+  return c.json({ ok: true });
 });
 
 agentIRouter.get("/:accountId/history", (c) => {

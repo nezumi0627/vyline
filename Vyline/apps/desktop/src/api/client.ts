@@ -329,11 +329,32 @@ export const api = {
       ),
   },
   agentI: {
-    chat: (accountId: string, prompt: string, history?: AgentIHistoryItem[]) =>
+    chat: (
+      accountId: string,
+      prompt: string,
+      history?: AgentIHistoryItem[],
+      authMode?: "anonymous" | "authenticated",
+    ) =>
       request<{ ok: boolean; text?: string; error?: string }>(
         "POST",
         `/beta/agent-i/${encodeURIComponent(accountId)}/chat`,
-        { prompt, history },
+        { prompt, history, authMode },
+      ),
+    credentialStatus: (accountId: string) =>
+      request<{ ok: boolean; yahooCookieConfigured?: boolean }>(
+        "GET",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/credentials`,
+      ),
+    setYahooCookie: (accountId: string, yahooCookie: string) =>
+      request<{ ok: boolean; error?: string }>(
+        "PUT",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/credentials`,
+        { yahooCookie },
+      ),
+    clearYahooCookie: (accountId: string) =>
+      request<{ ok: boolean }>(
+        "DELETE",
+        `/beta/agent-i/${encodeURIComponent(accountId)}/credentials`,
       ),
     reset: (accountId: string) =>
       request<{ ok: boolean }>("DELETE", `/beta/agent-i/${encodeURIComponent(accountId)}/session`),

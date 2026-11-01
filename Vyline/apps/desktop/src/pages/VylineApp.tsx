@@ -6,7 +6,8 @@ import { useVylineSync } from "../hooks/useVylineSync.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { ChatShell } from "../components/chat-shell.js";
 import { FloatNotice } from "../components/float-notice.js";
-import { TosConsentGate, hasTosConsent } from "../components/tos-consent.js";
+import { TosConsentGate } from "../components/tos-consent.js";
+import { hasTosConsent } from "../lib/tosConsent.js";
 import { api } from "../api/client.js";
 import { VylineSetup } from "../components/vyline-setup.js";
 
