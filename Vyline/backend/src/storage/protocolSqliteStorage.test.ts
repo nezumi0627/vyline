@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
 const accountId = "offline-protocol-kv";
+const previousDataDir = process.env.VYLINE_DATA_DIR;
 let dataDir: string;
 let storagePath: string;
 let ProtocolSqliteStorage: typeof import("./protocolSqliteStorage.js")["ProtocolSqliteStorage"];
@@ -26,7 +27,8 @@ beforeAll(async () => {
 
 afterAll(async () => {
   closeSqlite();
-  process.env.VYLINE_DATA_DIR = undefined;
+  if (previousDataDir === undefined) process.env.VYLINE_DATA_DIR = undefined;
+  else process.env.VYLINE_DATA_DIR = previousDataDir;
   await rm(dataDir, { recursive: true, force: true });
 });
 

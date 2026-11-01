@@ -813,10 +813,10 @@ export const useStore = create<State>()(
       },
 
       syncBlockedMids: async () => {
-        const { accountId, settings } = get();
+        const { accountId } = get();
         if (!accountId) return;
         try {
-          const res = await api.line.blockedContacts(accountId, settings.betaBlockedListSqliteSync);
+          const res = await api.line.blockedContacts(accountId);
           if (get().accountId !== accountId) return;
           if (res.ok && Array.isArray(res.mids)) set({ blockedMids: res.mids });
         } catch {

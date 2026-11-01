@@ -94,6 +94,10 @@ export interface Chat {
   backgroundUrl?: string;
   /** 自分自身（Keepメモ）トーク */
   isSelf?: boolean;
+  /** TalkService.getChats の現在値 */
+  notificationDisabled?: boolean;
+  /** 招待チケット経由での参加が禁止されている */
+  preventedJoinByTicket?: boolean;
 }
 
 // ─── Message ──────────────────────────────────
@@ -202,6 +206,7 @@ export interface ApiOk {
 export interface ApiError {
   ok: false;
   error: string;
+  deliveryStatus?: "unknown" | "rejected" | "restricted";
 }
 
 export type ApiResult<T> = ({ ok: true } & T) | ApiError;

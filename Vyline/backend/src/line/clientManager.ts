@@ -22,6 +22,7 @@ import {
   deleteToken,
   updateSessionMeta,
 } from "../storage/tokenStore.js";
+import { ProtocolSqliteStorage } from "../storage/protocolSqliteStorage.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
 import { warmLineCache, detachFetchOps } from "../service/lineService.js";
 
@@ -184,7 +185,7 @@ function loginInit(accountId: string) {
   const deviceMode = process.env.VYLINE_DEVICE;
   return {
     profile: getVylineProfile(),
-    storagePath: storagePathFor(accountId),
+    storage: new ProtocolSqliteStorage(accountId, storagePathFor(accountId)),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
@@ -526,7 +527,7 @@ export async function loginWithToken(accountId: string): Promise<VylineClient> {
 
   const client = await vylineLoginToken(entry.authToken, {
     profile: getVylineProfile(),
-    storagePath: entry.storageFile,
+    storage: new ProtocolSqliteStorage(accountId, entry.storageFile),
   });
 
   watchAuthToken(client, accountId);
@@ -557,7 +558,7 @@ export async function loginWithAuthToken(
 
   const client = await vylineLoginToken(authToken, {
     profile: getVylineProfile(),
-    storagePath,
+    storage: new ProtocolSqliteStorage(accountId, storagePath),
   });
 
   watchAuthToken(client, accountId);

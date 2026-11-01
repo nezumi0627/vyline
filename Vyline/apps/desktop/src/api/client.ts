@@ -425,7 +425,7 @@ export const api = {
       request<UnsendResponse>("POST", `/line/${accountId}/unsend`, { messageId }),
 
     restoreRevokedMessage: (accountId: string, chatMid: string, messageId: string) =>
-      request<{ ok: true; text?: string | null; contentType?: string }>(
+      request<{ ok: boolean; error?: string; text?: string | null; contentType?: string }>(
         "POST",
         `/line/${accountId}/restore?chatMid=${encodeURIComponent(chatMid)}`,
         { messageId },
@@ -712,21 +712,25 @@ export const api = {
 
     /** 既読にする */
     markAsRead: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean }>("POST", `/line/${accountId}/read`, {
-        chatMid,
-        lastMessageId,
-      }),
+      request<{ ok: boolean; error?: string; lastMessageId?: string }>(
+        "POST",
+        `/line/${accountId}/read`,
+        {
+          chatMid,
+          lastMessageId,
+        },
+      ),
 
     /** 自分の送信メッセージの既読状態（軽量） */
     readReceipts: (
       accountId: string,
       chatMid: string,
-      messageIds: string[],
+      messageIds?: string[],
       opts?: { force?: boolean },
     ) =>
       request<ReadReceiptsResponse>(
         "GET",
-        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}?ids=${messageIds.map(encodeURIComponent).join(",")}${opts?.force ? "&force=1" : ""}`,
+        `/line/${accountId}/read-receipts/${encodeURIComponent(chatMid)}${messageIds?.length ? `?ids=${messageIds.map(encodeURIComponent).join(",")}${opts?.force ? "&force=1" : ""}` : `?${opts?.force ? "force=1" : ""}`}`,
       ),
 
     /** Talk Push バッファから新着取得 */

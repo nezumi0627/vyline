@@ -430,7 +430,7 @@ lineRouter.get("/:accountId/events/poll", async (c) => {
       events,
       reset,
       seq,
-    } = pollTalkEvents(accountId, Number.isFinite(cursor) ? cursor : 0);
+    } = await pollTalkEvents(accountId, Number.isFinite(cursor) ? cursor : 0);
     return c.json({ ok: true, cursor: next, events, reset, seq });
   } catch (err) {
     return handleError(err, c);

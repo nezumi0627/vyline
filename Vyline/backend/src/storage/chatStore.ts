@@ -71,9 +71,9 @@ export interface StoredChat {
   name: string;
   kind: Chat["kind"];
   hasMessages: boolean;
-  lastMessageTime?: number;
-  lastMessageId?: string;
-  lastMessagePreview?: string;
+  lastMessageTime?: number | undefined;
+  lastMessageId?: string | undefined;
+  lastMessagePreview?: string | undefined;
   thumbnailUrl?: string;
   unreadCount?: number;
   isOfficial?: boolean;
@@ -493,7 +493,7 @@ export async function upsertChats(
 /** Persisted read position wins over a stale unread count for messages already read. */
 export function reconcileStoredUnreadWithReadPosition<
   T extends {
-    lastMessageId?: string;
+    lastMessageId?: string | undefined;
     unreadCount?: number;
   },
 >(chat: T, readUpTo?: string): T {
@@ -1128,6 +1128,21 @@ export async function getStoredMessages(
 ): Promise<Message[]> {
   const stored = await getMessages(accountId, chatMid, limit, opts);
   return stored.map(storedMessageToMessage);
+}
+
+/** Compatibility snapshot for existing JSON backup readers. */
+export async function exportChatDb(accountId: string): Promise<ChatDb> {
+  const db = await getDb(accountId);
+  return {
+    meta: {
+      ...db.meta,
+      ...(db.meta.messagesSyncedAt ? { messagesSyncedAt: { ...db.meta.messagesSyncedAt } } : {}),
+    },
+    chats: { ...db.chats },
+    messages: Object.fromEntries(
+      Object.entries(db.messages).map(([chatMid, messages]) => [chatMid, { ...messages }]),
+    ),
+  };
 }
 
 export type BootstrapPayload = {

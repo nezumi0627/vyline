@@ -5,7 +5,7 @@ export type ReadIntervalV4 = {
   startMessageId: string;
   endMessageId: string;
   startTime?: string;
-  endTime?: string;
+  endTime?: string | undefined;
 };
 
 export type ReadSnapshotV4 = {

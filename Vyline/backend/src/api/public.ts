@@ -177,7 +177,7 @@ publicRouter.get("/accounts/:accountId/events/poll", async (c) => {
   const cursor = Number.isFinite(cursorParam) ? cursorParam : 0;
 
   try {
-    const { cursor: next, events, reset, seq } = pollTalkEvents(accountId, cursor);
+    const { cursor: next, events, reset, seq } = await pollTalkEvents(accountId, cursor);
     return c.json({ ok: true, data: { cursor: next, events, reset, seq } });
   } catch (err) {
     return handlePublicError(err, c);

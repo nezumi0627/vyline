@@ -115,6 +115,22 @@ export async function vylineGetProfiles(
   return out;
 }
 
+export async function vylineGetChatCacheEntries(
+  accountId: string,
+  mids: string[],
+): Promise<{ profiles: Map<string, VylineProfileLite>; groups: Map<string, VylineGroupLite> }> {
+  const db = await storage.load(accountId);
+  const profiles = new Map<string, VylineProfileLite>();
+  const groups = new Map<string, VylineGroupLite>();
+  for (const mid of mids) {
+    const profile = db.profiles[mid];
+    if (profile) profiles.set(mid, profile);
+    const group = db.groups[mid];
+    if (group) groups.set(mid, group);
+  }
+  return { profiles, groups };
+}
+
 /** 表示名が使えるエントリだけ（mid 生出し回避用） */
 export async function vylineResolvedNameMap(
   accountId: string,

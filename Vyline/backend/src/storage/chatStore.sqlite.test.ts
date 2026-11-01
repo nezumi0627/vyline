@@ -6,12 +6,15 @@ import { join } from "node:path";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 
 const accountId = "offline-chat-migration";
+const previousDataDir = process.env.VYLINE_DATA_DIR;
 let dataDir: string;
 let chatStore: typeof import("./chatStore.js");
 let closeSqlite: typeof import("./sqlite.js")["closeSqlite"];
 
 beforeAll(async () => {
   dataDir = await mkdtemp(join(tmpdir(), "vyline-chat-sqlite-"));
+  const sqliteModule = await import("./sqlite.js");
+  sqliteModule.closeSqlite();
   process.env.VYLINE_DATA_DIR = dataDir;
   const previousDb = new Database(join(dataDir, "vyline.sqlite"));
   previousDb.exec(`
@@ -149,11 +152,13 @@ beforeAll(async () => {
   };
   await writeFile(join(dataDir, `chatdb-${accountId}.json`), JSON.stringify(legacy));
   chatStore = await import("./chatStore.js");
-  ({ closeSqlite } = await import("./sqlite.js"));
+  closeSqlite = sqliteModule.closeSqlite;
 });
 
 afterAll(async () => {
   closeSqlite();
+  if (previousDataDir === undefined) process.env.VYLINE_DATA_DIR = undefined;
+  else process.env.VYLINE_DATA_DIR = previousDataDir;
   await rm(dataDir, { recursive: true, force: true });
 });
 
