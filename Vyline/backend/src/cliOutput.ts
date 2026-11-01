@@ -15,7 +15,9 @@ export function safeCliMessage(
     isMyMessage: message.isMyMessage,
     ...(message.seen !== undefined ? { seen: message.seen } : {}),
     ...(message.readCount !== undefined ? { readCount: message.readCount } : {}),
-    ...(message.relatedMessageId !== undefined ? { relatedMessageId: message.relatedMessageId } : {}),
+    ...(message.relatedMessageId !== undefined
+      ? { relatedMessageId: message.relatedMessageId }
+      : {}),
     ...(message.reactions !== undefined ? { reactions: message.reactions } : {}),
     ...(message.messageState !== undefined ? { messageState: message.messageState } : {}),
   };

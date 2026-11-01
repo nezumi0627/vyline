@@ -51,7 +51,9 @@ function requireMid(options: CliOptions, key: string): string {
 }
 
 function printJson(value: unknown): void {
-  console.log(JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? String(item) : item), 2));
+  console.log(
+    JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? String(item) : item), 2),
+  );
 }
 
 async function closeAccountSession(accountId: string): Promise<void> {
@@ -101,7 +103,9 @@ async function main(argv: string[]): Promise<void> {
   if (command === "history") {
     const chatMid = requireMid(options, "chat");
     const beforeId = optionString(options, "before");
-    const beforeMessage = beforeId ? await findStoredMessageById(account.accountId, beforeId) : null;
+    const beforeMessage = beforeId
+      ? await findStoredMessageById(account.accountId, beforeId)
+      : null;
     if (beforeId && beforeMessage?.chatMid !== chatMid) {
       throw new Error("--before のメッセージがこのチャットのローカル履歴にありません");
     }
@@ -112,12 +116,20 @@ async function main(argv: string[]): Promise<void> {
         ? await fetchMessages(account.accountId, chatMid, limit, {
             force: true,
             ...(beforeId
-              ? { beforeMessageId: beforeId, beforeDeliveredTime: beforeMessage!.message.createdTime }
+              ? {
+                  beforeMessageId: beforeId,
+                  beforeDeliveredTime: beforeMessage!.message.createdTime,
+                }
               : {}),
           })
         : await getStoredMessages(account.accountId, chatMid, limit, {
-          ...(beforeId ? { beforeMessageId: beforeId, beforeDeliveredTime: beforeMessage!.message.createdTime } : {}),
-        });
+            ...(beforeId
+              ? {
+                  beforeMessageId: beforeId,
+                  beforeDeliveredTime: beforeMessage!.message.createdTime,
+                }
+              : {}),
+          });
       printJson(messages.map((message) => safeCliMessage(message, chatMid)));
     } finally {
       if (options.refresh) await closeAccountSession(account.accountId);
@@ -140,18 +152,27 @@ async function main(argv: string[]): Promise<void> {
         break;
       case "receipts": {
         const chatMid = requireMid(options, "chat");
-        const messages = (await getStoredMessages(account.accountId, chatMid, boundedLimit(options, 100)))
-          .filter((message) => message.isMyMessage);
+        const messages = (
+          await getStoredMessages(account.accountId, chatMid, boundedLimit(options, 100))
+        ).filter((message) => message.isMyMessage);
         const result = messages.length
-          ? await getReadReceiptsForChat(account.accountId, chatMid, messages.map((m) => m.id))
+          ? await getReadReceiptsForChat(
+              account.accountId,
+              chatMid,
+              messages.map((m) => m.id),
+            )
           : { receipts: {} };
-        printJson({ messages: messages.map((message) => safeCliMessage(message, chatMid)), ...result });
+        printJson({
+          messages: messages.map((message) => safeCliMessage(message, chatMid)),
+          ...result,
+        });
         break;
       }
       case "read": {
         const chatMid = requireMid(options, "chat");
         const last = optionString(options, "last");
-        if (last && !/^\d{1,40}$/.test(last)) throw new Error("--last は数値のmessageIdを指定してください");
+        if (last && !/^\d{1,40}$/.test(last))
+          throw new Error("--last は数値のmessageIdを指定してください");
         await markAsRead(account.accountId, chatMid, last);
         printJson({ ok: true, chatMid, ...(last ? { lastMessageId: last } : {}) });
         break;

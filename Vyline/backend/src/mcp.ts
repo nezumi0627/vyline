@@ -19,7 +19,7 @@ const connectedAccounts = new Set<string>();
 let cleanupTask: Promise<void> | undefined;
 
 function json(value: unknown): string {
-  return JSON.stringify(value, (_key, item) => typeof item === "bigint" ? String(item) : item, 2);
+  return JSON.stringify(value, (_key, item) => (typeof item === "bigint" ? String(item) : item), 2);
 }
 
 function result(value: unknown) {
@@ -29,7 +29,12 @@ function result(value: unknown) {
 function failed() {
   return {
     isError: true,
-    content: [{ type: "text" as const, text: "Vylineの要求に失敗しました。アカウント状態とVylineログを確認してください。" }],
+    content: [
+      {
+        type: "text" as const,
+        text: "Vylineの要求に失敗しました。アカウント状態とVylineログを確認してください。",
+      },
+    ],
   };
 }
 
@@ -37,7 +42,10 @@ async function run<T>(operation: () => Promise<T>) {
   try {
     return result(await operation());
   } catch (error) {
-    console.error("Vyline MCP tool failed:", error instanceof Error ? error.message : "unknown error");
+    console.error(
+      "Vyline MCP tool failed:",
+      error instanceof Error ? error.message : "unknown error",
+    );
     return failed();
   }
 }
@@ -107,16 +115,18 @@ async function closeSessions(): Promise<void> {
   cleanupTask = (async () => {
     await Promise.allSettled([...sessionInflight.values()]);
     const accounts = [...connectedAccounts];
-    await Promise.all(accounts.map(async (accountId) => {
-      const refreshedToken = lineClient.getAuthToken(accountId);
-      try {
-        if (refreshedToken) await tokenStore.saveToken(accountId, refreshedToken);
-      } catch (error) {
-        console.error("Vyline MCP token update failed for an account.");
-      } finally {
-        lineClient.removeClient(accountId);
-      }
-    }));
+    await Promise.all(
+      accounts.map(async (accountId) => {
+        const refreshedToken = lineClient.getAuthToken(accountId);
+        try {
+          if (refreshedToken) await tokenStore.saveToken(accountId, refreshedToken);
+        } catch (error) {
+          console.error("Vyline MCP token update failed for an account.");
+        } finally {
+          lineClient.removeClient(accountId);
+        }
+      }),
+    );
     sqliteStore.closeSqlite();
   })();
   return cleanupTask;
@@ -125,120 +135,175 @@ async function closeSessions(): Promise<void> {
 function createServer(): McpServer {
   const server = new McpServer({ name: "vyline", version: "0.6.0-beta" });
 
-  server.registerTool("list_accounts", {
-    description: "List locally saved Vyline accounts. Select an accountId explicitly for every other tool.",
-    inputSchema: {},
-    annotations: { readOnlyHint: true, openWorldHint: false },
-  }, () => run(async () => {
-    const accounts = await tokenStore.loadTokens();
-    return Object.entries(accounts).map(([accountId, entry]) => ({
-      accountId,
-      displayName: entry.displayName ?? "",
-      mid: entry.mid ?? "",
-    }));
-  }));
-
-  server.registerTool("get_profile", {
-    description: "Get the current user's LINE profile for a selected saved account. Connects to LINE if its session is not active.",
-    inputSchema: { accountId: z.string().min(1).max(128) },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  }, ({ accountId }) => run(async () => {
-    await ensureSession(accountId);
-    return safeProfile(await lineService.fetchProfile(accountId));
-  }));
-
-  server.registerTool("get_contact_profile", {
-    description: "Get a LINE contact profile by MID for an explicitly selected saved account.",
-    inputSchema: {
-      accountId: z.string().min(1).max(128),
-      mid: z.string().min(9).max(128).regex(/^[ucr][A-Za-z0-9_-]+$/i),
+  server.registerTool(
+    "list_accounts",
+    {
+      description:
+        "List locally saved Vyline accounts. Select an accountId explicitly for every other tool.",
+      inputSchema: {},
+      annotations: { readOnlyHint: true, openWorldHint: false },
     },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  }, ({ accountId, mid }) => run(async () => {
-    await ensureSession(accountId);
-    const profile = await lineService.fetchContactProfile(accountId, mid);
-    return profile ? safeProfile(profile) : null;
-  }));
+    () =>
+      run(async () => {
+        const accounts = await tokenStore.loadTokens();
+        return Object.entries(accounts).map(([accountId, entry]) => ({
+          accountId,
+          displayName: entry.displayName ?? "",
+          mid: entry.mid ?? "",
+        }));
+      }),
+  );
 
-  server.registerTool("list_chats", {
-    description: "Fetch the chat list from LINE for a selected account. This is read-only and makes a network request.",
-    inputSchema: {
-      accountId: z.string().min(1).max(128),
-      limit: z.number().int().min(1).max(200).optional(),
+  server.registerTool(
+    "get_profile",
+    {
+      description:
+        "Get the current user's LINE profile for a selected saved account. Connects to LINE if its session is not active.",
+      inputSchema: { accountId: z.string().min(1).max(128) },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  }, ({ accountId, limit }) => run(async () => {
-    await ensureSession(accountId);
-    const chats = await lineService.fetchChats(accountId, { force: true, light: true });
-    return chats.slice(0, limit ?? 100).map((chat) => ({
-      mid: chat.mid,
-      name: chat.name,
-      kind: chat.kind,
-      hasMessages: chat.hasMessages,
-      lastMessageTime: chat.lastMessageTime,
-      unreadCount: chat.unreadCount,
-      isOfficial: chat.isOfficial,
-    }));
-  }));
+    ({ accountId }) =>
+      run(async () => {
+        await ensureSession(accountId);
+        return safeProfile(await lineService.fetchProfile(accountId));
+      }),
+  );
 
-  server.registerTool("get_chat_history", {
-    description: "Read cached messages from local SQLite, or refresh one selected chat from LINE. Raw contentMetadata and encryption keys are never returned.",
-    inputSchema: {
-      accountId: z.string().min(1).max(128),
-      chatMid: z.string().min(9).max(128).regex(/^[ucr][A-Za-z0-9_-]+$/i),
-      limit: z.number().int().min(1).max(100).optional(),
-      beforeMessageId: z.string().regex(/^\d{1,40}$/).optional(),
-      refresh: z.boolean().optional(),
+  server.registerTool(
+    "get_contact_profile",
+    {
+      description: "Get a LINE contact profile by MID for an explicitly selected saved account.",
+      inputSchema: {
+        accountId: z.string().min(1).max(128),
+        mid: z
+          .string()
+          .min(9)
+          .max(128)
+          .regex(/^[ucr][A-Za-z0-9_-]+$/i),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  }, ({ accountId, chatMid, limit, beforeMessageId, refresh }) => run(async () => {
-    await requireAccount(accountId);
-    if (!validMid(chatMid)) throw new Error("invalid chat MID");
-    const pageLimit = limit ?? 30;
-    const before = beforeMessageId
-      ? await chatStore.findStoredMessageById(accountId, beforeMessageId)
-      : null;
-    if (beforeMessageId && before?.chatMid !== chatMid) throw new Error("cursor is not in this chat");
-    const cursor = beforeMessageId ? {
-      beforeMessageId,
-      beforeDeliveredTime: before!.message.createdTime,
-    } : undefined;
-    const messages = refresh
-      ? await (async () => {
-          await ensureSession(accountId);
-          return lineService.fetchMessages(accountId, chatMid, pageLimit, {
-            force: true,
-            ...cursor,
-          });
-        })()
-      : await chatStore.getStoredMessages(accountId, chatMid, pageLimit, cursor);
-    return messages.map((message) => safeMessage(message, chatMid));
-  }));
+    ({ accountId, mid }) =>
+      run(async () => {
+        await ensureSession(accountId);
+        const profile = await lineService.fetchContactProfile(accountId, mid);
+        return profile ? safeProfile(profile) : null;
+      }),
+  );
 
-  server.registerTool("get_read_receipts", {
-    description: "Fetch read status for the latest locally cached outgoing messages in one chat. Network access is used.",
-    inputSchema: {
-      accountId: z.string().min(1).max(128),
-      chatMid: z.string().min(9).max(128).regex(/^[ucr][A-Za-z0-9_-]+$/i),
-      limit: z.number().int().min(1).max(100).optional(),
+  server.registerTool(
+    "list_chats",
+    {
+      description:
+        "Fetch the chat list from LINE for a selected account. This is read-only and makes a network request.",
+      inputSchema: {
+        accountId: z.string().min(1).max(128),
+        limit: z.number().int().min(1).max(200).optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
     },
-    annotations: { readOnlyHint: true, openWorldHint: true },
-  }, ({ accountId, chatMid, limit }) => run(async () => {
-    await requireAccount(accountId);
-    if (!validMid(chatMid)) throw new Error("invalid chat MID");
-    const local = await chatStore.getStoredMessages(accountId, chatMid, limit ?? 50);
-    const outgoing = local.filter((message) => message.isMyMessage);
-    if (outgoing.length === 0) return { messages: [], receipts: {} };
-    await ensureSession(accountId);
-    const receipts = await lineService.getReadReceiptsForChat(
-      accountId,
-      chatMid,
-      outgoing.map((message) => message.id),
-    );
-    return { messages: outgoing.map((message) => safeMessage(message, chatMid)), ...receipts };
-  }));
+    ({ accountId, limit }) =>
+      run(async () => {
+        await ensureSession(accountId);
+        const chats = await lineService.fetchChats(accountId, { force: true, light: true });
+        return chats.slice(0, limit ?? 100).map((chat) => ({
+          mid: chat.mid,
+          name: chat.name,
+          kind: chat.kind,
+          hasMessages: chat.hasMessages,
+          lastMessageTime: chat.lastMessageTime,
+          unreadCount: chat.unreadCount,
+          isOfficial: chat.isOfficial,
+        }));
+      }),
+  );
 
-  server.server.onclose = () => { void closeSessions(); };
+  server.registerTool(
+    "get_chat_history",
+    {
+      description:
+        "Read cached messages from local SQLite, or refresh one selected chat from LINE. Raw contentMetadata and encryption keys are never returned.",
+      inputSchema: {
+        accountId: z.string().min(1).max(128),
+        chatMid: z
+          .string()
+          .min(9)
+          .max(128)
+          .regex(/^[ucr][A-Za-z0-9_-]+$/i),
+        limit: z.number().int().min(1).max(100).optional(),
+        beforeMessageId: z
+          .string()
+          .regex(/^\d{1,40}$/)
+          .optional(),
+        refresh: z.boolean().optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    ({ accountId, chatMid, limit, beforeMessageId, refresh }) =>
+      run(async () => {
+        await requireAccount(accountId);
+        if (!validMid(chatMid)) throw new Error("invalid chat MID");
+        const pageLimit = limit ?? 30;
+        const before = beforeMessageId
+          ? await chatStore.findStoredMessageById(accountId, beforeMessageId)
+          : null;
+        if (beforeMessageId && before?.chatMid !== chatMid)
+          throw new Error("cursor is not in this chat");
+        const cursor = beforeMessageId
+          ? {
+              beforeMessageId,
+              beforeDeliveredTime: before!.message.createdTime,
+            }
+          : undefined;
+        const messages = refresh
+          ? await (async () => {
+              await ensureSession(accountId);
+              return lineService.fetchMessages(accountId, chatMid, pageLimit, {
+                force: true,
+                ...cursor,
+              });
+            })()
+          : await chatStore.getStoredMessages(accountId, chatMid, pageLimit, cursor);
+        return messages.map((message) => safeMessage(message, chatMid));
+      }),
+  );
+
+  server.registerTool(
+    "get_read_receipts",
+    {
+      description:
+        "Fetch read status for the latest locally cached outgoing messages in one chat. Network access is used.",
+      inputSchema: {
+        accountId: z.string().min(1).max(128),
+        chatMid: z
+          .string()
+          .min(9)
+          .max(128)
+          .regex(/^[ucr][A-Za-z0-9_-]+$/i),
+        limit: z.number().int().min(1).max(100).optional(),
+      },
+      annotations: { readOnlyHint: true, openWorldHint: true },
+    },
+    ({ accountId, chatMid, limit }) =>
+      run(async () => {
+        await requireAccount(accountId);
+        if (!validMid(chatMid)) throw new Error("invalid chat MID");
+        const local = await chatStore.getStoredMessages(accountId, chatMid, limit ?? 50);
+        const outgoing = local.filter((message) => message.isMyMessage);
+        if (outgoing.length === 0) return { messages: [], receipts: {} };
+        await ensureSession(accountId);
+        const receipts = await lineService.getReadReceiptsForChat(
+          accountId,
+          chatMid,
+          outgoing.map((message) => message.id),
+        );
+        return { messages: outgoing.map((message) => safeMessage(message, chatMid)), ...receipts };
+      }),
+  );
+
+  server.server.onclose = () => {
+    void closeSessions();
+  };
   return server;
 }
 
@@ -246,5 +311,9 @@ const handle = serveStdio(createServer, {
   onerror: (error) => console.error("Vyline MCP transport error:", error.message),
 });
 
-process.once("SIGINT", () => { void handle.close().then(closeSessions); });
-process.once("SIGTERM", () => { void handle.close().then(closeSessions); });
+process.once("SIGINT", () => {
+  void handle.close().then(closeSessions);
+});
+process.once("SIGTERM", () => {
+  void handle.close().then(closeSessions);
+});

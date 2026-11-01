@@ -15,7 +15,15 @@ test("CLI message output omits encryption metadata and revoked-message snapshots
     contentMetadata: { keyMaterial: "secret" },
     readBy: ["user-id"],
     history: [{ state: "normal", text: "old secret", contentType: "TEXT", updatedTime: 1 }],
-    revokedSnapshot: { id: "1", from: "peer", to: "me", text: "snapshot", contentType: "TEXT", createdTime: 1, isMyMessage: false },
+    revokedSnapshot: {
+      id: "1",
+      from: "peer",
+      to: "me",
+      text: "snapshot",
+      contentType: "TEXT",
+      createdTime: 1,
+      isMyMessage: false,
+    },
   });
 
   expect(output).toMatchObject({ id: "1", text: "hello", contentType: "TEXT" });
