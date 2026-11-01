@@ -2971,9 +2971,14 @@ async function fetchChatsCore(
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
   let joinedChatsFetchFailed = false;
+  let messageBoxesFetchFailed = false;
 
   const [messageBoxes, joinedChats, users, storedChats, cacheMeta] = await Promise.all([
-    fetchMessageBoxesCached(accountId, client, { forChats: true }),
+    fetchMessageBoxesCached(accountId, client, { forChats: true }).catch((err) => {
+      messageBoxesFetchFailed = true;
+      log.warn({ accountId, err }, "message box fetch failed — preserving cached chats");
+      return [] as any[];
+    }),
     client.fetchJoinedChats().catch((err) => {
       joinedChatsFetchFailed = true;
       log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
@@ -2987,10 +2992,17 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     getCacheMeta(accountId),
   ]);
   const joinedMids = new Set(joinedChats.map((chat) => chat.mid));
-  if (!messageBoxes.length && !joinedMids.size && !users.length && storedChats.length) {
+  if (
+    !messageBoxesFetchFailed &&
+    !joinedChatsFetchFailed &&
+    !messageBoxes.length &&
+    !joinedMids.size &&
+    !users.length &&
+    storedChats.length
+  ) {
     throw new Error("empty chat sync; retaining cached roster");
   }
-  if (!joinedChatsFetchFailed) {
+  if (!joinedChatsFetchFailed && !messageBoxesFetchFailed) {
     await chatMembershipStorage.mutate(accountId, (membership) => {
       for (const chat of storedChats) {
         if (chat.kind === "group" || chat.kind === "room")
