@@ -668,6 +668,46 @@ export const api = {
         }>;
       }>("GET", `/line/${accountId}/stickers`),
 
+    stickers: (accountId: string) => api.line.getOwnedStickers(accountId),
+
+    commonGroups: (accountId: string, targetMid: string, excludeChatId?: string) =>
+      request<{
+        ok: boolean;
+        groups?: Array<{
+          chatMid: string;
+          name: string;
+          thumbnailUrl?: string;
+          memberMids: string[];
+        }>;
+        error?: string;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/getCommonGroupIds/${encodeURIComponent(targetMid)}${
+          excludeChatId ? `?exclude=${encodeURIComponent(excludeChatId)}` : ""
+        }`,
+      ),
+
+    createGroup: (accountId: string, name: string, memberMids: string[]) =>
+      request<{
+        ok: boolean;
+        chat?: { chatMid: string; name: string };
+        error?: string;
+        code?: string;
+        createGroupBanned?: boolean;
+      }>("POST", `/line/${encodeURIComponent(accountId)}/createChat`, { name, memberMids }),
+
+    updateChatPicture: (
+      accountId: string,
+      chatMid: string,
+      bytes: ArrayBuffer,
+      mime = "image/jpeg",
+    ) =>
+      uploadBinary<{ ok: boolean; error?: string }>(
+        `/line/${encodeURIComponent(accountId)}/chats/${encodeURIComponent(chatMid)}/picture`,
+        new Blob([bytes], { type: mime }),
+        { "Content-Type": mime },
+      ),
+
     unsendMessage: (accountId: string, messageId: string) =>
       request<UnsendResponse>("POST", `/line/${accountId}/unsendMessage`, { messageId }),
 
