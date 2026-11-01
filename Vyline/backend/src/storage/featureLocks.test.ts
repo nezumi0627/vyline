@@ -69,6 +69,33 @@ if (process.env.VYLINE_FEATURE_LOCKS_TEST_CHILD !== "1") {
     }
   });
 
+  test("passes group and room modes to LINE createChat without conflating them", async () => {
+    await rm(join(dataDir, "feature-locks.json"), { force: true });
+    const clientManager = await import("../line/clientManager.js");
+    const requests: Array<{ type?: string }> = [];
+    const getClient = spyOn(clientManager, "getClient").mockReturnValue({
+      base: {
+        getReqseq: async () => 1,
+        talk: {
+          createChat: async (input: { request: { type?: string } }) => {
+            requests.push(input.request);
+            return { chat: { chatMid: `c-${input.request.type}` } };
+          },
+        },
+      },
+    } as never);
+
+    try {
+      const { createGroupChat } = await import("../service/lineService.js");
+      const mids = ["u11111111111111111111111111111111"];
+      await createGroupChat("account-a", "group", mids, "group");
+      await createGroupChat("account-a", "room", mids, "room");
+      expect(requests.map((request) => request.type)).toEqual(["GROUP", "ROOM"]);
+    } finally {
+      getClient.mockRestore();
+    }
+  });
+
   test("fails closed on non-ENOENT storage errors", async () => {
     const path = join(dataDir, "feature-locks.json");
     await rm(path, { force: true });

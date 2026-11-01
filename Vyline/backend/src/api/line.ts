@@ -2017,12 +2017,21 @@ lineRouter.post("/:accountId/setNotificationsEnabled", async (c) => {
 
 lineRouter.post("/:accountId/createChat", async (c) => {
   const accountId = c.req.param("accountId");
-  const body = await c.req.json<{ name?: string; memberMids?: string[] }>();
+  const body = await c.req.json<{
+    name?: string;
+    memberMids?: string[];
+    mode?: "group" | "room";
+  }>();
   if (!body.memberMids?.length) {
     return c.json({ ok: false, error: "memberMids required" }, 400);
   }
   try {
-    const chat = await createGroupChat(accountId, body.name ?? "グループ", body.memberMids);
+    const chat = await createGroupChat(
+      accountId,
+      body.name ?? "グループ",
+      body.memberMids,
+      body.mode ?? "group",
+    );
     return c.json({ ok: true, chat });
   } catch (err) {
     return handleError(err, c);

@@ -687,14 +687,19 @@ export const api = {
         }`,
       ),
 
-    createGroup: (accountId: string, name: string, memberMids: string[]) =>
+    createGroup: (
+      accountId: string,
+      name: string,
+      memberMids: string[],
+      mode: "group" | "room" = "group",
+    ) =>
       request<{
         ok: boolean;
         chat?: { chatMid: string; name: string };
         error?: string;
         code?: string;
         createGroupBanned?: boolean;
-      }>("POST", `/line/${encodeURIComponent(accountId)}/createChat`, { name, memberMids }),
+      }>("POST", `/line/${encodeURIComponent(accountId)}/createChat`, { name, memberMids, mode }),
 
     updateChatPicture: (
       accountId: string,
