@@ -21,8 +21,6 @@ function statusLabel(state: CallUiState, kind: "voice" | "video"): string {
       return "呼び出し中…（相手の応答を待っています）";
     case "in-call":
       return kind === "video" ? "ビデオ通話中" : "通話中";
-    case "no-answer":
-      return "応答なし";
     case "ending":
       return "終了中…";
     case "failed":
@@ -84,7 +82,7 @@ export function CallOverlay({
     <div className="vy-fade-in fixed inset-0 z-[60] flex flex-col items-center justify-between bg-[var(--vy-bg)]/95 px-6 py-12 backdrop-blur-xl">
       <div className="flex flex-1 flex-col items-center justify-center gap-6 text-center">
         <div className="relative">
-          {!connected && state !== "failed" && state !== "no-answer" && (
+          {!connected && state !== "failed" && (
             <span
               className="absolute -inset-3 animate-ping rounded-full"
               style={{ background: `color-mix(in oklab, ${color} 30%, transparent)` }}

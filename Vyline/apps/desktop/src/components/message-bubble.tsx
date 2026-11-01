@@ -38,6 +38,13 @@ import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 import { mentionLabel } from "./message-bubble-helpers";
 import { previewUrlsForText, splitMessageUrls } from "@/lib/messageUrls";
 
+export type PostNotificationTarget = {
+  kind: "note" | "album";
+  homeId: string;
+  postId?: string;
+  albumId?: string;
+};
+
 export async function deleteRevokedMessageFromDevice(
   accountId: string | null,
   chatId: string,

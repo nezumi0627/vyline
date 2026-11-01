@@ -2177,6 +2177,22 @@ async function fetchContactProfileInner(
   }
 }
 
+/** MID を使ってLINEの友だち追加を依頼する。 */
+export async function addFriendByMid(
+  accountId: string,
+  mid: string,
+  reference?: string,
+): Promise<void> {
+  if (!/^u[0-9a-f]{32}$/i.test(mid)) throw new Error("ユーザーMIDが正しくありません");
+  const client = getClient(accountId);
+  if (!client) throw new NotLoggedInError(accountId);
+  await client.base.relation.addFriendByMid({
+    mid,
+    ...(reference ? { reference } : {}),
+    trackingMetaType: 5,
+  });
+}
+
 /** メッセージを既読にする（最新メッセージ ID を渡す） */
 export async function markAsRead(
   accountId: string,

@@ -394,6 +394,64 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/messages/{chatMid}/search",
+    "get",
+    {
+      op: "searchMessages",
+      summary: "チャット内メッセージ検索",
+      description: "ローカルSQLite履歴を検索。正規表現は候補数を制限して実行する",
+      tags: ["messages"],
+      params: [
+        acc,
+        chatMid,
+        { name: "q", in: "query", required: true, schema: { type: "string", maxLength: 256 } },
+        { name: "regex", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+      ],
+      responses: { "200": jsonRes("検索結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/messages/{chatMid}/{messageId}",
+    "delete",
+    {
+      op: "deleteRevokedMessage",
+      summary: "取消済みメッセージをこの端末から削除",
+      description: "Vyline拡張。アカウント・チャット・メッセージ単位のSQLite記録を削除する",
+      tags: ["messages"],
+      params: [acc, chatMid, pathParam("messageId", "メッセージ ID")],
+      responses: {
+        "200": okRes(),
+        "404": jsonRes("メッセージなし"),
+        "409": jsonRes("取消済み以外"),
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/link-preview",
+    "post",
+    {
+      op: "getLinkPreview",
+      summary: "URLプレビュー取得",
+      description: "Vyline拡張。外部URLから安全に取得したプレビュー",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["url"], { url: { type: "string", maxLength: 2048 } }),
+      responses: { "200": jsonRes("URLプレビュー") },
+    },
+  ],
+  [
+    "/line/{accountId}/link-preview/image/{imageId}",
+    "get",
+    {
+      op: "getLinkPreviewImage",
+      summary: "URLプレビュー画像取得",
+      description: "Vyline拡張。期限付きキャッシュの画像データ",
+      tags: ["messages"],
+      params: [acc, pathParam("imageId", "画像キャッシュ ID")],
+      responses: { "200": { description: "画像" }, "404": jsonRes("画像なし") },
+    },
+  ],
+  [
     "/line/{accountId}/getMessageDelta/{chatMid}",
     "get",
     {
@@ -801,6 +859,19 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/contacts/{mid}/add",
+    "post",
+    {
+      op: "addFriendByMid",
+      summary: "MIDから友だち追加",
+      description: "LINE: RelationService.addFriendByMid",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象ユーザー MID")],
+      requestBody: body([], { reference: { type: "string" } }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
     "/line/{accountId}/updateContactSetting/{mid}",
     "patch",
     {
@@ -836,7 +907,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "ブロック",
       description: "LINE: blockContact",
       tags: ["contacts"],
-      params: [acc, pathParam("mid", "対象 MID")],
+      params: [
+        acc,
+        pathParam("mid", "対象 MID"),
+        { name: "sqliteDiffSync", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+      ],
       responses: { "200": okRes() },
     },
   ],
@@ -848,7 +923,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "ブロック解除",
       description: "LINE: unblockContact",
       tags: ["contacts"],
-      params: [acc, pathParam("mid", "対象 MID")],
+      params: [
+        acc,
+        pathParam("mid", "対象 MID"),
+        { name: "sqliteDiffSync", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+      ],
       responses: { "200": okRes() },
     },
   ],
@@ -860,7 +939,10 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "ブロックリスト取得",
       description: "キャッシュ + background キュー付き（504 回避）",
       tags: ["contacts"],
-      params: [acc],
+      params: [
+        acc,
+        { name: "sqliteDiffSync", in: "query", schema: { type: "string", enum: ["0", "1"] } },
+      ],
       responses: { "200": jsonRes("ブロック済み配列") },
     },
   ],

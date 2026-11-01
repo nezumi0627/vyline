@@ -12,6 +12,28 @@ export type VirtualRow<T> = {
   item: T;
 };
 
+export function calculateVisibleRange(
+  offsets: number[],
+  scrollTop: number,
+  viewportHeight: number,
+  overscan: number,
+): { startIdx: number; endIdx: number } {
+  const buffer = overscan * 60;
+  const start = Math.max(0, scrollTop - buffer);
+  const end = scrollTop + viewportHeight + buffer;
+  let lo = 0;
+  let hi = offsets.length;
+  while (lo < hi) {
+    const mid = (lo + hi) >> 1;
+    if (offsets[mid]! <= start) lo = mid + 1;
+    else hi = mid;
+  }
+  const startIdx = Math.max(0, lo - 1);
+  let endIdx = startIdx;
+  while (endIdx < offsets.length && offsets[endIdx]! < end) endIdx++;
+  return { startIdx, endIdx: Math.min(endIdx + 1, offsets.length) };
+}
+
 export function useVirtualList<T>({
   rows,
   estimateHeight,
