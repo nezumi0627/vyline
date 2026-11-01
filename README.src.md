@@ -145,10 +145,11 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 | 開発・動作確認 | Bun + ソースコード | フロントエンドとバックエンドを個別に確認できます |
 | 自宅サーバー・複数端末 | Docker Compose | データをボリュームに保存して Web ブラウザから利用できます |
 | Windows の単体アプリ | 対応 | GitHub Releases の `VylineSetup-<version>.exe` を使用します |
-| Linux の単体アプリ | 対応 | GitHub Releases の `Vyline-linux-x64-<version>.tar.gz` を使用します |
+| macOS の単体アプリ | 対応 | GitHub Releases の Apple Silicon / Intel 向け ZIP を使用します |
+| Linux / Ubuntu の単体アプリ | 対応 | GitHub Releases の `Vyline-linux-x64-<version>.tar.gz` を使用します |
 
 > [!NOTE]
-> Windows版・Linux版は GitHub Releases から導入できます。サーバー用途では Docker Compose を使用してください。
+> 各OSの単体版はそのPC内でバックエンドを起動し、ローカルブラウザでVylineを表示します。別の端末から使うサーバー用途では Docker Compose を使用してください。
 
 ### vyl で始める（推奨）
 
