@@ -15,6 +15,8 @@ let rosterFails = false;
 let boxesFail = false;
 let emptyBoxes = false;
 const client = {
+  fetchJoinedChats: async () => joinedMids.map((chatMid) => ({ mid: chatMid, name: "Joined" })),
+  fetchUsers: async () => [],
   base: {
     auth: { tryRefreshToken: async () => {} },
     profile: { mid: `u${"0".repeat(32)}` },
