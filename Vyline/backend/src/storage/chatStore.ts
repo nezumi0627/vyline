@@ -5,7 +5,6 @@
  * 起動時はディスク → メモリで即返却、RPC はバックグラウンド同期。
  */
 
-
 import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
@@ -551,8 +550,10 @@ function hydrateMessage(
 ): StoredMessage | undefined {
   const cached = db.messages[chatMid]?.[messageId];
   if (cached) return cached;
-  const loaded = readStoredMessage(accountId, chatMid, messageId) ??
-    readMessageSqlite(accountId, chatMid, messageId) ?? undefined;
+  const loaded =
+    readStoredMessage(accountId, chatMid, messageId) ??
+    readMessageSqlite(accountId, chatMid, messageId) ??
+    undefined;
   if (loaded) (db.messages[chatMid] ??= {})[messageId] = loaded;
   return loaded;
 }
@@ -652,10 +653,7 @@ function readPersistedReadCursors(accountId: string): ChatDbMeta["readCursors"] 
   return result;
 }
 
-function writePersistedReadCursors(
-  accountId: string,
-  cursors: ChatDbMeta["readCursors"],
-): void {
+function writePersistedReadCursors(accountId: string, cursors: ChatDbMeta["readCursors"]): void {
   ensureReadCursorSchema();
   const upsert = sqlite.query(`INSERT INTO chat_read_cursors_v1
     (account_id,chat_mid,reader_mid,message_id,at) VALUES (?,?,?,?,?)
@@ -1353,7 +1351,8 @@ export async function softDeleteMessage(
   if (!message.isDeleted) {
     message.isDeleted = true;
     message.deletedAt = new Date().toISOString();
-    if (!setStoredMessageSoftDeleted(accountId, chatMid, messageId, true, message.deletedAt)) return false;
+    if (!setStoredMessageSoftDeleted(accountId, chatMid, messageId, true, message.deletedAt))
+      return false;
   }
   return true;
 }
@@ -1378,7 +1377,6 @@ export async function markMessageRevoked(
   chatMid: string,
   messageId: string,
 ): Promise<void> {
-
   let db = memory.get(accountId);
   if (dirty.has(accountId)) db = await getDb(accountId);
   else await ensureChatDbImported(accountId);
@@ -1472,7 +1470,6 @@ export async function restoreRevokedMessage(
   chatMid: string,
   messageId: string,
 ): Promise<{ text: string | null; contentType: string } | null> {
-
   let db = memory.get(accountId);
   if (dirty.has(accountId)) db = await getDb(accountId);
   else await ensureChatDbImported(accountId);
@@ -1527,7 +1524,6 @@ export async function getMessageHistory(
   chatMid: string,
   messageId: string,
 ): Promise<Message["history"]> {
-
   if (dirty.has(accountId))
     return (await getDb(accountId)).messages[chatMid]?.[messageId]?.history ?? [];
   await ensureChatDbImported(accountId);
@@ -1543,7 +1539,6 @@ export async function getMessages(
   limit: number,
   opts?: { beforeMessageId?: string; beforeDeliveredTime?: number; includeDeleted?: boolean },
 ): Promise<StoredMessage[]> {
-
   const pageLimit = Math.max(0, Math.floor(limit));
   if (pageLimit === 0) return [];
   if (!dirty.has(accountId)) await ensureChatDbImported(accountId);
@@ -1576,7 +1571,9 @@ export async function getMessages(
         THEN 1 ELSE 0 END DESC,
         CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
         message_id DESC LIMIT ?`)
-      .all(accountId, chatMid, Number(Boolean(opts?.includeDeleted)), queryLimit) as Array<{ message_id: string }>;
+      .all(accountId, chatMid, Number(Boolean(opts?.includeDeleted)), queryLimit) as Array<{
+      message_id: string;
+    }>;
   } else {
     if (beforeId == null) {
       rows = sqlite
@@ -1585,7 +1582,13 @@ export async function getMessages(
             THEN 1 ELSE 0 END DESC,
             CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
             message_id DESC LIMIT ?`)
-        .all(accountId, chatMid, Number(Boolean(opts?.includeDeleted)), beforeTime, queryLimit) as Array<{ message_id: string }>;
+        .all(
+          accountId,
+          chatMid,
+          Number(Boolean(opts?.includeDeleted)),
+          beforeTime,
+          queryLimit,
+        ) as Array<{ message_id: string }>;
     } else if (/^\d+$/.test(beforeId)) {
       rows = sqlite
         .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND (? = 1 OR is_deleted = 0)
@@ -1703,8 +1706,7 @@ function storedMessageToMessage(stored: StoredMessage, chatMid: string): Message
   // Older Android/iOS restores stored received group messages with to=self MID.
   // Normalize on read so already-imported histories become visible immediately
   // after upgrading, without requiring users to delete or re-import chatdb.
-  const to =
-    chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : stored.to;
+  const to = chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : stored.to;
   const msg: Message = {
     id: stored.id,
     from: stored.from,
@@ -2038,7 +2040,6 @@ export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promi
   scheduleSave(accountId, { meta: true });
 }
 
-
 /** Flushes pending writes and guarantees the relational backup source is ready. */
 export async function prepareChatDbBackup(accountId: string): Promise<void> {
   await flushDb(accountId);
@@ -2066,7 +2067,6 @@ export async function importChatDb(
       messageCount++;
     }
   }
-
 
   sqlite
     .transaction(() => {
@@ -2499,7 +2499,6 @@ export async function flushAccountChatDb(accountId: string): Promise<void> {
 export async function listChatsWithCounts(
   accountId: string,
 ): Promise<Array<{ mid: string; name: string; messageCount: number }>> {
-
   if (dirty.has(accountId)) {
     const db = await getDb(accountId);
     return Object.keys(db.chats).map((mid) => ({

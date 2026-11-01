@@ -958,7 +958,10 @@ export const useStore = create<State>()(
         }));
         const { accountId, settings, chats, demoMode, readDisabledMids } = get();
         if (
-          !demoMode && accountId && settings.readReceipts && !readDisabledMids[id] &&
+          !demoMode &&
+          accountId &&
+          settings.readReceipts &&
+          !readDisabledMids[id] &&
           chatMessages.length > 0
         ) {
           void get().markChatRead(id);
@@ -2221,15 +2224,16 @@ export const useStore = create<State>()(
         const requestedMessageId = typeof target === "string" ? target : undefined;
         const { accountId, messages, settings, readDisabledMids, demoMode } = get();
         const latest = findLatestReceivedMessage(messages, id);
-        const last = (requestedMessageId
-          ? messages.find(
-              (message) =>
-                message.chatId === id &&
-                message.id === requestedMessageId &&
-                message.authorId !== "me" &&
-                !message.id.startsWith("pending_"),
-            )
-          : undefined) ?? latest;
+        const last =
+          (requestedMessageId
+            ? messages.find(
+                (message) =>
+                  message.chatId === id &&
+                  message.id === requestedMessageId &&
+                  message.authorId !== "me" &&
+                  !message.id.startsWith("pending_"),
+              )
+            : undefined) ?? latest;
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => {
@@ -2260,7 +2264,9 @@ export const useStore = create<State>()(
           if (lastId) rollbackReceiptAttempt(readReceiptSent, receiptKey, lastId);
           if (localKey) recentlyReadAt.delete(localKey);
           if (force) {
-            get().showNotice("既読を送信できませんでした。接続を確認して、もう一度お試しください。");
+            get().showNotice(
+              "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
+            );
           }
         }
       },
@@ -2350,7 +2356,10 @@ export const useStore = create<State>()(
         });
         const { accountId, settings, readDisabledMids, demoMode } = get();
         if (
-          !demoMode && accountId && settings.readReceipts && !readDisabledMids[memberMid] &&
+          !demoMode &&
+          accountId &&
+          settings.readReceipts &&
+          !readDisabledMids[memberMid] &&
           chatMessages.length > 0
         ) {
           void get().markChatRead(memberMid);
@@ -3174,12 +3183,9 @@ export const useStore = create<State>()(
         let task!: Promise<void>;
         task = (async () => {
           try {
-            const res = await api.line.getPreviousMessagesV2WithRequest(
-              accountId,
-              chatId,
-              50,
-              { force: true },
-            );
+            const res = await api.line.getPreviousMessagesV2WithRequest(accountId, chatId, 50, {
+              force: true,
+            });
             if (get().accountId !== accountId) return;
             if (res.ok && res.messages?.length) {
               get().mergeIncomingMessages(chatId, res.messages, { silent: true });
