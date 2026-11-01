@@ -13,6 +13,7 @@ import { QRCodeSVG } from "qrcode.react";
 import type { AccountSettings, SavedSession } from "@vyline/types";
 import { useThemeStore } from "@/stores/themeStore";
 import { createSettingsBackup, parseSettingsBackup } from "@/lib/settingsBackup";
+import { betaFeatureIdForSetting, recordBetaFeatureDecision } from "@/lib/betaConsent";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -1669,6 +1670,18 @@ function AdvancedSection() {
                     )
                   )
                     return;
+                  const disabledBetaFeatureIds = new Set(data.disabledBetaFeatureIds ?? []);
+                  for (const [key, value] of Object.entries(state.settings)) {
+                    if (/^beta[A-Z]/.test(key) && value === true) {
+                      disabledBetaFeatureIds.add(betaFeatureIdForSetting(key));
+                    }
+                    if (/^beta[A-Z]/.test(key)) state.updateSetting(key as never, false as never);
+                  }
+                  for (const featureId of disabledBetaFeatureIds) {
+                    await recordBetaFeatureDecision(featureId, "disabled_by_restore", {
+                      appVersion: UPDATE_NOTES.version,
+                    });
+                  }
                   // テーマ
                   if (data.theme) state.setTheme(data.theme);
                   if (data.visualTheme) {

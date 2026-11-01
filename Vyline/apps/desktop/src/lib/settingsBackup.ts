@@ -1,5 +1,6 @@
 import type { Settings, VyTheme } from "@/lib/store-types";
 import type { VyThemeId, VyThemeTokens } from "@/stores/themeStore";
+import { betaFeatureIdForSetting } from "@/lib/betaConsent";
 
 export type SettingsBackup = {
   format: "vyline-settings-backup";
@@ -14,6 +15,10 @@ export type SettingsBackup = {
   customOrder?: string[];
   localNames?: Record<string, string>;
   sidebarWidth?: number;
+};
+
+export type ParsedSettingsBackup = Partial<SettingsBackup> & {
+  disabledBetaFeatureIds?: string[];
 };
 
 export function createSettingsBackup(
@@ -56,7 +61,7 @@ export function parseSettingsBackup(
     theme: VyTheme;
     visualTheme: { themeId: VyThemeId; custom: VyThemeTokens };
   },
-): Partial<SettingsBackup> {
+): ParsedSettingsBackup {
   if (text.length > 15_000_000) throw new Error("設定バックアップは15MBまでです");
   const raw: unknown = JSON.parse(text);
   if (!isRecord(raw) || ![1, 2].includes(Number(raw.version)))
@@ -68,10 +73,13 @@ export function parseSettingsBackup(
   ) {
     throw new Error("設定バックアップの形式が正しくありません");
   }
-  const result: Partial<SettingsBackup> = {};
+  const result: ParsedSettingsBackup = {};
 
   if (isRecord(raw.settings)) {
     const settings: Record<string, unknown> = {};
+    const disabledBetaFeatureIds = Object.entries(raw.settings)
+      .filter(([key, value]) => /^beta[A-Z]/.test(key) && value === true)
+      .map(([key]) => betaFeatureIdForSetting(key));
     for (const [key, value] of Object.entries(raw.settings)) {
       if (!(key in current.settings)) continue;
       const expected = current.settings[key as keyof Settings];
@@ -94,6 +102,9 @@ export function parseSettingsBackup(
     // Beta flags are consented per installation and are never re-enabled by import.
     for (const key of Object.keys(settings)) {
       if (/^beta[A-Z]/.test(key)) settings[key] = false;
+    }
+    if (disabledBetaFeatureIds.length > 0) {
+      result.disabledBetaFeatureIds = [...new Set(disabledBetaFeatureIds)];
     }
     result.settings = settings as Partial<Settings> as Settings;
   }

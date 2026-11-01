@@ -4,6 +4,25 @@ const CONSENT_KEY = "vyline:beta-feature-consent-v1";
 export const BETA_CONSENT_TERMS_VERSION = "2026-11-01";
 
 export type BetaConsentDecision = "accepted" | "declined" | "withdrawn" | "disabled_by_restore";
+export function betaFeatureIdForSetting(key: string): string {
+  switch (key) {
+    case "betaBlockCheckManual":
+      return "block-status-check-manual";
+    case "betaBlockCheckAuto":
+      return "block-status-check-auto";
+    case "betaMidSearch":
+      return "mid-user-search";
+    case "betaAgentI":
+      return "agent-i-assistant";
+    case "betaWindowsLineTokens":
+      return "windows-line-token-inspection";
+    case "betaBlockedListSqliteSync":
+      return "blocked-list-sqlite-sync";
+    default:
+      return key;
+  }
+}
+
 export type BetaConsentEvent = {
   featureId: string;
   decision: BetaConsentDecision;
@@ -74,10 +93,18 @@ export async function hydrateBetaConsent(): Promise<void> {
   ledger = emptyLedger();
 }
 
+export function latestBetaFeatureDecision(
+  events: readonly BetaConsentEvent[],
+  featureId: string,
+): BetaConsentDecision | undefined {
+  for (let index = events.length - 1; index >= 0; index--) {
+    if (events[index]?.featureId === featureId) return events[index]?.decision;
+  }
+  return undefined;
+}
+
 export function hasBetaFeatureConsent(featureId: string): boolean {
-  return ledger.events.some(
-    (event) => event.featureId === featureId && event.decision === "accepted",
-  );
+  return latestBetaFeatureDecision(ledger.events, featureId) === "accepted";
 }
 
 export function getBetaFeatureConsentHistory(): BetaConsentEvent[] {

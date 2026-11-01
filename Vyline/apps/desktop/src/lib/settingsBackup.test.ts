@@ -55,6 +55,7 @@ describe("settings backup import", () => {
     );
 
     expect(result.settings?.betaBlockedListSqliteSync).toBe(false);
+    expect(result.disabledBetaFeatureIds).toEqual(["blocked-list-sqlite-sync"]);
   });
 
   test("restores only URL preview limits from zero through ten", () => {
