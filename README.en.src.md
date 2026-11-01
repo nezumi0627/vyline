@@ -1,6 +1,6 @@
 [日本語](README.md)
 
-<h1 align="center">Vyline <sup>Beta</sup></h1>
+<h1 align="center">Vyline</h1>
 
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
@@ -8,7 +8,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.8.0--beta-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" />
@@ -32,7 +32,7 @@
 > Vyline is an **unofficial and unauthorised** third-party LINE client. It is not affiliated with LINE Corporation or LY Corporation. Use it at your own risk after understanding possible consequences, including terms-of-service violations and account suspension.
 
 > [!NOTE]
-> Vyline was first released publicly as Beta 0.5.0 on August 20, 2026. The current version is **Beta 0.8.0**. Because this is beta software, specifications may change and bugs or data loss may occur.
+> Vyline 1.0.0 Stable was released on November 2, 2026. Version 1.0.0 is the baseline for future improvements. LINE-side changes and environment-specific limitations remain, and this release does not eliminate account or data-loss risks.
 
 ---
 
@@ -47,7 +47,7 @@ It communicates with LINE servers through the independently implemented **`@vyli
 | Target users | Users who want a customisable UI, developers, and self-hosters |
 | Highlights | In-house protocol stack, VyTheme, public API, local-first data management |
 | Technology | React + Vite / Hono on Bun / TypeScript / Thrift |
-| Status | Beta 0.8.0 |
+| Status | Stable 1.0.0 |
 | License | MIT |
 
 ## Main features
@@ -414,7 +414,7 @@ Existing login state is preserved. See [CHANGELOG.md](CHANGELOG.md) for detailed
 
 ## Versioning
 
-Vyline uses semantic versioning (`X.Y.Z`, or `X.Y.Z-beta` during beta). Releases use a Git tag `v<version>` such as `v0.6.0-beta`.
+Vyline uses semantic versioning (`X.Y.Z`, or `X.Y.Z-beta` during beta). Releases use a Git tag `v<version>` such as `v1.0.0`.
 
 The following **four locations must stay in sync**:
 

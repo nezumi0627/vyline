@@ -3,7 +3,7 @@
 
 [English](README.en.md)
 
-<h1 align="center">Vyline <sup>Beta</sup></h1>
+<h1 align="center">Vyline</h1>
 
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-0.8.0--beta-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" />
@@ -35,7 +35,7 @@
 > Vyline は **LINE 非公式・未承認**のサードパーティクライアントです。LINE 株式会社および LY Corporation とは関係ありません。利用規約への抵触やアカウント停止を含むリスクを理解したうえで、自己責任で使用してください。
 
 > [!NOTE]
-> 2026年8月20日に Beta 0.5.0 として公開を開始しました。現在のバージョンは **Beta 0.8.0** です。Beta 版のため、仕様変更・不具合・データ損失が発生する可能性があります。
+> 2026年11月2日、**Vyline 1.0.0 安定版**を公開しました。1.0.0を今後の改善の基準点とします。LINE側の仕様変更や利用環境による制約は引き続きあり、アカウント停止やデータ損失のリスクがなくなるものではありません。
 
 ---
 
@@ -50,7 +50,7 @@
 | 対象 | UI を自分好みに調整したいユーザー、開発者、セルフホスト利用者 |
 | 特徴 | 自前プロトコル、VyTheme、公開 API、ローカル優先のデータ管理 |
 | 技術 | React + Vite / Hono on Bun / TypeScript / Thrift |
-| 状態 | Beta 0.8.0 |
+| 状態 | Stable 1.0.0 |
 | ライセンス | MIT |
 
 ## 主な機能
@@ -145,8 +145,8 @@ Vyline の継続的な開発を支えるメンテナーとコントリビュー�
 | はじめて試す | `vyl` の対話式セットアップ | 手動で全体を把握する前に、インストール・診断・修復を選べます |
 | 開発・動作確認 | Bun + ソースコード | フロントエンドとバックエンドを個別に確認できます |
 | 自宅サーバー・複数端末 | Docker Compose | データをボリュームに保存して Web ブラウザから利用できます |
-| Windows の単体アプリ | Beta 対応 | GitHub Releases の `VylineSetup-<version>.exe` を使用します |
-| Linux の単体アプリ | Beta 対応 | GitHub Releases の `Vyline-linux-x64-<version>.tar.gz` を使用します |
+| Windows の単体アプリ | 対応 | GitHub Releases の `VylineSetup-<version>.exe` を使用します |
+| Linux の単体アプリ | 対応 | GitHub Releases の `Vyline-linux-x64-<version>.tar.gz` を使用します |
 
 > [!NOTE]
 > Windows版・Linux版は GitHub Releases から導入できます。サーバー用途では Docker Compose を使用してください。
@@ -417,7 +417,7 @@ bun run dev
 
 ## バージョニング
 
-Vyline はセマンティックバージョン（`X.Y.Z`、Beta 期間中は `X.Y.Z-beta`）を採用します。リリース時は Git タグ `v<version>`（例: `v0.6.0-beta`）を作成します。
+Vyline はセマンティックバージョン（`X.Y.Z`、Beta 期間中は `X.Y.Z-beta`）を採用します。リリース時は Git タグ `v<version>`（例: `v1.0.0`）を作成します。
 
 バージョンは次の **4 箇所を同一に** 保つ必要があります:
 
