@@ -1,4 +1,5 @@
 import { Hono } from "hono";
+import { childLogger } from "../logger.js";
 import {
   agentILimits,
   askAgentI,
@@ -6,8 +7,40 @@ import {
   resetAgentISession,
   type AgentIHistoryItem,
 } from "../service/agentIService.js";
+import { getSubdeviceSession } from "../storage/subdeviceStore.js";
 
 export const agentIRouter = new Hono();
+const log = childLogger("bff:agent-i");
+
+function isLanAccessEnabled() {
+  return process.env.VYLINE_LAN_ACCESS === "true";
+}
+
+function accountIdFromPath(path: string): string {
+  const match = path.match(/\/([^/]+)\/(?:chat|history|session)$/);
+  if (!match) return "";
+  try {
+    return decodeURIComponent(match[1]!);
+  } catch {
+    return "";
+  }
+}
+
+agentIRouter.use("*", async (c, next) => {
+  if (!isLanAccessEnabled() || c.req.header("x-vyline-local-request") === "1") return next();
+
+  const auth = c.req.header("authorization") ?? "";
+  const session = auth.startsWith("Bearer ") ? auth.slice(7).trim() : "";
+  const installationId = c.req.header("x-vyline-installation-id");
+  const device = await getSubdeviceSession(session, installationId);
+  if (!device) {
+    return c.json({ ok: false, error: "subdevice authentication required" }, 401);
+  }
+  if (accountIdFromPath(c.req.path) !== device.accountId) {
+    return c.json({ ok: false, error: "subdevice account mismatch" }, 403);
+  }
+  return next();
+});
 
 function validHistory(value: unknown): AgentIHistoryItem[] {
   if (!Array.isArray(value)) return [];
@@ -37,10 +70,8 @@ agentIRouter.post("/:accountId/chat", async (c) => {
     const result = await askAgentI(accountId, body.prompt, validHistory(body.history));
     return c.json({ ok: true, ...result });
   } catch (error) {
-    return c.json(
-      { ok: false, error: error instanceof Error ? error.message : String(error) },
-      502,
-    );
+    log.warn({ err: error, accountId }, "agent i upstream request failed");
+    return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
 });
 

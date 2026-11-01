@@ -70,7 +70,7 @@ async function main() {
       process.on("SIGINT", () => resolve());
     });
   }
-  await stopDirectCall(session.sessionId);
+  await stopDirectCall(accountId, session.sessionId);
   console.log("[call-test] ended");
 }
 

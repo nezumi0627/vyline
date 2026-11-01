@@ -70,6 +70,12 @@ export type Message = {
   text?: string;
   sticker?: string;
   imageSrc?: string;
+  /** LINE 複数画像グループ（contentMetadata.GID/GSEQ/GTOTAL） */
+  mediaGroup?: {
+    id: string;
+    sequence: number;
+    total: number;
+  };
   audioSrc?: string;
   audioSeconds?: number;
   /** Flex / RICH の ALT_TEXT（プレビュー・コピー用） */
@@ -86,6 +92,16 @@ export type Message = {
   mentions?: MentionInfo[];
   /** 通話イベント用 */
   callMeta?: CallMessageMeta;
+  /** ノート/アルバム作成時の POSTNOTIFICATION */
+  postNotification?: {
+    kind: "note" | "album" | "unknown";
+    homeId?: string;
+    postId?: string;
+    albumId?: string;
+    title?: string;
+    mediaCount?: number;
+    previewMedias?: Array<{ mediaOid: string; mediaType?: string }>;
+  };
   createdAt: number;
   status: MessageStatus;
   read: boolean;
@@ -184,6 +200,8 @@ export type Chat = {
   /** サーバー上のグループ設定 */
   notificationDisabled?: boolean;
   preventedJoinByTicket?: boolean;
+  /** 外部バックアップから復元された履歴を持つ */
+  restoredHistory?: boolean;
   unread: number;
   /** 一覧用プレビュー（API） */
   lastMessagePreview?: string;
@@ -237,6 +255,8 @@ export type Settings = {
   betaBlockedListSqliteSync: boolean;
   /** Agent I等の外部AI機能を許可する */
   aiEnabled: boolean;
+  /** ベータ: Windows版LINEのメモリから認証候補を確認 */
+  betaWindowsLineTokens: boolean;
 };
 
 export type SelfProfile = {

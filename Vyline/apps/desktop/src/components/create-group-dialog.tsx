@@ -23,7 +23,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
 
   useEffect(() => {
     if (!accountId) return;
-    void api.line.featureLocks(accountId).then((res) => {
+    void api.line.getFeatureLocks(accountId).then((res) => {
       if (res.ok && res.locks?.createGroupBanned) setBanned(true);
     });
   }, [accountId]);
@@ -38,7 +38,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
       return;
     setUnlocking(true);
     try {
-      const res = await api.line.clearCreateGroupBan(accountId);
+      const res = await api.line.releaseCreateGroupBan(accountId);
       if (res.ok && !res.locks?.createGroupBanned) {
         setBanned(false);
         setMsg("グループ作成の禁止を解除しました");
@@ -85,7 +85,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
     setBusy(true);
     setMsg(null);
     try {
-      const res = await api.line.createGroup(accountId, name.trim() || "グループ", mids);
+      const res = await api.line.createChat(accountId, name.trim() || "グループ", mids);
       if (!res.ok || !res.chat) {
         if (res.createGroupBanned || res.code === "CREATE_GROUP_BANNED") {
           setBanned(true);

@@ -57,21 +57,28 @@ for (const p of ["package.json", "Vyline/apps/desktop/package.json"]) {
   write(p, read(p).replace(/"version": "[^"]+"/, `"version": "${next}"`));
 }
 
-// 2. store.ts UPDATE_NOTES (version と title 内のバージョン部分のみ置換、title 後半は保持)
+// 2. store.ts UPDATE_NOTES (version と title 先頭の「Vyline <ver>」のみ置換、後半は保持)
+// title は `Vyline <ver> — <説明>` 形式。説明は和文なので「末尾の数字」では拾えず、
+// バージョンは接頭辞側から取る（旧正規表現は和文タイトルで一切マッチしなかった）。
 const storePath = "Vyline/apps/desktop/src/lib/store.ts";
 let store = read(storePath);
-store = store.replace(
-  /(export const UPDATE_NOTES = \{\s*version: ")[^"]+(",\s*title: "Vyline )([^"]*?)((?:\d[\w.-]*)")/,
-  `$1${next}$2${next}$4`,
-);
+const storePattern =
+  /(export const UPDATE_NOTES = \{\s*version: ")[^"]+(",\s*title: "Vyline )[\w.-]+(?=[ "])/;
+if (!storePattern.test(store)) {
+  throw new Error(`${storePath} の UPDATE_NOTES を検出できませんでした`);
+}
+store = store.replace(storePattern, `$1${next}$2${next}`);
 write(storePath, store);
 
 // 3. README badge (shields.io は `-` を `--` にエスケープ)
-const readmePath = "README.md";
+const readmePath = "README.src.md";
 write(
   readmePath,
   read(readmePath).replace(/badge\/version-[\w.-]+-a78bfa/, `badge/version-${next.replaceAll("-", "--")}-a78bfa`),
 );
+
+const readmeGenerator = Bun.spawnSync(["bun", "scripts/generate-readmes.ts"]);
+if (readmeGenerator.exitCode !== 0) throw new Error("README の再生成に失敗しました。");
 
 console.log(`バージョンを ${current} → ${next} に更新しました。`);
 console.log("次の手動作業:");

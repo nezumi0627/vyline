@@ -1,0 +1,14 @@
+# OSV-Scanner configuration (https://google.github.io/osv-scanner/configuration/)
+#
+# Vulnerabilities whose fixes are not available upstream yet live here, each with
+# a reason and an expiry so they resurface automatically instead of being
+# forgotten. Everything else must stay fixed via the `overrides` in package.json.
+
+[[IgnoredVulns]]
+id = "GHSA-vfj7-8cjw-p6xm"
+# braces@3.0.3 is the latest published release; npm has no fixed version for this
+# advisory yet (affected: <=3.0.3). It is reachable only at build time through
+# tailwindcss@3.4 -> micromatch/chokidar, never from shipped runtime code.
+# Remove this once braces ships a fix, or when tailwind is upgraded to v4.
+ignoreUntil = 2027-04-01
+reason = "No fixed braces release exists upstream; build-time-only (tailwindcss@3.4 -> micromatch)."

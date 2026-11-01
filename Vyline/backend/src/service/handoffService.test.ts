@@ -1,0 +1,81 @@
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { describe, expect, test } from "bun:test";
+import { strToU8, zipSync } from "fflate";
+
+describe("handoff archive", () => {
+  test("exports a verifiable zip and rejects tampering", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { exportHandoff, importHandoff } = await import("./handoffService.js");
+    const mid = "u1234567890abcdef1234567890abcdef";
+    const exported = await exportHandoff(mid, "web");
+    expect(exported.filename).toMatch(/^[0-9a-f-]+\.zip$/);
+    expect(exported.manifest.account.midHash).toHaveLength(16);
+    await expect(importHandoff(mid, exported.archiveBase64, "overwrite")).resolves.toMatchObject({
+      imported: ["settings.json"],
+    });
+    const tampered = Buffer.from(exported.archiveBase64, "base64");
+    // flip a byte inside the file data region to trigger hash mismatch (last byte is EOCD, may be ignored by fflate)
+    const pos = Math.floor(tampered.length / 3);
+    tampered[pos] = (tampered[pos] ?? 0) ^ 1;
+    await expect(importHandoff(mid, tampered.toString("base64"), "overwrite")).rejects.toThrow();
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  test("inspects an archive before importing and detects the account mismatch", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-inspect-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { exportHandoff, inspectHandoff } = await import("./handoffService.js");
+    const mid = "u1234567890abcdef1234567890abcdef";
+    const exported = await exportHandoff(mid, "desktop");
+    expect(inspectHandoff(mid, exported.archiveBase64)).toMatchObject({
+      matchesCurrentAccount: true,
+      files: ["settings.json"],
+    });
+    expect(
+      inspectHandoff("uabcdef1234567890abcdef1234567890", exported.archiveBase64),
+    ).toMatchObject({
+      matchesCurrentAccount: false,
+    });
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  test("rejects importing an archive for another account", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-account-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { exportHandoff, importHandoff } = await import("./handoffService.js");
+    const exported = await exportHandoff("u1234567890abcdef1234567890abcdef", "desktop");
+
+    await expect(
+      importHandoff("uabcdef1234567890abcdef1234567890", exported.archiveBase64, "overwrite"),
+    ).rejects.toThrow("handoff account mismatch");
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  test("rejects a small compressed archive that expands beyond the handoff limit", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-zip-bomb-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { inspectHandoff } = await import("./handoffService.js");
+    const archive = zipSync({ "settings.json": strToU8("A".repeat(11 * 1024 * 1024)) });
+
+    expect(archive.byteLength).toBeLessThan(5 * 1024 * 1024);
+    expect(() =>
+      inspectHandoff("u1234567890abcdef1234567890abcdef", Buffer.from(archive).toString("base64")),
+    ).toThrow("handoff archive expands beyond safe limits");
+    await rm(dataDir, { recursive: true, force: true });
+  });
+
+  test("rejects unsafe archive entry paths before extraction", async () => {
+    const dataDir = await mkdtemp(join(tmpdir(), "vyline-handoff-path-"));
+    process.env.VYLINE_DATA_DIR = dataDir;
+    const { inspectHandoff } = await import("./handoffService.js");
+    const archive = zipSync({ "../settings.json": strToU8("unsafe") });
+
+    expect(() =>
+      inspectHandoff("u1234567890abcdef1234567890abcdef", Buffer.from(archive).toString("base64")),
+    ).toThrow("unsafe handoff path");
+    await rm(dataDir, { recursive: true, force: true });
+  });
+});

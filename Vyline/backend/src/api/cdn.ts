@@ -60,6 +60,6 @@ cdnRouter.get("/line", async (c) => {
         },
       });
     }
-    return c.json({ ok: false, error: err instanceof Error ? err.message : String(err) }, 502);
+    return c.json({ ok: false, error: "upstream service unavailable" }, 502);
   }
 });

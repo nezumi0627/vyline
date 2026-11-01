@@ -49,6 +49,8 @@ type MessageRow = {
   saved_at: string | null;
   message_state: StoredMessage["messageState"] | null;
   history_present: number;
+  is_deleted?: number;
+  deleted_at?: string | null;
 };
 
 type Owner = "main" | "snapshot";
@@ -175,6 +177,17 @@ export function ensureRelationalChatSchema(): void {
       at TEXT NOT NULL, PRIMARY KEY(account_id, chat_mid)
     );
   `);
+  // Additive migration: preserve existing rows while making local soft-delete
+  // state available in the normalized message store.
+  const messageColumns = sqlite.query("PRAGMA table_info(chat_messages_v2)").all() as Array<{
+    name: string;
+  }>;
+  if (!messageColumns.some((column) => column.name === "is_deleted")) {
+    sqlite.exec("ALTER TABLE chat_messages_v2 ADD COLUMN is_deleted INTEGER NOT NULL DEFAULT 0");
+  }
+  if (!messageColumns.some((column) => column.name === "deleted_at")) {
+    sqlite.exec("ALTER TABLE chat_messages_v2 ADD COLUMN deleted_at TEXT");
+  }
   // FTS5 trigram index makes substring search independent of loaded UI pages.
   // Keep it additive and tolerate SQLite builds that omit FTS5.
   try {
@@ -385,8 +398,8 @@ function writeVariant(
   const fields = `account_id, chat_mid, message_id, from_mid, to_mid, text, content_type,
     created_time, is_my_message, metadata_state, read_count, read_by_present, seen,
     related_message_id, related_message_present, sticker_animated, sticker_sticky,
-    reactions_present${snapshot ? ", saved_at, message_state" : ", saved_at, message_state, history_present"}`;
-  const values = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshot ? "" : ", ?"}`;
+    reactions_present${snapshot ? ", saved_at, message_state" : ", saved_at, message_state, history_present, is_deleted, deleted_at"}`;
+  const values = `?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?${snapshot ? "" : ", ?, ?, ?"}`;
   sqlite
     .query(`INSERT INTO ${table} (${fields}) VALUES (${values})
     ON CONFLICT(account_id, chat_mid, message_id) DO UPDATE SET
@@ -398,7 +411,7 @@ function writeVariant(
       related_message_present=excluded.related_message_present,
       sticker_animated=excluded.sticker_animated, sticker_sticky=excluded.sticker_sticky,
       reactions_present=excluded.reactions_present, saved_at=excluded.saved_at,
-      message_state=excluded.message_state${snapshot ? "" : ", history_present=excluded.history_present"}`)
+      message_state=excluded.message_state${snapshot ? "" : ", history_present=excluded.history_present, is_deleted=MAX(chat_messages_v2.is_deleted,excluded.is_deleted), deleted_at=COALESCE(chat_messages_v2.deleted_at,excluded.deleted_at)"}`)
     .run(
       accountId,
       chatMid,
@@ -420,7 +433,13 @@ function writeVariant(
       Number(Object.hasOwn(message, "reactions")),
       "savedAt" in message ? message.savedAt : null,
       message.messageState ?? null,
-      ...(!snapshot ? [Number(Object.hasOwn(message, "history"))] : []),
+      ...(!snapshot
+        ? [
+            Number(Object.hasOwn(message, "history")),
+            Number(Boolean("isDeleted" in message && message.isDeleted)),
+            "deletedAt" in message ? (message.deletedAt ?? null) : null,
+          ]
+        : []),
     );
 
   const relationKey = [accountId, chatMid, message.id, owner] as const;
@@ -739,6 +758,10 @@ function readVariant(
   if (sticker_sticky != null) out.stickerSticky = sticker_sticky === 1;
   if (reactions_present) out.reactions = [];
   if (saved_at != null) out.savedAt = saved_at;
+  if (owner === "main" && row.is_deleted === 1) {
+    out.isDeleted = true;
+    if (row.deleted_at != null) out.deletedAt = row.deleted_at;
+  }
   if (message_state != null) out.messageState = message_state;
   if (metadata_state === 2) out.contentMetadata = {};
   if (batch) {
@@ -788,6 +811,20 @@ function readVariant(
     if (snapshot) out.revokedSnapshot = readVariant(snapshot, "snapshot", batch);
   }
   return out as unknown as StoredMessage | MessageSnapshot;
+}
+
+export function setStoredMessageSoftDeleted(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+  deleted: boolean,
+  deletedAt: string | null,
+): boolean {
+  const result = sqlite
+    .query(`UPDATE chat_messages_v2 SET is_deleted=?, deleted_at=?
+      WHERE account_id=? AND chat_mid=? AND message_id=?`)
+    .run(Number(deleted), deleted ? deletedAt : null, accountId, chatMid, messageId);
+  return result.changes > 0;
 }
 
 export function readStoredMessage(

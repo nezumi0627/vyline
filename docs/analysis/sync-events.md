@@ -9,7 +9,7 @@ LINE Desktop / Mobile とのリアルタイム同期には2つの経路が存在
 Vyline の主要な受信パス。
 
 ```
-GET /line/:accountId/events/poll?cursor=N
+GET /line/:accountId/fetchOperations?cursor=N
 ```
 
 - `backend/src/line/talkEventBuffer.ts` で **インメモリバッファ** にイベントを蓄積
@@ -54,7 +54,7 @@ HTTP/2 の `/PUSH/1/subs` エンドポイントでサーバーから即座にイ
 | `NOTIFIED_GCS_REACTION` | 154 | グループ/チャットリアクション |
 | `DESTROY_MESSAGE` | (40 系?) | 取り消し |
 
-> 注: `GET /events/poll` の `events` 配列では、push された message を `kind: "message"` としてフロントエンドに渡す。Operation (revoke/read/reaction) は `pushTalkEvent` → `TalkPollEventPayload` として、`kind` で判別してバッファする。
+> 注: `GET /fetchOperations` の `events` 配列では、push された message を `kind: "message"` としてフロントエンドに渡す。Operation (revoke/read/reaction) は `pushTalkEvent` → `TalkPollEventPayload` として、`kind` で判別してバッファする。
 
 重要: `25` は `SEND_MESSAGE` であり、新着メッセージや既読通知ではない。受信メッセージは `26`、既読通知は `55` / `28` / `91` 系として分類する。`25` を既読・受信分岐へ含めると、送信操作を誤処理して既読通知を取りこぼす。
 

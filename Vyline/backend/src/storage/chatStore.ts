@@ -5,11 +5,12 @@
  * 起動時はディスク → メモリで即返却、RPC はバックグラウンド同期。
  */
 
-import { existsSync } from "node:fs";
-import { Database } from "bun:sqlite";
+
+import { existsSync, mkdirSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
+import { Database } from "bun:sqlite";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import type {
@@ -36,6 +37,7 @@ import {
   readStoredMessage,
   readStoredMessages,
   readStoredMessagesByIds,
+  setStoredMessageSoftDeleted,
   scanStoredMessageRows,
   searchStoredMessageRows,
   readLocalReadPosition,
@@ -65,6 +67,15 @@ const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
 const BOOTSTRAP_MSG_LIMIT = Number(process.env.VYLINE_BOOTSTRAP_MSG_LIMIT ?? 40);
+/**
+ * The in-memory representation is deliberately account-scoped.  Keep the
+ * default small: a second account is useful for a quick switch, but keeping
+ * every account's complete history resident defeats SQLite's purpose.
+ */
+const MAX_CACHED_ACCOUNTS = Math.max(
+  1,
+  Number.parseInt(process.env.VYLINE_CHAT_CACHE_ACCOUNTS ?? "1", 10) || 1,
+);
 
 export interface StoredChat {
   mid: string;
@@ -77,6 +88,8 @@ export interface StoredChat {
   thumbnailUrl?: string;
   unreadCount?: number;
   isOfficial?: boolean;
+  /** 外部バックアップから復元された履歴を持つ。退出済みグループも履歴として表示するために使う。 */
+  restoredHistory?: boolean;
   updatedAt: string;
 }
 
@@ -101,6 +114,11 @@ export interface StoredMessage {
   messageState?: Message["messageState"];
   history?: Message["history"];
   revokedSnapshot?: MessageSnapshot;
+  /** UIからは通常隠すが、復元のためレコード自体はSQLiteに残す。 */
+  isDeleted?: boolean;
+  deletedAt?: string | null;
+  /** reader MID → 既読になった時刻。readBy/readCountとの互換用。 */
+  readAtBy?: Record<string, string>;
 }
 
 interface ChatDbMeta {
@@ -113,6 +131,8 @@ interface ChatDbMeta {
   messagesSyncedAt?: Record<string, string>;
   /** 自分が受信メッセージを既読にした最終位置（復元DBにも適用する）。 */
   localReadUpTo?: Record<string, { messageId: string; at: string }>;
+  /** reader MIDごとの既読カーソル。selfは従来のlocalReadUpToと同期する。 */
+  readCursors?: Record<string, Record<string, { messageId: string; at: string }>>;
 }
 
 interface ChatDb {
@@ -122,6 +142,7 @@ interface ChatDb {
 }
 
 export interface ChatDbRecords {
+  meta?: ChatDbMeta;
   chats: Record<string, StoredChat>;
   messages: Record<string, Record<string, StoredMessage>>;
 }
@@ -175,9 +196,45 @@ function previewForMessage(message: StoredMessage): string {
   }
 }
 
+export const ENCRYPTED_LAST_MESSAGE_PREVIEW = "暗号化メッセージ";
+
+export function isUnresolvedLastMessagePreview(value: string | null | undefined): boolean {
+  const normalized = value?.trim().toUpperCase();
+  return (
+    !normalized ||
+    normalized === ENCRYPTED_LAST_MESSAGE_PREVIEW.toUpperCase() ||
+    normalized === "E2EE_UNAVAILABLE" ||
+    normalized === "UNSENT" ||
+    normalized === "UNSEND" ||
+    normalized === "CHATEVENT" ||
+    normalized === "NONE" ||
+    normalized === "0"
+  );
+}
+
+export function shouldPreserveResolvedLastMessagePreview(
+  existing: Pick<StoredChat, "lastMessageId" | "lastMessageTime" | "lastMessagePreview">,
+  incoming: Pick<StoredChat, "lastMessageId" | "lastMessageTime" | "lastMessagePreview">,
+): boolean {
+  const sameMessage =
+    existing.lastMessageId && incoming.lastMessageId
+      ? existing.lastMessageId === incoming.lastMessageId
+      : (existing.lastMessageTime ?? 0) > 0 &&
+        existing.lastMessageTime === incoming.lastMessageTime;
+  return Boolean(
+    sameMessage &&
+      existing.lastMessagePreview &&
+      !isUnresolvedLastMessagePreview(existing.lastMessagePreview) &&
+      isUnresolvedLastMessagePreview(incoming.lastMessagePreview),
+  );
+}
+
 const memory = new Map<string, ChatDb>();
 const dirty = new Set<string>();
+const dirtyVersion = new Map<string, number>();
 const saveTimers = new Map<string, ReturnType<typeof setTimeout>>();
+const flushInFlight = new Map<string, Promise<void>>();
+
 type DeferredWrites = {
   full: boolean;
   meta: boolean;
@@ -224,17 +281,407 @@ function importChatJsonOnce(accountId: string, legacy: ChatDb | null): void {
         writeStoredMessage(accountId, chatMid, message);
       }
     }
-    writeChatMeta(accountId, legacy?.meta ?? {});
+    writeChatMetaState(accountId, legacy?.meta ?? {});
   });
 }
 
+const loadInFlight = new Map<string, Promise<ChatDb>>();
+const cacheAccess = new Map<string, number>();
+let cacheAccessSequence = 0;
+
 function dbPath(accountId: string): string {
-  return accountFile(accountId, "chatdb.json");
+  return accountFile(accountId, "chatdb.sqlite");
 }
 const legacyDbPath = (accountId: string) => join(DATA_DIR, `chatdb-${accountId}.json`);
 
+const SQLITE_SCHEMA = `
+  PRAGMA journal_mode = WAL;
+  PRAGMA synchronous = NORMAL;
+  CREATE TABLE IF NOT EXISTS chat_meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
+  CREATE TABLE IF NOT EXISTS chats (
+    mid TEXT PRIMARY KEY,
+    kind TEXT NOT NULL,
+    name TEXT NOT NULL,
+    has_messages INTEGER NOT NULL,
+    last_message_time INTEGER,
+    updated_at TEXT NOT NULL,
+    payload TEXT NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS messages (
+    chat_mid TEXT NOT NULL,
+    id TEXT NOT NULL,
+    created_time INTEGER NOT NULL,
+    is_my_message INTEGER NOT NULL,
+    is_deleted INTEGER NOT NULL DEFAULT 0,
+    deleted_at TEXT,
+    message_state TEXT,
+    payload TEXT NOT NULL,
+    PRIMARY KEY (chat_mid, id)
+  );
+  CREATE TABLE IF NOT EXISTS read_cursors (
+    chat_mid TEXT NOT NULL,
+    reader_mid TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (chat_mid, reader_mid)
+  );
+  CREATE INDEX IF NOT EXISTS idx_messages_chat_order
+    ON messages(chat_mid, created_time DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_messages_chat_deleted
+    ON messages(chat_mid, is_deleted, created_time DESC, id DESC);
+  CREATE INDEX IF NOT EXISTS idx_messages_state
+    ON messages(chat_mid, message_state);
+`;
+
+function closeSqlite(sqlite: Database): void {
+  // Bun's force-close finalizes transient statements before Windows tries to
+  // remove an account directory during logout or test cleanup.
+  sqlite.close(true);
+}
+
+function openSqlite(accountId: string): Database {
+  mkdirSync(dirname(dbPath(accountId)), { recursive: true });
+  const sqlite = new Database(dbPath(accountId));
+  sqlite.exec(SQLITE_SCHEMA);
+  return sqlite;
+}
+
+const MAX_CACHED_MESSAGES_PER_CHAT = Math.max(
+  50,
+  Number.parseInt(process.env.VYLINE_CHAT_CACHE_MESSAGES ?? "500", 10) || 500,
+);
+
+function cacheMessages(db: ChatDb, chatMid: string, messages: StoredMessage[]): void {
+  if (messages.length === 0) return;
+  const byChat = (db.messages[chatMid] ??= {});
+  for (const message of messages) byChat[message.id] = message;
+  const ids = Object.values(byChat)
+    .sort(compareMessagesNewestFirst)
+    .slice(MAX_CACHED_MESSAGES_PER_CHAT)
+    .map((message) => message.id);
+  for (const id of ids) delete byChat[id];
+}
+
+function readMessagesSqlite(
+  accountId: string,
+  chatMid: string,
+  limit: number,
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number; includeDeleted?: boolean },
+): StoredMessage[] {
+  const sqlite = openSqlite(accountId);
+  try {
+    const safeLimit = Math.min(Math.max(Math.trunc(limit) || 0, 0), 2_000);
+    if (safeLimit === 0) return [];
+    const beforeTime = opts?.beforeDeliveredTime;
+    const beforeId = opts?.beforeMessageId;
+    const deleted = opts?.includeDeleted ? "" : " AND is_deleted = 0";
+    let sql = `SELECT payload FROM messages WHERE chat_mid = ?${deleted}`;
+    const args: Array<string | number> = [chatMid];
+    if (beforeTime != null && beforeId != null) {
+      sql += " AND (created_time < ? OR (created_time = ? AND id < ?))";
+      args.push(beforeTime, beforeTime, beforeId);
+    } else if (beforeTime != null) {
+      sql += " AND created_time < ?";
+      args.push(beforeTime);
+    } else if (beforeId != null) {
+      try {
+        BigInt(beforeId);
+        sql += " AND CAST(id AS INTEGER) < CAST(? AS INTEGER)";
+        args.push(beforeId);
+      } catch {
+        return [];
+      }
+    }
+    sql += " ORDER BY created_time DESC, CAST(id AS INTEGER) DESC, id DESC LIMIT ?";
+    args.push(safeLimit);
+    return (sqlite.query(sql).all(...args) as Array<{ payload: string }>).flatMap((row) => {
+      try {
+        return [JSON.parse(row.payload) as StoredMessage];
+      } catch {
+        return [];
+      }
+    });
+  } finally {
+    closeSqlite(sqlite);
+  }
+}
+
+function readMessageSqlite(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): StoredMessage | null {
+  const sqlite = openSqlite(accountId);
+  try {
+    const row = sqlite
+      .query("SELECT payload FROM messages WHERE chat_mid = ? AND id = ?")
+      .get(chatMid, messageId) as { payload: string } | null;
+    if (!row) return null;
+    try {
+      return JSON.parse(row.payload) as StoredMessage;
+    } catch {
+      return null;
+    }
+  } finally {
+    closeSqlite(sqlite);
+  }
+}
+
+/** Persist only the received mutation batch; never rewrite the conversation. */
+function upsertMessagesSqlite(accountId: string, messages: StoredMessage[]): void {
+  if (messages.length === 0) return;
+  const sqlite = openSqlite(accountId);
+  try {
+    const statement = sqlite.prepare(
+      "INSERT INTO messages (chat_mid, id, created_time, is_my_message, is_deleted, deleted_at, message_state, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(chat_mid, id) DO UPDATE SET created_time=excluded.created_time, is_my_message=excluded.is_my_message, is_deleted=excluded.is_deleted, deleted_at=excluded.deleted_at, message_state=excluded.message_state, payload=excluded.payload",
+    );
+    sqlite.transaction(() => {
+      for (const message of messages) {
+        statement.run(
+          message.chatMid,
+          message.id,
+          message.createdTime,
+          message.isMyMessage ? 1 : 0,
+          message.isDeleted ? 1 : 0,
+          message.deletedAt ?? null,
+          message.messageState ?? null,
+          JSON.stringify(message),
+        );
+      }
+    })();
+  } finally {
+    closeSqlite(sqlite);
+  }
+}
+
+function readSqliteDb(accountId: string): ChatDb {
+  const sqlite = openSqlite(accountId);
+  try {
+    const meta: ChatDbMeta = {};
+    for (const row of sqlite.query("SELECT key, value FROM chat_meta").all() as Array<{
+      key: string;
+      value: string;
+    }>) {
+      try {
+        (meta as Record<string, unknown>)[row.key] = JSON.parse(row.value);
+      } catch {
+        /* ignore corrupt metadata */
+      }
+    }
+    const chats: Record<string, StoredChat> = {};
+    for (const row of sqlite.query("SELECT payload FROM chats").all() as Array<{
+      payload: string;
+    }>) {
+      const chat = JSON.parse(row.payload) as StoredChat;
+      chats[chat.mid] = chat;
+    }
+    // Messages are deliberately not hydrated at startup.  SQLite is the
+    // source of truth; only the requested page (or a small mutation batch)
+    // is brought into memory.
+    return { meta, chats, messages: {} };
+  } finally {
+    closeSqlite(sqlite);
+  }
+}
+
+function writeSqliteDb(accountId: string, db: ChatDb): void {
+  const sqlite = openSqlite(accountId);
+  try {
+    const transaction = sqlite.transaction(() => {
+      const metaInsert = sqlite.prepare(
+        "INSERT INTO chat_meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+      );
+      for (const [key, value] of Object.entries(db.meta)) {
+        if (value !== undefined) metaInsert.run(key, JSON.stringify(value));
+      }
+      const chatInsert = sqlite.prepare(
+        "INSERT INTO chats (mid, kind, name, has_messages, last_message_time, updated_at, payload) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(mid) DO UPDATE SET kind=excluded.kind, name=excluded.name, has_messages=excluded.has_messages, last_message_time=excluded.last_message_time, updated_at=excluded.updated_at, payload=excluded.payload",
+      );
+      for (const chat of Object.values(db.chats)) {
+        chatInsert.run(
+          chat.mid,
+          chat.kind,
+          chat.name,
+          chat.hasMessages ? 1 : 0,
+          chat.lastMessageTime ?? null,
+          chat.updatedAt,
+          JSON.stringify(chat),
+        );
+      }
+      const messageInsert = sqlite.prepare(
+        "INSERT INTO messages (chat_mid, id, created_time, is_my_message, is_deleted, deleted_at, message_state, payload) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(chat_mid, id) DO UPDATE SET created_time=excluded.created_time, is_my_message=excluded.is_my_message, is_deleted=excluded.is_deleted, deleted_at=excluded.deleted_at, message_state=excluded.message_state, payload=excluded.payload",
+      );
+      for (const [chatMid, byChat] of Object.entries(db.messages)) {
+        for (const message of Object.values(byChat)) {
+          messageInsert.run(
+            chatMid,
+            message.id,
+            message.createdTime,
+            message.isMyMessage ? 1 : 0,
+            message.isDeleted ? 1 : 0,
+            message.deletedAt ?? null,
+            message.messageState ?? null,
+            JSON.stringify(message),
+          );
+        }
+      }
+      const cursorInsert = sqlite.prepare(
+        "INSERT INTO read_cursors (chat_mid, reader_mid, message_id, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(chat_mid, reader_mid) DO UPDATE SET message_id=excluded.message_id, updated_at=excluded.updated_at",
+      );
+      for (const [chatMid, readers] of Object.entries(db.meta.readCursors ?? {})) {
+        for (const [readerMid, cursor] of Object.entries(readers))
+          cursorInsert.run(chatMid, readerMid, cursor.messageId, cursor.at);
+      }
+    });
+    transaction();
+  } finally {
+    closeSqlite(sqlite);
+  }
+}
+
 function emptyDb(): ChatDb {
   return { meta: {}, chats: {}, messages: {} };
+}
+
+function hydrateMessage(
+  accountId: string,
+  db: ChatDb,
+  chatMid: string,
+  messageId: string,
+): StoredMessage | undefined {
+  const cached = db.messages[chatMid]?.[messageId];
+  if (cached) return cached;
+  const loaded = readStoredMessage(accountId, chatMid, messageId) ??
+    readMessageSqlite(accountId, chatMid, messageId) ?? undefined;
+  if (loaded) (db.messages[chatMid] ??= {})[messageId] = loaded;
+  return loaded;
+}
+
+function readAllMessages(accountId: string): Record<string, Record<string, StoredMessage>> {
+  const sqlite = openSqlite(accountId);
+  try {
+    const result: Record<string, Record<string, StoredMessage>> = {};
+    for (const row of sqlite
+      .prepare("SELECT chat_mid, id, payload FROM messages ORDER BY chat_mid, created_time, id")
+      .all() as Array<{ chat_mid: string; id: string; payload: string }>) {
+      try {
+        (result[row.chat_mid] ??= {})[row.id] = JSON.parse(row.payload) as StoredMessage;
+      } catch {
+        /* skip only the corrupt row */
+      }
+    }
+    return result;
+  } finally {
+    closeSqlite(sqlite);
+  }
+}
+
+function mergeReadCursors(
+  previous: ChatDbMeta["readCursors"],
+  incoming: ChatDbMeta["readCursors"],
+): ChatDbMeta["readCursors"] {
+  const result: NonNullable<ChatDbMeta["readCursors"]> = {};
+  for (const [chatMid, readers] of Object.entries(previous ?? {})) result[chatMid] = { ...readers };
+  for (const [chatMid, readers] of Object.entries(incoming ?? {})) {
+    const target = (result[chatMid] ??= {});
+    for (const [readerMid, cursor] of Object.entries(readers)) {
+      const current = target[readerMid];
+      if (!current) {
+        target[readerMid] = cursor;
+        continue;
+      }
+      try {
+        if (BigInt(cursor.messageId) > BigInt(current.messageId)) target[readerMid] = cursor;
+      } catch {
+        target[readerMid] = cursor;
+      }
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function mergeLocalReadUpTo(
+  previous: ChatDbMeta["localReadUpTo"],
+  incoming: ChatDbMeta["localReadUpTo"],
+): ChatDbMeta["localReadUpTo"] {
+  const result = { ...(previous ?? {}) };
+  for (const [chatMid, cursor] of Object.entries(incoming ?? {})) {
+    const current = result[chatMid];
+    if (!current) {
+      result[chatMid] = cursor;
+      continue;
+    }
+    try {
+      if (BigInt(cursor.messageId) > BigInt(current.messageId)) result[chatMid] = cursor;
+    } catch {
+      result[chatMid] = cursor;
+    }
+  }
+  return Object.keys(result).length > 0 ? result : undefined;
+}
+
+function ensureReadCursorSchema(): void {
+  sqlite.exec(`CREATE TABLE IF NOT EXISTS chat_read_cursors_v1 (
+    account_id TEXT NOT NULL,
+    chat_mid TEXT NOT NULL,
+    reader_mid TEXT NOT NULL,
+    message_id TEXT NOT NULL,
+    at TEXT NOT NULL,
+    PRIMARY KEY(account_id, chat_mid, reader_mid)
+  )`);
+}
+
+function readPersistedReadCursors(accountId: string): ChatDbMeta["readCursors"] {
+  ensureReadCursorSchema();
+  const rows = sqlite
+    .query("SELECT chat_mid,reader_mid,message_id,at FROM chat_read_cursors_v1 WHERE account_id=?")
+    .all(accountId) as Array<{
+    chat_mid: string;
+    reader_mid: string;
+    message_id: string;
+    at: string;
+  }>;
+  if (!rows.length) return undefined;
+  const result: NonNullable<ChatDbMeta["readCursors"]> = {};
+  for (const row of rows) {
+    (result[row.chat_mid] ??= {})[row.reader_mid] = {
+      messageId: row.message_id,
+      at: row.at,
+    };
+  }
+  return result;
+}
+
+function writePersistedReadCursors(
+  accountId: string,
+  cursors: ChatDbMeta["readCursors"],
+): void {
+  ensureReadCursorSchema();
+  const upsert = sqlite.query(`INSERT INTO chat_read_cursors_v1
+    (account_id,chat_mid,reader_mid,message_id,at) VALUES (?,?,?,?,?)
+    ON CONFLICT(account_id,chat_mid,reader_mid) DO UPDATE SET
+      message_id=excluded.message_id,at=excluded.at`);
+  for (const [chatMid, readers] of Object.entries(cursors ?? {})) {
+    for (const [readerMid, cursor] of Object.entries(readers)) {
+      const existing = sqlite
+        .query(`SELECT message_id FROM chat_read_cursors_v1
+          WHERE account_id=? AND chat_mid=? AND reader_mid=?`)
+        .get(accountId, chatMid, readerMid) as { message_id: string } | null;
+      if (existing) {
+        try {
+          if (BigInt(existing.message_id) > BigInt(cursor.messageId)) continue;
+        } catch {
+          // Replace malformed legacy IDs with the newly observed cursor.
+        }
+      }
+      upsert.run(accountId, chatMid, readerMid, cursor.messageId, cursor.at);
+    }
+  }
+}
+
+function writeChatMetaState(accountId: string, meta: ChatDbMeta): void {
+  writeChatMeta(accountId, meta);
+  writePersistedReadCursors(accountId, meta.readCursors);
 }
 
 async function ensureDataDir(): Promise<void> {
@@ -256,6 +703,7 @@ async function ensureChatDbImported(accountId: string): Promise<void> {
   }
   ensureAccount(accountId);
   const path = dbPath(accountId);
+
   const sourcePath = existsSync(path) ? path : legacyDbPath(accountId);
   let parsed: Partial<ChatDb> | null = null;
   if (existsSync(sourcePath)) {
@@ -281,6 +729,18 @@ async function loadDbFromDisk(accountId: string): Promise<ChatDb> {
   await ensureChatDbImported(accountId);
   const db = emptyDb();
   db.meta = readChatMeta(accountId);
+  const readCursors = mergeReadCursors(
+    readPersistedReadCursors(accountId),
+    db.meta.localReadUpTo
+      ? Object.fromEntries(
+          Object.entries(db.meta.localReadUpTo).map(([chatMid, cursor]) => [
+            chatMid,
+            { self: cursor },
+          ]),
+        )
+      : undefined,
+  );
+  if (readCursors) db.meta.readCursors = readCursors;
   for (const chat of readStoredChats(accountId)) {
     db.chats[chat.mid] = chat;
   }
@@ -294,10 +754,90 @@ async function loadDbFromDisk(accountId: string): Promise<ChatDb> {
 
 async function getDb(accountId: string): Promise<ChatDb> {
   const mem = memory.get(accountId);
-  if (mem) return mem;
-  const db = await loadDbFromDisk(accountId);
-  memory.set(accountId, db);
-  return db;
+  if (mem) {
+    touchCache(accountId);
+    return mem;
+  }
+
+  const existingLoad = loadInFlight.get(accountId);
+  if (existingLoad) return existingLoad;
+
+  const load = (async () => {
+    // Eviction is performed before loading so a newly selected account never
+    // temporarily doubles the resident complete-history databases.
+    await evictOverflow(accountId);
+    const db = await loadDbFromDisk(accountId);
+    memory.set(accountId, db);
+    touchCache(accountId);
+    // Another account may have been loaded while this I/O was in progress.
+    // Keep the just-requested account and evict only safe (clean) entries.
+    await evictOverflow(accountId);
+    return db;
+  })();
+  loadInFlight.set(accountId, load);
+  try {
+    return await load;
+  } finally {
+    if (loadInFlight.get(accountId) === load) loadInFlight.delete(accountId);
+  }
+}
+
+function touchCache(accountId: string): void {
+  cacheAccess.set(accountId, ++cacheAccessSequence);
+}
+
+/**
+ * Drop only a fully persisted account cache.  Dirty accounts are flushed
+ * first; a failed flush is a hard stop and leaves the object resident so no
+ * in-memory-only mutation can be lost.
+ */
+async function evictOverflow(keepAccountId?: string): Promise<void> {
+  while (memory.size > MAX_CACHED_ACCOUNTS) {
+    const candidates = [...memory.keys()]
+      .filter((accountId) => accountId !== keepAccountId)
+      .sort((left, right) => (cacheAccess.get(left) ?? 0) - (cacheAccess.get(right) ?? 0));
+    const accountId = candidates[0];
+    if (!accountId) return;
+
+    if (dirty.has(accountId)) await flushDb(accountId);
+    if (dirty.has(accountId)) return;
+    memory.delete(accountId);
+    cacheAccess.delete(accountId);
+    log.debug({ accountId }, "evicted clean chat cache");
+  }
+}
+
+/**
+ * Explicit lifecycle hook for logout/account removal integrations.  It is
+ * safe to call while a debounce timer exists and never deletes SQLite data.
+ */
+export async function releaseAccountChatCache(accountId: string): Promise<void> {
+  const timer = saveTimers.get(accountId);
+  if (timer) {
+    clearTimeout(timer);
+    saveTimers.delete(accountId);
+  }
+  if (memory.has(accountId) && dirty.has(accountId)) await flushDb(accountId);
+  if (dirty.has(accountId)) {
+    throw new Error(`chat cache for ${accountId} is still dirty`);
+  }
+  memory.delete(accountId);
+  cacheAccess.delete(accountId);
+}
+
+/** Diagnostic information used by tests and local diagnostics, not message data. */
+export function getChatCacheStats(): {
+  cachedAccounts: number;
+  dirtyAccounts: number;
+  maxCachedAccounts: number;
+  cachedAccountIds: string[];
+} {
+  return {
+    cachedAccounts: memory.size,
+    dirtyAccounts: dirty.size,
+    maxCachedAccounts: MAX_CACHED_ACCOUNTS,
+    cachedAccountIds: [...memory.keys()],
+  };
 }
 
 function snapshotFromStoredMessage(stored: StoredMessage): MessageSnapshot {
@@ -325,6 +865,7 @@ function scheduleSave(
   },
 ): void {
   dirty.add(accountId);
+
   let pending = deferredWrites.get(accountId);
   if (!pending) {
     pending = {
@@ -349,87 +890,125 @@ function scheduleSave(
       for (const id of messageIds) ids.add(id);
     }
   }
+
+  dirtyVersion.set(accountId, (dirtyVersion.get(accountId) ?? 0) + 1);
   const prev = saveTimers.get(accountId);
   if (prev) clearTimeout(prev);
   saveTimers.set(
     accountId,
     setTimeout(() => {
-      void flushDb(accountId);
+      saveTimers.delete(accountId);
+      // Background saves are best-effort, but failures remain dirty so an
+      // explicit restore/rebuild flush can retry and surface the error.
+      void flushDb(accountId).catch(() => undefined);
     }, SAVE_DEBOUNCE_MS),
   );
 }
 
 /** 既読情報はサーバ応答の欠落で巻き戻さない。未読を既読へ昇格させるのは明示値だけにする。 */
 export function mergeStoredReadState(
-  previous: Pick<StoredMessage, "seen" | "readCount" | "readBy"> | undefined,
-  incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy">,
-): Pick<StoredMessage, "seen" | "readCount" | "readBy"> {
+  previous: Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readAtBy"> | undefined,
+  incoming: Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readAtBy">,
+): Pick<StoredMessage, "seen" | "readCount" | "readBy" | "readAtBy"> {
   const readBy = [...new Set([...(previous?.readBy ?? []), ...(incoming.readBy ?? [])])];
   const readCount = Math.max(previous?.readCount ?? 0, incoming.readCount ?? 0, readBy.length);
+  const readAtBy = { ...(previous?.readAtBy ?? {}) };
+  for (const [readerMid, incomingAt] of Object.entries(incoming.readAtBy ?? {})) {
+    const previousAt = readAtBy[readerMid];
+    if (!previousAt) {
+      readAtBy[readerMid] = incomingAt;
+      continue;
+    }
+    const previousMs = Date.parse(previousAt);
+    const incomingMs = Date.parse(incomingAt);
+    // Preserve the first-read timestamp; later syncs can only confirm the same read.
+    if (Number.isFinite(incomingMs) && Number.isFinite(previousMs) && incomingMs < previousMs) {
+      readAtBy[readerMid] = incomingAt;
+    }
+  }
   return {
     ...(previous?.seen === true || incoming.seen === true ? { seen: true } : {}),
     ...(readCount > 0 ? { readCount } : {}),
     ...(readBy.length > 0 ? { readBy } : {}),
+    ...(Object.keys(readAtBy).length > 0 ? { readAtBy } : {}),
   };
 }
 
 async function flushDb(accountId: string): Promise<void> {
   if (!dirty.has(accountId)) return;
-  dirty.delete(accountId);
-  const pending = deferredWrites.get(accountId) ?? {
-    full: true,
-    meta: true,
-    syncState: false,
-    boxOrder: false,
-    chats: new Set<string>(),
-    messages: new Map<string, Set<string>>(),
-  };
-  deferredWrites.delete(accountId);
-  const db = memory.get(accountId);
-  if (!db) return;
+  const run = Promise.resolve().then(async () => {
+    while (dirty.has(accountId)) {
+      const db = memory.get(accountId);
+      if (!db) {
+        dirty.delete(accountId);
+        deferredWrites.delete(accountId);
+        return;
+      }
+      await ensureDataDir();
+      ensureRelationalChatSchema();
+      const version = dirtyVersion.get(accountId) ?? 0;
+      const pending = deferredWrites.get(accountId) ?? {
+        full: true,
+        meta: true,
+        syncState: false,
+        boxOrder: false,
+        chats: new Set<string>(),
+        messages: new Map<string, Set<string>>(),
+      };
+      dirty.delete(accountId);
+      deferredWrites.delete(accountId);
+      try {
+        sqlite
+          .transaction(() => {
+            if (pending.full || pending.meta) writeChatMetaState(accountId, db.meta);
+            else {
+              if (pending.boxOrder) writeChatBoxOrder(accountId, db.meta.boxOrder ?? []);
+              if (pending.syncState)
+                writeChatSyncState(
+                  accountId,
+                  db.meta.lastOpRevision,
+                  db.meta.chatsSyncedAt ?? new Date().toISOString(),
+                );
+            }
+            const chatMids = pending.full ? Object.keys(db.chats) : pending.chats;
+            for (const mid of chatMids) {
+              const chat = db.chats[mid];
+              if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
+            }
+            const messageEntries = pending.full
+              ? Object.entries(db.messages).map(
+                  ([mid, messages]) => [mid, Object.keys(messages)] as const,
+                )
+              : [...pending.messages].map(([mid, ids]) => [mid, [...ids]] as const);
+            for (const [chatMid, messageIds] of messageEntries) {
+              const messages = db.messages[chatMid];
+              for (const id of messageIds) {
+                const message = messages?.[id];
+                if (message) writeStoredMessage(accountId, chatMid, message);
+              }
+            }
+          })
+          .immediate();
+      } catch (err) {
+        dirty.add(accountId);
+        deferredWrites.set(accountId, pending);
+        log.warn({ accountId, err }, "failed to save chat db");
+        throw err;
+      }
+      if ((dirtyVersion.get(accountId) ?? 0) === version && !dirty.has(accountId)) {
+        if (memory.get(accountId) === db) memory.delete(accountId);
+      }
+    }
+  });
+  flushInFlight.set(accountId, run);
   try {
-    await ensureDataDir();
-    ensureRelationalChatSchema();
-    sqlite
-      .transaction(() => {
-        if (pending.full || pending.meta) writeChatMeta(accountId, db.meta);
-        else {
-          if (pending.boxOrder) writeChatBoxOrder(accountId, db.meta.boxOrder ?? []);
-          if (pending.syncState)
-            writeChatSyncState(
-              accountId,
-              db.meta.lastOpRevision,
-              db.meta.chatsSyncedAt ?? new Date().toISOString(),
-            );
-        }
-        const chatMids = pending.full ? Object.keys(db.chats) : pending.chats;
-        for (const mid of chatMids) {
-          const chat = db.chats[mid];
-          if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
-        }
-        const messageEntries = pending.full
-          ? Object.entries(db.messages).map(
-              ([mid, messages]) => [mid, Object.keys(messages)] as const,
-            )
-          : [...pending.messages].map(([mid, ids]) => [mid, [...ids]] as const);
-        for (const [chatMid, messageIds] of messageEntries) {
-          const messages = db.messages[chatMid];
-          for (const id of messageIds) {
-            const message = messages?.[id];
-            if (!message) continue;
-            writeStoredMessage(accountId, chatMid, message);
-          }
-        }
-      })
-      .immediate();
-    // Dirty-mode account snapshots are only needed while a deferred write is
-    // pending. Keeping every restored account resident after flush pins its
-    // complete message history in memory without helping the SQLite read path.
-    if (!dirty.has(accountId) && memory.get(accountId) === db) memory.delete(accountId);
+    await run;
   } catch (err) {
-    // Keep the in-memory update eligible for persistence after transient I/O failures.
+    // Keep retrying after transient I/O failures; explicit callers still see the failure.
     scheduleSave(accountId);
-    log.warn({ accountId, err }, "failed to save chat db");
+    throw err;
+  } finally {
+    if (flushInFlight.get(accountId) === run) flushInFlight.delete(accountId);
   }
 }
 
@@ -474,11 +1053,42 @@ export async function upsertChats(
   }
   const db = await getDb(accountId);
   for (const chat of chats) {
+    const existing = db.chats[chat.mid];
     const readUpTo = db.meta.localReadUpTo?.[chat.mid]?.messageId;
-    db.chats[chat.mid] = withoutDeletedPreview(
-      accountId,
-      reconcileStoredUnreadWithReadPosition(chat, readUpTo),
-    );
+    const incoming = reconcileStoredUnreadWithReadPosition(chat, readUpTo);
+    if (!existing) {
+      db.chats[chat.mid] = withoutDeletedPreview(accountId, incoming);
+      continue;
+    }
+    const incomingTime = incoming.lastMessageTime ?? 0;
+    const existingTime = existing.lastMessageTime ?? 0;
+    const keepExistingLast = existingTime > incomingTime;
+    const incomingNameIsFallback =
+      !incoming.name || incoming.name === incoming.mid || incoming.name === "(No Name)";
+    const incomingKindIsFallback = incoming.kind === "unknown";
+    db.chats[chat.mid] = withoutDeletedPreview(accountId, {
+      ...existing,
+      ...incoming,
+      name: incomingNameIsFallback && existing.name ? existing.name : incoming.name,
+      kind: incomingKindIsFallback ? existing.kind : incoming.kind,
+      hasMessages: existing.hasMessages || incoming.hasMessages,
+      lastMessageTime: Math.max(existingTime, incomingTime),
+      ...(keepExistingLast && existing.lastMessageId
+        ? { lastMessageId: existing.lastMessageId }
+        : incoming.lastMessageId
+          ? { lastMessageId: incoming.lastMessageId }
+          : existing.lastMessageId
+            ? { lastMessageId: existing.lastMessageId }
+            : {}),
+      ...(keepExistingLast && existing.lastMessagePreview
+        ? { lastMessagePreview: existing.lastMessagePreview }
+        : incoming.lastMessagePreview
+          ? { lastMessagePreview: incoming.lastMessagePreview }
+          : existing.lastMessagePreview
+            ? { lastMessagePreview: existing.lastMessagePreview }
+            : {}),
+      ...(existing.restoredHistory || incoming.restoredHistory ? { restoredHistory: true } : {}),
+    });
   }
   if (meta?.boxOrder) db.meta.boxOrder = meta.boxOrder;
   if (meta?.lastOpRevision != null) db.meta.lastOpRevision = meta.lastOpRevision;
@@ -543,6 +1153,11 @@ export async function upsertMessages(
             savedAt: prev?.savedAt ?? message.savedAt,
             history: prev?.history?.length ? prev.history : message.history,
             ...mergeStoredReadState(prev, message),
+            ...(prev?.isDeleted
+              ? { isDeleted: true, deletedAt: prev.deletedAt ?? null }
+              : message.isDeleted
+                ? { isDeleted: true, deletedAt: message.deletedAt ?? null }
+                : {}),
           };
           const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
           if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
@@ -566,9 +1181,10 @@ export async function upsertMessages(
   }
   const db = await getDb(accountId);
   const byChat = db.messages[chatMid] ?? {};
+  const nextMessages: StoredMessage[] = [];
   for (const message of messages) {
     if (isStoredMessageDeleted(accountId, chatMid, message.id)) continue;
-    const prev = byChat[message.id];
+    const prev = byChat[message.id] ?? readStoredMessage(accountId, chatMid, message.id);
     const prevRevoked =
       Boolean(prev?.revokedSnapshot) || Boolean(prev?.messageState?.startsWith("revoked"));
     const incomingRevoked =
@@ -578,6 +1194,13 @@ export async function upsertMessages(
       savedAt: prev?.savedAt ?? message.savedAt,
       history: prev?.history?.length ? prev.history : message.history,
       ...mergeStoredReadState(prev, message),
+      // Local deletion is user-owned state. A later server sync must not
+      // resurrect the row; only restoreDeletedMessage may clear this flag.
+      ...(prev?.isDeleted
+        ? { isDeleted: true, deletedAt: prev.deletedAt ?? null }
+        : message.isDeleted
+          ? { isDeleted: true, deletedAt: message.deletedAt ?? null }
+          : {}),
     };
     const revokedSnapshot = prev?.revokedSnapshot ?? message.revokedSnapshot;
     if (revokedSnapshot) next.revokedSnapshot = revokedSnapshot;
@@ -587,6 +1210,7 @@ export async function upsertMessages(
       next.contentType = prev ? prev.contentType : message.contentType;
       next.text = prev ? prev.text : message.text;
     }
+
     if (!prev || !isDeepStrictEqual(prev, next)) byChat[message.id] = next;
   }
   db.messages[chatMid] = byChat;
@@ -637,6 +1261,7 @@ export async function markStoredMessagesReadThrough(
   accountId: string,
   chatMid: string,
   messageId: string,
+  readerMid = "self",
 ): Promise<void> {
   if (!dirty.has(accountId)) {
     await ensureChatDbImported(accountId);
@@ -665,24 +1290,86 @@ export async function markStoredMessagesReadThrough(
     return;
   }
   const db = await getDb(accountId);
-  const current = db.meta.localReadUpTo?.[chatMid]?.messageId;
+  const current =
+    readerMid === "self"
+      ? db.meta.localReadUpTo?.[chatMid]?.messageId
+      : db.meta.readCursors?.[chatMid]?.[readerMid]?.messageId;
   try {
     if (current && BigInt(current) > BigInt(messageId)) return;
   } catch {
     /* replace malformed legacy cursor */
   }
-  db.meta.localReadUpTo = {
-    ...db.meta.localReadUpTo,
-    [chatMid]: { messageId, at: new Date().toISOString() },
+  const at = new Date().toISOString();
+  db.meta.readCursors = {
+    ...db.meta.readCursors,
+    [chatMid]: { ...(db.meta.readCursors?.[chatMid] ?? {}), [readerMid]: { messageId, at } },
   };
-  applyLocalReadWatermark(db.messages[chatMid] ?? {}, messageId);
-  const chat = db.chats[chatMid];
-  if (chat) chat.unreadCount = 0;
-  scheduleSave(accountId, {
-    chats: db.chats[chatMid] ? [chatMid] : [],
-    messages: [[chatMid, Object.keys(db.messages[chatMid] ?? {})]],
-    meta: true,
-  });
+
+  if (readerMid === "self") {
+    db.meta.localReadUpTo = { ...db.meta.localReadUpTo, [chatMid]: { messageId, at } };
+    applyLocalReadWatermark(db.messages[chatMid] ?? {}, messageId);
+    const chat = db.chats[chatMid];
+    if (chat) chat.unreadCount = 0;
+  } else {
+    for (const message of Object.values(db.messages[chatMid] ?? {})) {
+      if (!message.isMyMessage) continue;
+      try {
+        if (BigInt(message.id) <= BigInt(messageId)) {
+          message.readBy = [...new Set([...(message.readBy ?? []), readerMid])];
+          message.readAtBy = { ...(message.readAtBy ?? {}), [readerMid]: at };
+          message.readCount = Math.max(message.readCount ?? 0, message.readBy.length);
+        }
+      } catch {
+        /* local/non-numeric IDs cannot be ranged */
+      }
+    }
+  }
+  // The cursor is authoritative even when the affected messages are not in
+  // the hot page. Persist the message-side receipt changes without loading
+  // the whole conversation.
+  if (readerMid === "self") {
+    const sqlite = openSqlite(accountId);
+    try {
+      sqlite.run(
+        "UPDATE messages SET payload = json_set(payload, '$.seen', 1) WHERE chat_mid = ? AND is_deleted = 0 AND is_my_message = 0 AND CAST(id AS INTEGER) <= CAST(? AS INTEGER)",
+        [chatMid, messageId],
+      );
+    } finally {
+      closeSqlite(sqlite);
+    }
+  }
+  scheduleSave(accountId);
+}
+
+/** レコードは保持したまま、通常の取得結果からだけ隠す削除。復元可能。 */
+export async function softDeleteMessage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<boolean> {
+  const db = await getDb(accountId);
+  const message = hydrateMessage(accountId, db, chatMid, messageId);
+  if (!message) return false;
+  if (!message.isDeleted) {
+    message.isDeleted = true;
+    message.deletedAt = new Date().toISOString();
+    if (!setStoredMessageSoftDeleted(accountId, chatMid, messageId, true, message.deletedAt)) return false;
+  }
+  return true;
+}
+
+export async function restoreDeletedMessage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<boolean> {
+  const db = await getDb(accountId);
+  const message = hydrateMessage(accountId, db, chatMid, messageId);
+  if (!message || !message.isDeleted) return false;
+  message.isDeleted = false;
+  message.deletedAt = null;
+  if (!setStoredMessageSoftDeleted(accountId, chatMid, messageId, false, null)) return false;
+  return true;
 }
 
 /** push の DESTROY op で受け取った取消しを chatdb の該当メッセージへ反映 */
@@ -691,6 +1378,7 @@ export async function markMessageRevoked(
   chatMid: string,
   messageId: string,
 ): Promise<void> {
+
   let db = memory.get(accountId);
   if (dirty.has(accountId)) db = await getDb(accountId);
   else await ensureChatDbImported(accountId);
@@ -712,6 +1400,7 @@ export async function markMessageRevoked(
   stored.history = [...(stored.history ?? []), entry];
   stored.contentType = "UNSENT";
   stored.text = null;
+
   if (dirty.has(accountId)) scheduleSave(accountId, { messages: [[chatMid, [messageId]]] });
   else {
     sqlite.transaction(() => writeStoredMessage(accountId, chatMid, stored))();
@@ -783,6 +1472,7 @@ export async function restoreRevokedMessage(
   chatMid: string,
   messageId: string,
 ): Promise<{ text: string | null; contentType: string } | null> {
+
   let db = memory.get(accountId);
   if (dirty.has(accountId)) db = await getDb(accountId);
   else await ensureChatDbImported(accountId);
@@ -823,6 +1513,7 @@ export async function restoreRevokedMessage(
     if (snapshot.stickerSticky !== undefined) stored.stickerSticky = snapshot.stickerSticky;
     if (snapshot.reactions !== undefined) stored.reactions = snapshot.reactions;
   }
+
   if (dirty.has(accountId)) scheduleSave(accountId, { messages: [[chatMid, [messageId]]] });
   else {
     sqlite.transaction(() => writeStoredMessage(accountId, chatMid, stored))();
@@ -836,6 +1527,7 @@ export async function getMessageHistory(
   chatMid: string,
   messageId: string,
 ): Promise<Message["history"]> {
+
   if (dirty.has(accountId))
     return (await getDb(accountId)).messages[chatMid]?.[messageId]?.history ?? [];
   await ensureChatDbImported(accountId);
@@ -849,8 +1541,9 @@ export async function getMessages(
   accountId: string,
   chatMid: string,
   limit: number,
-  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number },
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number; includeDeleted?: boolean },
 ): Promise<StoredMessage[]> {
+
   const pageLimit = Math.max(0, Math.floor(limit));
   if (pageLimit === 0) return [];
   if (!dirty.has(accountId)) await ensureChatDbImported(accountId);
@@ -862,6 +1555,7 @@ export async function getMessages(
     const beforeId = opts?.beforeMessageId;
     return Object.values(cached)
       .filter((message) => {
+        if (!opts?.includeDeleted && message.isDeleted) return false;
         if (before == null) return true;
         if (message.createdTime < before) return true;
         if (message.createdTime > before || beforeId == null) return false;
@@ -877,24 +1571,24 @@ export async function getMessages(
   if (beforeTime == null) {
     rows = sqlite
       .query(`SELECT message_id FROM chat_messages_v2
-      WHERE account_id = ? AND chat_mid = ?
+      WHERE account_id = ? AND chat_mid = ? AND (? = 1 OR is_deleted = 0)
       ORDER BY created_time DESC, CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = ''
         THEN 1 ELSE 0 END DESC,
         CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
         message_id DESC LIMIT ?`)
-      .all(accountId, chatMid, queryLimit) as Array<{ message_id: string }>;
+      .all(accountId, chatMid, Number(Boolean(opts?.includeDeleted)), queryLimit) as Array<{ message_id: string }>;
   } else {
     if (beforeId == null) {
       rows = sqlite
-        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND created_time < ?
+        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND (? = 1 OR is_deleted = 0) AND created_time < ?
           ORDER BY created_time DESC, CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = ''
             THEN 1 ELSE 0 END DESC,
             CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
             message_id DESC LIMIT ?`)
-        .all(accountId, chatMid, beforeTime, queryLimit) as Array<{ message_id: string }>;
+        .all(accountId, chatMid, Number(Boolean(opts?.includeDeleted)), beforeTime, queryLimit) as Array<{ message_id: string }>;
     } else if (/^\d+$/.test(beforeId)) {
       rows = sqlite
-        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ?
+        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND (? = 1 OR is_deleted = 0)
           AND (created_time < ? OR (created_time = ? AND
             (message_id != '' AND message_id NOT GLOB '*[^0-9]*' AND (length(message_id) < length(?) OR
               (length(message_id) = length(?) AND message_id < ?)))))
@@ -905,6 +1599,7 @@ export async function getMessages(
         .all(
           accountId,
           chatMid,
+          Number(Boolean(opts?.includeDeleted)),
           beforeTime,
           beforeTime,
           beforeId,
@@ -914,7 +1609,7 @@ export async function getMessages(
         ) as Array<{ message_id: string }>;
     } else {
       rows = sqlite
-        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ?
+        .query(`SELECT message_id FROM chat_messages_v2 WHERE account_id = ? AND chat_mid = ? AND (? = 1 OR is_deleted = 0)
           AND (created_time < ? OR (created_time = ? AND
             (message_id = '' OR message_id GLOB '*[^0-9]*') AND message_id < ? OR
             (created_time = ? AND message_id != '' AND message_id NOT GLOB '*[^0-9]*')))
@@ -925,6 +1620,7 @@ export async function getMessages(
         .all(
           accountId,
           chatMid,
+          Number(Boolean(opts?.includeDeleted)),
           beforeTime,
           beforeTime,
           beforeId,
@@ -976,6 +1672,7 @@ export async function findStoredMessageById(
     }
     return null;
   }
+
   await ensureChatDbImported(accountId);
   const row = sqlite
     .query(`SELECT chat_mid FROM chat_messages_v2
@@ -998,14 +1695,20 @@ function storedChatToChat(stored: StoredChat): Chat {
   if (stored.lastMessagePreview) chat.lastMessagePreview = stored.lastMessagePreview;
   if (stored.unreadCount != null) chat.unreadCount = stored.unreadCount;
   if (stored.isOfficial) chat.isOfficial = true;
+  if (stored.restoredHistory) chat.restoredHistory = true;
   return chat;
 }
 
-function storedMessageToMessage(stored: StoredMessage): Message {
+function storedMessageToMessage(stored: StoredMessage, chatMid: string): Message {
+  // Older Android/iOS restores stored received group messages with to=self MID.
+  // Normalize on read so already-imported histories become visible immediately
+  // after upgrading, without requiring users to delete or re-import chatdb.
+  const to =
+    chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : stored.to;
   const msg: Message = {
     id: stored.id,
     from: stored.from,
-    to: stored.to,
+    to,
     text: stored.text,
     contentType: stored.contentType,
     createdTime: stored.createdTime,
@@ -1079,7 +1782,7 @@ export async function searchStoredMessages(
 
   const messages = readStoredMessagesByIds(accountId, chatMid, ids)
     .filter((message) => !isStoredMessageDeleted(accountId, chatMid, message.id))
-    .map(storedMessageToMessage);
+    .map((message) => storedMessageToMessage(message, chatMid));
   return { messages, truncated };
 }
 
@@ -1124,10 +1827,10 @@ export async function getStoredMessages(
   accountId: string,
   chatMid: string,
   limit: number,
-  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number },
+  opts?: { beforeMessageId?: string; beforeDeliveredTime?: number; includeDeleted?: boolean },
 ): Promise<Message[]> {
   const stored = await getMessages(accountId, chatMid, limit, opts);
-  return stored.map(storedMessageToMessage);
+  return stored.map((message) => storedMessageToMessage(message, chatMid));
 }
 
 /** Compatibility snapshot for existing JSON backup readers. */
@@ -1335,6 +2038,7 @@ export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promi
   scheduleSave(accountId, { meta: true });
 }
 
+
 /** Flushes pending writes and guarantees the relational backup source is ready. */
 export async function prepareChatDbBackup(accountId: string): Promise<void> {
   await flushDb(accountId);
@@ -1362,6 +2066,7 @@ export async function importChatDb(
       messageCount++;
     }
   }
+
 
   sqlite
     .transaction(() => {
@@ -1542,9 +2247,17 @@ export function mergeChatDbRecords(
 
     skippedChats++;
     const incomingIsNewer = (incomingChat.lastMessageTime ?? 0) > (existing.lastMessageTime ?? 0);
+    const incomingKindShouldWin =
+      incomingChat.kind !== "unknown" &&
+      (existing.kind === "unknown" ||
+        ((mid.startsWith("c") || mid.startsWith("r")) && incomingChat.kind === "group"));
     target.chats[mid] = {
       ...existing,
+      kind: incomingKindShouldWin ? incomingChat.kind : existing.kind,
       hasMessages: existing.hasMessages || incomingChat.hasMessages,
+      ...(existing.restoredHistory || incomingChat.restoredHistory
+        ? { restoredHistory: true }
+        : {}),
       lastMessageTime: Math.max(existing.lastMessageTime ?? 0, incomingChat.lastMessageTime ?? 0),
       ...(incomingIsNewer && incomingChat.lastMessageId
         ? { lastMessageId: incomingChat.lastMessageId }
@@ -1565,6 +2278,7 @@ export function mergeChatDbRecords(
         targetMessages[id] = {
           ...incomingMessage,
           ...existing,
+          ...mergeStoredReadState(existing, incomingMessage),
           text: existing.text ?? incomingMessage.text,
           contentType:
             existing.contentType && existing.contentType !== "NONE"
@@ -1579,6 +2293,12 @@ export function mergeChatDbRecords(
               ? existing.createdTime
               : incomingMessage.createdTime,
           savedAt: existing.savedAt || incomingMessage.savedAt,
+          ...(existing.isDeleted || incomingMessage.isDeleted
+            ? {
+                isDeleted: existing.isDeleted ?? incomingMessage.isDeleted,
+                deletedAt: existing.deletedAt ?? incomingMessage.deletedAt,
+              }
+            : {}),
         };
         skippedMessages++;
         continue;
@@ -1602,12 +2322,28 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
   let messages = 0;
   const allMids = new Set([...Object.keys(target.chats), ...Object.keys(target.messages)]);
   for (const chatMid of allMids) {
-    const ordered = Object.values(target.messages[chatMid] ?? {}).sort(compareMessagesOldestFirst);
+    const byChat = target.messages[chatMid] ?? {};
+    // Repair legacy restore records in-place as well. LINE group/room messages
+    // always target the chat MID, regardless of who sent them.
+    if (chatMid.startsWith("c") || chatMid.startsWith("r")) {
+      for (const message of Object.values(byChat)) message.to = chatMid;
+    }
+    const ordered = Object.values(byChat).sort(compareMessagesOldestFirst);
     target.messages[chatMid] = Object.fromEntries(ordered.map((message) => [message.id, message]));
     messages += ordered.length;
     const latest = ordered.at(-1);
     if (!latest) continue;
     const existing = target.chats[chatMid];
+    const preview = previewForMessage(latest);
+    const preservedPreview =
+      existing &&
+      shouldPreserveResolvedLastMessagePreview(existing, {
+        lastMessageId: latest.id,
+        lastMessageTime: latest.createdTime,
+        lastMessagePreview: preview,
+      })
+        ? existing.lastMessagePreview
+        : preview;
     target.chats[chatMid] = {
       mid: chatMid,
       name: existing?.name || chatMid,
@@ -1615,10 +2351,11 @@ export function rebuildChatDbRecords(target: ChatDbRecords): { chats: number; me
       hasMessages: true,
       lastMessageTime: latest.createdTime,
       lastMessageId: latest.id,
-      lastMessagePreview: previewForMessage(latest),
+      ...(preservedPreview ? { lastMessagePreview: preservedPreview } : {}),
       ...(existing?.thumbnailUrl ? { thumbnailUrl: existing.thumbnailUrl } : {}),
       ...(existing?.unreadCount != null ? { unreadCount: existing.unreadCount } : {}),
       ...(existing?.isOfficial != null ? { isOfficial: existing.isOfficial } : {}),
+      ...(existing?.restoredHistory ? { restoredHistory: true } : {}),
       updatedAt: existing?.updatedAt ?? latest.savedAt,
     };
   }
@@ -1631,6 +2368,7 @@ export async function mergeImportedChatDb(
   incoming: ChatDbRecords,
 ): Promise<ChatDbMergeResult> {
   const db = await getDb(accountId);
+
   const filtered: ChatDbRecords = { chats: incoming.chats, messages: {} };
   let deletedCount = 0;
   for (const [mid, messages] of Object.entries(incoming.messages ?? {})) {
@@ -1761,6 +2499,7 @@ export async function flushAccountChatDb(accountId: string): Promise<void> {
 export async function listChatsWithCounts(
   accountId: string,
 ): Promise<Array<{ mid: string; name: string; messageCount: number }>> {
+
   if (dirty.has(accountId)) {
     const db = await getDb(accountId);
     return Object.keys(db.chats).map((mid) => ({

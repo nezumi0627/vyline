@@ -1,22 +1,26 @@
-import { memo, useEffect, useMemo, useRef, useState, useCallback, type UIEvent } from "react";
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type UIEvent,
+} from "react";
 import { useStore, displayName, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { useCall } from "@/hooks/useCall";
 import { api } from "@/api/client";
 import { useVirtualList, type VirtualRow } from "@/hooks/useVirtualList";
-import { canDirectCall, directCallHint } from "@/utils/callAllowlist";
-import { MessageBubble } from "@/components/message-bubble";
+import { MessageBubble, type PostNotificationTarget } from "@/components/message-bubble";
 import { MessageInput } from "@/components/message-input";
 import { ProfileDrawer } from "@/components/profile-drawer";
 import { MemberProfilePopover } from "@/components/member-profile";
-import { CallOverlay } from "@/components/call-overlay";
 import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
 import {
   IconArrowLeft,
-  IconPhone,
-  IconVideo,
   IconSearch,
   IconMore,
   IconClose,
@@ -29,6 +33,8 @@ import {
   IconPin,
 } from "@/components/icons";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
+import { findFirstUnreadMessage } from "@/lib/chatScroll";
+import { shareImageMediaGroup } from "@/lib/mediaGroup";
 
 function dayLabel(ts: number): string {
   const d = new Date(ts);
@@ -58,21 +64,6 @@ type MsgRow =
       highlight?: string;
     };
 
-function canGroupImageMessage(message: Message): boolean {
-  return message.kind === "image" && Boolean(message.imageSrc) && !message.replyToId;
-}
-
-function shouldGroupAdjacentImages(left: Message, right: Message): boolean {
-  return (
-    canGroupImageMessage(left) &&
-    canGroupImageMessage(right) &&
-    left.authorId === right.authorId &&
-    left.chatId === right.chatId &&
-    dayLabel(left.createdAt) === dayLabel(right.createdAt) &&
-    Math.abs(right.createdAt - left.createdAt) <= 30_000
-  );
-}
-
 function compareMessagesOldestFirst(left: Message, right: Message): number {
   const byTime = left.createdAt - right.createdAt;
   if (byTime) return byTime;
@@ -100,84 +91,47 @@ function ChatAreaBase() {
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
   const initialChatScrollMessageId = useStore((s) => s.initialChatScrollMessageId);
+  const loadingMessages = useStore((s) => s.loadingMessages);
+  const initialChatScrollMode = useStore((s) => s.initialChatScrollMode);
   const accountId = useStore((s) => s.accountId);
   const scrollToMessage = useStore((s) => s.scrollToMessage);
   const announcements = useStore((s) => s.announcements);
   const removeAnnouncement = useStore((s) => s.removeAnnouncement);
 
-  const { call, startCall, endCall, setMuted } = useCall(accountId);
-  const [callHint, setCallHint] = useState<string | null>(null);
   const [search, setSearch] = useState<{ open: boolean; q: string; index: number }>({
     open: false,
     q: "",
     index: 0,
   });
   const [panel, setPanel] = useState<{ x: number; y: number } | null>(null);
-  const [groupCallOnline, setGroupCallOnline] = useState(false);
   const [agentPrompt, setAgentPrompt] = useState<string | null>(null);
   const [olderState, setOlderState] = useState({ hasMore: true, loading: false });
+  const [postNotificationTarget, setPostNotificationTarget] =
+    useState<PostNotificationTarget | null>(null);
 
   const chat = chats.find((c) => c.id === activeChatId) ?? null;
 
-  const canCall = !!chat && !chat.isSelf && canDirectCall(chat.id);
-
-  // グループ通話状態（通話中バッジ）— 15s ポーリング
   useEffect(() => {
-    if (!accountId || !chat || chat.type !== "group") {
-      setGroupCallOnline(false);
-      return;
-    }
-    let cancelled = false;
-    const check = async () => {
-      if (cancelled) return;
-      try {
-        const res = await api.line.groupCallStatus(accountId, chat.id);
-        if (!cancelled && res.ok) setGroupCallOnline(Boolean(res.online));
-      } catch {
-        if (!cancelled) setGroupCallOnline(false);
-      }
-    };
-    void check();
-    const timer = window.setInterval(check, 15_000);
-    return () => {
-      cancelled = true;
-      window.clearInterval(timer);
-    };
-  }, [accountId, chat?.id, chat?.type]);
+    if (!profileOpen) setPostNotificationTarget(null);
+  }, [profileOpen]);
 
-  useEffect(() => {
-    setCallHint(null);
-  }, [activeChatId]);
-
-  useEffect(() => {
-    if (!callHint) return;
-    const t = window.setTimeout(() => setCallHint(null), 3_000);
-    return () => window.clearTimeout(t);
-  }, [callHint]);
-
-  const handleStartCall = useCallback(
-    async (kind: "voice" | "video") => {
-      if (!chat || !accountId) return;
-      if (!canCall) {
-        setCallHint(directCallHint());
-        return;
-      }
-      setCallHint(null);
-      await startCall(chat.id, kind);
+  const openPostNotification = useCallback(
+    (target: PostNotificationTarget) => {
+      setPostNotificationTarget(target);
+      setProfileDrawer(true);
     },
-    [accountId, canCall, chat, startCall],
+    [setProfileDrawer],
   );
-
-  const handleEndCall = useCallback(async () => {
-    await endCall();
-    setCallHint(null);
-  }, [endCall]);
 
   const chatMessages = useMemo(
     () => messages.filter((m) => m.chatId === activeChatId).sort(compareMessagesOldestFirst),
     [messages, activeChatId],
   );
 
+  const firstUnreadMessageId = useMemo(
+    () => findFirstUnreadMessage(chatMessages)?.id ?? null,
+    [chatMessages],
+  );
   const matches = useMemo(() => {
     const q = search.q.trim().toLowerCase();
     if (!q) return [] as string[];
@@ -199,29 +153,35 @@ function ChatAreaBase() {
         out.push({ key: `day-${m.id}`, item: { key: `day-${m.id}`, kind: "day", label: dl } });
       }
       const prev = chatMessages[i - 1];
-      const mediaGroup = canGroupImageMessage(m) ? [m] : undefined;
+      const mediaGroup = m.mediaGroup && !m.replyToId ? [m] : undefined;
       if (mediaGroup) {
         while (
           i + 1 < chatMessages.length &&
-          shouldGroupAdjacentImages(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
+          shareImageMediaGroup(mediaGroup[mediaGroup.length - 1]!, chatMessages[i + 1]!)
         ) {
           mediaGroup.push(chatMessages[i + 1]!);
           i++;
         }
+        mediaGroup.sort(
+          (left, right) =>
+            (left.mediaGroup?.sequence ?? Number.MAX_SAFE_INTEGER) -
+            (right.mediaGroup?.sequence ?? Number.MAX_SAFE_INTEGER),
+        );
       }
-      const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? m;
+      const primaryMessage = mediaGroup?.[0] ?? m;
+      const lastInRow = mediaGroup?.[mediaGroup.length - 1] ?? primaryMessage;
       const next = chatMessages[i + 1];
       const sameAuthorAsNext =
         next && next.authorId === lastInRow.authorId && dayLabel(next.createdAt) === dl;
       const sameAuthorAsPrev =
-        prev && prev.authorId === m.authorId && dayLabel(prev.createdAt) === lastDay;
-      const groupIds = mediaGroup?.map((item) => item.id) ?? [m.id];
+        prev && prev.authorId === primaryMessage.authorId && dayLabel(prev.createdAt) === lastDay;
+      const groupIds = mediaGroup?.map((item) => item.id) ?? [primaryMessage.id];
       out.push({
-        key: `msg-${m.id}`,
+        key: `msg-${primaryMessage.id}`,
         item: {
-          key: `msg-${m.id}`,
+          key: `msg-${primaryMessage.id}`,
           kind: "msg",
-          message: m,
+          message: primaryMessage,
           mediaGroup: mediaGroup && mediaGroup.length > 1 ? mediaGroup : undefined,
           index: i,
           sameAuthorAsPrev: Boolean(sameAuthorAsPrev),
@@ -254,50 +214,86 @@ function ChatAreaBase() {
     containerRef,
     onScroll,
     visibleRows,
+    hasMeasured,
     topSpacer,
     bottomSpacer,
     rowRef,
-    scrollToKey,
+    scrollToMessagePosition,
     scrollToBottom,
   } = useVirtualList<MsgRow>({ rows, estimateHeight: estimateMsgHeight });
 
-  // 先頭に居続けているときは、ページ追加後も次のローカル履歴を連続して取得する。
-  useEffect(() => {
-    const onOlderLoaded = (event: Event) => {
-      const chatMid = (event as CustomEvent<{ chatMid?: string }>).detail?.chatMid;
-      if (chatMid !== activeChatId) return;
-      const container = containerRef.current;
-      if (!container || container.scrollTop > 160) return;
-      window.requestAnimationFrame(() => {
-        window.dispatchEvent(
-          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-        );
-      });
-    };
-    window.addEventListener("vyline:older-messages-loaded", onOlderLoaded);
-    return () => window.removeEventListener("vyline:older-messages-loaded", onOlderLoaded);
-  }, [activeChatId, containerRef]);
+  const olderBoundaryArmedRef = useRef(true);
+  const lastUserScrollIntentAtRef = useRef(0);
+  const prependAnchorRef = useRef<{
+    chatMid: string;
+    messageCount: number;
+    oldestMessageId: string | null;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
+
+  const requestOlderMessages = useCallback(() => {
+    if (!activeChatId || olderState.loading || !olderState.hasMore) return;
+    const container = containerRef.current;
+    if (container) {
+      prependAnchorRef.current = {
+        chatMid: activeChatId,
+        messageCount: chatMessages.length,
+        oldestMessageId: chatMessages[0]?.id ?? null,
+        scrollHeight: container.scrollHeight,
+        scrollTop: container.scrollTop,
+      };
+    }
+    window.dispatchEvent(
+      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
+    );
+  }, [activeChatId, chatMessages.length, containerRef, olderState]);
 
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       onScroll(event);
-      if (event.currentTarget.scrollTop <= 160 && activeChatId) {
-        window.dispatchEvent(
-          new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-        );
+      const top = event.currentTarget.scrollTop;
+      if (top > 240) {
+        olderBoundaryArmedRef.current = true;
+        return;
+      }
+      const userDriven = performance.now() - lastUserScrollIntentAtRef.current < 1_500;
+      if (
+        top <= 80 &&
+        userDriven &&
+        olderBoundaryArmedRef.current &&
+        olderState.hasMore &&
+        !olderState.loading
+      ) {
+        // wheel / touch / scrollbar 操作で実際に上端へ到達した時だけ1ページ。
+        // 初期レイアウトやプログラムによる scrollTop 変更では取得しない。
+        olderBoundaryArmedRef.current = false;
+        requestOlderMessages();
       }
     },
-    [activeChatId, onScroll],
+    [olderState.hasMore, olderState.loading, onScroll, requestOlderMessages],
   );
 
-  const requestOlderMessages = useCallback(() => {
-    if (!activeChatId || olderState.loading || !olderState.hasMore) return;
-    window.dispatchEvent(
-      new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
-    );
-  }, [activeChatId, olderState]);
+  // prepend 後も、読み込み前に見ていた位置を維持する。
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    if (!anchor || anchor.chatMid !== activeChatId) return;
+    if (chatMessages.length <= anchor.messageCount) return;
+    if ((chatMessages[0]?.id ?? null) === anchor.oldestMessageId) return;
+
+    const frame = requestAnimationFrame(() => {
+      const container = containerRef.current;
+      if (!container) return;
+      const addedHeight = Math.max(0, container.scrollHeight - anchor.scrollHeight);
+      container.scrollTop = anchor.scrollTop + addedHeight;
+      prependAnchorRef.current = null;
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [activeChatId, chatMessages.length, containerRef]);
 
   useEffect(() => {
+    olderBoundaryArmedRef.current = true;
+    prependAnchorRef.current = null;
     setOlderState({ hasMore: true, loading: false });
     const onOlderState = (event: Event) => {
       const detail = (
@@ -308,7 +304,11 @@ function ChatAreaBase() {
         }>
       ).detail;
       if (detail?.chatMid !== activeChatId) return;
-      setOlderState({ hasMore: detail.hasMore ?? false, loading: detail.loading ?? false });
+      const next = { hasMore: detail.hasMore ?? false, loading: detail.loading ?? false };
+      if (!next.loading && !next.hasMore && prependAnchorRef.current?.chatMid === activeChatId) {
+        prependAnchorRef.current = null;
+      }
+      setOlderState(next);
     };
     window.addEventListener("vyline:older-messages-state", onOlderState);
     return () => window.removeEventListener("vyline:older-messages-state", onOlderState);
@@ -319,29 +319,54 @@ function ChatAreaBase() {
   // 開いた瞬間だけ位置を決める。未読があればその先頭、なければ末尾に置き、
   // 以後の受信・画像の高さ確定・ページ追加では利用者のスクロール位置を動かさない。
   useEffect(() => {
-    if (!activeChatId || openedChatRef.current === activeChatId) return;
-    const key = initialChatScrollMessageId ? `msg-${initialChatScrollMessageId}` : null;
-    if (key && !rows.some((row) => row.key === key)) return;
-    openedChatRef.current = activeChatId;
+    if (!activeChatId) {
+      openedChatRef.current = null;
+      return;
+    }
+    // リロード直後はチャットIDだけ復元され、メッセージが後から hydrate される。
+    // 空の状態で初期位置を確定すると、メッセージ到着後に再実行されなくなる。
+    if (!rows.length || openedChatRef.current === activeChatId) return;
+    if (!hasMeasured) return;
+    const targetMessageId =
+      initialChatScrollMode === "unread"
+        ? (initialChatScrollMessageId ?? firstUnreadMessageId)
+        : null;
+    const key = targetMessageId ? `msg-${targetMessageId}` : null;
+    if (key && !rows.some((row) => row.key === key)) {
+      // 初回取得中は、未読位置が分かるまでスクロール位置を確定しない。
+      if (loadingMessages) return;
+    }
     const frame = requestAnimationFrame(() => {
-      if (key) scrollToKey(key, { behavior: "auto", center: true });
-      else scrollToBottom("auto");
+      openedChatRef.current = activeChatId;
+      if (targetMessageId) {
+        scrollToMessagePosition(targetMessageId, { behavior: "auto", center: true });
+      } else scrollToBottom("auto");
     });
     return () => cancelAnimationFrame(frame);
-  }, [activeChatId, initialChatScrollMessageId, rows, scrollToBottom, scrollToKey]);
+  }, [
+    activeChatId,
+    firstUnreadMessageId,
+    hasMeasured,
+    initialChatScrollMessageId,
+    initialChatScrollMode,
+    loadingMessages,
+    rows,
+    scrollToBottom,
+    scrollToMessagePosition,
+  ]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
     if (!highlightMessageId) return;
-    requestAnimationFrame(() => scrollToKey(`msg-${highlightMessageId}`, { center: true }));
-  }, [highlightMessageId, scrollToKey]);
+    requestAnimationFrame(() => scrollToMessagePosition(highlightMessageId, { center: true }));
+  }, [highlightMessageId, scrollToMessagePosition]);
 
   // 検索ヒットへジャンプ
   useEffect(() => {
     if (!matches.length) return;
     const id = matches[search.index % matches.length];
-    scrollToKey(`msg-${id}`, { center: true });
-  }, [search.index, matches, scrollToKey]);
+    scrollToMessagePosition(id, { center: true });
+  }, [search.index, matches, scrollToMessagePosition]);
 
   if (!chat) {
     return (
@@ -451,12 +476,6 @@ function ChatAreaBase() {
                 {chat.muted && (
                   <IconBellOff size={13} className="shrink-0 text-[var(--vy-text-dim)]" />
                 )}
-                {groupCallOnline && (
-                  <span className="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent)]">
-                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--vy-accent)]" />
-                    通話中
-                  </span>
-                )}
               </span>
               <span
                 className="block truncate text-xs"
@@ -466,18 +485,6 @@ function ChatAreaBase() {
               </span>
             </span>
           </button>
-          <HeaderButton
-            label={canCall ? "音声通話" : directCallHint()}
-            onClick={() => void handleStartCall("voice")}
-          >
-            <IconPhone size={19} />
-          </HeaderButton>
-          <HeaderButton
-            label={canCall ? "ビデオ通話" : directCallHint()}
-            onClick={() => void handleStartCall("video")}
-          >
-            <IconVideo size={19} />
-          </HeaderButton>
           <HeaderButton
             label="検索"
             active={search.open}
@@ -579,7 +586,11 @@ function ChatAreaBase() {
                         onClick={() => {
                           if (a.announcementSeq && activeChatId && accountId) {
                             void api.line.announce
-                              .remove(accountId, activeChatId, a.announcementSeq)
+                              .removeChatRoomAnnouncement(
+                                accountId,
+                                activeChatId,
+                                a.announcementSeq,
+                              )
                               .then((res) => {
                                 if (res.ok && activeChatId) {
                                   removeAnnouncement(activeChatId, a.announcementSeq);
@@ -604,6 +615,15 @@ function ChatAreaBase() {
         <div
           ref={containerRef}
           onScroll={handleMessageScroll}
+          onWheel={() => {
+            lastUserScrollIntentAtRef.current = performance.now();
+          }}
+          onTouchStart={() => {
+            lastUserScrollIntentAtRef.current = performance.now();
+          }}
+          onPointerDown={() => {
+            lastUserScrollIntentAtRef.current = performance.now();
+          }}
           onContextMenu={(e) => {
             e.preventDefault();
             setPanel({ x: e.clientX, y: e.clientY });
@@ -661,6 +681,7 @@ function ChatAreaBase() {
                     showAvatar={!item.sameAuthorAsNext}
                     showName={!item.sameAuthorAsPrev}
                     highlight={item.searching ? (item.highlight as string) : undefined}
+                    onOpenPostNotification={openPostNotification}
                   />
                 </div>
               ),
@@ -670,15 +691,10 @@ function ChatAreaBase() {
         </div>
 
         {/* input */}
-        {callHint && (
-          <p className="border-t border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 py-2 text-xs text-[var(--vy-text-dim)]">
-            {callHint}
-          </p>
-        )}
         <MessageInput chatId={chat.id} />
       </div>
 
-      {profileOpen && <ProfileDrawer chat={chat} />}
+      {profileOpen && <ProfileDrawer chat={chat} postNotificationTarget={postNotificationTarget} />}
       {memberProfile && memberProfile.chatId === chat.id && <MemberProfilePopover chat={chat} />}
       {panel && (
         <MessageContextMenu
@@ -693,20 +709,6 @@ function ChatAreaBase() {
           title="今日の会話の要約"
           prompt={agentPrompt}
           onClose={() => setAgentPrompt(null)}
-        />
-      )}
-      {call && (
-        <CallOverlay
-          kind={call.kind}
-          name={name}
-          glyph={streamerMode ? "•" : chat.avatar}
-          color={chat.color}
-          imageUrl={streamerMode ? undefined : chat.avatarUrl}
-          state={call.state}
-          error={call.error}
-          transport={call.transport}
-          onClose={() => void handleEndCall()}
-          onMutedChange={setMuted}
         />
       )}
     </div>

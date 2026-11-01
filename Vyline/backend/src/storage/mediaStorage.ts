@@ -9,9 +9,9 @@
  * キー: accountId + chatMid + messageId（メッセージ単位）
  */
 
-import { createHash } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, rename, unlink, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
@@ -19,49 +19,69 @@ import { VYLINE_SAVED_MEDIA_DIR } from "./vylineStorageInfo.js";
 
 const log = childLogger("media-storage");
 
-async function dirSize(target: string): Promise<number> {
-  if (!existsSync(target)) return 0;
-  let total = 0;
-  try {
-    const entries = await readdir(target, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join(target, e.name);
-      if (e.isDirectory()) {
-        total += await dirSize(p);
-      } else {
-        try {
-          const s = await stat(p);
-          total += s.size;
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  } catch (err) {
-    log.debug({ err, target }, "dirSize failed");
-  }
-  return total;
-}
-
 const _dir = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ROOT = join(_dir, "../../data/media-cache");
-const STORAGE_ROOT = VYLINE_SAVED_MEDIA_DIR;
 
-const TYPE_ROOTS = {
-  image: join(STORAGE_ROOT, "images"),
-  video: join(STORAGE_ROOT, "videos"),
-  audio: join(STORAGE_ROOT, "audio"),
-  file: join(STORAGE_ROOT, "files"),
-} as const;
+function storageRoot(): string {
+  if (process.env.VYLINE_MEDIA_STORAGE_DIR) return process.env.VYLINE_MEDIA_STORAGE_DIR;
+  if (process.env.VYLINE_MEDIA_CACHE_DIR) return process.env.VYLINE_MEDIA_CACHE_DIR;
+  if (process.env.VYLINE_STORAGE_DIR) return join(process.env.VYLINE_STORAGE_DIR, "saved-media");
+  return VYLINE_SAVED_MEDIA_DIR;
+}
+
+function typeRoots(root = storageRoot()) {
+  return {
+    image: join(root, "images"),
+    video: join(root, "videos"),
+    audio: join(root, "audio"),
+    file: join(root, "files"),
+  } as const;
+}
+
+function accountRoot(accountId: string, root = storageRoot()): string {
+  // Never use an external account identifier as a path segment.
+  const accountHash = createHash("sha256").update(accountId).digest("hex");
+  return join(root, "accounts", accountHash);
+}
+
+function accountTypeRoot(accountId: string, type: keyof ReturnType<typeof typeRoots>): string {
+  return join(
+    accountRoot(accountId),
+    type === "image"
+      ? "images"
+      : type === "video"
+        ? "videos"
+        : type === "audio"
+          ? "audio"
+          : "files",
+  );
+}
+
+function trashRoot(accountId: string, type: keyof ReturnType<typeof typeRoots>): string {
+  return join(
+    storageRoot(),
+    ".trash",
+    "accounts",
+    createHash("sha256").update(accountId).digest("hex"),
+    type === "image"
+      ? "images"
+      : type === "video"
+        ? "videos"
+        : type === "audio"
+          ? "audio"
+          : "files",
+  );
+}
 
 try {
-  if (!existsSync(STORAGE_ROOT) && existsSync(LEGACY_ROOT)) {
-    const { rename } = await import("node:fs/promises");
-    await mkdir(dirname(STORAGE_ROOT), { recursive: true });
-    await rename(LEGACY_ROOT, STORAGE_ROOT);
+  const root = storageRoot();
+  const roots = typeRoots(root);
+  if (!existsSync(root) && existsSync(LEGACY_ROOT)) {
+    await mkdir(dirname(root), { recursive: true });
+    await rename(LEGACY_ROOT, root);
   }
-  await mkdir(STORAGE_ROOT, { recursive: true });
-  for (const dir of Object.values(TYPE_ROOTS)) {
+  await mkdir(root, { recursive: true });
+  for (const dir of Object.values(roots)) {
     await mkdir(dir, { recursive: true });
   }
 } catch {
@@ -70,7 +90,9 @@ try {
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 40;
+const MEMORY_MAX_BYTES = 64 * 1024 * 1024;
 const MEMORY_TTL_MS = 10 * 60_000;
+let memoryBytes = 0;
 
 function key(accountId: string, chatMid: string, messageId: string): string {
   return createHash("sha256").update(`${accountId}:${chatMid}:${messageId}`).digest("hex");
@@ -98,17 +120,31 @@ function contentTypeFromFilename(name: string): string {
   return "application/octet-stream";
 }
 
-function typeRootForContentType(ct: string): string {
-  const lower = ct.toLowerCase();
-  if (lower.startsWith("image/")) return TYPE_ROOTS.image;
-  if (lower.startsWith("video/")) return TYPE_ROOTS.video;
-  if (lower.startsWith("audio/")) return TYPE_ROOTS.audio;
-  return TYPE_ROOTS.file;
+function clearAccountMemory(accountId: string): void {
+  for (const [memKey, entry] of memory) {
+    if (memKey.startsWith(`${accountId}:`)) {
+      memoryBytes -= entry.buf.byteLength;
+      memory.delete(memKey);
+    }
+  }
+}
+
+/** Drop only the process-local media cache for an account; persisted media stays intact. */
+export function releaseMediaStorageCache(accountId: string): void {
+  if (!accountId) return;
+  clearAccountMemory(accountId);
 }
 
 function diskPath(accountId: string, chatMid: string, messageId: string, ct: string): string {
   const h = key(accountId, chatMid, messageId);
-  const root = typeRootForContentType(ct);
+  const type = ct.toLowerCase().startsWith("image/")
+    ? "images"
+    : ct.toLowerCase().startsWith("video/")
+      ? "videos"
+      : ct.toLowerCase().startsWith("audio/")
+        ? "audio"
+        : "files";
+  const root = join(accountRoot(accountId), type);
   const ext = extFromContentType(ct);
   return join(root, h.slice(0, 2), `${h}${ext}`);
 }
@@ -121,34 +157,103 @@ export async function readMediaStorage(
   const memKey = `${accountId}:${chatMid}:${messageId}`;
   const mem = memory.get(memKey);
   if (mem && Date.now() - mem.at < MEMORY_TTL_MS) {
+    mem.at = Date.now();
     return { buf: mem.buf, contentType: mem.contentType };
   }
   const h = key(accountId, chatMid, messageId);
 
-  const searchRoots = [STORAGE_ROOT, LEGACY_ROOT, ...Object.values(TYPE_ROOTS)];
-  for (const root of searchRoots) {
-    if (root === LEGACY_ROOT && existsSync(root) === false) continue;
-    const dir = join(root, h.slice(0, 2));
+  const root = storageRoot();
+  const accountRoots = Object.keys(typeRoots(root)).map((type) =>
+    accountTypeRoot(accountId, type as keyof ReturnType<typeof typeRoots>),
+  );
+  const searchRoots = [
+    ...accountRoots,
+    root,
+    LEGACY_ROOT,
+    ...Object.values(typeRoots(root)),
+  ].filter((root) => root !== LEGACY_ROOT || existsSync(root));
+  const candidates = await Promise.all(
+    searchRoots.map(async (root) => {
+      const dir = join(root, h.slice(0, 2));
+      try {
+        const hit = (await readdir(dir)).find((file) => file.startsWith(h));
+        return hit ? join(dir, hit) : null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  const hit = candidates.find((candidate): candidate is string => candidate !== null);
+  if (!hit) return null;
+
+  const buf = new Uint8Array(await readFile(hit));
+  const contentType = contentTypeFromFilename(hit);
+  remember(memKey, buf, contentType);
+  return { buf, contentType };
+}
+
+type StoredMediaType = "image" | "video" | "audio" | "file";
+
+async function findStoredMediaPaths(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<Array<{ path: string; mediaType: StoredMediaType }>> {
+  const h = key(accountId, chatMid, messageId);
+  const roots = (Object.keys(typeRoots(storageRoot())) as StoredMediaType[]).map((type) => ({
+    root: accountTypeRoot(accountId, type),
+    mediaType: type,
+  }));
+  const found: Array<{ path: string; mediaType: StoredMediaType }> = [];
+  for (const { root, mediaType } of roots) {
     try {
-      const { readdir } = await import("node:fs/promises");
-      const files = await readdir(dir);
-      const hit = files.find((f) => f.startsWith(h));
-      if (!hit) continue;
-      const buf = new Uint8Array(await readFile(join(dir, hit)));
-      const contentType = contentTypeFromFilename(hit);
-      remember(memKey, buf, contentType);
-      return { buf, contentType };
-    } catch {}
+      const file = (await readdir(join(root, h.slice(0, 2)))).find((name) => name.startsWith(h));
+      if (file) found.push({ path: join(root, h.slice(0, 2), file), mediaType });
+    } catch {
+      // A missing type directory is a cache miss.
+    }
   }
-  return null;
+  return found;
+}
+
+export async function statMediaStorage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<{ mediaType: StoredMediaType } | null> {
+  const [hit] = await findStoredMediaPaths(accountId, chatMid, messageId);
+  return hit ? { mediaType: hit.mediaType } : null;
+}
+
+export async function removeMediaStorageEntry(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<void> {
+  for (const hit of await findStoredMediaPaths(accountId, chatMid, messageId)) {
+    await unlink(hit.path).catch(() => undefined);
+  }
+  forgetMemory(`${accountId}:${chatMid}:${messageId}`);
+}
+
+function forgetMemory(memKey: string): void {
+  const entry = memory.get(memKey);
+  if (!entry) return;
+  memoryBytes -= entry.buf.byteLength;
+  memory.delete(memKey);
 }
 
 function remember(memKey: string, buf: Uint8Array, contentType: string): void {
-  if (memory.size >= MEMORY_MAX) {
+  if (buf.byteLength > MEMORY_MAX_BYTES) return;
+  forgetMemory(memKey);
+  while (memory.size >= MEMORY_MAX || memoryBytes + buf.byteLength > MEMORY_MAX_BYTES) {
     const oldest = [...memory.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-    if (oldest) memory.delete(oldest[0]);
+    if (!oldest) break;
+    memoryBytes -= oldest[1].buf.byteLength;
+    memory.delete(oldest[0]);
   }
   memory.set(memKey, { buf, contentType, at: Date.now() });
+  memoryBytes += buf.byteLength;
 }
 
 export async function writeMediaStorage(
@@ -169,64 +274,99 @@ export async function writeMediaStorage(
 }
 
 export async function ensureMediaStorageDir(): Promise<void> {
-  await mkdir(STORAGE_ROOT, { recursive: true });
+  await mkdir(storageRoot(), { recursive: true });
 }
 
 export async function clearMediaStorage(): Promise<number> {
-  memory.clear();
-  return clearDir(STORAGE_ROOT);
+  throw new Error("accountId is required; refusing to clear shared media storage");
 }
 
 export async function clearMediaStorageType(
   type: "image" | "video" | "audio" | "file",
+  accountId?: string,
 ): Promise<number> {
-  const root = TYPE_ROOTS[type];
-  if (!root) return 0;
-  return clearDir(root);
+  if (!accountId) throw new Error("accountId is required; refusing to clear shared media storage");
+  const root = accountTypeRoot(accountId, type);
+  const moved = await moveToTrash(root, trashRoot(accountId, type));
+  clearAccountMemory(accountId);
+  return moved;
 }
 
-export async function getMediaStorageSize(): Promise<number> {
-  return dirSize(STORAGE_ROOT);
+export async function clearMediaStorageForAccount(accountId: string): Promise<number> {
+  if (!accountId) throw new Error("accountId is required");
+  let moved = 0;
+  for (const type of ["image", "video", "audio", "file"] as const) {
+    moved += await clearMediaStorageType(type, accountId);
+  }
+  clearAccountMemory(accountId);
+  return moved;
 }
 
-export async function getMediaStorageSizeByType(): Promise<{
-  image: number;
-  video: number;
-  audio: number;
-  file: number;
-}> {
-  const [image, video, audio, file] = await Promise.all([
-    dirSize(TYPE_ROOTS.image),
-    dirSize(TYPE_ROOTS.video),
-    dirSize(TYPE_ROOTS.audio),
-    dirSize(TYPE_ROOTS.file),
-  ]);
-  return { image, video, audio, file };
+/** Restore one logically deleted attachment from the account's trash. */
+export async function restoreMediaStorage(
+  accountId: string,
+  chatMid: string,
+  messageId: string,
+): Promise<boolean> {
+  const h = key(accountId, chatMid, messageId);
+  for (const type of ["image", "video", "audio", "file"] as const) {
+    // The account's type directory is moved as a whole under the account trash
+    // directory, so search from its parent (not the original type directory).
+    const source = await findFile(dirname(trashRoot(accountId, type)), h);
+    if (!source) continue;
+    const destination = join(accountTypeRoot(accountId, type), h.slice(0, 2), source.name);
+    await mkdir(dirname(destination), { recursive: true });
+    await rename(source.path, destination);
+    return true;
+  }
+  return false;
 }
 
-async function clearDir(root: string): Promise<number> {
-  let removed = 0;
+async function moveToTrash(root: string, trash: string): Promise<number> {
+  let moved = 0;
   try {
-    const { readdir, rm } = await import("node:fs/promises");
-    await mkdir(root, { recursive: true });
-    const entries = await readdir(root, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join(root, e.name);
-      if (e.isDirectory()) {
-        const files = await readdir(p);
-        for (const f of files) {
-          await rm(join(p, f), { force: true });
-          removed++;
-        }
-      } else {
-        await rm(p, { force: true });
-        removed++;
+    const count = await countFiles(root);
+    if (count === 0) return 0;
+    await mkdir(dirname(trash), { recursive: true });
+    await rename(root, join(dirname(trash), `${Date.now()}-${randomUUID()}`));
+    moved = count;
+    log.info({ moved, root, trash }, "media storage moved to trash");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT")
+      log.warn({ err, root }, "media storage trash move failed");
+  }
+  return moved;
+}
+
+async function countFiles(root: string): Promise<number> {
+  let count = 0;
+  try {
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      const path = join(root, entry.name);
+      count += entry.isDirectory() ? await countFiles(path) : 1;
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+  return count;
+}
+
+async function findFile(
+  root: string,
+  prefix: string,
+): Promise<{ path: string; name: string } | null> {
+  try {
+    for (const entry of await readdir(root, { withFileTypes: true })) {
+      const path = join(root, entry.name);
+      if (entry.isDirectory()) {
+        const hit = await findFile(path, prefix);
+        if (hit) return hit;
+      } else if (entry.name.startsWith(prefix)) {
+        return { path, name: entry.name };
       }
     }
-    const { logger } = await import("../logger.js");
-    logger.info({ removed, root }, "media storage cleared");
   } catch (err) {
-    log.debug({ err, root }, "media storage clear failed");
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
   }
-  return removed;
+  return null;
 }

@@ -3,7 +3,7 @@
  *
  * 開発時のみ有効なデバッグエンドポイント
  *
- * GET /debug/tokens   — 保存済みトークン一覧 (authToken は伏せる)
+ * GET /debug/tokens   — 保存済みトークンの状態一覧（秘密値・パスは返さない）
  * GET /debug/accounts — アクティブアカウント一覧
  * GET /debug/health   — ヘルスチェック
  */
@@ -23,7 +23,22 @@ const log = childLogger("api:debug");
 export const debugRouter = new Hono();
 
 debugRouter.get("/health", (c) => {
-  return c.json({ ok: true, uptime: process.uptime() });
+  const memory = process.memoryUsage();
+  const cpu = process.cpuUsage();
+  return c.json({
+    ok: true,
+    uptime: process.uptime(),
+    memory: {
+      rssBytes: memory.rss,
+      heapUsedBytes: memory.heapUsed,
+      externalBytes: memory.external,
+      arrayBuffersBytes: memory.arrayBuffers,
+    },
+    cpu: {
+      userSeconds: cpu.user / 1_000_000,
+      systemSeconds: cpu.system / 1_000_000,
+    },
+  });
 });
 
 /**
@@ -43,7 +58,7 @@ debugRouter.post("/e2ee/repair/:accountId", async (c) => {
     return c.json({ ...status });
   } catch (err) {
     log.error({ accountId, err }, "E2EE identity repair failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -107,19 +122,20 @@ debugRouter.get("/e2ee/status/:accountId", async (c) => {
         : null,
     });
   } catch (err) {
-    return c.json({ ok: false, error: String(err) }, 500);
+    log.error({ accountId, err }, "E2EE status failed");
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
 debugRouter.get("/tokens", async (c) => {
   const tokens = await loadTokens();
-  // authToken の値は伏せる
+  // トークンの一部や保存先パスも、ログ・ブラウザ履歴・遠隔デバッグ経由で
+  // 漏れると攻撃材料になるため返さない。診断に必要な存在フラグだけ残す。
   const safe = Object.fromEntries(
     Object.entries(tokens).map(([id, entry]) => [
       id,
       {
-        authToken: `${entry.authToken.slice(0, 8)}...`,
-        storageFile: entry.storageFile,
+        hasAuthToken: Boolean(entry.authToken),
         savedAt: entry.savedAt,
       },
     ]),
@@ -236,7 +252,11 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
         } catch (err) {
           decryptOk = false;
           failed += 1;
-          decryptError = err instanceof Error ? err.message : String(err);
+          decryptError = "decrypt failed";
+          log.debug(
+            { accountId, chatMid, messageId: String(msg.id), err },
+            "decrypt-test item failed",
+          );
         }
       } else {
         plain += 1;
@@ -289,7 +309,7 @@ debugRouter.get("/decrypt-test/:accountId/:chatMid", async (c) => {
     return c.json(result);
   } catch (err) {
     log.error({ accountId, chatMid, err }, "decrypt test failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -302,7 +322,8 @@ debugRouter.get("/vyline/profile", (c) => {
     const profile = getVylineProfile();
     return c.json({ ok: true, profile });
   } catch (err) {
-    return c.json({ ok: false, error: String(err) }, 500);
+    log.error({ err }, "Vyline debug profile failed");
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -321,7 +342,8 @@ debugRouter.get("/vyline/status", (c) => {
       updaterReady: Boolean(getVylineUpdater()),
     });
   } catch (err) {
-    return c.json({ ok: false, error: String(err) }, 500);
+    log.error({ err }, "Vyline debug status failed");
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -331,7 +353,8 @@ debugRouter.post("/vyline/refresh", async (c) => {
     log.info({ appVersion: profile.identity.appVersion }, "Vyline profile refreshed via debug");
     return c.json({ ok: true, profile });
   } catch (err) {
-    return c.json({ ok: false, error: String(err) }, 500);
+    log.error({ err }, "Vyline debug refresh failed");
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -364,6 +387,7 @@ debugRouter.get("/read-ranges/:accountId/:chatMid", async (c) => {
         : [],
     });
   } catch (err) {
-    return c.json({ ok: false, error: String(err) }, 500);
+    log.error({ accountId, chatMid, err }, "read-ranges debug failed");
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });

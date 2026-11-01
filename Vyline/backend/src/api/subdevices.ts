@@ -1,10 +1,12 @@
 import { Hono } from "hono";
+import type { Context } from "hono";
 import { networkInterfaces } from "node:os";
 import {
   authenticateSubdevice,
   completePairing,
   createPairing,
   getPairing,
+  isValidInstallationId,
   listSubdevices,
   removeSubdevice,
   setSubdeviceBlocked,
@@ -19,15 +21,26 @@ function isLanAccessEnabled() {
   return process.env.VYLINE_LAN_ACCESS === "true";
 }
 
+function canManageSubdevices(c: Context) {
+  // A paired browser must not gain owner permissions by combining a bearer
+  // session with the local-request marker.
+  if (bearer(c)) return false;
+  return !isLanAccessEnabled() || c.req.header("x-vyline-local-request") === "1";
+}
+
 function getLanHost(): string | null {
   const configured = process.env.VYLINE_PUBLIC_HOST?.trim();
   if (configured) return configured;
 
-  for (const addresses of Object.values(networkInterfaces())) {
-    const address = addresses?.find((entry) => entry.family === "IPv4" && !entry.internal);
-    if (address?.address) return address.address;
-  }
-  return null;
+  const addresses = Object.values(networkInterfaces())
+    .flatMap((entries) => entries ?? [])
+    .filter((entry) => entry.family === "IPv4" && !entry.internal)
+    .map((entry) => entry.address);
+  return (
+    addresses.find((address) => /^100\.(?:6[4-9]|[7-9]\d|1[01]\d|12[0-7])\./.test(address)) ??
+    addresses[0] ??
+    null
+  );
 }
 
 /** localhost で開いたPC画面からでも、LAN上で開けるQR URLを作る。 */
@@ -59,7 +72,15 @@ function bearer(c: { req: { header(name: string): string | undefined } }) {
   return value.startsWith("Bearer ") ? value.slice(7).trim() : "";
 }
 
+function installationId(c: { req: { header(name: string): string | undefined } }) {
+  return c.req.header("x-vyline-installation-id");
+}
+
 subdeviceRouter.post("/pairing", async (c) => {
+  if (!canManageSubdevices(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
+
   const body = await c.req
     .json<{ accountId?: string; origin?: string }>()
     .catch((): { accountId?: string; origin?: string } => ({}));
@@ -96,30 +117,48 @@ subdeviceRouter.post("/pairing/:token/complete", async (c) => {
   const platform = ["ios", "android", "web", "unknown"].includes(body.platform ?? "")
     ? body.platform!
     : "unknown";
-  const result = await completePairing(c.req.param("token"), body.name ?? "", platform);
+  const deviceId = installationId(c);
+  if (!isValidInstallationId(deviceId)) {
+    return c.json({ ok: false, error: "valid device installation ID required" }, 400);
+  }
+  const result = await completePairing(c.req.param("token"), body.name ?? "", platform, deviceId);
   return result
     ? c.json({ ok: true, ...result })
     : c.json({ ok: false, error: "pairing expired or already used" }, 410);
 });
 
-subdeviceRouter.get("/", async (c) => c.json({ ok: true, devices: await listSubdevices() }));
+subdeviceRouter.get("/", async (c) => {
+  if (!canManageSubdevices(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
+  return c.json({ ok: true, devices: await listSubdevices() });
+});
 
 subdeviceRouter.post("/heartbeat", async (c) => {
-  const device = await authenticateSubdevice(bearer(c));
+  const device = await authenticateSubdevice(bearer(c), installationId(c));
   return device ? c.json({ ok: true, device }) : c.json({ ok: false, error: "unauthorized" }, 401);
 });
 
 subdeviceRouter.delete("/:id", async (c) => {
+  if (!canManageSubdevices(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const ok = await removeSubdevice(c.req.param("id"));
   return c.json({ ok, error: ok ? undefined : "device not found" }, ok ? 200 : 404);
 });
 
 subdeviceRouter.post("/:id/block", async (c) => {
+  if (!canManageSubdevices(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const ok = await setSubdeviceBlocked(c.req.param("id"), true);
   return c.json({ ok, error: ok ? undefined : "device not found" }, ok ? 200 : 404);
 });
 
 subdeviceRouter.delete("/:id/block", async (c) => {
+  if (!canManageSubdevices(c)) {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const ok = await setSubdeviceBlocked(c.req.param("id"), false);
   return c.json({ ok, error: ok ? undefined : "device not found" }, ok ? 200 : 404);
 });

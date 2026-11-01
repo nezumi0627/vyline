@@ -33,9 +33,12 @@ export function setProxyConfig(next: ProxyConfig): ProxyConfig {
     process.env.ALL_PROXY = current.url;
     log.info({ url: current.url.replace(/:[^:@/]+@/, ":***@") }, "proxy enabled");
   } else {
-    process.env.HTTP_PROXY = undefined;
-    process.env.HTTPS_PROXY = undefined;
-    process.env.ALL_PROXY = undefined;
+    // biome-ignore lint/performance/noDelete: proxy variables must be absent when proxying is disabled.
+    delete process.env.HTTP_PROXY;
+    // biome-ignore lint/performance/noDelete: proxy variables must be absent when proxying is disabled.
+    delete process.env.HTTPS_PROXY;
+    // biome-ignore lint/performance/noDelete: proxy variables must be absent when proxying is disabled.
+    delete process.env.ALL_PROXY;
     log.info("proxy disabled");
   }
   return getProxyConfig();

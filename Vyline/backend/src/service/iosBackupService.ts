@@ -66,6 +66,24 @@ export interface IosBackupSession {
 }
 
 const sessions = new Map<string, IosBackupSession>();
+const BACKUP_SESSION_TTL_MS = 6 * 60 * 60 * 1_000;
+const MAX_BACKUP_SESSIONS = 128;
+
+function pruneSessions(now = Date.now()): void {
+  for (const [id, session] of sessions) {
+    if (session.completedAt !== null && now - session.completedAt >= BACKUP_SESSION_TTL_MS) {
+      sessions.delete(id);
+    }
+  }
+  if (sessions.size <= MAX_BACKUP_SESSIONS) return;
+  const finished = [...sessions.values()]
+    .filter((session) => session.completedAt !== null)
+    .sort((left, right) => (left.completedAt ?? 0) - (right.completedAt ?? 0));
+  for (const session of finished) {
+    if (sessions.size <= MAX_BACKUP_SESSIONS) break;
+    sessions.delete(session.id);
+  }
+}
 
 function backupRoots(): string[] {
   const configured = process.env.IOS_BACKUP_ROOT?.trim();
@@ -139,12 +157,14 @@ export async function startIosBackupRestore(
     startedAt: Date.now(),
     completedAt: null,
   };
+  pruneSessions();
   sessions.set(id, session);
   void runRestore(session, device, password);
   return session;
 }
 
 export function getIosBackupSession(accountId: string, id: string): IosBackupSession | null {
+  pruneSessions();
   const session = sessions.get(id);
   return session?.accountId === accountId ? session : null;
 }
@@ -161,8 +181,9 @@ async function runRestore(
     total: 1,
     message: "バックアップを準備しています",
   };
-  const outputDir = await mkdtemp(join(tmpdir(), `vyline-ios-${session.id}-`));
+  let outputDir: string | null = null;
   try {
+    outputDir = await mkdtemp(join(tmpdir(), `vyline-ios-${session.id}-`));
     const result = await extractAndParseLineHistory(
       device.backupRoot,
       device.udid,
@@ -234,7 +255,7 @@ async function runRestore(
       "iOS backup restore failed",
     );
   } finally {
-    await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
+    if (outputDir) await rm(outputDir, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
@@ -376,7 +397,9 @@ function mapMessage(
     id: String(message.id),
     chatMid,
     from,
-    to: isMyMessage ? chatMid : myMid,
+    // Group/room recipients are the chat MID for both sent and received messages.
+    // Keeping received restores pointed at myMid causes them to be filtered out in the UI.
+    to: isMyMessage || chatMid.startsWith("c") || chatMid.startsWith("r") ? chatMid : myMid,
     text: message.text,
     contentType: iosContentType(message.contentType),
     createdTime: Number.isFinite(message.ts) ? message.ts : 0,

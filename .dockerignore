@@ -17,7 +17,6 @@ research
 *.har
 *.md
 !README.md
-tools
 scripts
 .githooks
 .opencode

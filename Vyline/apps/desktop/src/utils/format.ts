@@ -25,7 +25,7 @@ export function formatTime(ms: number): string {
 }
 
 const STICKER_TYPES = new Set(["STICKER", "7", "STICKER_IMAGE"]);
-const SYSTEM_TYPES = new Set(["CHATEVENT", "SERVICE", "INFO"]);
+const SYSTEM_TYPES = new Set(["CHATEVENT", "SERVICE", "INFO", "POSTNOTIFICATION", "16"]);
 
 export function isStickerContent(contentType: string): boolean {
   return STICKER_TYPES.has(contentType) || contentType.toUpperCase().includes("STICKER");
@@ -154,6 +154,9 @@ export function contentTypeLabel(contentType: string): string {
       return "(空メッセージ)";
     case "E2EE_UNAVAILABLE":
       return "メッセージを表示できません";
+    case "POSTNOTIFICATION":
+    case "16":
+      return "通知";
     case "IMAGE":
     case "1":
       return "写真";

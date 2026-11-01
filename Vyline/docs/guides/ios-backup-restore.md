@@ -1,6 +1,6 @@
 # iOS バックアップから LINE 履歴を復元する
 
-最終更新: 2026-08-24
+最終更新: 2026-08-29
 
 ---
 
@@ -17,6 +17,23 @@ Vyline では、**iPhone（プライマリデバイス）で作成した暗号�
 
 > 🎬 **メディア（画像・動画・音声・ファイル・スタンプ）の復元は Coming Soon**  
 > 現在はテキスト・メタデータのみ復元されます。
+
+---
+
+## 作業前の Snapshot
+
+復元系の操作を試す前に、現在の Vyline データを Snapshot として保存しておくと安全です。
+
+```bash
+bun run vyl snapshot create before-ios-restore
+bun run vyl snapshot list
+```
+
+問題が起きた場合は、作成済み Snapshot から復元できます。
+
+```bash
+bun run vyl snapshot restore snapshots/xxx.tar.gz --force
+```
 
 ---
 
@@ -125,4 +142,5 @@ Vyline では、**iPhone（プライマリデバイス）で作成した暗号�
 
 ## 関連ドキュメント
 
+- [vyl CLI と Snapshot](../vyl-cli.md)
 - [技術解説と履歴取り出しの全経緯](../../../docs/analysis/ios-backup-history-extraction.md)

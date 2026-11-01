@@ -51,6 +51,13 @@ interface AuthState {
 
 const BACKEND_STARTUP_BACKOFF_MS = 500;
 const BACKEND_STARTUP_BACKOFF_MAX_MS = 5_000;
+const CONTENT_SESSION_SUFFIX = ":content";
+
+export function normalizeAccountId(accountId: string | null): string | null {
+  return accountId?.endsWith(CONTENT_SESSION_SUFFIX)
+    ? accountId.slice(0, -CONTENT_SESSION_SUFFIX.length)
+    : accountId;
+}
 
 function isBackendStartupError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -79,7 +86,7 @@ export const useAuthStore = create<AuthState>()(
       pendingLoginAccountId: null,
       loginMode: "auto",
 
-      setActiveAccount: (id) => set({ activeAccountId: id }),
+      setActiveAccount: (id) => set({ activeAccountId: normalizeAccountId(id) }),
 
       setPendingLogin: (id) => set({ pendingLoginAccountId: id }),
 
@@ -101,29 +108,19 @@ export const useAuthStore = create<AuthState>()(
         const res = await api.auth.accounts();
         if (!res.ok) return;
 
-        let active = res.active;
-        let saved = res.saved;
-        let sessions = res.sessions ?? [];
-
-        // メモリに無いが tokens.json にある → restore
-        const missing = saved.filter((id) => !active.includes(id));
-        if (missing.length > 0) {
-          await Promise.allSettled(missing.map((id) => api.auth.restore(id)));
-          const again = await api.auth.accounts();
-          if (again.ok) {
-            active = again.active;
-            saved = again.saved;
-            sessions = again.sessions ?? sessions;
-          }
-        }
+        const active = res.active;
+        const saved = res.saved;
+        const sessions = res.sessions ?? [];
 
         set({ accounts: active, saved, sessions });
 
-        const current = get().activeAccountId;
+        const current = normalizeAccountId(get().activeAccountId);
         if (active.length === 0) {
           set({ activeAccountId: null });
         } else if (!current || !active.includes(current)) {
           set({ activeAccountId: active[0] ?? null });
+        } else if (current !== get().activeAccountId) {
+          set({ activeAccountId: current });
         }
       },
 
@@ -154,15 +151,15 @@ export const useAuthStore = create<AuthState>()(
 
       onLoginSuccess: async (accountId) => {
         set({
-          activeAccountId: accountId,
+          activeAccountId: normalizeAccountId(accountId),
           error: null,
           loginMode: "auto",
           pendingLoginAccountId: null,
         });
         // 少し待ってトークン保存・プロフィール追記を待つ
-        await new Promise((r) => setTimeout(r, 400));
+        await sleep(400);
         await get().refreshAccounts();
-        set({ activeAccountId: accountId });
+        set({ activeAccountId: normalizeAccountId(accountId) });
       },
 
       loginEmail: async (accountId, email, password) => {
@@ -213,7 +210,7 @@ export const useAuthStore = create<AuthState>()(
             return { ok: false, error: message };
           }
           await get().refreshAccounts();
-          set({ activeAccountId: accountId });
+          set({ activeAccountId: normalizeAccountId(accountId) });
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -234,7 +231,7 @@ export const useAuthStore = create<AuthState>()(
             return { ok: false, error: message };
           }
           await get().refreshAccounts();
-          set({ activeAccountId: accountId });
+          set({ activeAccountId: normalizeAccountId(accountId) });
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -255,7 +252,7 @@ export const useAuthStore = create<AuthState>()(
             return { ok: false, error: message };
           }
           await get().refreshAccounts();
-          set({ activeAccountId: accountId });
+          set({ activeAccountId: normalizeAccountId(accountId) });
           return { ok: true };
         } catch (err) {
           const message = String(err);
@@ -275,7 +272,19 @@ export const useAuthStore = create<AuthState>()(
       },
 
       logout: async (accountId) => {
-        await api.auth.deleteAccount(accountId);
+        // サブデバイスのログアウトは、この端末の選択状態だけを解除する。
+        // PC側のLINEセッションと保存済みトークンは共有資産なので削除しない。
+        const subdeviceSession =
+          typeof localStorage !== "undefined"
+            ? localStorage.getItem("vyline:subdevice-session")
+            : null;
+        if (subdeviceSession) {
+          set({ activeAccountId: null, error: null });
+          return;
+        }
+
+        const result = await api.auth.logout(accountId);
+        if (!result.ok) throw new Error("logout failed");
         await get().refreshAccounts();
         if (get().activeAccountId === accountId) {
           set({ activeAccountId: get().accounts[0] ?? null });
@@ -285,6 +294,14 @@ export const useAuthStore = create<AuthState>()(
     {
       name: "vyline:auth",
       partialize: (s) => ({ activeAccountId: s.activeAccountId }),
+      merge: (persisted, current) => {
+        const saved = persisted as Partial<AuthState>;
+        return {
+          ...current,
+          ...saved,
+          activeAccountId: normalizeAccountId(saved.activeAccountId ?? null),
+        };
+      },
     },
   ),
 );

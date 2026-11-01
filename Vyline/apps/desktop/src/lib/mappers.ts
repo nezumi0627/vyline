@@ -25,6 +25,7 @@ import {
 import { parseSticonReplace } from "../utils/lineSticon.js";
 import { parseMentions } from "../utils/mention.js";
 import type { Chat, Member, Message, MessageKind, MessageStatus } from "./store-types.js";
+import { parseImageMediaGroup } from "./mediaGroup.js";
 
 const COLORS = ["#2aabee", "#06c755", "#f0728f", "#7c5cff", "#f5a623", "#2dd4bf", "#a78bfa"];
 
@@ -56,6 +57,77 @@ function sanitizeText(text: string | null | undefined): string | undefined {
   if (typeof text !== "string") return String(text);
   const cleaned = text.replace(/\uFFFD/g, "").trim();
   return cleaned || undefined;
+}
+
+function parsePostNotification(meta: Record<string, unknown> | null) {
+  if (!meta) return undefined;
+  const serviceType = String(meta.serviceType ?? meta.SERVICE_TYPE ?? "").toUpperCase();
+  const postEndUrlValue = meta.postEndUrl ?? meta.POST_END_URL;
+  const postEndUrl = typeof postEndUrlValue === "string" ? postEndUrlValue : "";
+  const params = (() => {
+    try {
+      return postEndUrl ? new URL(postEndUrl, "https://line.me").searchParams : null;
+    } catch {
+      return null;
+    }
+  })();
+  const homeId =
+    String(meta.chatId ?? meta.homeId ?? meta.HOME_ID ?? params?.get("homeId") ?? "") || undefined;
+  const albumId =
+    String(
+      meta.albumIdV2 ??
+        meta.albumId ??
+        meta.ALBUM_ID ??
+        params?.get("albumIdV2") ??
+        params?.get("albumId") ??
+        "",
+    ) || undefined;
+  const postId =
+    String(
+      meta.postId ?? meta.POST_ID ?? meta.noteId ?? meta.NOTE_ID ?? params?.get("postId") ?? "",
+    ) || undefined;
+  const previewMedias = (() => {
+    const raw = meta.previewMedias;
+    if (typeof raw !== "string" || !raw.trim()) return undefined;
+    try {
+      const parsed = JSON.parse(raw);
+      if (!Array.isArray(parsed)) return undefined;
+      return parsed
+        .map((item) => {
+          if (!item || typeof item !== "object") return null;
+          const media = item as Record<string, unknown>;
+          const mediaOid = typeof media.mediaOid === "string" ? media.mediaOid : "";
+          return mediaOid
+            ? {
+                mediaOid,
+                mediaType: typeof media.mediaType === "string" ? media.mediaType : undefined,
+              }
+            : null;
+        })
+        .filter((item): item is { mediaOid: string; mediaType: string | undefined } =>
+          Boolean(item),
+        );
+    } catch {
+      return undefined;
+    }
+  })();
+  // POSTNOTIFICATION の note metadata にも cafeId が含まれるため、cafeId 単体を
+  // albumId として扱うとノート通知が ALBUM に誤分類される。明示的な note 証拠を
+  // album より先に評価し、album は AB / albumId(V2) のみに限定する。
+  if (postId || serviceType === "NOTE" || serviceType === "NT") {
+    return { kind: "note" as const, homeId, postId };
+  }
+  if (serviceType === "AB" || albumId) {
+    return {
+      kind: "album" as const,
+      homeId,
+      albumId,
+      title: typeof meta.albumName === "string" ? meta.albumName : undefined,
+      mediaCount: Number(meta.mediaCount) || undefined,
+      previewMedias,
+    };
+  }
+  return { kind: "unknown" as const, homeId };
 }
 
 function resolveDisplayName(
@@ -95,6 +167,7 @@ export function mapChat(
     notificationDisabled: c.notificationDisabled,
     preventedJoinByTicket: c.preventedJoinByTicket,
     left,
+    restoredHistory: c.restoredHistory,
     unread: c.unreadCount ?? 0,
     hidden,
     lastMessagePreview: c.lastMessagePreview,
@@ -379,6 +452,7 @@ export function mapMessage(
     text,
     sticker: stickerSrc,
     imageSrc,
+    mediaGroup: kind === "image" ? parseImageMediaGroup(meta) : undefined,
     audioSrc,
     audioSeconds: kind === "audio" ? parseAudioDuration(m.contentMetadata ?? null) : undefined,
     altText,
@@ -394,6 +468,10 @@ export function mapMessage(
         ? parseMentions(m.contentMetadata as Record<string, unknown> | null)
         : undefined,
     callMeta: kind === "call" ? parseCallMeta(m.contentType, meta) : undefined,
+    postNotification:
+      String(m.contentType ?? "").toUpperCase() === "POSTNOTIFICATION"
+        ? parsePostNotification(meta)
+        : undefined,
     createdAt: m.createdTime,
     status: messageStatus(m),
     read,
@@ -493,6 +571,22 @@ function parseContactFromMeta(
   return { mid, name };
 }
 
+export function parseCallDurationSeconds(meta: Record<string, unknown> | null): number | undefined {
+  const durationKey =
+    meta?.DURATION != null
+      ? "DURATION"
+      : meta?.GC_DURATION != null
+        ? "GC_DURATION"
+        : meta?.duration != null
+          ? "duration"
+          : null;
+  if (!durationKey) return undefined;
+  const n = Number(meta?.[durationKey]);
+  if (!Number.isFinite(n) || n <= 0) return undefined;
+  // LINEのCHATEVENTメタデータのDURATION/GC_DURATIONはミリ秒。
+  return Math.round(durationKey === "duration" ? n : n / 1000);
+}
+
 function parseCallMeta(
   contentType: string,
   meta: Record<string, unknown> | null,
@@ -502,14 +596,7 @@ function parseCallMeta(
   const video =
     (u.includes("VIDEO") && u.includes("CALL")) || typeHint.includes("VIDEO") || typeHint === "1";
   const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
-  const durationRaw = meta?.DURATION ?? meta?.GC_DURATION ?? meta?.duration;
-  let durationSec: number | undefined;
-  if (typeof durationRaw === "string" || typeof durationRaw === "number") {
-    const n = Number(durationRaw);
-    if (Number.isFinite(n) && n > 0) {
-      durationSec = n > 10_000 ? Math.round(n / 1000) : Math.round(n);
-    }
-  }
+  const durationSec = parseCallDurationSeconds(meta);
   const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();
   let outcome: import("./store-types.js").CallMessageMeta["outcome"] = "ended";
   if (result.includes("cancel") || result.includes("miss") || result === "3") {

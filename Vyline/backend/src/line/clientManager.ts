@@ -9,24 +9,57 @@ import {
   loginWithEmail as vylineLoginEmail,
   loginWithQR as vylineLoginQR,
   loginWithToken as vylineLoginToken,
+  loginWithStoredRefreshToken as vylineLoginStoredRefreshToken,
   resolveDeviceMode,
   kicksOfficialDesktop,
   patchGroupKeyLookup,
   type VylineClient,
 } from "@vyline/protocol";
+import { mkdir, readFile, rename, unlink, writeFile } from "node:fs/promises";
+import { dirname } from "node:path";
+import { randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import {
   saveToken,
   getToken,
+  storagePathForAccount,
   loadTokens,
   deleteToken,
   updateSessionMeta,
+  getProtocolTokenState,
 } from "../storage/tokenStore.js";
 import { ProtocolSqliteStorage } from "../storage/protocolSqliteStorage.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
-import { warmLineCache, detachFetchOps } from "../service/lineService.js";
+import {
+  warmLineCache,
+  detachFetchOps,
+  clearAccountRuntimeCaches,
+} from "../service/lineService.js";
+import { releaseAccountChatCache } from "../storage/chatStore.js";
+import { releaseMediaStorageCache } from "../storage/mediaStorage.js";
+import { releaseAccountMessageLog } from "../storage/messageLog.js";
+import { releaseAccountChatLocks } from "../storage/chatLockStore.js";
+import { loadAccountSettings } from "../service/accountSettingsService.js";
+import { appendDiagnostic } from "../service/diagnosticsService.js";
+import { resetAgentISession } from "../service/agentIService.js";
+import { deactivatePluginsForAccount, restoreEnabledPlugins } from "./pluginManager.js";
+import { endManagedCallsForAccount } from "../call/callManager.js";
+import { resetIncomingCalls } from "../call/incomingCallRegistry.js";
 
 const log = childLogger("clientManager");
+const TOKEN_REFRESH_CHECK_INTERVAL_MS = 60 * 1000;
+const TOKEN_REFRESH_RETRY_BACKOFF_MS = 5 * 60 * 1000;
+const DEFAULT_TOKEN_REFRESH_LEAD_SEC = 7 * 24 * 60 * 60;
+const MIN_TOKEN_REFRESH_LEAD_SEC = 5 * 60;
+const MAX_TOKEN_REFRESH_LEAD_SEC = 30 * 24 * 60 * 60;
+
+async function tokenRefreshLeadSeconds(accountId: string): Promise<number> {
+  const entry = await getToken(accountId);
+  if (!entry?.mid) return DEFAULT_TOKEN_REFRESH_LEAD_SEC;
+  const configured = (await loadAccountSettings(entry.mid)).auth.tokenRefreshLeadSeconds;
+  if (!Number.isFinite(configured)) return DEFAULT_TOKEN_REFRESH_LEAD_SEC;
+  return Math.min(MAX_TOKEN_REFRESH_LEAD_SEC, Math.max(MIN_TOKEN_REFRESH_LEAD_SEC, configured));
+}
 
 function deviceLogFields() {
   const device = resolveDeviceMode();
@@ -41,21 +74,197 @@ interface ManagedClient {
   accountId: string;
   qrUrl: string | null;
   qrExpired: boolean;
+  qrError: string | null;
   pincode: string | null;
   loggedInAt: number | null;
 }
 
 const clients = new Map<string, ManagedClient>();
-
-/** アカウントごとの fetchOps カーソル（revision ベース） */
-const opsRevision = new Map<
+const tokenRestoreInflight = new Map<string, Promise<VylineClient>>();
+let initialSessionRestore: Promise<void> | null = null;
+const contentClients = new Map<string, Promise<VylineClient>>();
+const contentQrState = new Map<
   string,
-  {
-    revision: number | bigint;
-    globalRev: number | bigint;
-    individualRev: number | bigint;
-  }
+  { url: string | null; expired: boolean; pincode: string | null; inProgress: boolean }
 >();
+const contentTokenId = (accountId: string) => `${accountId}:content`;
+const opsListenerStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
+
+function restorePluginsForSession(accountId: string): void {
+  void restoreEnabledPlugins(accountId).catch((error) =>
+    log.warn({ accountId, error }, "enabled plugins could not be restored"),
+  );
+}
+
+/** アカウントごとの fetchOps カーソル（revision ベース）。永続化ファイルが正本。 */
+export type OpsRevisionCursor = {
+  revision: number | bigint;
+  globalRev: number | bigint;
+  individualRev: number | bigint;
+};
+
+const EMPTY_OPS_CURSOR: OpsRevisionCursor = { revision: 0, globalRev: 0, individualRev: 0 };
+const opsRevision = new Map<string, OpsRevisionCursor>();
+const opsRevisionLoads = new Map<string, Promise<OpsRevisionCursor>>();
+const opsRevisionWrites = new Map<string, Promise<void>>();
+
+function maxCursorValue(a: number | bigint, b: number | bigint): number | bigint {
+  return BigInt(a) >= BigInt(b) ? a : b;
+}
+
+function opsCursorPath(accountId: string): string {
+  return `${storagePathForAccount(accountId)}.ops-cursor.json`;
+}
+
+function cursorValueToJson(value: number | bigint): string {
+  return String(value);
+}
+
+function cursorValueFromJson(value: unknown): number | bigint {
+  if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return value;
+  if (typeof value === "string" && /^\d+$/.test(value)) {
+    const parsed = BigInt(value);
+    return parsed <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(parsed) : parsed;
+  }
+  throw new Error("invalid ops cursor value");
+}
+
+export async function loadOpsRevisionCursor(accountId: string): Promise<OpsRevisionCursor> {
+  const cached = opsRevision.get(accountId);
+  if (cached) return { ...cached };
+  const pending = opsRevisionLoads.get(accountId);
+  if (pending) return { ...(await pending) };
+
+  const load = (async () => {
+    try {
+      const parsed = JSON.parse(await readFile(opsCursorPath(accountId), "utf8")) as Record<
+        string,
+        unknown
+      >;
+      const cursor = {
+        revision: cursorValueFromJson(parsed.revision),
+        globalRev: cursorValueFromJson(parsed.globalRev),
+        individualRev: cursorValueFromJson(parsed.individualRev),
+      };
+      opsRevision.set(accountId, cursor);
+      return cursor;
+    } catch (error) {
+      // A missing/corrupt cursor is safe to recover from: replay from zero is
+      // preferable to skipping events. The operation handlers are idempotent.
+      log.warn({ accountId, error }, "ops cursor unavailable; replaying from zero");
+      const cursor = { ...EMPTY_OPS_CURSOR };
+      opsRevision.set(accountId, cursor);
+      return cursor;
+    }
+  })();
+  opsRevisionLoads.set(accountId, load);
+  try {
+    return { ...(await load) };
+  } finally {
+    if (opsRevisionLoads.get(accountId) === load) opsRevisionLoads.delete(accountId);
+  }
+}
+
+export async function persistOpsRevisionCursor(
+  accountId: string,
+  cursor: OpsRevisionCursor,
+): Promise<void> {
+  const path = opsCursorPath(accountId);
+  const temporary = `${path}.${randomUUID()}.tmp`;
+  const previous = opsRevisionWrites.get(accountId) ?? Promise.resolve();
+  const write = previous
+    .catch(() => undefined)
+    .then(async () => {
+      await mkdir(dirname(path), { recursive: true });
+      let durable = { ...EMPTY_OPS_CURSOR };
+      try {
+        const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+        durable = {
+          revision: cursorValueFromJson(parsed.revision),
+          globalRev: cursorValueFromJson(parsed.globalRev),
+          individualRev: cursorValueFromJson(parsed.individualRev),
+        };
+      } catch {
+        // Missing or corrupt state is safely replaced by the new snapshot.
+      }
+      const monotonic: OpsRevisionCursor = {
+        revision: maxCursorValue(durable.revision, cursor.revision),
+        globalRev: maxCursorValue(durable.globalRev, cursor.globalRev),
+        individualRev: maxCursorValue(durable.individualRev, cursor.individualRev),
+      };
+      try {
+        await writeFile(
+          temporary,
+          JSON.stringify({
+            version: 1,
+            revision: cursorValueToJson(monotonic.revision),
+            globalRev: cursorValueToJson(monotonic.globalRev),
+            individualRev: cursorValueToJson(monotonic.individualRev),
+            savedAt: new Date().toISOString(),
+          }),
+          "utf8",
+        );
+        await rename(temporary, path);
+      } catch (error) {
+        await unlink(temporary).catch(() => undefined);
+        throw error;
+      }
+    });
+  opsRevisionWrites.set(accountId, write);
+  try {
+    await write;
+  } finally {
+    if (opsRevisionWrites.get(accountId) === write) opsRevisionWrites.delete(accountId);
+  }
+}
+
+/** 同期レスポンスから次のカーソルを作る。呼び出し側が処理成功後に適用する。 */
+export function nextOpsRevisionCursor(
+  current: OpsRevisionCursor,
+  response: {
+    fullSyncResponse?: { nextRevision?: number | bigint } | null;
+    operationResponse?: {
+      globalEvents?: { lastRevision?: number | bigint } | null;
+      individualEvents?: { lastRevision?: number | bigint } | null;
+      operations?: Array<{ revision?: number | bigint }>;
+    } | null;
+  },
+): OpsRevisionCursor {
+  const next = { ...current };
+  const fullSyncRevision = response.fullSyncResponse?.nextRevision;
+  if (fullSyncRevision != null) next.revision = fullSyncRevision;
+  const operationResponse = response.operationResponse;
+  const globalRevision = operationResponse?.globalEvents?.lastRevision;
+  if (globalRevision != null) next.globalRev = globalRevision;
+  const individualRevision = operationResponse?.individualEvents?.lastRevision;
+  if (individualRevision != null) next.individualRev = individualRevision;
+  const lastRevision = operationResponse?.operations?.at(-1)?.revision;
+  if (lastRevision != null) next.revision = lastRevision;
+  return next;
+}
+
+/** Operation処理が成功した場合だけ、同期カーソルを永続化して適用する。 */
+export async function processAndCommitOpsRevision(
+  accountId: string,
+  current: OpsRevisionCursor,
+  response: Parameters<typeof nextOpsRevisionCursor>[1],
+  process: () => Promise<void>,
+  canCommit: () => boolean = () => true,
+): Promise<OpsRevisionCursor> {
+  const next = nextOpsRevisionCursor(current, response);
+  await process();
+  if (!canCommit()) return current;
+  await persistOpsRevisionCursor(accountId, next);
+  if (!canCommit()) return current;
+  const committed = opsRevision.get(accountId) ?? current;
+  const merged = {
+    revision: maxCursorValue(committed.revision, next.revision),
+    globalRev: maxCursorValue(committed.globalRev, next.globalRev),
+    individualRev: maxCursorValue(committed.individualRev, next.individualRev),
+  };
+  opsRevision.set(accountId, merged);
+  return merged;
+}
 
 /** fetchOps ループの AbortController */
 const opsAbortByAccount = new Map<string, AbortController>();
@@ -171,21 +380,11 @@ export async function withTalkChannelIdle<T>(
   return enqueueTalkRpcBackground(accountId, work);
 }
 
-import { dirname, join as pathJoin } from "node:path";
-import { fileURLToPath } from "node:url";
-
-const _dir = dirname(fileURLToPath(import.meta.url));
-
-function storagePathFor(accountId: string): string {
-  const dataDir = process.env.VYLINE_DATA_DIR ?? pathJoin(_dir, "../../data");
-  return `${dataDir}/storage-${accountId}.json`;
-}
-
 function loginInit(accountId: string) {
   const deviceMode = process.env.VYLINE_DEVICE;
   return {
     profile: getVylineProfile(),
-    storage: new ProtocolSqliteStorage(accountId, storagePathFor(accountId)),
+    storage: new ProtocolSqliteStorage(accountId, storagePathForAccount(accountId)),
     // VYLINE_DEVICE 未設定時は IOSIPAD（共存 + 安定認証）
     ...(deviceMode !== undefined ? { deviceMode } : {}),
   };
@@ -197,10 +396,17 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
     return;
   }
   const delayMs = Number(process.env.VYLINE_TALK_LISTEN_DELAY_MS ?? 5_000);
-  setTimeout(() => {
+  const previous = opsListenerStartTimers.get(accountId);
+  if (previous) clearTimeout(previous);
+  const timer = setTimeout(() => {
+    opsListenerStartTimers.delete(accountId);
+    // Logout can happen during the startup delay. Do not resurrect an ops
+    // loop for a client that is no longer the active account session.
+    if (clients.get(accountId)?.client !== client) return;
     startFetchOpsLoop(client, accountId);
     log.info({ accountId, delayMs }, "ops loop started");
   }, delayMs);
+  opsListenerStartTimers.set(accountId, timer);
 }
 
 function startFetchOpsLoop(client: VylineClient, accountId: string): void {
@@ -217,6 +423,9 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 
   async function loop(): Promise<void> {
     let errorStreak = 0;
+    if (!opsRevision.has(accountId)) {
+      opsRevision.set(accountId, await loadOpsRevisionCursor(accountId));
+    }
     while (!abort.signal.aborted && client.base.authToken) {
       try {
         const cursor = getCursor();
@@ -227,35 +436,25 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           individualRev: cursor.individualRev,
           timeout: POLL_TIMEOUT_MS,
         });
+        if (abort.signal.aborted) break;
 
         const opResp = resp?.operationResponse;
         const fullSync = resp?.fullSyncResponse;
-        if (fullSync?.nextRevision) {
-          opsRevision.set(accountId, { ...getCursor(), revision: fullSync.nextRevision });
-        }
-        if (opResp?.globalEvents?.lastRevision) {
-          opsRevision.set(accountId, {
-            ...getCursor(),
-            globalRev: opResp.globalEvents.lastRevision,
-          });
-        }
-        if (opResp?.individualEvents?.lastRevision) {
-          opsRevision.set(accountId, {
-            ...getCursor(),
-            individualRev: opResp.individualEvents.lastRevision,
-          });
-        }
-
         const ops = opResp?.operations ?? [];
-        if (ops.length > 0) {
-          const lastOp = ops[ops.length - 1];
-          if (lastOp?.revision != null) {
-            opsRevision.set(accountId, { ...getCursor(), revision: lastOp.revision });
-          }
-          log.debug({ accountId, count: ops.length }, "ops received");
-          const { processFetchedOperations } = await import("../service/lineService.js");
-          await processFetchedOperations(accountId, ops);
-        }
+        if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) break;
+        await processAndCommitOpsRevision(
+          accountId,
+          cursor,
+          { fullSyncResponse: fullSync, operationResponse: opResp },
+          async () => {
+            if (ops.length === 0) return;
+            log.debug({ accountId, count: ops.length }, "ops received");
+            const { processFetchedOperations } = await import("../service/lineService.js");
+            await processFetchedOperations(accountId, ops);
+          },
+          () => !abort.signal.aborted && opsAbortByAccount.get(accountId) === abort,
+        );
+        if (abort.signal.aborted || opsAbortByAccount.get(accountId) !== abort) break;
 
         await new Promise<void>((resolve) => {
           const t = setTimeout(resolve, ops.length > 0 ? POLL_INTERVAL_MS : IDLE_INTERVAL_MS);
@@ -290,7 +489,7 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
         }
       }
     }
-    opsAbortByAccount.delete(accountId);
+    if (opsAbortByAccount.get(accountId) === abort) opsAbortByAccount.delete(accountId);
     log.info({ accountId }, "ops loop stopped");
   }
 
@@ -300,7 +499,6 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
 export function stopFetchOpsLoop(accountId: string): void {
   opsAbortByAccount.get(accountId)?.abort();
   opsAbortByAccount.delete(accountId);
-  opsRevision.delete(accountId);
 }
 
 function watchAuthToken(client: VylineClient, accountId: string): void {
@@ -339,7 +537,9 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
       displayName?: string;
       picturePath?: string;
       statusMessage?: string;
+      deviceMode?: string;
     } = {};
+    meta.deviceMode = String(client.base.device);
     if (profile?.mid) meta.mid = String(profile.mid);
     if (profile?.displayName) meta.displayName = String(profile.displayName);
     const pic =
@@ -383,16 +583,39 @@ function watchAuthToken(client: VylineClient, accountId: string): void {
     });
 
   let lastToken = String(client.authToken ?? client.base.authToken ?? "");
-  const interval = setInterval(
-    () => {
-      const current = String(client.authToken ?? client.base.authToken ?? "");
-      if (current && current !== lastToken) {
-        lastToken = current;
-        void persist("token-refresh");
+  let refreshRetryAfter = 0;
+  const interval = setInterval(async () => {
+    const nowSec = Math.floor(Date.now() / 1000);
+    const refreshLeadSec = await tokenRefreshLeadSeconds(accountId);
+    const expire = await client.base.storage.get("expire");
+    const refreshToken = await client.base.storage.get("refreshToken");
+    const shouldRefresh =
+      typeof refreshToken === "string" &&
+      refreshToken.length > 0 &&
+      typeof expire === "number" &&
+      expire <= nowSec + refreshLeadSec;
+
+    if (shouldRefresh && Date.now() >= refreshRetryAfter) {
+      try {
+        await client.base.auth.tryRefreshToken();
+        refreshRetryAfter = 0;
+        await persist("proactive-token-refresh");
+        log.info({ accountId }, "access token refreshed before expiry");
+      } catch (err) {
+        refreshRetryAfter = Date.now() + TOKEN_REFRESH_RETRY_BACKOFF_MS;
+        log.warn({ accountId, err }, "proactive token refresh failed; retry scheduled");
       }
-    },
-    5 * 60 * 1000,
-  );
+    }
+
+    const current = String(client.authToken ?? client.base.authToken ?? "");
+    if (current && current !== lastToken) {
+      lastToken = current;
+      void persist("token-refresh");
+    }
+  }, TOKEN_REFRESH_CHECK_INTERVAL_MS);
+  // 再ログインで同じ accountId のウォッチャーが張り直されても古い interval を残さない。
+  const previous = tokenWatchIntervals.get(accountId);
+  if (previous) clearInterval(previous);
   tokenWatchIntervals.set(accountId, interval);
 }
 
@@ -422,7 +645,7 @@ export async function loginWithEmail(
       password,
       ...(pincode !== undefined ? { pincode } : {}),
       onPincodeRequest(pin: string) {
-        log.info({ accountId, pincode: pin }, "pincode requested");
+        log.info({ accountId }, "pincode requested");
         onPincode(pin);
       },
     },
@@ -436,9 +659,11 @@ export async function loginWithEmail(
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: Date.now(),
   });
+  restorePluginsForSession(accountId);
   log.info({ accountId }, "email login success");
   return client;
 }
@@ -463,6 +688,7 @@ export async function loginWithQRCode(
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: null,
   };
@@ -484,13 +710,14 @@ export async function loginWithQRCode(
     const client = await vylineLoginQR(
       {
         onReceiveQRUrl(url: string) {
-          log.info({ accountId, url }, "QR URL received");
+          log.info({ accountId }, "QR URL received");
           managed.qrUrl = url;
           managed.qrExpired = false;
+          managed.qrError = null;
           onQrUrl(url);
         },
         onPincodeRequest(pin: string) {
-          log.info({ accountId, pin }, "QR pincode requested");
+          log.info({ accountId }, "QR pincode requested");
           managed.pincode = pin;
         },
       },
@@ -500,84 +727,122 @@ export async function loginWithQRCode(
     managed.client = client;
     managed.qrUrl = null;
     managed.qrExpired = false;
+    managed.qrError = null;
     managed.pincode = null;
     managed.loggedInAt = Date.now();
     watchAuthToken(client, accountId);
     void warmLineCache(accountId).catch(() => undefined);
+    restorePluginsForSession(accountId);
     log.info({ accountId }, "QR login success");
     return client;
   } catch (err) {
     if (isExpiredError(err)) {
       log.info({ accountId }, "QR expired — waiting for user to regenerate");
       managed.qrExpired = true;
+      managed.qrError = null;
       managed.qrUrl = null;
       managed.pincode = null;
       throw err;
     }
-    clients.delete(accountId);
+    managed.qrError = "QR login failed";
+    managed.qrUrl = null;
+    managed.pincode = null;
     throw err;
   }
 }
 
-export async function loginWithToken(accountId: string): Promise<VylineClient> {
+async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
   const entry = await getToken(accountId);
   if (!entry) throw new Error(`no token for accountId: ${accountId}`);
 
-  log.info({ accountId }, "restoring session with authToken via Vyline");
+  const tokenState = await getProtocolTokenState(accountId);
+  const nowSec = Math.floor(Date.now() / 1000);
+  const refreshLeadSec = await tokenRefreshLeadSeconds(accountId);
+  const shouldRefreshBeforeRestore =
+    tokenState.hasRefreshToken &&
+    typeof tokenState.expire === "number" &&
+    tokenState.expire <= nowSec + refreshLeadSec;
 
-  const client = await vylineLoginToken(entry.authToken, {
+  log.info(
+    { accountId, refreshBeforeRestore: shouldRefreshBeforeRestore },
+    "restoring saved LINE session via Vyline",
+  );
+
+  const init = {
     profile: getVylineProfile(),
     storage: new ProtocolSqliteStorage(accountId, entry.storageFile),
-  });
+    ...(entry.deviceMode ? { deviceMode: entry.deviceMode } : {}),
+  };
+  const client = shouldRefreshBeforeRestore
+    ? await vylineLoginStoredRefreshToken(init)
+    : await vylineLoginToken(entry.authToken, init);
 
   watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: Date.now(),
   });
+  void warmLineCache(accountId).catch(() => undefined);
+  restorePluginsForSession(accountId);
   log.info({ accountId }, "token login success");
   return client;
+}
+
+export function loginWithToken(accountId: string): Promise<VylineClient> {
+  const existing = clients.get(accountId);
+  if (existing?.loggedInAt !== null && existing?.client) {
+    return Promise.resolve(existing.client);
+  }
+
+  const inflight = tokenRestoreInflight.get(accountId);
+  if (inflight) return inflight;
+
+  const restore = loginWithTokenImpl(accountId).finally(() => {
+    tokenRestoreInflight.delete(accountId);
+  });
+  tokenRestoreInflight.set(accountId, restore);
+  return restore;
 }
 
 export async function loginWithAuthToken(
   accountId: string,
   authToken: string,
+  deviceMode?: string,
 ): Promise<VylineClient> {
-  const { dirname, join } = await import("node:path");
-  const { fileURLToPath } = await import("node:url");
-  const _dir = dirname(fileURLToPath(import.meta.url));
-  const dataDir = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-  const storagePath = join(dataDir, `storage-${accountId}.json`);
+  const storagePath = storagePathForAccount(accountId);
 
   log.info({ accountId }, "login with authToken via Vyline");
 
   const client = await vylineLoginToken(authToken, {
     profile: getVylineProfile(),
     storage: new ProtocolSqliteStorage(accountId, storagePath),
+    ...(deviceMode ? { deviceMode } : {}),
   });
 
   watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
     qrUrl: null,
     qrExpired: false,
+    qrError: null,
     pincode: null,
     loggedInAt: Date.now(),
   });
+  void warmLineCache(accountId).catch(() => undefined);
+  restorePluginsForSession(accountId);
   log.info({ accountId }, "authToken login success");
   return client;
 }
 
-export async function restoreAllSessions(): Promise<void> {
+async function restoreAllSessionsImpl(): Promise<void> {
   const tokens = await loadTokens();
-  const ids = Object.keys(tokens);
+  const ids = Object.keys(tokens).filter((id) => !id.endsWith(":content"));
   if (ids.length === 0) {
     log.info("no saved sessions to restore");
     return;
@@ -585,20 +850,77 @@ export async function restoreAllSessions(): Promise<void> {
   log.info({ count: ids.length }, "restoring sessions");
   await Promise.allSettled(
     ids.map(async (id) => {
+      const mid = tokens[id]?.mid;
+      if (mid) {
+        await appendDiagnostic(
+          mid,
+          {
+            appVersion: process.env.npm_package_version ?? "dev",
+            buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+            platform: "desktop",
+            runtime: `bun ${Bun.version}`,
+            os: process.platform,
+            connection: { state: "session-restore-start" },
+            screen: "startup",
+          },
+          { event: "backend-startup", accountId: id },
+        ).catch(() => undefined);
+      }
       try {
         await loginWithToken(id);
+        if (mid) {
+          await appendDiagnostic(
+            mid,
+            {
+              appVersion: process.env.npm_package_version ?? "dev",
+              buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+              platform: "desktop",
+              runtime: `bun ${Bun.version}`,
+              os: process.platform,
+              connection: { state: "session-restored" },
+              screen: "startup",
+            },
+            { event: "session-restore-success", accountId: id },
+          ).catch(() => undefined);
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
+        if (mid) {
+          await appendDiagnostic(
+            mid,
+            {
+              appVersion: process.env.npm_package_version ?? "dev",
+              buildNumber: process.env.VYLINE_BUILD_NUMBER ?? "dev",
+              platform: "desktop",
+              runtime: `bun ${Bun.version}`,
+              os: process.platform,
+              error: {
+                name: err instanceof Error ? err.name : "Error",
+                message: msg,
+                ...(err instanceof Error && err.stack ? { stack: err.stack } : {}),
+              },
+              connection: { state: "session-restore-failed" },
+              screen: "startup",
+            },
+            { event: "session-restore-failed", accountId: id },
+          ).catch(() => undefined);
+        }
+        const expiredDevice = msg.includes("NOT_AUTHORIZED_DEVICE") && msg.includes("EXPIRED");
+        if (expiredDevice) {
+          await removeClient(id);
+          await updateSessionMeta(id, { reauthRequired: true });
+          log.warn({ accountId: id }, "saved session expired; reauthentication required");
+          return;
+        }
         const authFailed =
           msg.includes("AUTHENTICATION_FAILED") ||
           msg.includes("Authentication Failed") ||
           msg.includes("status=403") ||
-          msg.includes("NOT_AUTHORIZED_DEVICE") ||
           msg.includes("V3_TOKEN_CLIENT_LOGGED_OUT") ||
           msg.includes("logged out");
         if (authFailed) {
           await deleteToken(id);
-          removeClient(id);
+          await removeClient(id);
           log.warn({ accountId: id }, "cleared invalid saved token");
         } else {
           log.warn({ accountId: id, err }, "failed to restore session");
@@ -608,12 +930,108 @@ export async function restoreAllSessions(): Promise<void> {
   );
 }
 
+export function restoreAllSessions(): Promise<void> {
+  if (!initialSessionRestore) {
+    initialSessionRestore = restoreAllSessionsImpl();
+  }
+  return initialSessionRestore;
+}
+
+export function waitForSessionRestore(): Promise<void> {
+  return restoreAllSessions();
+}
+
 export function getClient(accountId: string): VylineClient | undefined {
   return clients.get(accountId)?.client;
 }
 
+export async function getContentClient(accountId: string): Promise<VylineClient> {
+  const active = clients.get(accountId)?.client;
+  if (!active) throw new Error("not logged in");
+  return active;
+}
+
+export async function loginContentWithQRCode(
+  accountId: string,
+  onQrUrl: (url: string) => void,
+): Promise<VylineClient> {
+  if (!clients.get(accountId)?.client) throw new Error("not logged in");
+
+  const state: {
+    url: string | null;
+    expired: boolean;
+    pincode: string | null;
+    inProgress: boolean;
+  } = {
+    url: null,
+    expired: false,
+    pincode: null,
+    inProgress: true,
+  };
+  contentQrState.set(accountId, state);
+  try {
+    const client = await vylineLoginQR(
+      {
+        onReceiveQRUrl(url: string) {
+          state.url = url;
+          state.expired = false;
+          onQrUrl(url);
+        },
+        onPincodeRequest(pin: string) {
+          state.pincode = pin;
+        },
+      },
+      {
+        profile: getVylineProfile(),
+        storage: new ProtocolSqliteStorage(
+          accountId,
+          `${storagePathForAccount(accountId)}.content-secondary`,
+        ),
+        deviceMode: "ANDROIDSECONDARY",
+      },
+    );
+
+    const token = client.authToken ?? client.base.authToken;
+    if (!token) throw new Error("content login completed without auth token");
+    await saveToken(contentTokenId(accountId), token, {
+      storageFile: `${storagePathForAccount(accountId)}.content-secondary`,
+    });
+    contentClients.set(accountId, Promise.resolve(client));
+    state.url = null;
+    state.pincode = null;
+    state.inProgress = false;
+    log.info({ accountId }, "content secondary QR login success");
+    return client;
+  } catch (error) {
+    state.url = null;
+    state.pincode = null;
+    state.inProgress = false;
+    state.expired = true;
+    throw error;
+  }
+}
+
+export function getContentQrState(accountId: string): {
+  url: string | null;
+  expired: boolean;
+  pincode: string | null;
+  inProgress: boolean;
+  ready: boolean;
+} {
+  const state = contentQrState.get(accountId);
+  return {
+    url: state?.url ?? null,
+    expired: state?.expired ?? false,
+    pincode: state?.pincode ?? null,
+    inProgress: state?.inProgress ?? false,
+    ready: contentClients.has(accountId),
+  };
+}
+
 export function listAccounts(): string[] {
-  return [...clients.keys()];
+  return [...clients.entries()]
+    .filter(([, managed]) => managed.loggedInAt !== null && Boolean(managed.client))
+    .map(([accountId]) => accountId);
 }
 
 export function getQrState(accountId: string): {
@@ -622,15 +1040,17 @@ export function getQrState(accountId: string): {
   pincode: string | null;
   /** QR ログイン処理がメモリ上で進行中か */
   inProgress: boolean;
+  error: string | null;
 } {
   const m = clients.get(accountId);
-  if (!m) return { url: null, expired: false, pincode: null, inProgress: false };
-  const inProgress = m.loggedInAt === null && !m.qrExpired;
+  if (!m) return { url: null, expired: false, pincode: null, inProgress: false, error: null };
+  const inProgress = m.loggedInAt === null && !m.qrExpired && !m.qrError;
   return {
     url: m.qrUrl,
     expired: m.qrExpired,
     pincode: m.pincode,
     inProgress,
+    error: m.qrError,
   };
 }
 
@@ -648,14 +1068,42 @@ export function getLoggedInAt(accountId: string): number | null {
   return clients.get(accountId)?.loggedInAt ?? null;
 }
 
-export function removeClient(accountId: string): void {
+export async function removeClient(accountId: string): Promise<void> {
+  const listenerStartTimer = opsListenerStartTimers.get(accountId);
+  if (listenerStartTimer) {
+    clearTimeout(listenerStartTimer);
+    opsListenerStartTimers.delete(accountId);
+  }
   stopFetchOpsLoop(accountId);
   detachFetchOps(accountId);
+  resetIncomingCalls(accountId);
+  await endManagedCallsForAccount(accountId).catch((err) => {
+    log.warn({ accountId, err }, "account calls could not be ended during client removal");
+  });
   const tokenWatch = tokenWatchIntervals.get(accountId);
   if (tokenWatch) {
     clearInterval(tokenWatch);
     tokenWatchIntervals.delete(accountId);
   }
   clients.delete(accountId);
+  contentClients.delete(accountId);
+  contentQrState.delete(accountId);
+  resetAgentISession(accountId);
+  await clearAccountRuntimeCaches(accountId).catch((err) => {
+    log.warn({ accountId, err }, "account runtime caches could not be released");
+  });
+  await deactivatePluginsForAccount(accountId).catch((err) => {
+    log.warn({ accountId, err }, "account plugins could not be deactivated");
+  });
+  await releaseAccountChatCache(accountId).catch((err) => {
+    log.warn({ accountId, err }, "chat cache release failed after client removal");
+  });
+  await releaseAccountMessageLog(accountId).catch((err) => {
+    log.warn({ accountId, err }, "message log release failed after client removal");
+  });
+  await releaseAccountChatLocks(accountId).catch((err) => {
+    log.warn({ accountId, err }, "chat lock release failed after client removal");
+  });
+  releaseMediaStorageCache(accountId);
   log.info({ accountId }, "client removed");
 }

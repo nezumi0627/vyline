@@ -1,4 +1,5 @@
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   useStore,
   displayName,
@@ -32,6 +33,7 @@ import {
   IconMemo,
   IconLogout,
   IconChevron,
+  IconShield,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 
@@ -133,6 +135,8 @@ function SidebarBase() {
   const markAllChatsRead = useStore((s) => s.markAllChatsRead);
   const toggleChatReadDisabled = useStore((s) => s.toggleChatReadDisabled);
   const readDisabledMids = useStore((s) => s.readDisabledMids);
+  const lockedChatMids = useStore((s) => s.lockedChatMids);
+  const setChatLocked = useStore((s) => s.setChatLocked);
 
   const accountId = useStore((s) => s.accountId);
   const [tab, setTab] = useState<Tab>("all");
@@ -160,12 +164,14 @@ function SidebarBase() {
     let list = chats;
     if (tab === "friend") list = chats.filter((c) => c.type === "friend" && !c.hidden && !c.left);
     else if (tab === "group")
-      list = chats.filter((c) => c.type === "group" && !c.hidden && !c.left);
+      list = chats.filter((c) => c.type === "group" && !c.hidden && (!c.left || c.restoredHistory));
     else if (tab === "hidden") list = chats.filter((c) => c.hidden);
     else if (tab === "official") list = chats.filter((c) => c.isOfficial && !c.hidden && !c.left);
     else
       list = chats.filter(
-        (c) => !c.hidden && (!c.left || (c.members != null && c.members.length > 0)),
+        (c) =>
+          !c.hidden &&
+          (!c.left || c.restoredHistory || (c.members != null && c.members.length > 0)),
       );
 
     if (query.trim()) {
@@ -254,7 +260,7 @@ function SidebarBase() {
     if (!accountId) return;
     let cancelled = false;
     void api.line
-      .blockedContacts(accountId)
+      .getBlockedContactIds(accountId)
       .then((res) => {
         if (cancelled || !res.ok || !res.mids) return;
         setBlockedSet(new Set(res.mids));
@@ -277,9 +283,26 @@ function SidebarBase() {
   const closeMenu = useCallback(() => setMenu(null), []);
 
   const isBlocked = menu ? blockedSet.has(menu.chat.id) : false;
+  const isChatLocked = menu ? lockedChatMids.includes(menu.chat.id) : false;
 
   const menuItems: MenuItem[] = menu
     ? [
+        {
+          label: isChatLocked ? "チャットのロックを解除" : "チャットをロック",
+          icon: <IconShield size={16} />,
+          danger: !isChatLocked,
+          onClick: () => {
+            if (!menu) return;
+            if (
+              !isChatLocked &&
+              !window.confirm(`「${displayName(menu.chat, false)}」をロックしますか？`)
+            )
+              return;
+            void setChatLocked(menu.chat.id, !isChatLocked).then((ok) => {
+              if (!ok) window.alert("チャットのロック変更に失敗しました");
+            });
+          },
+        },
         {
           label: menu.chat.pinned ? "ピン留めを解除" : "ピン留め",
           icon: <IconPin size={16} />,
@@ -316,7 +339,8 @@ function SidebarBase() {
             void navigator.clipboard.writeText(menu.chat.id);
           },
         },
-        ...(menu.chat.type === "friend" &&
+        ...(!isChatLocked &&
+        menu.chat.type === "friend" &&
         !menu.chat.isSelf &&
         !BLOCK_PROTECTED_MIDS.has(menu.chat.id)
           ? [
@@ -490,7 +514,10 @@ function SidebarBase() {
         </div>
       </div>
 
-      <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
+      <div
+        className="vy-sidebar-tabs flex gap-1 overflow-x-auto px-3 pb-2 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+        role="tablist"
+      >
         {TABS.map((t) => (
           <button
             key={t.key}
@@ -499,7 +526,7 @@ function SidebarBase() {
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+              "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none sm:flex-1",
               tab === t.key
                 ? "text-[var(--vy-accent-contrast)]"
                 : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
@@ -555,6 +582,7 @@ function SidebarBase() {
                 draggable={sort === "custom"}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
+                locked={lockedChatMids.includes(chat.id)}
                 onClick={() => openChat(chat.id)}
                 onContextMenu={(e) => openRowMenu(e, chat)}
                 onDragStart={() => onDragStart(chat.id)}
@@ -585,7 +613,7 @@ function SidebarBase() {
       )}
       {createGroupOpen && <CreateGroupDialog onClose={() => setCreateGroupOpen(false)} />}
 
-      {/* account switcher: mobile is intentionally list-first and distraction-free */}
+      {/* Keep the account switcher available on mobile as well. */}
       <div className="vy-sidebar-account-switcher">
         <AccountSwitcher />
       </div>
@@ -601,6 +629,7 @@ const ChatRow = memo(function ChatRow({
   draggable,
   dragging,
   blocked,
+  locked,
   onClick,
   onContextMenu,
   onDragStart,
@@ -615,6 +644,7 @@ const ChatRow = memo(function ChatRow({
   draggable: boolean;
   dragging: boolean;
   blocked?: boolean;
+  locked?: boolean;
   onClick: () => void;
   onContextMenu: (e: React.MouseEvent) => void;
   onDragStart: () => void;
@@ -716,6 +746,15 @@ const ChatRow = memo(function ChatRow({
             <IconBlock size={10} />
           </span>
         )}
+        {locked && !blocked && (
+          <span
+            title="チャットロック中"
+            aria-label="チャットロック中"
+            className="absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-accent)] shadow-sm ring-2 ring-[var(--vy-surface)]"
+          >
+            <IconShield size={10} />
+          </span>
+        )}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1.5">
             {chat.pinned && (
@@ -794,6 +833,7 @@ const ChatRow = memo(function ChatRow({
 });
 
 function AccountSwitcher() {
+  const navigate = useNavigate();
   const accountId = useStore((s) => s.accountId);
   const accounts = useAuthStore((s) => s.accounts);
   const sessions = useAuthStore((s) => s.sessions);
@@ -813,6 +853,7 @@ function AccountSwitcher() {
     // 別アカウントへの切替はログイン画面を経由する（戻るで元のチャットへ）
     openLogin("manual", id);
     setScreen("login");
+    navigate("/login");
   };
 
   const handleLogout = async () => {
@@ -823,6 +864,7 @@ function AccountSwitcher() {
     setOpen(false);
     openLogin("manual", null);
     setScreen("login");
+    navigate("/login");
   };
 
   return (
@@ -890,6 +932,7 @@ function AccountSwitcher() {
               setOpen(false);
               openLogin("manual", null);
               setScreen("login");
+              navigate("/login");
             }}
           >
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">

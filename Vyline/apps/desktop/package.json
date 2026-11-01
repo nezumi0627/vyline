@@ -1,13 +1,18 @@
 {
   "name": "@vyline/desktop",
-  "version": "0.6.0-beta",
+  "version": "0.8.0-beta",
   "private": true,
   "type": "module",
   "scripts": {
     "dev": "bun ./node_modules/vite/bin/vite.js",
     "build": "tsc -b && vite build",
     "preview": "vite preview",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "node ./node_modules/typescript/bin/tsc --noEmit",
+    "pr:video": "bun scripts/record-pr-video-openscreen.ts",
+    "pr:video:openscreen": "bun scripts/record-pr-video-openscreen.ts",
+    "pr:video:live": "bun scripts/record-pr-video-live.ts",
+    "pr:video:demo": "bun scripts/record-pr-demo-clips.ts",
+    "pr:video:clips": "bun scripts/record-pr-demo-clips.ts"
   },
   "dependencies": {
     "@vyline/themes": "workspace:*",
@@ -16,18 +21,19 @@
     "qrcode.react": "^4.2.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
-    "react-router-dom": "^7.6.0",
+    "react-router-dom": "^7.18.2",
     "tailwind-merge": "^3.6.0",
     "zustand": "^5.0.4"
   },
   "devDependencies": {
+    "@playwright/test": "^1.55.0",
     "@types/react": "^19.1.4",
     "@types/react-dom": "^19.1.2",
     "@vitejs/plugin-react": "^4.5.0",
     "autoprefixer": "^10.4.21",
-    "postcss": "^8.5.3",
+    "postcss": "^8.5.23",
     "tailwindcss": "^3.4.17",
     "typescript": "^5.8.3",
-    "vite": "^6.3.5"
+    "vite": "^6.4.3"
   }
 }

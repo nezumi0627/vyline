@@ -5,7 +5,7 @@
  * できるだけ Desktop 由来の状態を Vyline に復元する。
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -21,6 +21,8 @@ import {
 import { childLogger } from "../logger.js";
 import { getClient } from "../line/clientManager.js";
 import { refreshVylineProfile } from "../vyline/profileBridge.js";
+import { accountFile } from "../storage/accountDirs.js";
+import { writeJsonAtomic } from "../storage/safeFile.js";
 
 const log = childLogger("service:restore-desktop");
 const _dir = dirname(fileURLToPath(import.meta.url));
@@ -30,8 +32,10 @@ function backendDataDir(): string {
   return join(_dir, "../../data");
 }
 
-function vylineProfileCachePath(): string {
-  return join(backendDataDir(), "vyline", "desktop-profile.json");
+function vylineProfileCachePath(accountId: string): string {
+  // Desktop profileはアカウント固有。共通ファイルだと複数アカウントの
+  // 復元順序によって別アカウントのUA/ヘッダーが混ざる。
+  return accountFile(accountId, "desktop-profile.json");
 }
 
 function resolveDesktopKeysPath(): string | null {
@@ -181,13 +185,8 @@ export async function restoreFromDesktop(accountId: string) {
   const restoredProfile = loadSourceProfile();
   let restoredProfileCachePath: string | null = null;
   if (restoredProfile) {
-    restoredProfileCachePath = vylineProfileCachePath();
-    mkdirSync(dirname(restoredProfileCachePath), { recursive: true });
-    writeFileSync(
-      restoredProfileCachePath,
-      `${JSON.stringify(restoredProfile.profile, null, 2)}\n`,
-      "utf8",
-    );
+    restoredProfileCachePath = vylineProfileCachePath(accountId);
+    await writeJsonAtomic(restoredProfileCachePath, restoredProfile.profile);
   }
 
   // Desktop プロファイル再スキャン（UA / X-Line-Application）

@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-08-20
+最終更新: 2026-08-30
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -11,9 +11,34 @@
 **Vyline** は LINE のサードパーティクライアントです。Bun + Hono + React で構築され、自前の LINE プロトコルスタック (`@vyline/protocol`) を持ちます。
 
 - **目標**: LINE にログインし、メッセージの送受信・Flex/Rich 表示・テーマカスタマイズを行う
-- **ライセンス**: MIT
-- **ステータス**: Phase 1-3 進行中（E2EE 復号・送信・Desktop 鍵 import・Vyline）
+- **ライセンス**: MIT License（`logo/` のブランド資産は `logo/LICENCE` に従う CC BY 4.0）
+- **ステータス**: Phase 0-3 完了。Beta 向けの UI・品質・配布準備とオープンチャット統合を継続中
 - **外部依存**: `@evex/linejs` なし。Thrift 型は `@vyline/line-types`（vendored）
+
+---
+
+## 最初に読む順番
+
+この repository は README、docs、submodule、workspace が多い。迷った場合は次の順番で読む。
+
+1. `AGENTS.md`（このファイル）
+2. `docs/README.md`
+3. `docs/onboarding.md`
+4. `docs/architecture.md`
+5. 対象機能に一番近い docs
+6. 実コード
+
+README はユーザー向け入口。実装判断の正本にしない。
+
+### AI が手間取りやすい点
+
+- `Vyline/packages/protocol`、`Vyline/packages/plugin`、`Vyline/packages/themes`、`tools` は submodule/workspace の境界が見えにくい。まず `bun run vyl:doctor` で状態を確認する。
+- docs整理では既存docsをテンプレートへ機械的に当て直さない。新規docsや大改修だけ `docs/templates/` を使い、既存docsは必要箇所だけ直す。
+- README の正本は日本語が `README.src.md`、英語が `README.en.src.md`。`README.md` / `README.en.md` は生成物なので、原則として直接編集しない。README変更は両方の source に同じ内容を反映し、`bun run docs:readme` で生成して差分を確認する。
+- README は元の構成を守る。新導線を入れる場合も、該当セクションへの追記に留める。
+- 日本語と英語の README は情報量を揃える。機能、注意事項、パートナー、References、導入手順などを片方だけに追加しない。生成後は `README.md` と `README.en.md` の見出し・主要項目に欠落がないか確認する。
+- `vyl doctor` / `vyl init` は軽い入口にする。npm publish、Docker build、Trivy container scan、full security scan は通常CLIに入れない。
+- 重い処理は GitHub Actions の manual workflow、release workflow、schedule に寄せる。PRでは軽量チェックを優先する。
 
 ---
 
@@ -65,6 +90,14 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 | 4     | Telegram-like UI                      | in progress |
 | 5     | Quality / perf                        | in progress |
 | 6     | Beta 公開準備                         | in progress |
+
+### 最近の主な変更 (2026-08-27)
+
+- **Vyline Setup / アカウント設定**: 初回 3 ステップ設定、MID ごとの設定スキーマ、原子的 JSON 保存、進捗の復元を追加
+- **引継ぎ / 診断**: 設定のみを含む SHA-256 検証 ZIP の import/export、サニタイズ済み診断ログの確認・出力・削除、GitHub Issue 作成導線を追加
+- **セッション保護**: Windows のトークンを DPAPI(CurrentUser) で保護。サブデバイスをブラウザごとのランダムなインストール ID に結び付け、端末固有情報を保存しない
+- **同期と表示**: 既読反映・未読位置・仮想リストのスクロールを安定化。アカウント切替時に前アカウントの UI 状態を残さない
+- **遠隔利用**: LAN 公開を既定で無効にし、Tailscale の検出と URL 表示を追加
 
 ### 最近の主な変更 (2026-08-18)
 
@@ -294,20 +327,40 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - `desktop-e2ee-keys.json` / tokens / session / `Vyline/backend/data/` は **gitignore・コミット禁止**
 - PR・チャット・docs に鍵・トークン実値を貼らない
 
+## ロゴ・ブランド資産の扱い
+
+- `logo/` 以下の Vyline ロゴは、ソースコード本体のライセンスとは別に **Creative Commons Attribution 4.0 International (CC BY 4.0)** で提供される。
+- 著作権表示は **Copyright © 2026 y2mc**。正式なライセンス表記は `logo/LICENCE` を正本とする。
+- ロゴをコピー・再配布・改変・README / Web / アプリ / 配布物などで利用する場合は、CC BY 4.0 の条件に従い適切なクレジットを維持する。`logo/LICENCE` では帰属先を **"Project Vyline"** としてよい。
+- `logo/` の画像を、リポジトリ本体のライセンスだけが適用される素材として扱わない。ロゴを含む配布物・派生物では `logo/LICENCE` を削除したり、ライセンス情報を失わせたりしない。
+- ロゴの差し替え・新規ブランド資産の追加時は、作者・利用許諾・ライセンス互換性を確認し、必要なら対象ディレクトリに独立したライセンス/クレジット情報を置く。
+
 ## Pull Request ルール（AI・人間共通）
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
+
+### 推奨: 1 task = 1 branch = 1 git worktree
+
+複数のAIエージェント・人間・IDEが並行してVylineを触る場合、repository全体のコピーではなく **タスクごとに独立した Git worktree** を使う。
+
+- 標準作業領域: `E:\projects\Vyline-worktrees\<task-name>`
+- `.codex-worktrees` のような特定エージェント専用名は新規利用しない
+- 本体 `E:\projects\Vyline` を複数タスクの共有編集場所にしない
+- 他worktreeのdirty差分・未追跡ファイルは触らない
+- 作業完了後はPRをmergeしてから `git worktree remove` で片付ける
+- 詳細手順: `docs/development-worktrees.md`
 
 - `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
 
 ```
-1. main から作業ブランチを切る
-   git checkout main && git pull && git checkout -b feature/<名前>
-2. 変更をコミットしてブランチに push
+1. origin/main から作業branch + worktreeを作る
+   git fetch origin
+   git worktree add -b feature/<名前> E:\projects\Vyline-worktrees\<名前> origin/main
+2. worktree内で変更をコミットしてbranchにpush
    git push -u origin feature/<名前>
 3. GitHub で PR を作成（base: main ← head: feature/<名前>）
-4. レビュー・承認後にマージする（repo 所有者以外のマージはブロックされる）
+4. レビュー・承認後にマージし、worktreeを削除する
 ```
 
 - 小さな修正（1 コミットのドキュメント更新など）でも、main への直接 push はせずブランチ経由にする
@@ -352,3 +405,11 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - **BFF 層**: HTTP 入出力のみ → `service/lineService.ts` に委譲
 - **コード正本**: `backend/src/service/lineService.ts` と `apps/desktop/src/lib/store.ts`
 - **新機能追加**: CONTRIBUTING.md のフローに従う (辞書→Desktop→domain→BFF)
+
+## 作者クレジットについて
+
+- Vyline 本体のソフトウェアライセンスは標準の MIT License とし、追加の帰属条件は課さない。
+- 再配布・改変・紹介時には、可能であれば原作者 **nezumi0627** および Project Vyline へのクレジット表記をお願いする。ただし、これはライセンス上の追加義務ではない。
+- MIT License が要求する著作権表示および許諾表示の保持は必要。
+- `logo/` 以下のブランド資産にはこの扱いを適用せず、必ず `logo/LICENCE` の CC BY 4.0 条件に従う。
+

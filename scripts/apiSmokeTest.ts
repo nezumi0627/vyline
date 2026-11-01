@@ -99,10 +99,10 @@ console.log(`== Vyline API smoke test (${BASE}, account=${account}) ==\n`);
 // ── session / chats ──
 let profileMid = "";
 {
-  const { status, body } = await json(`/line/${account}/profile`);
+  const { status, body } = await json(`/line/${account}/getProfile`);
   const b = body as { profile?: { mid?: string; displayName?: string } };
   profileMid = b.profile?.mid ?? "";
-  check("GET /line/:accountId/profile", status === 200 && Boolean(profileMid));
+  check("GET /line/:accountId/getProfile", status === 200 && Boolean(profileMid));
 }
 {
   const { status, body } = await json("/auth/accounts");
@@ -115,24 +115,28 @@ let profileMid = "";
   check("GET /line/:accountId/bootstrap", status === 200 && Array.isArray(b.chats));
 }
 {
-  const { status, body } = await json(`/line/${account}/chats`);
+  const { status, body } = await json(`/line/${account}/getMessageBoxes`);
   const b = body as { chats?: unknown[] };
-  check("GET /line/:accountId/chats", status === 200 && Array.isArray(b.chats));
+  check("GET /line/:accountId/getMessageBoxes", status === 200 && Array.isArray(b.chats));
 }
 {
-  const { status, body } = await json(`/line/${account}/messages/${TEST_GROUP}?limit=10&force=1`);
+  const { status, body } = await json(
+    `/line/${account}/getPreviousMessagesV2WithRequest/${TEST_GROUP}?limit=10&force=1`,
+  );
   const b = body as { messages?: unknown[] };
-  check("GET /messages (force)", status === 200 && Array.isArray(b.messages));
+  check("GET /getPreviousMessagesV2WithRequest (force)", status === 200 && Array.isArray(b.messages));
 }
 {
-  const { status } = await json(`/line/${account}/messages/${TEST_GROUP}?limit=5&local=1`);
-  check("GET /messages (local)", status === 200);
+  const { status } = await json(
+    `/line/${account}/getPreviousMessagesV2WithRequest/${TEST_GROUP}?limit=5&local=1`,
+  );
+  check("GET /getPreviousMessagesV2WithRequest (local)", status === 200);
 }
 
 // ── validation errors ──
 {
-  const { status } = await post(`/line/${account}/send`, {});
-  check("POST /send without body -> 400", status === 400);
+  const { status } = await post(`/line/${account}/sendMessage`, {});
+  check("POST /sendMessage without body -> 400", status === 400);
 }
 {
   const { status } = await post(`/line/${account}/send-media-batch`, {});
@@ -188,7 +192,11 @@ if (profileMid) {
     console.log(`SKIP  GET /notes (route not present: ${res.status})`);
   } else {
     const body = (await res.json()) as { code?: number };
-    check("GET /notes (own home)", body.code === 0, JSON.stringify(body).slice(0, 80));
+    if (body.code === 403) {
+      console.log("SKIP  GET /notes (account has no Note permission)");
+    } else {
+      check("GET /notes (own home)", body.code === 0, JSON.stringify(body).slice(0, 80));
+    }
   }
 }
 

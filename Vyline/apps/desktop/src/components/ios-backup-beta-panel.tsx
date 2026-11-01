@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
@@ -13,6 +13,8 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
   const [session, setSession] = useState<Session | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const pollTimer = useRef<number | null>(null);
+  const pollGeneration = useRef(0);
 
   const load = async () => {
     if (!accountId) return;
@@ -38,19 +40,37 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
   }, [accountId]);
 
   useEffect(() => {
+    const generation = ++pollGeneration.current;
+    if (pollTimer.current) window.clearTimeout(pollTimer.current);
+    pollTimer.current = null;
     if (
-      !session ||
-      !session.id ||
+      !session?.id ||
       !accountId ||
       (session.status !== "pending" && session.status !== "running")
     )
       return;
-    const timer = window.setInterval(async () => {
-      const response = await api.line.getIosBackupSession(accountId, session.id);
-      if (response.session) setSession(response.session);
-    }, 1000);
-    return () => window.clearInterval(timer);
-  }, [accountId, session]);
+
+    const poll = async () => {
+      if (generation !== pollGeneration.current) return;
+      try {
+        const response = await api.line.getIosBackupSession(accountId, session.id);
+        if (generation !== pollGeneration.current) return;
+        if (response.session) setSession(response.session);
+      } catch {
+        // 次回ポーリングで再試行
+      } finally {
+        if (generation === pollGeneration.current) {
+          pollTimer.current = window.setTimeout(poll, 1000);
+        }
+      }
+    };
+    pollTimer.current = window.setTimeout(poll, 1000);
+    return () => {
+      pollGeneration.current += 1;
+      if (pollTimer.current) window.clearTimeout(pollTimer.current);
+      pollTimer.current = null;
+    };
+  }, [accountId, session?.id, session?.status]);
 
   useEffect(() => {
     if (session?.status !== "completed" || !accountId) return;

@@ -72,16 +72,14 @@ function toBuf(v: unknown): Buffer {
   return Buffer.alloc(0);
 }
 
-function hex(v: unknown, max = 32): string {
-  const b = toBuf(v);
-  return `${b.subarray(0, max).toString("hex")}${b.length > max ? "…" : ""} (${b.length}B)`;
-}
-
 function jsonSafe(v: unknown): string {
   return JSON.stringify(
     v,
-    (_, x) => {
-      if (x instanceof Uint8Array) return `bin(${hex(x)})`;
+    (key, x) => {
+      if (/secret|token|pass(code|word)?|private|master|recovery|credential/i.test(key)) {
+        return x == null ? x : "[REDACTED]";
+      }
+      if (x instanceof Uint8Array) return `bin(${x.byteLength}B)`;
       if (typeof x === "bigint") return x.toString();
       return x;
     },
@@ -196,7 +194,9 @@ async function main(): Promise<void> {
       "/EKBS4",
     )) as { recoveryKey?: unknown; blobPayload?: unknown } | undefined;
     const secret = claimV3.restore(toBuf(restored?.recoveryKey), toBuf(restored?.blobPayload));
-    console.log(`[ekbs] v3 payloadSecret: type=${secret.type} key=${hex(secret.key)}`);
+    // Never print or persist the derived payload secret. It can decrypt the
+    // account's backup material and must remain in memory only.
+    console.log(`[ekbs] v3 payloadSecret restored (type=${secret.type}; value redacted)`);
     console.log("[ekbs] v3 経路は鍵束 JSON 復元に未対応 — LKBS4 probe へ進みます");
   }
 
@@ -208,27 +208,12 @@ async function main(): Promise<void> {
       );
     }
     console.log(`[keys] passcode: ${keys.passcode ? "あり" : "なし"}`);
-    console.log(`[keys] masterKey: ${keys.masterKey ? hex(keys.masterKey) : "なし"}`);
+    console.log(`[keys] masterKey: ${keys.masterKey ? "あり (値は非表示)" : "なし"}`);
 
     if (values["save-keys"]) {
-      const outDir = values.out ?? join(DATA_DIR, "sbc-extract");
-      await mkdir(outDir, { recursive: true });
-      const file = join(outDir, `sbc-keys-${Date.now()}.json`);
-      await writeFile(
-        file,
-        JSON.stringify(
-          {
-            mid,
-            savedAt: new Date().toISOString(),
-            e2eeKeys: keys.e2eeKeys,
-            passcode: keys.passcode,
-            masterKey: keys.masterKey ? Buffer.from(keys.masterKey).toString("base64") : undefined,
-          },
-          null,
-          2,
-        ),
+      throw new Error(
+        "--save-keys is disabled: E2EE private keys, passcodes, and master keys must not be written to disk",
       );
-      console.log(`[keys] saved → ${file}`);
     }
   }
 
@@ -245,7 +230,7 @@ async function main(): Promise<void> {
         { request: { restoreClaim: Buffer.from(lkbsClaim) } },
         "/LKBS4",
       )) as { recoveryKey?: unknown } | undefined;
-      console.log(`[lkbs] header restored: recoveryKey=${hex(hdr?.recoveryKey)}`);
+      console.log("[lkbs] header restored (recovery key value redacted)");
     }
 
     const payloads = (await backupRpc(

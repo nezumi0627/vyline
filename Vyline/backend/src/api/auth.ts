@@ -10,10 +10,12 @@
  * POST /auth/switch/:id     — アカウント切替（未ログインなら restore）
  * GET  /auth/accounts       — ログイン中 + 保存セッション一覧
  * GET  /auth/sessions       — 保存済みセッション詳細
+ * POST /auth/logout/:id     — この端末のメモリ上のセッションだけ終了
  * DELETE /auth/sessions/:id — 保存セッション削除
  * DELETE /auth/accounts/:id — アカウント削除
  */
 
+import { randomInt, randomUUID } from "node:crypto";
 import { Hono } from "hono";
 import { childLogger } from "../logger.js";
 import {
@@ -25,21 +27,135 @@ import {
   getQrState,
   getLoggedInAt,
   getAuthToken,
+  getContentQrState,
+  loginContentWithQRCode,
   removeClient,
+  waitForSessionRestore,
 } from "../line/clientManager.js";
-import { deleteToken, loadTokens, listSavedSessions } from "../storage/tokenStore.js";
+import {
+  deleteToken,
+  loadTokens,
+  listSavedSessions,
+  saveRefreshToken,
+  saveToken,
+} from "../storage/tokenStore.js";
+import {
+  describeWindowsLineTokenInventory,
+  inspectWindowsLineTokens,
+  type WindowsLineTokenInventory,
+} from "../service/windowsLineTokenService.js";
 
 const log = childLogger("api:auth");
 export const authRouter = new Hono();
 type EmailLoginStatus = "idle" | "pending" | "completed" | "failed";
-const emailLoginState = new Map<
+const EMAIL_LOGIN_STATE_TTL_MS = 10 * 60 * 1000;
+type EmailLoginState = {
+  status: EmailLoginStatus;
+  pincode: string | null;
+  error: string | null;
+  expiresAt: number;
+};
+const emailLoginState = new Map<string, EmailLoginState>();
+
+function pruneEmailLoginState(now = Date.now()): void {
+  for (const [accountId, state] of emailLoginState) {
+    if (state.expiresAt <= now) emailLoginState.delete(accountId);
+  }
+}
+
+function setEmailLoginState(accountId: string, state: Omit<EmailLoginState, "expiresAt">): void {
+  emailLoginState.set(accountId, { ...state, expiresAt: Date.now() + EMAIL_LOGIN_STATE_TTL_MS });
+}
+
+async function deleteAccountCredentials(accountId: string): Promise<void> {
+  await Promise.all([deleteToken(accountId), deleteToken(`${accountId}:content`)]);
+}
+const WINDOWS_TOKEN_SCAN_TTL_MS = 2 * 60 * 1000;
+const windowsTokenScans = new Map<
   string,
-  { status: EmailLoginStatus; pincode: string | null; error: string | null }
+  { inventory: WindowsLineTokenInventory; expiresAt: number }
 >();
 
-function random6DigitPin(): string {
-  return String(Math.floor(100000 + Math.random() * 900000));
+function pruneWindowsTokenScans(now = Date.now()): void {
+  for (const [scanId, scan] of windowsTokenScans) {
+    if (scan.expiresAt <= now) windowsTokenScans.delete(scanId);
+  }
 }
+
+// 端末確認 PIN は認証情報。Math.random は予測可能なため CSPRNG を使う。
+function random6DigitPin(): string {
+  return String(randomInt(100000, 1000000));
+}
+
+// GET /auth/windows-line-tokens — LINE for Windows のメモリ上の候補を安全に一覧化
+authRouter.get("/windows-line-tokens", async (c) => {
+  if (process.platform !== "win32") {
+    return c.json({ ok: false, error: "Windows only" }, 400);
+  }
+  try {
+    pruneWindowsTokenScans();
+    const inventory = await inspectWindowsLineTokens();
+    const scanId = randomUUID();
+    windowsTokenScans.set(scanId, {
+      inventory,
+      expiresAt: Date.now() + WINDOWS_TOKEN_SCAN_TTL_MS,
+    });
+    return c.json({
+      ok: true,
+      scanId,
+      scannedAt: new Date().toISOString(),
+      tokens: describeWindowsLineTokenInventory(inventory),
+    });
+  } catch (err) {
+    log.warn(
+      { err: err instanceof Error ? err.message : "scanner failed" },
+      "Windows LINE token scan failed",
+    );
+    return c.json({ ok: false, error: "Windows LINE token scan failed" }, 500);
+  }
+});
+
+authRouter.post("/windows-line-tokens/import", async (c) => {
+  const body = await c.req.json<{
+    accountId?: unknown;
+    scanId?: unknown;
+    candidateIndex?: unknown;
+  }>();
+  const accountId = typeof body.accountId === "string" ? body.accountId.trim() : "";
+  const scanId = typeof body.scanId === "string" ? body.scanId.trim() : "";
+  const candidateIndex = typeof body.candidateIndex === "number" ? body.candidateIndex : Number.NaN;
+  if (!accountId || accountId.length > 100 || !scanId || !Number.isInteger(candidateIndex)) {
+    return c.json({ ok: false, error: "invalid import request" }, 400);
+  }
+  pruneWindowsTokenScans();
+  const scan = windowsTokenScans.get(scanId);
+  const candidate = scan?.inventory.candidates[candidateIndex];
+  if (
+    !scan ||
+    !candidate ||
+    candidate.kind !== "access" ||
+    !candidate.expiresAt ||
+    candidate.expiresAt * 1000 <= Date.now()
+  ) {
+    return c.json({ ok: false, error: "usable access token not found" }, 400);
+  }
+  try {
+    await loginWithAuthToken(accountId, candidate.token, "DESKTOPWIN");
+    await saveToken(accountId, candidate.token, { deviceMode: "DESKTOPWIN" });
+    const pair = scan.inventory.pairs.find((item) => item.access === candidate);
+    if (pair?.refresh) {
+      await saveRefreshToken(accountId, pair.refresh.token, pair.refresh.expiresAt);
+    }
+    windowsTokenScans.delete(scanId);
+    return c.json({ ok: true, accountId, pairedRefreshSaved: Boolean(pair?.refresh) });
+  } catch (err) {
+    log.warn(
+      { accountId, err: err instanceof Error ? err.message : "import failed" },
+      "Windows LINE token import failed",
+    );
+    return c.json({ ok: false, error: "Windows LINE token import failed" }, 400);
+  }
+});
 
 // ─────────────────────────────────────────────
 // POST /auth/login/email
@@ -57,15 +173,16 @@ authRouter.post("/login/email", async (c) => {
   }
 
   // E2EE 暗号化と表示 PIN は必ず同一。食い違うと decryptKeyChain が Invalid type: 0 になる
+  pruneEmailLoginState();
   const pincode = random6DigitPin();
-  emailLoginState.set(body.accountId, { status: "pending", pincode, error: null });
+  setEmailLoginState(body.accountId, { status: "pending", pincode, error: null });
 
   loginWithEmail(
     body.accountId,
     body.email,
     body.password,
     (pin) => {
-      emailLoginState.set(body.accountId, { status: "pending", pincode: pin, error: null });
+      setEmailLoginState(body.accountId, { status: "pending", pincode: pin, error: null });
       log.info(
         { accountId: body.accountId, pin: Boolean(pin) },
         "PINCODE REQUIRED — enter on LINE app",
@@ -75,7 +192,7 @@ authRouter.post("/login/email", async (c) => {
   )
     .then(() => {
       const current = emailLoginState.get(body.accountId);
-      emailLoginState.set(body.accountId, {
+      setEmailLoginState(body.accountId, {
         status: "completed",
         pincode: current?.pincode ?? null,
         error: null,
@@ -96,7 +213,7 @@ authRouter.post("/login/email", async (c) => {
         userError = "PIN 認証に失敗しました。表示された PIN をそのまま入力して再試行してください。";
       }
 
-      emailLoginState.set(body.accountId, { status: "failed", pincode: null, error: userError });
+      setEmailLoginState(body.accountId, { status: "failed", pincode: null, error: userError });
       log.error({ accountId: body.accountId, err }, "email login failed");
     });
 
@@ -108,6 +225,7 @@ authRouter.post("/login/email", async (c) => {
 });
 
 authRouter.get("/login/email/:id", (c) => {
+  pruneEmailLoginState();
   const accountId = c.req.param("id");
   const state = emailLoginState.get(accountId) ?? {
     status: "idle" as EmailLoginStatus,
@@ -154,14 +272,24 @@ authRouter.post("/login/qr", async (c) => {
 // ─────────────────────────────────────────────
 // GET /auth/login/qr/:id
 // QR 状態をポーリングで取得する
-// status: "idle" | "waiting" | "pending" | "expired" | "completed"
+// status: "idle" | "waiting" | "pending" | "expired" | "completed" | "failed"
 // ─────────────────────────────────────────────
 authRouter.get("/login/qr/:id", (c) => {
   const accountId = c.req.param("id");
-  const { url, expired, pincode, inProgress } = getQrState(accountId);
+  const { url, expired, pincode, inProgress, error } = getQrState(accountId);
 
   if (expired) {
     return c.json({ ok: true, status: "expired", qrUrl: null, pincode: null });
+  }
+
+  if (error && !inProgress) {
+    return c.json({
+      ok: true,
+      status: "failed",
+      qrUrl: null,
+      pincode: null,
+      error: "QRログインに失敗しました。もう一度お試しください。",
+    });
   }
 
   if (url) {
@@ -185,6 +313,51 @@ authRouter.get("/login/qr/:id", (c) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /auth/content/qr
+// Note / Album 用の ANDROIDSECONDARY セッションを正式登録する
+// ─────────────────────────────────────────────
+authRouter.post("/content/qr", async (c) => {
+  const body = await c.req.json<{ accountId: string }>();
+  if (!body.accountId) {
+    return c.json({ ok: false, error: "accountId required" }, 400);
+  }
+
+  loginContentWithQRCode(body.accountId, (url) => {
+    log.info({ accountId: body.accountId, urlReady: Boolean(url) }, "content QR URL ready");
+  })
+    .then(() => log.info({ accountId: body.accountId }, "content QR login completed"))
+    .catch((err: unknown) =>
+      log.error({ accountId: body.accountId, err }, "content QR login failed"),
+    );
+
+  return c.json({
+    ok: true,
+    message: "Content QR login started — poll GET /auth/content/qr/:id",
+    accountId: body.accountId,
+  });
+});
+
+authRouter.get("/content/qr/:id", (c) => {
+  const accountId = c.req.param("id");
+  const state = getContentQrState(accountId);
+  const status = state.ready
+    ? "completed"
+    : state.expired
+      ? "expired"
+      : state.url
+        ? "pending"
+        : state.inProgress
+          ? "waiting"
+          : "idle";
+  return c.json({
+    ok: true,
+    status,
+    qrUrl: state.url,
+    pincode: state.pincode,
+  });
+});
+
+// ─────────────────────────────────────────────
 // POST /auth/restore
 // body: { accountId }  — 保存済みトークンで復元
 // ─────────────────────────────────────────────
@@ -198,8 +371,22 @@ authRouter.post("/restore", async (c) => {
     await loginWithToken(body.accountId);
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (message.includes("NOT_AUTHORIZED_DEVICE") && message.includes("EXPIRED")) {
+      const { updateSessionMeta } = await import("../storage/tokenStore.js");
+      await updateSessionMeta(body.accountId, { reauthRequired: true });
+      return c.json(
+        {
+          ok: false,
+          error:
+            "セッションの有効期限が切れました。再認証すると履歴・E2EE鍵・設定はそのまま引き継がれます。",
+          code: "REAUTH_REQUIRED",
+        },
+        401,
+      );
+    }
     log.error({ accountId: body.accountId, err }, "restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -208,23 +395,34 @@ authRouter.post("/restore", async (c) => {
 // body: { accountId, authToken }  — トークン直接指定でログイン
 // ─────────────────────────────────────────────
 authRouter.post("/login/token", async (c) => {
-  const body = await c.req.json<{ accountId: string; authToken: string }>();
+  const body = await c.req.json<{ accountId: string; authToken: string; deviceMode?: string }>();
   if (!body.accountId || !body.authToken) {
     return c.json({ ok: false, error: "accountId and authToken required" }, 400);
   }
 
   try {
-    await loginWithAuthToken(body.accountId, body.authToken);
+    const deviceMode = body.deviceMode?.trim().toUpperCase();
+    const allowedDeviceModes = new Set([
+      "IOS",
+      "IOSIPAD",
+      "ANDROIDSECONDARY",
+      "DESKTOPWIN",
+      "DESKTOPMAC",
+    ]);
+    if (deviceMode && !allowedDeviceModes.has(deviceMode)) {
+      return c.json({ ok: false, error: "invalid deviceMode" }, 400);
+    }
+    await loginWithAuthToken(body.accountId, body.authToken, deviceMode);
 
     // トークンを保存（次回から restore で復元可能）
     const { saveToken } = await import("../storage/tokenStore.js");
-    await saveToken(body.accountId, body.authToken, {});
+    await saveToken(body.accountId, body.authToken, deviceMode ? { deviceMode } : {});
 
     log.info({ accountId: body.accountId }, "token login success");
     return c.json({ ok: true, accountId: body.accountId });
   } catch (err) {
     log.error({ accountId: body.accountId, err }, "token login failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -253,7 +451,7 @@ authRouter.post("/switch/:id", async (c) => {
     return c.json({ ok: true, accountId, restored: true });
   } catch (err) {
     log.error({ accountId, err }, "switch restore failed");
-    return c.json({ ok: false, error: String(err) }, 500);
+    return c.json({ ok: false, error: "internal server error" }, 500);
   }
 });
 
@@ -261,6 +459,7 @@ authRouter.post("/switch/:id", async (c) => {
 // GET /auth/accounts
 // ─────────────────────────────────────────────
 authRouter.get("/accounts", async (c) => {
+  await waitForSessionRestore();
   const active = listAccounts();
   const saved = await loadTokens();
   const sessions = await listSavedSessions();
@@ -273,9 +472,12 @@ authRouter.get("/accounts", async (c) => {
 });
 
 // ─────────────────────────────────────────────
-// GET /auth/token/:id — 現在の authToken 取得（ログイン中のみ）
+// GET /auth/token/:id — 現在の authToken 取得（PCローカルのみ）
 // ─────────────────────────────────────────────
 authRouter.get("/token/:id", async (c) => {
+  if (c.req.header("x-vyline-local-request") !== "1") {
+    return c.json({ ok: false, error: "local request required" }, 403);
+  }
   const accountId = c.req.param("id");
   const token = getAuthToken(accountId);
   if (!token) {
@@ -297,14 +499,25 @@ authRouter.get("/sessions", async (c) => {
 });
 
 // ─────────────────────────────────────────────
+// POST /auth/logout/:id — この端末のセッションだけ終了
+// ─────────────────────────────────────────────
+// 通常のログアウトでは保存済み資格情報を残し、次回のアカウント切替・復元に使えるようにする。
+authRouter.post("/logout/:id", async (c) => {
+  const accountId = c.req.param("id");
+  await removeClient(accountId);
+  return c.json({ ok: true, accountId });
+});
+
+// ─────────────────────────────────────────────
 // DELETE /auth/sessions/:id — 保存セッションのみ削除（メモリは維持可）
 // query: ?logout=1 でメモリ上のクライアントも破棄
 // ─────────────────────────────────────────────
 authRouter.delete("/sessions/:id", async (c) => {
   const accountId = c.req.param("id");
   const alsoLogout = c.req.query("logout") === "1" || c.req.query("logout") === "true";
-  await deleteToken(accountId);
-  if (alsoLogout) removeClient(accountId);
+  if (alsoLogout) await removeClient(accountId);
+  emailLoginState.delete(accountId);
+  await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });
 
@@ -313,7 +526,8 @@ authRouter.delete("/sessions/:id", async (c) => {
 // ─────────────────────────────────────────────
 authRouter.delete("/accounts/:id", async (c) => {
   const accountId = c.req.param("id");
-  removeClient(accountId);
-  await deleteToken(accountId);
+  await removeClient(accountId);
+  emailLoginState.delete(accountId);
+  await deleteAccountCredentials(accountId);
   return c.json({ ok: true, accountId });
 });

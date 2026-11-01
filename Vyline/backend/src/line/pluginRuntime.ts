@@ -9,9 +9,9 @@
  * - すべての操作はアカウントスコープ（accountId バウンド）
  */
 
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync, realpathSync } from "node:fs";
+import { mkdir, readFile, stat } from "node:fs/promises";
+import { join, relative, resolve } from "node:path";
 import type {
   PluginContext,
   PluginLogger,
@@ -19,25 +19,78 @@ import type {
   VylinePlugin,
 } from "@vyline/plugin-sdk";
 import { childLogger } from "../logger.js";
-import { PLUGIN_DIR } from "./pluginPaths.js";
+import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
+import { getDataDir, getPluginDir } from "./pluginPaths.js";
 
 const log = childLogger("plugins");
+const MAX_PLUGIN_MESSAGE_HANDLERS = 64;
+const MAX_PLUGIN_SETTINGS_BYTES = 256 * 1024;
+const MAX_PLUGIN_SETTING_KEY_LENGTH = 128;
+const PLUGIN_LIFECYCLE_TIMEOUT_MS = Number(
+  process.env.VYLINE_PLUGIN_LIFECYCLE_TIMEOUT_MS ?? 10_000,
+);
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
-const SETTINGS_DIR = join(DATA_DIR, "plugin-settings");
+/**
+ * A plugin is local code, but its lifecycle still sits on the login/logout
+ * critical path. Bound it so one stuck plugin cannot stall the whole account.
+ * The underlying JavaScript cannot be forcefully cancelled; the timeout only
+ * releases Vyline's lifecycle wait and keeps the plugin isolated.
+ */
+export function withPluginLifecycleTimeout<T>(
+  work: () => Promise<T>,
+  timeoutMs = PLUGIN_LIFECYCLE_TIMEOUT_MS,
+): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(
+      () => reject(new Error(`plugin lifecycle timed out after ${timeoutMs}ms`)),
+      timeoutMs,
+    );
+    Promise.resolve()
+      .then(work)
+      .then(
+        (value) => {
+          clearTimeout(timer);
+          resolve(value);
+        },
+        (error) => {
+          clearTimeout(timer);
+          reject(error);
+        },
+      );
+  });
+}
+
+function settingsDir(): string {
+  return join(getDataDir(), "plugin-settings");
+}
 
 interface ActivePlugin {
   accountId: string;
   pluginId: string;
   permissions: Set<string>;
-  messageHandlers: Set<(m: PluginMessageSnapshot) => void>;
+  messageHandlers: Set<(m: PluginMessageSnapshot) => void | Promise<void>>;
+  plugin: VylinePlugin;
+  context: PluginContext;
 }
 
 const active = new Map<string, ActivePlugin>();
+// Settings updates are read-modify-write transactions. Serialize only the
+// same account/plugin pair so concurrent plugins cannot overwrite each other.
+const settingsLocks = new Map<string, Promise<void>>();
 
 function key(accountId: string, pluginId: string): string {
   return `${accountId}:${pluginId}`;
+}
+
+function isInside(parent: string, child: string): boolean {
+  const rel = relative(parent, child);
+  return Boolean(rel) && !rel.startsWith("..") && !rel.includes(":");
+}
+
+function settingsPath(accountId: string, pluginId: string): string {
+  const account = safePathComponent(accountId, "account");
+  const plugin = safePathComponent(pluginId, "plugin");
+  return join(settingsDir(), `${account}.${plugin}.json`);
 }
 
 export function isPluginActive(accountId: string, pluginId: string): boolean {
@@ -46,12 +99,23 @@ export function isPluginActive(accountId: string, pluginId: string): boolean {
 
 /** プラグインのエントリポイントファイルを解決する（index.ts → index.js → main） */
 export function resolvePluginEntry(pluginDirName: string, manifestMain?: string): string | null {
-  const dir = join(PLUGIN_DIR, pluginDirName);
+  const dir = resolve(getPluginDir(), pluginDirName);
+  let realDir: string;
+  try {
+    realDir = realpathSync(dir);
+  } catch {
+    return null;
+  }
   const candidates = manifestMain
-    ? [join(dir, manifestMain)]
-    : [join(dir, "index.ts"), join(dir, "index.js")];
-  for (const c of candidates) {
-    if (existsSync(c)) return c;
+    ? [resolve(dir, manifestMain)]
+    : [resolve(dir, "index.ts"), resolve(dir, "index.js")];
+  for (const candidate of candidates) {
+    if (!isInside(dir, candidate)) continue;
+    if (!existsSync(candidate)) continue;
+    try {
+      if (!isInside(realDir, realpathSync(candidate))) continue;
+      return candidate;
+    } catch {}
   }
   return null;
 }
@@ -66,39 +130,68 @@ async function makeLogger(pluginId: string): Promise<PluginLogger> {
   };
 }
 
-function readSettingsFile(accountId: string, pluginId: string): Record<string, unknown> {
+async function readSettingsFile(
+  accountId: string,
+  pluginId: string,
+): Promise<Record<string, unknown>> {
   try {
-    return JSON.parse(
-      readFileSync(join(SETTINGS_DIR, `${accountId}.${pluginId}.json`), "utf8"),
-    ) as Record<string, unknown>;
+    const path = settingsPath(accountId, pluginId);
+    if ((await stat(path)).size > MAX_PLUGIN_SETTINGS_BYTES) {
+      log.warn({ accountId, pluginId }, "plugin settings file exceeds size limit");
+      return {};
+    }
+    return JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   } catch {
     return {};
   }
 }
 
-function writeSettingsFile(
+async function writeSettingsFile(
   accountId: string,
   pluginId: string,
   data: Record<string, unknown>,
-): void {
-  mkdirSync(SETTINGS_DIR, { recursive: true });
-  writeFileSync(
-    join(SETTINGS_DIR, `${accountId}.${pluginId}.json`),
-    JSON.stringify(data, null, 2),
-    "utf8",
-  );
+): Promise<void> {
+  const serialized = `${JSON.stringify(data, null, 2)}\n`;
+  if (Buffer.byteLength(serialized, "utf8") > MAX_PLUGIN_SETTINGS_BYTES) {
+    throw new Error(`plugin settings exceed ${MAX_PLUGIN_SETTINGS_BYTES} bytes`);
+  }
+  await mkdir(settingsDir(), { recursive: true });
+  await writeJsonAtomic(settingsPath(accountId, pluginId), data);
+}
+
+async function withSettingsLock<T>(
+  accountId: string,
+  pluginId: string,
+  work: () => Promise<T>,
+): Promise<T> {
+  const lockKey = key(accountId, pluginId);
+  const previous = settingsLocks.get(lockKey) ?? Promise.resolve();
+  let release!: () => void;
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const chain = previous.then(() => current);
+  settingsLocks.set(lockKey, chain);
+  await previous;
+  try {
+    return await work();
+  } finally {
+    release();
+    if (settingsLocks.get(lockKey) === chain) settingsLocks.delete(lockKey);
+  }
 }
 
 /**
  * プラグインを有効化して activate を呼ぶ。
  * 失敗しても例外を投げず false を返す（本体は絶対に落とさない）。
  */
-export async function activatePlugin(
+async function activatePluginNow(
   accountId: string,
   pluginId: string,
   pluginDirName: string,
   permissions: string[],
   loaded?: VylinePlugin,
+  manifestMain?: string,
 ): Promise<boolean> {
   const k = key(accountId, pluginId);
   if (active.has(k)) return true;
@@ -106,11 +199,8 @@ export async function activatePlugin(
   let plugin: VylinePlugin | undefined = loaded;
   try {
     if (!plugin) {
-      // resolvePluginEntry と同じ候補で動的 import（Bun は .ts を直接実行できる）
-      const candidates = ["index.ts", "index.js"].map((f) => join(PLUGIN_DIR, pluginDirName, f));
-      let entry: string | null = null;
-      for (const c of candidates) if (existsSync(c)) entry = c;
-      if (!entry) throw new Error("no entry file (index.ts / index.js)");
+      const entry = resolvePluginEntry(pluginDirName, manifestMain);
+      if (!entry) throw new Error("no loadable entry file");
       const mod = (await import(entry)) as { default?: VylinePlugin };
       plugin = mod.default;
     }
@@ -118,7 +208,7 @@ export async function activatePlugin(
 
     const perms = new Set<string>(permissions);
     const logger = await makeLogger(pluginId);
-    const handlers = new Set<(m: PluginMessageSnapshot) => void>();
+    const handlers = new Set<(m: PluginMessageSnapshot) => void | Promise<void>>();
 
     const ctx: PluginContext = {
       accountId,
@@ -131,6 +221,12 @@ export async function activatePlugin(
             logger.warn("messages.on ignored: missing permission messages:read");
             return () => {};
           }
+          if (handlers.size >= MAX_PLUGIN_MESSAGE_HANDLERS) {
+            logger.warn(
+              `messages.on ignored: handler limit (${MAX_PLUGIN_MESSAGE_HANDLERS}) reached`,
+            );
+            return () => {};
+          }
           handlers.add(handler);
           return () => handlers.delete(handler);
         },
@@ -141,29 +237,40 @@ export async function activatePlugin(
             logger.warn(`settings.get('${keyName}') ignored: missing permission settings:read`);
             return fallback;
           }
-          const data = readSettingsFile(accountId, pluginId);
-          return (data[keyName] as T | undefined) ?? fallback;
+          return withSettingsLock(accountId, pluginId, async () => {
+            const data = await readSettingsFile(accountId, pluginId);
+            return (data[keyName] as T | undefined) ?? fallback;
+          });
         },
         async set<T>(keyName: string, value: T): Promise<void> {
           if (!perms.has("settings:write")) {
             logger.warn(`settings.set('${keyName}') ignored: missing permission settings:write`);
             return;
           }
-          const data = readSettingsFile(accountId, pluginId);
-          data[keyName] = value;
-          writeSettingsFile(accountId, pluginId, data);
+          if (keyName.length > MAX_PLUGIN_SETTING_KEY_LENGTH) {
+            throw new Error(
+              `plugin setting key exceeds ${MAX_PLUGIN_SETTING_KEY_LENGTH} characters`,
+            );
+          }
+          await withSettingsLock(accountId, pluginId, async () => {
+            const data = await readSettingsFile(accountId, pluginId);
+            data[keyName] = value;
+            await writeSettingsFile(accountId, pluginId, data);
+          });
         },
       },
     };
 
-    // activate 自体も隔離（タイムアウトは不要 — 同期的な初期化を想定）
-    await Promise.resolve()
-      .then(() => plugin!.activate(ctx))
-      .catch((err) => {
-        throw err;
-      });
+    await withPluginLifecycleTimeout(() => Promise.resolve(plugin!.activate(ctx)));
 
-    active.set(k, { accountId, pluginId, permissions: perms, messageHandlers: handlers });
+    active.set(k, {
+      accountId,
+      pluginId,
+      permissions: perms,
+      messageHandlers: handlers,
+      plugin,
+      context: ctx,
+    });
     logger.info(`activated (${[...perms].join(",") || "no permissions"})`);
     return true;
   } catch (err) {
@@ -175,6 +282,38 @@ export async function activatePlugin(
   }
 }
 
+const activationInflight = new Map<string, Promise<boolean>>();
+
+/** Share concurrent enables for the same account/plugin pair. */
+export async function activatePlugin(
+  accountId: string,
+  pluginId: string,
+  pluginDirName: string,
+  permissions: string[],
+  loaded?: VylinePlugin,
+  manifestMain?: string,
+): Promise<boolean> {
+  const k = key(accountId, pluginId);
+  if (active.has(k)) return true;
+  const pending = activationInflight.get(k);
+  if (pending) return pending;
+
+  const task = activatePluginNow(
+    accountId,
+    pluginId,
+    pluginDirName,
+    permissions,
+    loaded,
+    manifestMain,
+  );
+  activationInflight.set(k, task);
+  try {
+    return await task;
+  } finally {
+    if (activationInflight.get(k) === task) activationInflight.delete(k);
+  }
+}
+
 /** プラグインを無効化する。deactivate のエラーは握りつぶす */
 export async function deactivatePlugin(accountId: string, pluginId: string): Promise<void> {
   const k = key(accountId, pluginId);
@@ -182,11 +321,9 @@ export async function deactivatePlugin(accountId: string, pluginId: string): Pro
   if (!entry) return;
   active.delete(k);
   try {
-    // deactivate 用に最小コンテキストを再構築（logger だけ必要）
-    const logger = await makeLogger(pluginId);
-    logger.info("deactivated");
-  } catch {
-    /* noop */
+    await withPluginLifecycleTimeout(() => Promise.resolve(entry.plugin.deactivate(entry.context)));
+  } catch (error) {
+    log.warn({ accountId, pluginId, error }, "plugin deactivation failed (isolated)");
   }
 }
 
@@ -196,7 +333,19 @@ export function dispatchPluginMessage(accountId: string, message: PluginMessageS
     if (entry.accountId !== accountId) continue;
     for (const handler of entry.messageHandlers) {
       try {
-        handler(message);
+        const result = handler(message);
+        if (result && typeof result.then === "function") {
+          void result.catch((err: unknown) => {
+            log.warn(
+              {
+                accountId,
+                pluginId: entry.pluginId,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "async plugin message handler crashed (isolated)",
+            );
+          });
+        }
       } catch (err) {
         log.warn(
           {

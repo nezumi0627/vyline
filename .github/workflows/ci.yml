@@ -1,12 +1,23 @@
 name: CI
 
 on:
+  workflow_dispatch:
   pull_request:
     branches: [main, master]
   push:
     branches: [main, master]
 
 jobs:
+  documentation:
+    name: Documentation
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+      - run: bun run docs:readme:check
+
   typecheck:
     name: TypeScript
     runs-on: ubuntu-latest
@@ -19,6 +30,7 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run typecheck
+      - run: bun run test:tooling
 
   lint:
     name: Lint
@@ -45,6 +57,7 @@ jobs:
           bun-version: latest
       - run: bun install
       - run: bun run build
+      - run: bun run build:packages
 
   docker-build:
     name: Docker build + runtime smoke
@@ -53,16 +66,28 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
-      - run: docker build --pull -t vyline .
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image with shared architecture cache
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          platforms: linux/amd64
+          pull: true
+          load: true
+          tags: vyline
+          cache-from: type=gha,scope=container-amd64
+          cache-to: type=gha,scope=container-amd64,mode=max
       - name: Verify container startup
         shell: bash
         run: |
           set -euo pipefail
           container_id="$(docker run -d -p 127.0.0.1:3000:3000 vyline)"
           trap 'docker rm -f "$container_id" >/dev/null 2>&1 || true' EXIT
+          healthy=false
           for _ in {1..30}; do
             if curl --fail --silent http://127.0.0.1:3000/healthz >/dev/null; then
-              exit 0
+              healthy=true
+              break
             fi
             if [ "$(docker inspect -f '{{.State.Running}}' "$container_id")" != "true" ]; then
               echo "Container exited during startup"
@@ -71,6 +96,15 @@ jobs:
             fi
             sleep 1
           done
-          echo "Health check timed out"
-          docker logs "$container_id"
-          exit 1
+          if [ "$healthy" != "true" ]; then
+            echo "Health check timed out"
+            docker logs "$container_id"
+            exit 1
+          fi
+
+          pid1_uid="$(docker exec "$container_id" sh -c "awk '/^Uid:/ { print \$2 }' /proc/1/status")"
+          if [ "$pid1_uid" = "0" ]; then
+            echo "Vyline runtime is still running as root"
+            docker logs "$container_id"
+            exit 1
+          fi

@@ -1,0 +1,1 @@
+This collection of logos is freely available for use under CC-BY 4.0. For more details, please refer to [here](./LICENCE).

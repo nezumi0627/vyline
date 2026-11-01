@@ -5,8 +5,8 @@
  */
 
 import { existsSync } from "node:fs";
-import { mkdir, readdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
+import { readdir, stat, statfs } from "node:fs/promises";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 
@@ -33,10 +33,8 @@ export const VYLINE_SAVED_MEDIA_DIR =
   process.env.VYLINE_MEDIA_CACHE_DIR ??
   join(VYLINE_STORAGE_DIR, "saved-media");
 
-const CDN_CACHE_DIR = join(VYLINE_CACHE_DIR, "cdn-cache");
-const ICON_CACHE_DIR = join(VYLINE_CACHE_DIR, "icons");
-const LEGACY_CDN_CACHE_DIR = join(VYLINE_DATA_DIR, "cdn-cache");
-const LEGACY_MEDIA_CACHE_DIR = join(VYLINE_DATA_DIR, "media-cache");
+const CDN_CACHE_DIR = process.env.VYLINE_CDN_CACHE_DIR ?? join(VYLINE_CACHE_DIR, "cdn-cache");
+const ICON_CACHE_DIR = process.env.VYLINE_ICON_CACHE_DIR ?? join(VYLINE_CACHE_DIR, "icons");
 
 const MEDIA_TYPE_DIRS = {
   image: join(VYLINE_SAVED_MEDIA_DIR, "images"),
@@ -59,7 +57,7 @@ async function dirSize(target: string): Promise<number> {
           const s = await stat(p);
           total += s.size;
         } catch {
-          /* ignore */
+          /* ignore individual files that disappear during the scan */
         }
       }
     }
@@ -75,9 +73,28 @@ function extractDriveLetter(path: string): string {
 }
 
 async function getDiskInfo(
-  driveLetter: string,
+  targetPath: string,
 ): Promise<{ totalBytes: number; freeBytes: number; usedBytes: number } | null> {
   try {
+    const fs = await statfs(targetPath);
+    const blockSize = Number(fs.bsize);
+    const totalBytes = Number(fs.blocks) * blockSize;
+    const freeBytes = Number(fs.bavail) * blockSize;
+    if (Number.isFinite(totalBytes) && Number.isFinite(freeBytes) && totalBytes > 0) {
+      return {
+        totalBytes,
+        freeBytes: Math.max(0, freeBytes),
+        usedBytes: Math.max(0, totalBytes - freeBytes),
+      };
+    }
+  } catch (err) {
+    log.debug({ err, targetPath }, "statfs failed");
+  }
+
+  // Older Windows/Bun combinations may not expose a useful statfs result.
+  if (process.platform !== "win32") return null;
+  try {
+    const driveLetter = extractDriveLetter(targetPath);
     if (!driveLetter) return null;
     const name = driveLetter.replace(":", "");
     const ps = `[pscustomobject]@{ Total = (Get-PSDrive ${name}).Used + (Get-PSDrive ${name}).Free; Free = (Get-PSDrive ${name}).Free; Used = (Get-PSDrive ${name}).Used } | ConvertTo-Json`;
@@ -85,11 +102,7 @@ async function getDiskInfo(
       stdout: "pipe",
       stderr: "pipe",
     });
-    const [code, stdout, stderr] = await Promise.all([
-      proc.exited,
-      streamToText(proc.stdout),
-      streamToText(proc.stderr),
-    ]);
+    const [code, stdout] = await Promise.all([proc.exited, streamToText(proc.stdout)]);
     if (typeof code === "number" && code === 0 && stdout.trim()) {
       const data = JSON.parse(stdout.trim());
       if (data && typeof data.Total === "number") {
@@ -103,27 +116,46 @@ async function getDiskInfo(
 }
 
 export async function getVylineStorageInfo() {
-  const driveLetter = extractDriveLetter(VYLINE_STORAGE_DIR);
-  const [cdnCacheSize, iconCacheSize, imagesSize, videosSize, audioSize, filesSize] =
-    await Promise.all([
-      dirSize(CDN_CACHE_DIR),
-      dirSize(ICON_CACHE_DIR),
-      dirSize(MEDIA_TYPE_DIRS.image),
-      dirSize(MEDIA_TYPE_DIRS.video),
-      dirSize(MEDIA_TYPE_DIRS.audio),
-      dirSize(MEDIA_TYPE_DIRS.file),
-    ]);
+  const [
+    cdnCacheSize,
+    iconCacheSize,
+    imagesSize,
+    videosSize,
+    audioSize,
+    filesSize,
+    dataSize,
+    storageSize,
+  ] = await Promise.all([
+    dirSize(CDN_CACHE_DIR),
+    dirSize(ICON_CACHE_DIR),
+    dirSize(MEDIA_TYPE_DIRS.image),
+    dirSize(MEDIA_TYPE_DIRS.video),
+    dirSize(MEDIA_TYPE_DIRS.audio),
+    dirSize(MEDIA_TYPE_DIRS.file),
+    dirSize(VYLINE_DATA_DIR),
+    dirSize(VYLINE_STORAGE_DIR),
+  ]);
 
   const cacheSize = cdnCacheSize + iconCacheSize;
   const savedMediaSize = imagesSize + videosSize + audioSize + filesSize;
-  const vylineTotal = cacheSize + savedMediaSize;
-  const disk = await getDiskInfo(driveLetter);
+
+  // The storage page says "app usage", so count all persistent Vyline state,
+  // not only disposable cache/media. This includes chatdb.json, account settings,
+  // tokens/session metadata, restore backups, and other files under /app/data.
+  const samePersistentRoot = resolve(VYLINE_DATA_DIR) === resolve(VYLINE_STORAGE_DIR);
+  const vylineTotal = samePersistentRoot ? storageSize : dataSize + storageSize;
+  const diskTarget = existsSync(VYLINE_STORAGE_DIR) ? VYLINE_STORAGE_DIR : VYLINE_DATA_DIR;
+  const disk = await getDiskInfo(diskTarget);
+  const driveLetter = extractDriveLetter(diskTarget) || diskTarget;
 
   return {
     ok: true,
     driveLetter,
+    storagePath: diskTarget,
     disk,
     vylineTotal,
+    dataSize,
+    storageSize,
     cacheSize,
     savedMediaSize,
     cache: {

@@ -51,6 +51,8 @@ const CDN_HOSTS = new Set([
   "shop.line-scdn.net",
   "static.line-scdn.net",
 ]);
+const CDN_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
+const MAX_CDN_REDIRECTS = 3;
 
 const _dir = dirname(fileURLToPath(import.meta.url));
 const LEGACY_ROOT = join(_dir, "../../data/cdn-cache");
@@ -71,7 +73,9 @@ try {
 
 const memory = new Map<string, { buf: Uint8Array; contentType: string; at: number }>();
 const MEMORY_MAX = 80;
+const MEMORY_MAX_BYTES = 32 * 1024 * 1024;
 const MEMORY_TTL_MS = 30 * 60_000;
+let memoryBytes = 0;
 /** CDN から取得するレスポンスの最大サイズ（不正/巨大レスポンスからの保護） */
 const MAX_CDN_RESPONSE_BYTES = 10 * 1024 * 1024;
 
@@ -155,9 +159,42 @@ export function isAllowedLineCdnUrl(raw: string): boolean {
   try {
     const u = new URL(raw);
     if (u.protocol !== "https:") return false;
-    return ALLOWED_HOSTS.has(u.hostname);
+    if (u.username || u.password) return false;
+    if (u.port && u.port !== "443") return false;
+    return ALLOWED_HOSTS.has(u.hostname.toLowerCase().replace(/\.$/, ""));
   } catch {
     return false;
+  }
+}
+
+/** Follow only a short chain of redirects that remains on the CDN allowlist. */
+async function fetchAllowedLineCdn(url: string): Promise<Response> {
+  let currentUrl = url;
+  for (let redirects = 0; ; redirects += 1) {
+    if (!isAllowedLineCdnUrl(currentUrl)) throw new Error("cdn redirect target not allowed");
+    const response = await fetch(currentUrl, {
+      redirect: "manual",
+      headers: {
+        "user-agent": "Vyline/1.0",
+        accept: "image/*,application/json,*/*",
+      },
+    });
+    if (!CDN_REDIRECT_STATUSES.has(response.status)) return response;
+    const location = response.headers.get("location");
+    if (!location || redirects >= MAX_CDN_REDIRECTS) {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("cdn redirect rejected");
+    }
+    let nextUrl: string;
+    try {
+      nextUrl = new URL(location, currentUrl).toString();
+    } catch {
+      await response.body?.cancel().catch(() => undefined);
+      throw new Error("cdn redirect rejected");
+    }
+    await response.body?.cancel().catch(() => undefined);
+    if (!isAllowedLineCdnUrl(nextUrl)) throw new Error("cdn redirect target not allowed");
+    currentUrl = nextUrl;
   }
 }
 
@@ -204,11 +241,18 @@ async function writeDisk(url: string, buf: Uint8Array, contentType: string): Pro
 }
 
 function remember(url: string, buf: Uint8Array, contentType: string): void {
-  if (memory.size >= MEMORY_MAX) {
+  if (buf.byteLength > MEMORY_MAX_BYTES) return;
+  const previous = memory.get(url);
+  if (previous) memoryBytes -= previous.buf.byteLength;
+  memory.delete(url);
+  while (memory.size >= MEMORY_MAX || memoryBytes + buf.byteLength > MEMORY_MAX_BYTES) {
     const oldest = [...memory.entries()].sort((a, b) => a[1].at - b[1].at)[0];
-    if (oldest) memory.delete(oldest[0]);
+    if (!oldest) break;
+    memoryBytes -= oldest[1].buf.byteLength;
+    memory.delete(oldest[0]);
   }
   memory.set(url, { buf, contentType, at: Date.now() });
+  memoryBytes += buf.byteLength;
 }
 
 /**
@@ -224,6 +268,7 @@ export async function getCachedLineCdn(
 
   const mem = memory.get(url);
   if (mem && Date.now() - mem.at < MEMORY_TTL_MS) {
+    mem.at = Date.now();
     return { buf: mem.buf, contentType: mem.contentType, fromCache: true };
   }
 
@@ -242,12 +287,7 @@ export async function getCachedLineCdn(
   }
 
   const netPromise = (async () => {
-    const res = await fetch(url, {
-      headers: {
-        "user-agent": "Vyline/1.0",
-        accept: "image/*,application/json,*/*",
-      },
-    });
+    const res = await fetchAllowedLineCdn(url);
     if (res.status === 404) {
       throw new CdnNotFoundError(url);
     }
@@ -296,6 +336,7 @@ export async function getIconCacheSize(): Promise<number> {
 
 export async function clearCdnCache(): Promise<number> {
   memory.clear();
+  memoryBytes = 0;
   return clearDir(CACHE_ROOT);
 }
 

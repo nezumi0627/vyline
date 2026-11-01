@@ -1,6 +1,6 @@
 # Vyline タスク状況ボード
 
-最終更新: 2026-08-24
+最終更新: 2026-09-20
 規則: **git push/commit しない** / **連絡先へ勝手送信しない**
 
 ---
@@ -14,8 +14,103 @@
 | 2     | README / AGENTS / tasks / 解析 md               | ✅                                |
 | 3     | Vyline 整備・Desktop 差分 tool                  | ✅ `vyline:delta` / Vyline-Search |
 | 3b    | プロトコル層再構成（linejs 排除・domain・辞書） | ✅ 2026-07-29 完了                |
-| 4     | Telegram 風 UI                                  | 🔧 シェル基盤済・継続改善中       |
-| 5     | 品質・速度・stack                               | 🔧 継続改善中                     |
+| 4     | Telegram 風 UI                                  | ✅ Beta の日常利用機能を実装済・継続改善中 |
+| 5     | 品質・速度・stack                               | ✅ 同期／仮想リストの安定化済・継続改善中 |
+| 6     | Beta 公開準備                                   | 🔧 0.8.0-beta の検証・配布準備中 |
+
+## 2026-09-20 品質・配布監査
+
+### 実装済み（各PRのCIで確認済み）
+
+- プラグイン: 設定書き込み直列化、ライフサイクル timeout / dedupe / state 遷移、handler・state・設定サイズ上限、manifest identity / realpath 検証、未実装権限の拒否。
+- メモリ・CPU: account 削除時の runtime / media / profile cache 解放、遅延 listener の解除、message-log stream の後始末、rate limiter の上限、静的ファイルの `Bun.file` streaming。
+- アカウント・データ: logout 時の呼び出し停止、account 境界の一時 cache 破棄、backup restore の session TTL / 上限、削除アカウントの plugin data 清掃。
+- 配布: Windows standalone / portable ZIP、installer upgrade 時の古い web bundle 清掃、updater の timeout・tag 検証・check cache、installer SHA-256 sidecar。
+- 計測: `/metrics` と `/debug/health` で uptime、RSS、heap、external、ArrayBuffer、CPU user/system 累積値を取得可能。分離worktreeの実行時 smoke で値を確認済み（PR #290）。
+
+### 未検証・統合待ち
+
+- 上記の追加変更は PR #242〜#287 として作成済みだが、監査時点では未マージ。main に統合されるまでリリース完了とは扱わない。
+- 認証済み NezuUI の実ブラウザ smoke（ログイン、アカウント切替、送受信、バックアップ復元）は、保存セッションが無効なため未実施。
+- Windows installer / portable EXE の実機 install・upgrade・uninstall、データ保持、起動後 backend health はCIだけでは証明できない。
+- ローカル `dist/windows/Vyline/` には standalone EXE があるが、監査時点のファイルバージョンは `0.6.0.0`。GitHub Releaseは未作成のため、最新版の配布完了を示す証拠にはしない。
+- メッセージ取得〜E2EE復号の実測プロファイル（CPU、heap、復号待ち時間）と長時間 soak は未取得。
+- `/metrics` の値取得は確認済みだが、実アカウントを用いた長時間 soak と閾値判定は未実施。
+
+## tqmane/vyline 同期実績（2026-09-19）
+
+UI は現行 Vyline の実装を維持し、バックエンド・ストレージ・運用改善を機能単位の PR に分割して取り込みます。
+
+| 領域 | 取り込み内容 | PR |
+| --- | --- | --- |
+| HTTP 診断 / ストレージ / Docker | 診断メタデータ、永続使用量、Android バックアップ、Docker キャッシュ | #173–#177 |
+| セキュリティ | サブデバイス境界、非 root 実行、OS 更新、LIFF 資格情報、feature lock、pairing 原子的消費 | #178–#184 |
+| 資格情報 | 壊れたアカウントの隔離、tokenStore の並行更新・削除競合防止 | #185、#187 |
+| メディア | 古い動画プレビューキャッシュの除去（プレビューは保持） | #186 |
+| 既読 / 同期 | read-receipt の inflight 拒否処理、同期台帳の更新 | #188–#190 |
+| プラグインツール | CLI / create-plugin / vyl の型チェックを TypeScript に統一 | #191 |
+| コンテナCI | amd64/arm64のネイティブ分離ビルド、digest manifest統合、キャッシュ分離 | #193 |
+| 引継ぎセキュリティ | ZIPエントリの実サイズ・パス検証、アカウントhash一致確認 | #195 |
+| Agent I セキュリティ | SSE応答の宣言サイズ・ストリーム実測サイズを制限 | #197 |
+| アカウント分離 | ディレクトリ衝突防止、レジストリ直列化、旧データ所有者検証 | #199 |
+| APIトークン運用 | `lastUsedAt`の永続化を毎分へ制限し、書き込み洪水を抑制 | #201 |
+| API 信頼性 | read-receipts の inflight cleanup rejection を隔離 | #189 |
+| グループキャッシュ | 部分解決・MID残存のメンバーキャッシュを再取得して表示欠落を防止 | #203 |
+| 診断プライバシー | 構造化された host / address 系フィールドを診断出力からマスキング | #205 |
+| 資格情報削除 | アカウント削除時に Content 用の副トークンも同時消去 | #207 |
+| アカウント設定 | 同一アカウントの設定更新を直列化し、同時保存の上書きを防止 | #209 |
+| 引継ぎ設定 | 引継ぎインポートを同一アカウントの設定書き込みキューで直列化 | #211 |
+| QRログイン | QR失敗時の内部エラーを隠し、汎用failed状態として安全にポーリング | #213 |
+| メディアRange | 録画APIのRFC 7233 Range解析で空・複数・範囲外指定を拒否 | #215 |
+| CDNセキュリティ | CDNリダイレクト各hopの許可ホスト検証と回帰テスト | #217 |
+| 通話 WebSocket セキュリティ | Upgrade 前に Origin を検証し、TLS終端リバースプロキシの同一Originだけを許可 | #220 |
+| 通話ライフサイクル | メディア送受信ループ終了時に通話を終了し、掃除前に終端状態を通知 | #222 |
+| 通話診断 | 通話時間とマイク／リモート音声フレーム数を終了ログへ記録 | #224 |
+| 既読時刻保護 | 同一読者の既読時刻を最初の値へ単調に保持し、後続同期の遅い値で上書きしない | #226 |
+| Android復元性能 | SQLite の履歴・リアクションをストリーム処理し、キャッシュ／mmap／一括マテリアライズを抑制 | #228 |
+
+各 PR は必須 CI（型チェック、lint、build、Docker smoke、ドキュメント、OSV）を確認してから squash merge し、元ブランチを削除済みです。
+
+### 残りの同期方針
+
+- UI と Compose UI の変更は同期対象外です。
+- 通話録画、ChatGPT トンネル、グループ動画など、現行 main に前提実装がない機能は、依存順に小さな PR へ分割して取り込みます。
+- 取り込み前に現行の安全性・アカウント分離・既存 API 互換を確認し、丸ごとの upstream 同期は行いません。
+- 現在残るupstream差分は、未導入の通話録画・ChatGPT統合・グループ通話基盤、またはprotocolサブモジュール更新を伴うため、前提実装を先に監査します。
+
+### 同期監査チェックポイント（2026-09-19）
+
+- SQLite chat store 移行（`chatStoreCore` / `chatStoreSqlite` / `storageUsageRefs`）は相互依存するため、既存のJSONチャットストアを維持したまま単独投入しません。
+- 通話録画・WebDAV・グループ通話は call session / protocol / 型定義を含む依存チェーンで、UIを除外した一部だけでは動作契約を満たしません。
+- ChatGPT tunnel と大規模メディアストリーミングは現行mainにない前提API・認証境界を要求します。
+- 通話 WebSocket の Origin 検証は独立して取り込み済み（#220）。録音・グループ通話の本体は依存チェーンの監査を継続します。
+- 通話メディアループの終了処理も独立して取り込み済み（#222）。録音・グループ通話の本体は依存チェーンの監査を継続します。
+- 通話終了時のメディア実績ログも取り込み済み（#224）。録音・グループ通話の本体は依存チェーンの監査を継続します。
+- 既読時刻の単調保持も取り込み済み（#226）。録音・グループ通話の本体は依存チェーンの監査を継続します。
+- Android バックアップ復元の履歴・リアクション走査もストリーム化済み（#228）。SQLite の大規模復元時のメモリ使用量を抑えます。
+- UI / Compose UI のupstream差分は引き続き同期対象外です。独立したセキュリティ・API・ストレージ修正は引き続き小さなPRへ分割します。
+
+### 同期完了監査（2026-09-19）
+
+- `tqmane/main` の最新バックエンド候補を再確認しました。動画プレビューキャッシュ修正（`32a5b50`）は現行の `3ae8b7f` に同等実装があり、LIFF資格情報スコープ、壊れたアカウント隔離、feature lock、pairing token の各修正も現行mainへ別コミットで取り込み済みです。
+- `40549f1` 以降の Compose / Desktop UI、reaction member 表示、MediaViewer 改修は同期対象外です。ChatGPT tunnel、通話録画・WebDAV・group-call は現行mainにない前提API・認証・protocol依存を含むため、独立した安全なPRへ分割できる状態ではありません。
+- 以上により、UIを保持したまま単独適用できるupstream差分は #228 まで取り込み済みです。今後は新しいupstreamコミットが追加された時点で同じ監査を再開します。
+
+---
+
+## 0.8.0-beta の振り返り（2026-08-27）
+
+| 領域 | 完了したこと |
+| --- | --- |
+| 初回設定 | Vyline Setup を 3 ステップで実装。途中経過を保存し、完了後は非表示、設定画面からの再実行にも対応 |
+| アカウント設定 | MID ごとの設定スキーマ、スキーマバージョン、原子的 JSON 保存、旧形式を残す読み取り移行を導入 |
+| 引継ぎ | 設定だけを ZIP 化。manifest、SHA-256、匿名化 MID、対応バージョン検証、上書き前バックアップ、統合／上書き選択を実装 |
+| 診断 | 個人情報をマスキングした診断ログの確認、出力、削除、GitHub Issue 作成画面への転記を実装 |
+| セキュリティ | Windows は DPAPI(CurrentUser) でトークン保護。サブデバイスはランダムなインストール ID のハッシュで照合 |
+| 同期・表示 | 既読 API、未読数の再同期、アカウント切替の UI 分離、未読先頭／既読末尾、仮想リスト計測後スクロールを安定化 |
+| 遠隔利用 | LAN 公開は既定で無効のまま、Tailscale の検出と接続 URL のログ表示を追加 |
+
+残る大きな機能は **オープンチャット統合** です。次の Phase は RPC の証拠調査、domain／BFF、閲覧・参加 UI の順で進めます。
 
 ---
 
@@ -68,10 +163,11 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 
 ## 次（優先順）
 
-1. 実通信での取消・既読者・複数アカウント表示検証（保存・分離を安定化済み）
-2. 通話品質改善（acquireCallRoute エラー処理済→実通話テスト）
-3. UI 細部改善（継続）
-4. stack RPC の Desktop 準拠への段階的置換
+1. PR #242〜#287 のレビュー・統合後に main で typecheck / lint / build / smoke を再実行
+2. 認証済み環境で NezuUI のログイン・切替・送受信・バックアップ復元を確認
+3. Windows installer / portable の install → upgrade → uninstall を実機確認
+4. メッセージ同期・復号・media cache の heap / CPU / latency を計測し、閾値を記録
+5. オープンチャットの RPC 調査と読み取り専用の統合設計
 
 ---
 
@@ -79,7 +175,7 @@ desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
 
 | 機能                 | 内容                                                                    | 方針メモ                                          |
 | -------------------- | ----------------------------------------------------------------------- | ------------------------------------------------- |
-| **プラグイン API**   | ES Modules で UI・挙動を動的拡張                                        | `docs/plugin-api.md` に設計メモあり。現状は未対応 |
+| **プラグイン API**   | ES Modules で UI・挙動を動的拡張                                        | runtime 実装済み。SDK の将来権限型と実装済み権限の整合を別途確認 |
 | **オープンチャット** | LINE オープンチャット（不明な相手と交流するチャットルーム）の閲覧・参加 | 実装未着手。UI に導線は無し。RPC 調査が先         |
 
 ---

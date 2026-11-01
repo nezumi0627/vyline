@@ -15,11 +15,12 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
+import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
 import { processOperationBatch } from "../line/operationBatch.js";
-import { isTrustedLineMediaUrl } from "../security/policies.js";
 import { pruneTimedCache } from "./pruneTimedCache.js";
+import { isTrustedLineMediaDownloadUrl } from "./lineMediaDownloadUrl.js";
 import {
   getClient,
   enqueueTalkRpcBackground,
@@ -48,6 +49,7 @@ import {
   vylinePutGroup,
   vylinePutProfile,
   vylinePutProfiles,
+  vylineReleaseCache,
 } from "../storage/vylineCache.js";
 import { updateSessionMeta } from "../storage/tokenStore.js";
 import { VylineStorage } from "../storage/vylineStorage.js";
@@ -63,6 +65,11 @@ import {
 import { banCreateGroup, isCreateGroupBanned } from "../storage/featureLocks.js";
 import { checkStickerGiftEligibility } from "./liffFeatures.js";
 import { isReadOperationType, isReceiveMessageOperationType } from "./talkOperationTypes.js";
+import {
+  normalizeIncomingCall,
+  rememberIncomingCall,
+  finishIncomingCall,
+} from "../call/incomingCallRegistry.js";
 import {
   ensureValidE2EEIdentity,
   prepareGroupKeysForMessages,
@@ -87,7 +94,6 @@ import {
   getStoredMessages,
   getBootstrapPayload,
   getCacheMeta,
-  messageSyncAgeMs,
   upsertChats,
   upsertMessages,
   markStoredMessagesReadThrough,
@@ -99,6 +105,7 @@ import {
   getMessageHistory,
   warmAccountCache,
   saveBoxOrder,
+  shouldPreserveResolvedLastMessagePreview,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
@@ -108,9 +115,25 @@ import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../
 import { appendMessageLog, type MessageLogEntry } from "../storage/messageLog.js";
 import { writeMediaStorage } from "../storage/mediaStorage.js";
 import { dispatchPluginMessage } from "../line/pluginRuntime.js";
+import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
 
 export { CallNotAllowedError, callAllowlistHint };
 export type { CallSessionSnapshot } from "../call/callManager.js";
+
+export class ChatLockedError extends Error {
+  readonly code = "CHAT_LOCKED";
+
+  constructor() {
+    super("このチャットはロック中のため操作できません");
+    this.name = "ChatLockedError";
+  }
+}
+
+export async function assertChatUnlocked(accountId: string, chatMid: string): Promise<void> {
+  if (await isChatLocked(accountId, chatMid)) throw new ChatLockedError();
+}
+
+export { loadLockedChats, setChatLocked };
 
 const log = childLogger("service:line");
 const backgroundMessageSyncs = new Set<string>();
@@ -358,16 +381,22 @@ const groupKeyWarmInflight = new Map<string, Promise<void>>();
 /** DM 公開鍵キャッシュ掃除を msg ごとに繰り返さない */
 const dmPubKeyCleared = new Set<string>();
 
+function e2eeChatCacheKey(accountId: string, chatMid: string): string {
+  return `${accountId}:${chatMid}`;
+}
+
 async function ensureGroupE2EEKey(
   client: NonNullable<ReturnType<typeof getClient>>,
+  accountId: string,
   chatMid: string,
 ): Promise<void> {
   const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
   if (!isGroupLike) return;
-  if (groupKeyWarm.has(chatMid) || groupKeyWarmFailed.has(chatMid)) return;
+  const cacheKey = e2eeChatCacheKey(accountId, chatMid);
+  if (groupKeyWarm.has(cacheKey) || groupKeyWarmFailed.has(cacheKey)) return;
 
   // 同時呼び出しの重複抑制
-  const inflight = groupKeyWarmInflight.get(chatMid);
+  const inflight = groupKeyWarmInflight.get(cacheKey);
   if (inflight) return inflight;
 
   const task: Promise<void> = (async () => {
@@ -378,11 +407,11 @@ async function ensureGroupE2EEKey(
         chatMid,
       });
       await ensureGroupKeyById(client, chatMid, Number(last.groupKeyId));
-      groupKeyWarm.add(chatMid);
-      groupKeyWarmFailed.delete(chatMid);
+      groupKeyWarm.add(cacheKey);
+      groupKeyWarmFailed.delete(cacheKey);
       log.debug({ chatMid, groupKeyId: Number(last.groupKeyId) }, "e2ee group key warmed");
     } catch (err) {
-      groupKeyWarmFailed.add(chatMid);
+      groupKeyWarmFailed.add(cacheKey);
       const msg = err instanceof Error ? err.message : String(err);
       // E2EE 未設定グループは NOT_FOUND が正常。WARN 連打を避ける
       const expectedMissing =
@@ -391,7 +420,7 @@ async function ensureGroupE2EEKey(
         msg.includes("there is no valid group key");
       if (expectedMissing || isRetryPlainError(msg)) {
         log.debug({ chatMid, err: msg }, "ensureGroupE2EEKey: no group key (skip)");
-        if (isRetryPlainError(msg)) noE2eePeers.add(chatMid);
+        if (isRetryPlainError(msg)) noE2eePeers.add(cacheKey);
       } else {
         log.warn(
           { chatMid, err: msg },
@@ -399,11 +428,11 @@ async function ensureGroupE2EEKey(
         );
       }
     } finally {
-      groupKeyWarmInflight.delete(chatMid);
+      groupKeyWarmInflight.delete(cacheKey);
     }
   })();
 
-  groupKeyWarmInflight.set(chatMid, task);
+  groupKeyWarmInflight.set(cacheKey, task);
   return task;
 }
 
@@ -443,6 +472,7 @@ async function decryptViaLetterSealingOrProtocol(
     else if (rawCt === "STICKER" || rawCt === "7") contentType = 7;
     else if (rawCt === "RICH" || rawCt === "17" || rawCt === 17) contentType = 17;
     else if (rawCt === "FLEX" || rawCt === "22" || rawCt === 22) contentType = 22;
+    else if (rawCt === "POSTNOTIFICATION" || rawCt === "16" || rawCt === 16) contentType = 16;
     else {
       const metaCt = Number(msg.contentMetadata?.contentType);
       if (Number.isFinite(metaCt)) contentType = metaCt;
@@ -515,6 +545,7 @@ async function decryptE2EEMessageSafe(
   const ct = msg.contentType;
   if (ct === 0 || ct === "0") msg.contentType = "NONE";
   else if (ct === 15 || ct === "15") msg.contentType = "LOCATION";
+  else if (ct === 16 || ct === "16") msg.contentType = "POSTNOTIFICATION";
   else if (typeof ct === "number") {
     // その他数値はそのまま AAD に使えるよう decryptE2EEDataMessage 経路へ
   }
@@ -525,7 +556,7 @@ async function decryptE2EEMessageSafe(
 
   const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
   if (isGroupLike) {
-    await ensureGroupE2EEKey(client, chatMid);
+    await ensureGroupE2EEKey(client, accountId, chatMid);
   }
 
   // 自分が送ったグループ履歴: プロトコルスタックは mid 既定の「最新」pub を使うため、
@@ -580,7 +611,7 @@ async function decryptE2EEMessageSafe(
       const groupKeyId = isGroupLike ? groupKeyIdFromMessage(msg) : null;
       try {
         if (!isGroupLike) {
-          const clearKey = `dm:${chatMid}`;
+          const clearKey = e2eeChatCacheKey(accountId, chatMid);
           if (!dmPubKeyCleared.has(clearKey)) {
             if (peerMid.startsWith("u") && peerKeyId !== null) {
               invalidatePeerPubCache(client, peerMid, peerKeyId);
@@ -604,15 +635,16 @@ async function decryptE2EEMessageSafe(
           const isGroup = chatMid.startsWith("c") || chatMid.startsWith("r");
           if (isGroup) {
             await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`);
-            groupKeyWarm.delete(chatMid);
-            groupKeyWarmFailed.delete(chatMid);
+            const cacheKey = e2eeChatCacheKey(accountId, chatMid);
+            groupKeyWarm.delete(cacheKey);
+            groupKeyWarmFailed.delete(cacheKey);
             if (groupKeyId != null) {
               await client.base.storage
                 .delete(`e2eeGroupKeys:${chatMid}:${groupKeyId}`)
                 .catch(() => undefined);
               await ensureGroupKeyById(client, chatMid, groupKeyId);
             } else {
-              await ensureGroupE2EEKey(client, chatMid);
+              await ensureGroupE2EEKey(client, accountId, chatMid);
             }
           }
         }
@@ -721,6 +753,16 @@ async function withRetryOnReset<T>(fn: () => Promise<T>, label: string): Promise
 const READ_RANGE_MIN_INTERVAL_MS = Number(process.env.VYLINE_READ_RANGE_MIN_INTERVAL_MS ?? 5_000);
 const READ_RANGE_CIRCUIT_MS = Number(process.env.VYLINE_READ_RANGE_CIRCUIT_MS ?? 180_000);
 
+type ReadRangeCacheEntry = {
+  at: number;
+  ranges: Array<{ chatId?: string; ranges?: unknown }>;
+  failStreak: number;
+};
+const readRangeStorage = new VylineStorage<Record<string, ReadRangeCacheEntry>>(
+  "readRanges",
+  () => ({}),
+);
+
 /** fetchMessagesInner のバックグラウンド既読 RPC をチャットごとに間引く（毎 fetch で force 実行しない） */
 const READ_RANGE_BG_MS = Number(process.env.VYLINE_READ_RANGE_BG_MS ?? 60_000);
 const readRangeBgAt = new Map<string, number>();
@@ -760,7 +802,6 @@ async function rememberExitedChat(accountId: string, chatMid: string): Promise<v
   });
 }
 const CHATS_CACHE_MS = Number(process.env.VYLINE_CHATS_CACHE_MS ?? 60_000);
-const MESSAGE_LOCAL_STALE_MS = Number(process.env.VYLINE_MESSAGE_LOCAL_STALE_MS ?? 90_000);
 
 type MessageBoxesCacheEntry = {
   at: number;
@@ -788,6 +829,51 @@ const boxCursorMiss = new Map<string, number>();
 const BOX_CURSOR_MISS_MS = Number(process.env.VYLINE_BOX_CURSOR_MISS_MS ?? 15_000);
 const DELTA_RPC_TIMEOUT_MS = Number(process.env.VYLINE_DELTA_RPC_TIMEOUT_MS ?? 12_000);
 const TALK_FETCH_TIMEOUT_MS = Number(process.env.VYLINE_TALK_FETCH_TIMEOUT_MS ?? 45_000);
+
+function deleteAccountPrefixed(
+  cache: { keys(): IterableIterator<string>; delete(key: string): unknown },
+  accountId: string,
+): void {
+  const prefix = `${accountId}:`;
+  for (const key of cache.keys()) {
+    if (key.startsWith(prefix)) cache.delete(key);
+  }
+}
+
+/** アカウント切替・ログアウト時に揮発キャッシュをまとめて解放する。 */
+export async function clearAccountRuntimeCaches(accountId: string): Promise<void> {
+  deleteAccountPrefixed(homeBackgroundCache, accountId);
+  deleteAccountPrefixed(readRangeBgAt, accountId);
+  chatsCache.delete(accountId);
+  messageBoxesCache.delete(messageBoxesCacheKey(accountId, true));
+  messageBoxesCache.delete(messageBoxesCacheKey(accountId, false));
+  deleteAccountPrefixed(boxCursorCache, accountId);
+  deleteAccountPrefixed(boxCursorMiss, accountId);
+  deleteAccountPrefixed(chatNameCache, accountId);
+  deleteAccountPrefixed(mediaFlowCache, accountId);
+  deleteAccountPrefixed(contactProfileCache, accountId);
+  deleteAccountPrefixed(contactProfileInflight, accountId);
+  deleteAccountPrefixed(contactProfileMiss, accountId);
+  deleteAccountPrefixed(groupProfileMiss, accountId);
+  deleteAccountPrefixed(groupKeyWarmInflight, accountId);
+  deleteAccountPrefixed(groupKeyWarm, accountId);
+  deleteAccountPrefixed(groupKeyWarmFailed, accountId);
+  deleteAccountPrefixed(dmPubKeyCleared, accountId);
+  deleteAccountPrefixed(noE2eePeers, accountId);
+  deleteAccountPrefixed(mediaFailedAt, accountId);
+  myProfileCache.delete(accountId);
+  myMidCache.delete(accountId);
+  premiumStatusCache.delete(accountId);
+  e2eeIdentityEnsuredAt.delete(accountId);
+  blockedCache.delete(accountId);
+  blockedInflight.delete(accountId);
+  blockVerificationLastRun.delete(accountId);
+  blockVerificationInflight.delete(accountId);
+  blockVerificationLastResults.delete(accountId);
+  catalogCache.delete(accountId);
+  clearGroupCallStatus(accountId);
+  await Promise.all([readRangeStorage.release(accountId), vylineReleaseCache(accountId)]);
+}
 
 function isTimeoutError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
@@ -2140,6 +2226,7 @@ export async function markAsRead(
     // 次のチャット一覧更新が既読前のMessageBox/Chatキャッシュを再利用しないようにする。
     invalidateMessageBoxesCache(accountId);
     chatsCache.delete(accountId);
+    invalidateBoxCursorCache(accountId, chatMid);
     log.info({ accountId, chatMid, lastMessageId: messageId }, "chat marked as read");
     return messageId;
   } catch (err) {
@@ -2151,6 +2238,52 @@ export function rethrowReadReceiptFailure(err: unknown, accountId: string, chatM
   const msg = err instanceof Error ? err.message : String(err);
   log.warn({ accountId, chatMid, err: msg }, "markAsRead failed; caller may retry");
   throw err;
+}
+
+export type ReadTarget = { chatMid: string; lastMessageId: string };
+
+/** getMessageBoxes の結果から通常トークの既読送信対象を抽出する。 */
+export function readTargetsFromMessageBoxes(
+  boxes: ReadonlyArray<{
+    id: string;
+    unreadCount?: string | number | bigint;
+    lastDeliveredMessageId?: { messageId?: string | number | bigint };
+  }>,
+  chatMids?: ReadonlySet<string>,
+): ReadTarget[] {
+  return boxes.flatMap((box) => {
+    if (chatMids && !chatMids.has(box.id)) return [];
+    if (Number(box.unreadCount ?? 0) <= 0) return [];
+    const messageId = String(box.lastDeliveredMessageId?.messageId ?? "").trim();
+    return messageId ? [{ chatMid: box.id, lastMessageId: messageId }] : [];
+  });
+}
+
+/** 複数チャットを既読にする。LINE側に通常トーク用bulk APIはないため順次送信する。 */
+export async function markAsReadBatch(
+  accountId: string,
+  targets: readonly ReadTarget[],
+): Promise<number> {
+  let count = 0;
+  for (const target of targets) {
+    await markAsRead(accountId, target.chatMid, target.lastMessageId);
+    count++;
+  }
+  return count;
+}
+
+/** 未読の通常トークを全て既読にする。Squareのbulk APIは通常トークには使えない。 */
+export async function markAllAsRead(
+  accountId: string,
+  chatMids?: readonly string[],
+): Promise<number> {
+  const client = requireClient(accountId);
+  const boxesResult = await withRetryOnReset(
+    () => client.base.talk.getMessageBoxes({ messageBoxListRequest: {} }),
+    "markAllAsRead.getMessageBoxes",
+  );
+  const allowed = chatMids ? new Set(chatMids) : undefined;
+  return markAsReadBatch(accountId, readTargetsFromMessageBoxes(boxesResult.messageBoxes, allowed));
 }
 
 /**
@@ -2662,6 +2795,7 @@ function chatFromMessageBox(
       statusMessage?: string;
     }
   >,
+  joinedChatsKnown = true,
 ): Chat {
   const mid = String(box.id);
   const meta = boxMeta(box);
@@ -2669,7 +2803,8 @@ function chatFromMessageBox(
 
   if (kind === "group" || kind === "room") {
     const group = groupByMid.get(mid);
-    const left = !group; // messageBox にあるが joined に無い = 退出・キック済み
+    // joinedChats の取得自体が失敗した場合は「退出済み」と誤判定しない。
+    const left = joinedChatsKnown ? !group : false;
     const raw = group?.raw ?? {};
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const chat: Chat = {
@@ -2724,13 +2859,9 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
 }
 
 export async function warmLineCache(accountId: string): Promise<void> {
+  // セッション/プロフィール等の軽量キャッシュだけを温める。
+  // メッセージ履歴の一括インデックスは暗黙実行しない。
   await warmAccountCache(accountId);
-  // 初回インデックス（裏）— 履歴・プロフィールを chatdb / VylineCache へ
-  // runAccountIndex 内の fetchChats が必要な RPC を同じキューに入れるため、
-  // ここで外側まで enqueue すると初回起動時に自己待機になる。
-  void runAccountIndex(accountId, { topChats: 16, messagesPerChat: 30 }).catch((err) => {
-    log.debug({ accountId, err }, "background account index failed");
-  });
 }
 
 export async function fetchChats(
@@ -2756,7 +2887,9 @@ async function fetchChatsCore(
       const chatsAge = meta.chatsSyncedAt
         ? now - Date.parse(meta.chatsSyncedAt)
         : Number.POSITIVE_INFINITY;
-      const needsBg = opts?.refresh || chatsAge > CHATS_CACHE_MS || !memCached;
+      // disk cache の freshness を正本にする。プロセス再起動直後に memory cache が
+      // 空でも、disk cache が新鮮なら remote RPC は再実行しない。
+      const needsBg = Boolean(opts?.refresh) || chatsAge > CHATS_CACHE_MS;
 
       if (needsBg) {
         const syncPromise = enqueueTalkRpcBackground(accountId, async () => {
@@ -2790,6 +2923,9 @@ async function fetchChatsCore(
       if (memCached && now - memCached.at < CHATS_CACHE_MS) {
         return memCached.chats;
       }
+      if (chatsAge <= CHATS_CACHE_MS) {
+        chatsCache.set(accountId, { at: now, chats: local });
+      }
       return local;
     }
   }
@@ -2818,40 +2954,39 @@ async function fetchChatsCore(
 
 async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): Promise<Chat[]> {
   const client = requireClient(accountId);
+  let joinedChatsFetchFailed = false;
 
-  const [messageBoxes, joined, users, storedChats, cacheMeta] = await Promise.all([
+  const [messageBoxes, joinedChats, users, storedChats, cacheMeta] = await Promise.all([
     fetchMessageBoxesCached(accountId, client, { forChats: true }),
-    client.base.talk.getAllChatMids({ request: { withMemberChats: true }, syncReason: "INTERNAL" }),
-    client.fetchUsers(),
+    client.fetchJoinedChats().catch((err) => {
+      joinedChatsFetchFailed = true;
+      log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
+      return [] as Awaited<ReturnType<typeof client.fetchJoinedChats>>;
+    }),
+    client.fetchUsers().catch((err) => {
+      log.warn({ accountId, err }, "fetchUsers failed — skipping friends");
+      return [] as Awaited<ReturnType<typeof client.fetchUsers>>;
+    }),
     getStoredChats(accountId),
     getCacheMeta(accountId),
   ]);
-  if (!Array.isArray(joined.memberChatMids)) throw new Error("joined chat roster unavailable");
-  const joinedMids = new Set(joined.memberChatMids);
+  const joinedMids = new Set(joinedChats.map((chat) => chat.mid));
   if (!messageBoxes.length && !joinedMids.size && !users.length && storedChats.length) {
     throw new Error("empty chat sync; retaining cached roster");
   }
-  const details = joinedMids.size
-    ? await client.base.talk.getChats({ chatMids: [...joinedMids] }).catch(() => ({ chats: [] }))
-    : { chats: [] };
-  const detailsByMid = new Map(details.chats.map((raw) => [raw.chatMid, raw]));
-  const storedByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
-  const joinedChats = [...joinedMids].map((mid) => ({
-    mid,
-    name: detailsByMid.get(mid)?.chatName || storedByMid.get(mid)?.name || mid,
-    raw: detailsByMid.get(mid) as unknown as Record<string, unknown> | undefined,
-  }));
-  await chatMembershipStorage.mutate(accountId, (membership) => {
-    for (const chat of storedChats) {
-      if (chat.kind === "group" || chat.kind === "room")
-        membership[chat.mid] = joinedMids.has(chat.mid);
-    }
-    for (const box of messageBoxes) {
-      const mid = String(box.id);
-      if (/^[cr]/.test(mid)) membership[mid] = joinedMids.has(mid);
-    }
-    for (const mid of joinedMids) membership[mid] = true;
-  });
+  if (!joinedChatsFetchFailed) {
+    await chatMembershipStorage.mutate(accountId, (membership) => {
+      for (const chat of storedChats) {
+        if (chat.kind === "group" || chat.kind === "room")
+          membership[chat.mid] = joinedMids.has(chat.mid);
+      }
+      for (const box of messageBoxes) {
+        const mid = String(box.id);
+        if (/^[cr]/.test(mid)) membership[mid] = joinedMids.has(mid);
+      }
+      for (const mid of joinedMids) membership[mid] = true;
+    });
+  }
 
   const groupByMid = new Map<
     string,
@@ -2937,7 +3072,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
-    const chat = chatFromMessageBox(box, groupByMid, userByMid);
+    const chat = chatFromMessageBox(box, groupByMid, userByMid, !joinedChatsFetchFailed);
     const reconciled = reconcileChatUnreadWithLocalRead(
       chat,
       cacheMeta.localReadUpTo?.[chat.mid]?.messageId,
@@ -2994,6 +3129,18 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   tail.sort((a, b) => a.name.localeCompare(b.name, "ja"));
   result.push(...tail);
 
+  // Keep a previously decrypted preview when the latest box response only
+  // contains an encrypted placeholder for the same message.
+  const storedPreviewChats = await getStoredChats(accountId);
+  const storedByMid = new Map(storedPreviewChats.map((chat) => [chat.mid, chat]));
+  for (const chat of result) {
+    const stored = storedByMid.get(chat.mid);
+    const preview = stored?.lastMessagePreview;
+    if (stored && preview && shouldPreserveResolvedLastMessagePreview(stored, chat)) {
+      chat.lastMessagePreview = preview;
+    }
+  }
+
   // 公式（BOT）判定: userByMid に無い直接トーク相手は getContactsV3 で userType を取得
   // （fetchUsers はユーザー友達のみで、公式/ボットは含まれない）
   const needType = result
@@ -3046,7 +3193,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
             const last = box?.lastMessages?.[0] as any;
             if (!last) return;
             try {
-              await ensureGroupE2EEKey(client, chat.mid);
+              await ensureGroupE2EEKey(client, accountId, chat.mid);
               const dec = await decryptE2EEMessageSafe(client, accountId, chat.mid, last);
               chat.lastMessagePreview = previewFromBoxMessage(dec);
             } catch {
@@ -3134,11 +3281,46 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     void vylinePutGroup(accountId, put);
   }
 
-  // 取得中に既読が確定したケースを含め、返却直前の保存済み位置で再照合する。
+  // 通常RPCに現れない復元済みチャットも一覧から消さない。
+  // upsertChats は復元名・種別・最新履歴を保持するため、ここでディスク順を正本にして
+  // live-only の left / official / profile 情報だけ重ねる。
+  const liveByMid = new Map(result.map((chat) => [chat.mid, chat]));
+  const mergedResult = storedChats.map((stored) => {
+    const live = liveByMid.get(stored.mid);
+    if (!live) return stored;
+    const storedTime = stored.lastMessageTime ?? 0;
+    const liveTime = live.lastMessageTime ?? 0;
+    const useStoredLast = storedTime > liveTime;
+    const liveNameIsFallback = !live.name || live.name === live.mid || live.name === "(No Name)";
+    return {
+      ...stored,
+      ...live,
+      name: liveNameIsFallback && stored.name ? stored.name : live.name,
+      kind: live.kind === "unknown" ? stored.kind : live.kind,
+      hasMessages: stored.hasMessages || live.hasMessages,
+      lastMessageTime: Math.max(storedTime, liveTime),
+      ...(useStoredLast && stored.lastMessageId
+        ? { lastMessageId: stored.lastMessageId }
+        : live.lastMessageId
+          ? { lastMessageId: live.lastMessageId }
+          : stored.lastMessageId
+            ? { lastMessageId: stored.lastMessageId }
+            : {}),
+      ...(useStoredLast && stored.lastMessagePreview
+        ? { lastMessagePreview: stored.lastMessagePreview }
+        : live.lastMessagePreview
+          ? { lastMessagePreview: live.lastMessagePreview }
+          : stored.lastMessagePreview
+            ? { lastMessagePreview: stored.lastMessagePreview }
+            : {}),
+      ...(stored.restoredHistory || live.restoredHistory ? { restoredHistory: true } : {}),
+    };
+  });
+  // 取得中に既読が確定したケースも返却直前の保存済み位置で反映する。
   const latestReadMeta = await getCacheMeta(accountId);
-  for (let index = 0; index < result.length; index++) {
-    const chat = result[index]!;
-    result[index] = reconcileChatUnreadWithLocalRead(
+  for (let index = 0; index < mergedResult.length; index++) {
+    const chat = mergedResult[index]!;
+    mergedResult[index] = reconcileChatUnreadWithLocalRead(
       chat,
       latestReadMeta.localReadUpTo?.[chat.mid]?.messageId,
     );
@@ -3147,14 +3329,15 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   log.debug(
     {
       accountId,
-      count: result.length,
+      count: mergedResult.length,
       activeBoxes: messageBoxes.length,
       friends: users.length,
       groups: joinedChats.length,
+      restoredOnly: mergedResult.filter((chat) => !liveByMid.has(chat.mid)).length,
     },
-    "chats fetched (desktop messageBox order)",
+    "chats fetched (desktop messageBox order + restored history)",
   );
-  return result;
+  return mergedResult;
 }
 
 /** 復号済み Thrift メッセージ → API Message */
@@ -3471,27 +3654,55 @@ async function processSingleOperation(
   }
 
   // 着信通話
-  if (type === "NOTIFIED_RECEIVED_CALL" || type === "50") {
-    const chatMid = String(op.param1 ?? "");
-    const callerMid = String(op.param2 ?? "");
-    if (/^[ucr]/.test(chatMid)) {
-      emitEvent({
+  if (type === "NOTIFIED_RECEIVED_CALL" || type === "3") {
+    const incoming = normalizeIncomingCall(op);
+    if (
+      incoming &&
+      incoming.callerMid !== myMid &&
+      rememberIncomingCall(accountId, incoming, op.revision)
+    ) {
+      pushTalkEvent(accountId, {
         kind: "call:incoming",
-        chatMid,
-        callerMid,
-        callType: "audio",
+        callMid: incoming.callMid,
+        chatMid: incoming.chatMid,
+        callerMid: incoming.callerMid,
+        callType: incoming.callType,
+        receivedAt: incoming.receivedAt,
       });
-      log.info({ accountId, chatMid, callerMid }, "incoming call");
+      log.info(
+        {
+          accountId,
+          callMid: incoming.callMid,
+          chatMid: incoming.chatMid,
+          callerMid: incoming.callerMid,
+        },
+        "incoming call",
+      );
     }
     return;
   }
 
   // 通話キャンセル
-  if (type === "CANCEL_CALL" || type === "51") {
-    const chatMid = String(op.param1 ?? "");
+  if (type === "NOTIFIED_CANCEL_CALL" || type === "NOTIFIED_MISSED_CALL" || type === "4") {
+    const callMid = String(op.param1 ?? "");
     const callerMid = String(op.param2 ?? "");
+    const pending = finishIncomingCall(
+      accountId,
+      callMid,
+      callerMid.startsWith("u") ? callerMid : undefined,
+    );
+    const chatMid = pending?.chatMid ?? (callerMid.startsWith("u") ? callerMid : callMid);
     if (/^[ucr]/.test(chatMid)) {
-      emitEvent({ kind: "call:cancel", chatMid, callerMid });
+      pushTalkEvent(accountId, { kind: "call:cancel", callMid, chatMid, callerMid });
+    }
+    return;
+  }
+
+  // 通話終了
+  if (type === "NOTIFIED_CALL_STATUS" || type === "5") {
+    const chatMid = String(op.param1 ?? "");
+    if (/^[ucr]/.test(chatMid)) {
+      pushTalkEvent(accountId, { kind: "call:end", chatMid });
     }
     return;
   }
@@ -3658,28 +3869,8 @@ export async function fetchMessages(
   if (!opts?.force && !isPagination && !isSpecial) {
     const local = await getStoredMessages(accountId, chatMid, limit);
     if (local.length > 0) {
-      const meta = await getCacheMeta(accountId);
-      const age = messageSyncAgeMs(meta, chatMid);
-      const syncKey = `${accountId}\0${chatMid}`;
-      if ((age == null || age > MESSAGE_LOCAL_STALE_MS) && !backgroundMessageSyncs.has(syncKey)) {
-        backgroundMessageSyncs.add(syncKey);
-        void enqueueTalkRpcBackground(accountId, () =>
-          fetchMessagesInner(accountId, chatMid, limit, { ...opts, lite: true }).catch((err) => {
-            log.debug(
-              {
-                accountId,
-                chatMid,
-                err: err instanceof Error ? err.message : String(err),
-              },
-              "background message sync failed",
-            );
-          }),
-        ).finally(() => backgroundMessageSyncs.delete(syncKey));
-      }
-      const cached = readRangesFromSnapshotV4(chatMid, getReadSnapshotV4(accountId, chatMid));
-      const client = requireClient(accountId);
-      const myMid = await resolveMyMid(client, accountId);
-      applyReadReceiptsToMessages(local, cached, chatMid, myMid);
+      // local-first は本当に local-only にする。表示要求に便乗した履歴RPCは発火させない。
+      // 新着は push / delta、明示同期は force 経路が担当する。
       return local;
     }
   }
@@ -3817,7 +4008,7 @@ async function fetchMessagesInner(
   }
 
   if (!opts?.lite && !opts?.delta) {
-    await ensureGroupE2EEKey(client, chatMid);
+    await ensureGroupE2EEKey(client, accountId, chatMid);
   }
 
   // Desktop/Android 準拠: 履歴 batch の groupKeyId を並列で用意（DM はスキップ）
@@ -4043,8 +4234,9 @@ async function ensureGroupKeyReadyForSend(
 ): Promise<void> {
   if (!(chatMid.startsWith("c") || chatMid.startsWith("r"))) return;
 
-  groupKeyWarm.delete(chatMid);
-  groupKeyWarmFailed.delete(chatMid);
+  const cacheKey = e2eeChatCacheKey(accountId, chatMid);
+  groupKeyWarm.delete(cacheKey);
+  groupKeyWarmFailed.delete(cacheKey);
 
   try {
     const last = await client.base.talk.getLastE2EEGroupSharedKey({
@@ -4052,12 +4244,12 @@ async function ensureGroupKeyReadyForSend(
       chatMid,
     });
     await ensureGroupKeyById(client, chatMid, Number(last.groupKeyId));
-    groupKeyWarm.add(chatMid);
+    groupKeyWarm.add(cacheKey);
     return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     if (isRetryPlainError(msg)) {
-      noE2eePeers.add(chatMid);
+      noE2eePeers.add(cacheKey);
       log.debug({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: retry plain");
       return;
     }
@@ -4069,9 +4261,9 @@ async function ensureGroupKeyReadyForSend(
 
   log.info({ accountId, chatMid }, "no group E2EE key — registering new shared key for send");
   await recreateE2EEGroupKey(client, chatMid);
-  groupKeyWarm.delete(chatMid);
-  groupKeyWarmFailed.delete(chatMid);
-  groupKeyWarm.add(chatMid);
+  groupKeyWarm.delete(cacheKey);
+  groupKeyWarmFailed.delete(cacheKey);
+  groupKeyWarm.add(cacheKey);
 }
 
 function isE2EESendError(errMsg: string): boolean {
@@ -4088,13 +4280,13 @@ function isE2EESendError(errMsg: string): boolean {
 
 const noE2eePeers = new Set<string>();
 
-function markNoE2eePeer(chatMid: string, errMsg: string): void {
+function markNoE2eePeer(accountId: string, chatMid: string, errMsg: string): void {
   if (
     errMsg.includes("Not support E2EE") ||
     errMsg.includes("NoE2EEKey") ||
     errMsg.includes("E2EE_RETRY_PLAIN")
   ) {
-    noE2eePeers.add(chatMid);
+    noE2eePeers.add(e2eeChatCacheKey(accountId, chatMid));
   }
 }
 
@@ -4125,9 +4317,10 @@ export async function sendMessage(
   text: string,
   opts: SendMessageOptions = {},
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   // ブロック中の友だちには送信しない（サーバ側でも防ぐ）
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "send blocked: user is blocked");
       return null;
@@ -4138,7 +4331,8 @@ export async function sendMessage(
 
     const myMid = await resolveMyMid(client, accountId);
     const isGroupLike = chatMid.startsWith("c") || chatMid.startsWith("r");
-    let skipE2ee = noE2eePeers.has(chatMid);
+    const e2eeKey = e2eeChatCacheKey(accountId, chatMid);
+    let skipE2ee = noE2eePeers.has(e2eeKey);
     try {
       await ensureE2EEIdentityCached(client, accountId);
     } catch (err) {
@@ -4148,11 +4342,11 @@ export async function sendMessage(
     if (isGroupLike && !skipE2ee) {
       try {
         // キャッシュを活かす: 既に warm 済みなら API をスキップ
-        await ensureGroupE2EEKey(client, chatMid);
+        await ensureGroupE2EEKey(client, accountId, chatMid);
         // ensureGroupKeyReadyForSend は内部で groupKeyWarm をクリアするため、
         // warm 失敗時のみ（＝鍵不在時のみ）新規 register する
-        if (groupKeyWarmFailed.has(chatMid)) {
-          groupKeyWarmFailed.delete(chatMid);
+        if (groupKeyWarmFailed.has(e2eeKey)) {
+          groupKeyWarmFailed.delete(e2eeKey);
           await ensureGroupKeyReadyForSend(client, accountId, chatMid);
         }
       } catch (err) {
@@ -4235,7 +4429,7 @@ export async function sendMessage(
       return await finish(sent, true);
     } catch (err) {
       let errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, errMsg);
+      markNoE2eePeer(accountId, chatMid, errMsg);
 
       if (isSenderKeyError(errMsg)) {
         log.warn(
@@ -4260,7 +4454,7 @@ export async function sendMessage(
           );
           err = retryErr;
           errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          markNoE2eePeer(chatMid, errMsg);
+          markNoE2eePeer(accountId, chatMid, errMsg);
         }
       }
 
@@ -4274,8 +4468,8 @@ export async function sendMessage(
         );
         try {
           await recreateE2EEGroupKey(client, chatMid);
-          groupKeyWarm.delete(chatMid);
-          groupKeyWarmFailed.delete(chatMid);
+          groupKeyWarm.delete(e2eeKey);
+          groupKeyWarmFailed.delete(e2eeKey);
           const sent = await tryE2eeSend();
           return await finish(sent, true);
         } catch (retryErr) {
@@ -4293,7 +4487,7 @@ export async function sendMessage(
       }
 
       const finalMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, finalMsg);
+      markNoE2eePeer(accountId, chatMid, finalMsg);
       if (!isE2EESendError(finalMsg) && !isSenderKeyError(errMsg)) {
         throw err;
       }
@@ -4407,8 +4601,9 @@ export async function sendMedia(
     mediaType?: MediaSendType;
   },
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMedia blocked: user is blocked");
       return;
@@ -4418,6 +4613,7 @@ export async function sendMedia(
     accountId,
     async () => {
       const client = requireClient(accountId);
+      const e2eeKey = e2eeChatCacheKey(accountId, chatMid);
       await resolveMyMid(client, accountId);
       // テキスト送信と同じキャッシュ版を使い、送信ごとの E2EE 鍵再取得を避ける
       try {
@@ -4450,7 +4646,7 @@ export async function sendMedia(
       // Desktop 準拠: REFRESH_MEDIA_FLOW を待たず、送信前にメディア flow を確認する。
       // flow=1 は OBS /r/talk/m/reqseq でサーバー側に message を作らせる。
       let plainMode =
-        noE2eePeers.has(chatMid) ||
+        noE2eePeers.has(e2eeKey) ||
         (await determinePlainMediaFlow(client, accountId, chatMid, [mediaType]));
 
       // グループは既存の共有鍵があれば E2EE、無ければ plain（uploadObjTalk）で送る。
@@ -4458,9 +4654,9 @@ export async function sendMedia(
       // 新規 register はしない（テキストは plain フォールバックで問題ない）
       if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
         try {
-          await ensureGroupE2EEKey(client, chatMid);
-          if (groupKeyWarmFailed.has(chatMid)) {
-            groupKeyWarmFailed.delete(chatMid);
+          await ensureGroupE2EEKey(client, accountId, chatMid);
+          if (groupKeyWarmFailed.has(e2eeKey)) {
+            groupKeyWarmFailed.delete(e2eeKey);
             await ensureGroupKeyReadyForSend(client, accountId, chatMid);
           }
         } catch (err) {
@@ -4470,7 +4666,7 @@ export async function sendMedia(
           );
           plainMode = true;
         }
-        plainMode = plainMode || noE2eePeers.has(chatMid);
+        plainMode = plainMode || noE2eePeers.has(e2eeKey);
       }
 
       const tryUpload = async () => {
@@ -4545,8 +4741,8 @@ export async function sendMedia(
           );
           try {
             await recreateE2EEGroupKey(client, chatMid);
-            groupKeyWarm.delete(chatMid);
-            groupKeyWarmFailed.delete(chatMid);
+            groupKeyWarm.delete(e2eeKey);
+            groupKeyWarmFailed.delete(e2eeKey);
             await tryUpload();
             log.info(
               {
@@ -4584,8 +4780,9 @@ export async function sendMediaBatch(
   chatMid: string,
   items: MediaBatchItem[],
 ): Promise<number> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendMediaBatch blocked: user is blocked");
       return 0;
@@ -4596,6 +4793,7 @@ export async function sendMediaBatch(
     accountId,
     async () => {
       const client = requireClient(accountId);
+      const e2eeKey = e2eeChatCacheKey(accountId, chatMid);
       await resolveMyMid(client, accountId);
       try {
         await ensureE2EEIdentityCached(client, accountId);
@@ -4618,14 +4816,16 @@ export async function sendMediaBatch(
                   : "file")
         );
       });
+      const groupedImageBatch =
+        items.length > 1 && batchMediaTypes.every((type) => type === "image" || type === "gif");
       let plainMode =
-        noE2eePeers.has(chatMid) ||
+        noE2eePeers.has(e2eeKey) ||
         (await determinePlainMediaFlow(client, accountId, chatMid, batchMediaTypes));
       if ((chatMid.startsWith("c") || chatMid.startsWith("r")) && !plainMode) {
         try {
-          await ensureGroupE2EEKey(client, chatMid);
-          if (groupKeyWarmFailed.has(chatMid)) {
-            groupKeyWarmFailed.delete(chatMid);
+          await ensureGroupE2EEKey(client, accountId, chatMid);
+          if (groupKeyWarmFailed.has(e2eeKey)) {
+            groupKeyWarmFailed.delete(e2eeKey);
             await ensureGroupKeyReadyForSend(client, accountId, chatMid);
           }
         } catch (err) {
@@ -4635,12 +4835,13 @@ export async function sendMediaBatch(
           );
           plainMode = true;
         }
-        plainMode = plainMode || noE2eePeers.has(chatMid);
+        plainMode = plainMode || noE2eePeers.has(e2eeKey);
       }
 
-      if (plainMode) {
-        // Desktop 準拠: OBS /r/talk/m/reqseq に連番 reqseq でアップロードし、
-        // サーバ側にメッセージを生成させる（HAR 実績と同じ経路）。
+      if (plainMode || groupedImageBatch) {
+        // Desktop/iOS 準拠: 複数画像は OBS /r/talk/m/reqseq へ順次アップロードし、
+        // 1 枚目の応答で発行された GID を X-Talk-Meta で 2 枚目以降へ引き継ぐ。
+        // 画像以外の plain media batch は従来どおり連番 reqseq のみで送る。
         // thrift sendMessage を併用すると flow=1 チャットでは履歴に載らないため
         // 失敗時のフォールバック送信も行わない（二重送信になる）。
         const uploaded = await client.base.obs.uploadObjTalkBatch(
@@ -4657,9 +4858,46 @@ export async function sendMediaBatch(
               ((item.mediaType ?? "image") === "image" ? "screenshot.png" : "file.bin"),
           })),
         );
-        // reqseq 生成メッセージは OBS から OID が取れないため、
-        // アップロード応答の objId（== 生成メッセージID の実測）をキーに
-        // 送信バイトを永続メディアストレージに置く。
+
+        // OBS 201 だけでは LINE 履歴への生成を保証できない。
+        // x-obs-oid (objId) が実際の LINE メッセージ ID として履歴に現れたものだけ
+        // 成功扱いにする。reqseq に必要な header が欠けた場合の false positive を防ぐ。
+        const uploadedIds = uploaded.flatMap((result) =>
+          result && !("error" in result) && result.objId ? [result.objId] : [],
+        );
+        const confirmedIds = new Set<string>();
+        for (let attempt = 0; attempt < 5 && confirmedIds.size < uploadedIds.length; attempt++) {
+          try {
+            // messageBox の lastDeliveredMessageId は送信直後に数秒遅れることがあるため、
+            // delta 用の合成カーソルで「現在時刻まで」を直接読む。
+            const history = await runTalkFetchUrgent(accountId, () =>
+              fetchMessagesInner(accountId, chatMid, Math.max(30, uploadedIds.length * 4), {
+                lite: true,
+                delta: true,
+                deltaAfterId: uploadedIds[0] ?? "0",
+              }),
+            );
+            const historyIds = new Set(history.map((message) => message.id));
+            for (const id of uploadedIds) {
+              if (historyIds.has(id)) confirmedIds.add(id);
+            }
+          } catch (err) {
+            log.warn(
+              {
+                accountId,
+                chatMid,
+                attempt: attempt + 1,
+                err: err instanceof Error ? err.message : String(err),
+              },
+              "media batch history verification failed",
+            );
+          }
+
+          if (confirmedIds.size < uploadedIds.length && attempt < 4) {
+            await new Promise<void>((resolve) => setTimeout(resolve, 300 * (attempt + 1)));
+          }
+        }
+
         let count = 0;
         for (let i = 0; i < uploaded.length; i++) {
           const result = uploaded[i];
@@ -4675,6 +4913,20 @@ export async function sendMediaBatch(
             );
             continue;
           }
+
+          if (!confirmedIds.has(result.objId)) {
+            log.warn(
+              {
+                accountId,
+                chatMid,
+                index: i,
+                objId: result.objId,
+              },
+              "media batch item was accepted by OBS but not confirmed in LINE history",
+            );
+            continue;
+          }
+
           count++;
           const binary = Uint8Array.from(atob(items[i]!.dataBase64), (c) => c.charCodeAt(0));
           await writeMediaStorage(
@@ -4692,8 +4944,9 @@ export async function sendMediaBatch(
             count,
             total: items.length,
             batch: true,
-            plain: true,
+            plain: plainMode,
             reqseq: true,
+            grouped: groupedImageBatch,
           },
           "media batch sent via OBS reqseq",
         );
@@ -4786,8 +5039,8 @@ export async function sendMediaBatch(
             );
             try {
               await recreateE2EEGroupKey(client, chatMid);
-              groupKeyWarm.delete(chatMid);
-              groupKeyWarmFailed.delete(chatMid);
+              groupKeyWarm.delete(e2eeKey);
+              groupKeyWarmFailed.delete(e2eeKey);
               const message = await tryUpload();
               previousMessageId = message.id;
               count++;
@@ -4827,8 +5080,9 @@ export async function sendSticker(
   chatMid: string,
   opts?: { packageId?: string; stickerId?: string; isPremium?: boolean },
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendSticker blocked: user is blocked");
       return null;
@@ -5067,6 +5321,7 @@ async function sendStickerMessage(
   }>,
 ): Promise<Message | null> {
   const client = requireClient(accountId);
+  const e2eeKey = e2eeChatCacheKey(accountId, chatMid);
   const myMid = await resolveMyMid(client, accountId);
   const built = await build(client, myMid);
 
@@ -5079,7 +5334,7 @@ async function sendStickerMessage(
     });
 
   let sent: unknown;
-  if (noE2eePeers.has(chatMid)) {
+  if (noE2eePeers.has(e2eeKey)) {
     sent = await sendPlain();
   } else {
     try {
@@ -5099,7 +5354,7 @@ async function sendStickerMessage(
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(chatMid, errMsg);
+      markNoE2eePeer(accountId, chatMid, errMsg);
       log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
       sent = await sendPlain();
     }
@@ -5123,8 +5378,9 @@ export async function sendCombinationSticker(
   items: CombinationStickerInput[],
   opts?: { idOfPreviousVersionOfCombinationSticker?: string },
 ): Promise<Message | null> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendCombinationSticker blocked: user is blocked");
       return null;
@@ -5160,8 +5416,9 @@ export async function sendLineEmoji(
   chatMid: string,
   opts: { packageId: string; sticonId: string },
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   if (chatMid.startsWith("u")) {
-    const blocked = await fetchBlockedContactIds(accountId);
+    const blocked = await getBlockedContactIds(accountId);
     if (blocked.includes(chatMid)) {
       log.info({ accountId, chatMid }, "sendLineEmoji blocked: user is blocked");
       return;
@@ -5228,7 +5485,11 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
   // 送信と同じキューで直列化（送信中と同時に H2 セッションを使うと取り消しが落ちることがある）
   return runSendRpc(accountId, async () => {
     const found = await findStoredMessageById(accountId, messageId);
-    const chatMid = found?.chatMid;
+    if (!found) {
+      throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message timestamp unavailable");
+    }
+    const chatMid = found.chatMid;
+    if (chatMid) await assertChatUnlocked(accountId, chatMid);
     if (found) {
       const stored = found.message;
       if (!stored.isMyMessage) {
@@ -5241,6 +5502,10 @@ export async function unsendMessage(accountId: string, messageId: string): Promi
         stored.contentType === "UNSEND"
       ) {
         throw new Error("MESSAGE_ALREADY_REVOKED: this message was already unsent once");
+      }
+      const premium = await fetchPremiumStatus(accountId);
+      if (!canUnsendMessage(stored.createdTime, premium.active)) {
+        throw new Error("MESSAGE_NOT_DESTRUCTIBLE: message too old");
       }
     }
     const client = requireClient(accountId);
@@ -5262,6 +5527,7 @@ export async function editMessage(
   messageId: string,
   text: string,
 ): Promise<{ message: Message }> {
+  await assertChatUnlocked(accountId, chatMid);
   return runSendRpc(accountId, async () => {
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
@@ -5294,7 +5560,7 @@ export async function editMessage(
     } catch (err) {
       log.debug({ err }, "logMessageAsync failed during editMessage");
     }
-    log.info({ accountId, chatMid, messageId, text }, "message edited");
+    log.info({ accountId, chatMid, messageId }, "message edited");
     return { message: mapped };
   });
 }
@@ -5422,6 +5688,7 @@ export async function updateChatName(
   chatMid: string,
   name: string,
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   await wrapSession(client).chat.updateName(chatMid, name);
   log.info({ accountId, chatMid, name }, "chat name updated");
@@ -5467,6 +5734,7 @@ export async function updateChatPicture(
   bytes: Uint8Array,
   mime = "image/jpeg",
 ): Promise<{ picturePath: string; objId: string; objHash: string }> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   const blob = new Blob([Uint8Array.from(bytes)], { type: mime });
   const result = await wrapSession(client).chat.uploadAndSetPicture(chatMid, blob);
@@ -5476,6 +5744,7 @@ export async function updateChatPicture(
 
 /** 友だち表示名 override（null で解除） */
 export async function renameContact(accountId: string, input: ContactRenameInput): Promise<void> {
+  await assertChatUnlocked(accountId, input.mid);
   const client = requireClient(accountId);
   await wrapSession(client).contacts.rename(input);
   log.info({ accountId, mid: input.mid }, "contact renamed");
@@ -5503,6 +5772,7 @@ export async function leaveChat(
   accountId: string,
   chatMid: string,
 ): Promise<{ alreadyLeft?: boolean }> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   try {
     await client.base.talk.deleteSelfFromChat({
@@ -5544,7 +5814,7 @@ const BLOCKED_CACHE_TTL_MS = Number(process.env.VYLINE_BLOCKED_CACHE_TTL_MS ?? 5
 const BLOCKED_RPC_TIMEOUT_MS = Number(process.env.VYLINE_BLOCKED_RPC_TIMEOUT_MS ?? 8_000);
 const blockedInflight = new Map<string, Promise<string[]>>();
 
-export async function fetchBlockedContactIds(accountId: string): Promise<string[]> {
+export async function getBlockedContactIds(accountId: string): Promise<string[]> {
   const cached = blockedCache.get(accountId);
   if (cached && Date.now() - cached.at < BLOCKED_CACHE_TTL_MS) return cached.ids;
   const inflight = blockedInflight.get(accountId);
@@ -5557,7 +5827,7 @@ export async function fetchBlockedContactIds(accountId: string): Promise<string[
           client.base.talk.getBlockedContactIds({ syncReason: "INTERNAL" }),
         ),
         BLOCKED_RPC_TIMEOUT_MS,
-        "fetchBlockedContactIds",
+        "getBlockedContactIds",
       );
       const out = (ids ?? []).map(String);
       blockedCache.set(accountId, { at: Date.now(), ids: out });
@@ -5789,6 +6059,7 @@ export async function inviteToGroupChat(
   chatMid: string,
   memberMids: string[],
 ): Promise<void> {
+  await assertChatUnlocked(accountId, chatMid);
   const client = requireClient(accountId);
   const mids = [...new Set(memberMids.filter((m) => m.startsWith("u")))];
   if (mids.length === 0) throw new Error("memberMids required");
@@ -5801,6 +6072,7 @@ export async function inviteToGroupChat(
 
 /** 連絡先ブロック — Desktop: TalkService_blockContact */
 export async function blockContactMid(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
   const client = requireClient(accountId);
   await client.base.talk.blockContact({
     reqSeq: await client.base.getReqseq(),
@@ -5811,6 +6083,7 @@ export async function blockContactMid(accountId: string, mid: string): Promise<v
 }
 
 export async function unblockContactMid(accountId: string, mid: string): Promise<void> {
+  await assertChatUnlocked(accountId, mid);
   const client = requireClient(accountId);
   await client.base.talk.unblockContact({
     reqSeq: await client.base.getReqseq(),
@@ -5882,6 +6155,8 @@ export async function reactToMessage(
   messageId: string,
   reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG" | "UNDO",
 ): Promise<void> {
+  const found = await findStoredMessageById(accountId, messageId);
+  if (found) await assertChatUnlocked(accountId, found.chatMid);
   const client = requireClient(accountId);
   // react RPC は稀に 8s 超えるため send キュー + 専用タイムアウトで待つ
   await runSendRpc(
@@ -5901,7 +6176,7 @@ export async function reactToMessage(
 }
 
 /** チャットルームのアナウンス一覧 — Desktop: TalkService_getChatRoomAnnouncements */
-export async function getChatAnnouncements(
+export async function getChatRoomAnnouncements(
   accountId: string,
   chatMid: string,
 ): Promise<
@@ -5938,7 +6213,7 @@ export async function getChatAnnouncements(
 }
 
 /** メッセージをアナウンスとしてピン留め — Desktop: TalkService_createChatRoomAnnouncement */
-export async function announceMessage(
+export async function createChatRoomAnnouncement(
   accountId: string,
   chatMid: string,
   text: string,
@@ -5967,7 +6242,7 @@ export async function announceMessage(
 }
 
 /** アナウンスの解除（ピン解除）— Desktop: TalkService_removeChatRoomAnnouncement */
-export async function removeChatAnnouncement(
+export async function removeChatRoomAnnouncement(
   accountId: string,
   chatMid: string,
   announcementSeq: string | number,
@@ -6050,6 +6325,7 @@ export async function startDirectCall(
   callType: "AUDIO" | "VIDEO" = "AUDIO",
 ): Promise<import("../call/callManager.js").CallSessionSnapshot> {
   assertDirectCallAllowed(to);
+  await assertChatUnlocked(accountId, to);
   if (await isBotMid(accountId, to)) {
     throw new CallNotAllowedError("BOT / 公式アカウントには通話できません");
   }
@@ -6073,16 +6349,18 @@ export async function startDirectCall(
   }
 }
 
-export async function stopDirectCall(sessionId: string): Promise<void> {
-  const { endManagedCall } = await import("../call/callManager.js");
-  await endManagedCall(sessionId);
+export async function stopDirectCall(accountId: string, sessionId: string): Promise<void> {
+  const { endManagedCallForAccount } = await import("../call/callManager.js");
+  if (!(await endManagedCallForAccount(accountId, sessionId)))
+    throw new Error("call session not found");
 }
 
 export async function getDirectCallStatus(
+  accountId: string,
   sessionId: string,
 ): Promise<import("../call/callManager.js").CallSessionSnapshot | null> {
-  const { getCallSnapshot } = await import("../call/callManager.js");
-  return getCallSnapshot(sessionId);
+  const { getCallSnapshotForAccount } = await import("../call/callManager.js");
+  return getCallSnapshotForAccount(accountId, sessionId);
 }
 
 export async function listDirectCalls(
@@ -6310,16 +6588,20 @@ async function downloadUrlBytes(
   fallbackMime = guessMediaMime("IMAGE"),
   ms = 20_000,
 ): Promise<{ bytes: Uint8Array; contentType: string }> {
-  if (!isTrustedLineMediaUrl(url)) throw new Error("download URL host not allowed");
-  let res = await withTimeout(fetch(url, { redirect: "manual" }), ms, "downloadUrlBytes");
-  if (res.status >= 300 && res.status < 400) {
+  let currentUrl = url;
+  let res: Response | null = null;
+  for (let redirectCount = 0; redirectCount <= 3; redirectCount++) {
+    if (!isTrustedLineMediaDownloadUrl(currentUrl)) {
+      throw new Error("blocked untrusted media download URL");
+    }
+    res = await withTimeout(fetch(currentUrl, { redirect: "manual" }), ms, "downloadUrlBytes");
+    if (res.status < 300 || res.status >= 400) break;
     const location = res.headers.get("location");
-    const target = location ? new URL(location, url).toString() : "";
+    if (!location || redirectCount === 3) throw new Error("media download redirect rejected");
+    currentUrl = new URL(location, currentUrl).toString();
     await res.body?.cancel();
-    if (!target || !isTrustedLineMediaUrl(target))
-      throw new Error("download redirect host not allowed");
-    res = await withTimeout(fetch(target, { redirect: "error" }), ms, "downloadUrlBytes redirect");
   }
+  if (!res) throw new Error("media download failed");
   if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText}`);
   const maxBytes = 64 * 1024 * 1024;
   const declaredLength = Number(res.headers.get("content-length"));
@@ -6577,8 +6859,9 @@ export async function fetchMessageMedia(
       if (gk != null && e2eeFailed) {
         await client.base.storage.delete(`e2eeGroupKeys:${chatMid}`).catch(() => undefined);
         await client.base.storage.delete(`e2eeGroupKeys:${chatMid}:${gk}`).catch(() => undefined);
-        groupKeyWarm.delete(chatMid);
-        groupKeyWarmFailed.delete(chatMid);
+        const e2eeKey = e2eeChatCacheKey(accountId, chatMid);
+        groupKeyWarm.delete(e2eeKey);
+        groupKeyWarmFailed.delete(e2eeKey);
         await ensureGroupKeyById(client, chatMid, gk);
         return await tryDownload();
       }

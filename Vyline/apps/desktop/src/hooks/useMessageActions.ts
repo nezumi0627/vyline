@@ -33,15 +33,15 @@ export function useMessageActions({
   useEffect(() => {
     setReplyTo(null);
     setSendError(null);
-    setMessageTextState(getDraft(selectedChatMid));
-  }, [selectedChatMid, getDraft]);
+    setMessageTextState(getDraft(accountId, selectedChatMid));
+  }, [accountId, selectedChatMid, getDraft]);
 
   const setMessageText = useCallback(
     (text: string) => {
       setMessageTextState(text);
-      if (selectedChatMid) setDraft(selectedChatMid, text);
+      if (selectedChatMid) setDraft(accountId, selectedChatMid, text);
     },
-    [selectedChatMid, setDraft],
+    [accountId, selectedChatMid, setDraft],
   );
 
   const send = useCallback(
@@ -53,12 +53,12 @@ export function useMessageActions({
       const relatedMessageId = replyTo?.id;
 
       setMessageTextState("");
-      clearDraft(selectedChatMid);
+      clearDraft(accountId, selectedChatMid);
       setSendError(null);
       setSending(true);
 
       try {
-        const res = await api.line.send(accountId, selectedChatMid, text, {
+        const res = await api.line.sendMessage(accountId, selectedChatMid, text, {
           relatedMessageId,
         });
         if (res.ok) {
@@ -67,7 +67,7 @@ export function useMessageActions({
         } else {
           setSendError(res.error ?? "送信に失敗しました");
           setMessageTextState(text);
-          setDraft(selectedChatMid, text);
+          setDraft(accountId, selectedChatMid, text);
         }
       } finally {
         setSending(false);
@@ -82,7 +82,7 @@ export function useMessageActions({
       const ok = window.confirm("このメッセージを送信取り消ししますか？");
       if (!ok) return;
 
-      const res = await api.line.unsend(accountId, message.id);
+      const res = await api.line.unsendMessage(accountId, message.id);
       if (!res.ok) {
         window.alert(`送信取り消しエラー\n${res.error ?? "unknown"}`);
         return;

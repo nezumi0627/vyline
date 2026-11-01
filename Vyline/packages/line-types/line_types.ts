@@ -12764,8 +12764,15 @@ export interface Reaction {
   reactionType: ReactionType;
 }
 
+export interface PaidReactionType {
+  productId: string;
+  emojiId: string;
+  resourceType: number;
+  version: Int64;
+}
 export interface ReactionType {
-  predefinedReactionType: MessageReactionType;
+  predefinedReactionType?: MessageReactionType;
+  paidReactionType?: PaidReactionType;
 }
 
 export interface RecommendationDetail {
@@ -13545,6 +13552,15 @@ export interface ShortcutUserGuidePopupInfo {
 
 export interface ShouldShowWelcomeStickerBannerResponse {
   shouldShowBanner: boolean;
+}
+
+export interface SilentlyUnsendMessageRequest {
+  reqSeq: number;
+  messageId: string;
+}
+
+export interface SilentlyUnsendMessageResponse {
+  silentUnsend: boolean;
 }
 
 export interface I80_B0 {
@@ -20205,6 +20221,15 @@ export interface setNotificationsEnabled_args {
 }
 
 export interface setNotificationsEnabled_result {
+  e: TalkException;
+}
+
+export interface silentlyUnsendMessage_args {
+  silentlyUnsendMessageRequest: SilentlyUnsendMessageRequest;
+}
+
+export interface silentlyUnsendMessage_result {
+  success: SilentlyUnsendMessageResponse;
   e: TalkException;
 }
 

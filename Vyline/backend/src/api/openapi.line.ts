@@ -36,6 +36,15 @@ const pathParam = (name: string, description: string) =>
     description,
   }) as const;
 
+const queryParam = (name: string, description: string, required = false) =>
+  ({
+    name,
+    in: "query",
+    required,
+    schema: { type: "string" },
+    description,
+  }) as const;
+
 const ok = {
   type: "object",
   properties: { ok: { type: "boolean" } },
@@ -66,11 +75,19 @@ const body = (required: string[], properties: Record<string, unknown>, descripti
   },
 });
 
+const binaryBody = (description: string, contentType = "application/octet-stream") => ({
+  required: true,
+  description,
+  content: {
+    [contentType]: { schema: { type: "string", format: "binary" } },
+  },
+});
+
 // ── 操作テーブル ────────────────────────────────────────────
 // [routePath, method, tag, spec]
 // operationId は LINE 関数名準拠（Vyline 拡張は description に明記）
 
-type Method = "get" | "post" | "put" | "delete";
+type Method = "get" | "post" | "put" | "patch" | "delete";
 interface OpSpec {
   /** operationId — LINE 関数名（canonicalName）準拠 */
   op: string;
@@ -100,7 +117,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/profile",
+    "/line/{accountId}/getProfile",
     "get",
     {
       op: "getProfile",
@@ -115,6 +132,24 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/updateProfileAttributes",
+    "patch",
+    {
+      op: "updateProfileAttributes",
+      summary: "プロフィール属性更新",
+      description: "LINE: TalkService.updateProfileAttributes",
+      tags: ["session"],
+      params: [acc],
+      requestBody: body([], {
+        displayName: { type: "string" },
+        statusMessage: { type: "string" },
+        phoneticName: { type: "string" },
+        musicProfile: { type: "string" },
+      }),
+      responses: { "200": jsonRes("プロフィール") },
+    },
+  ],
+  [
     "/line/{accountId}/profile/image",
     "post",
     {
@@ -123,7 +158,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "LINE: updateProfileAttributes + OBS uploadMediaByE2EE",
       tags: ["session"],
       params: [acc],
-      requestBody: body(["dataBase64"], { dataBase64: { type: "string" } }),
+      requestBody: binaryBody("画像バイナリ（最大16MiB）", "image/*"),
       responses: { "200": okRes() },
     },
   ],
@@ -135,7 +170,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "プロフィール背景画像更新",
       tags: ["session"],
       params: [acc],
-      requestBody: body(["dataBase64"], { dataBase64: { type: "string" } }),
+      requestBody: binaryBody("画像バイナリ（最大16MiB）", "image/*"),
       responses: { "200": okRes() },
     },
   ],
@@ -152,7 +187,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/events/poll",
+    "/line/{accountId}/fetchOperations",
     "get",
     {
       op: "fetchOperations",
@@ -166,7 +201,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── chats ───────────────────────────────────────────────
   [
-    "/line/{accountId}/chats",
+    "/line/{accountId}/getMessageBoxes",
     "get",
     {
       op: "getMessageBoxes",
@@ -178,7 +213,50 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/create-group",
+    "/line/{accountId}/chat-locks",
+    "get",
+    {
+      op: "getChatLocks",
+      summary: "送信保護対象チャット一覧を取得",
+      description: "Vyline 拡張。誤送信防止用のローカル設定",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("{ ok, chatMids }") },
+    },
+  ],
+  [
+    "/line/{accountId}/chat-locks/{chatMid}",
+    "put",
+    {
+      op: "setChatLock",
+      summary: "チャットの送信保護状態を更新",
+      description: "Vyline 拡張。locked は必須 boolean",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["locked"], { locked: { type: "boolean" } }),
+      responses: {
+        "200": jsonRes("{ ok, locked, chatMids }"),
+        "400": {
+          description: "locked が boolean ではない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/chatdb/rebuild",
+    "post",
+    {
+      op: "rebuildChatDatabase",
+      summary: "ローカルチャット DB を再構築",
+      description: "Vyline 拡張。復元・同期混在後の時系列と最新チャット要約を正規化する",
+      tags: ["chats"],
+      params: [acc],
+      responses: { "200": jsonRes("再構築結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/createChat",
     "post",
     {
       op: "createChat",
@@ -199,7 +277,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/{chatMid}/members",
+    "/line/{accountId}/getChatMembers/{chatMid}",
     "get",
     {
       op: "getChatMembers",
@@ -210,7 +288,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/chats/{chatMid}/invite",
+    "/line/{accountId}/inviteIntoChat/{chatMid}",
     "post",
     {
       op: "inviteIntoChat",
@@ -222,6 +300,22 @@ const routes: Array<[string, Method, OpSpec]> = [
         memberMids: { type: "array", items: { type: "string" } },
       }),
       responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/chats/{chatMid}",
+    "patch",
+    {
+      op: "updateChat",
+      summary: "チャット名を更新",
+      description: "LINE: TalkService.updateChat (NAME)",
+      tags: ["chats"],
+      params: [acc, chatMid],
+      requestBody: body(["name"], { name: { type: "string", minLength: 1 } }),
+      responses: {
+        "200": okRes(),
+        "400": { description: "name が空", content: { "application/json": { schema: error } } },
+      },
     },
   ],
   [
@@ -245,7 +339,7 @@ const routes: Array<[string, Method, OpSpec]> = [
       description: "LINE: updateChat (PICTURE_STATUS) + OBS アップロード",
       tags: ["chats"],
       params: [acc, chatMid],
-      requestBody: body([], { dataBase64: { type: "string" } }),
+      requestBody: binaryBody("画像バイナリ（最大16MiB）", "image/*"),
       responses: { "200": okRes() },
     },
   ],
@@ -264,7 +358,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── messages ────────────────────────────────────────────
   [
-    "/line/{accountId}/messages/{chatMid}",
+    "/line/{accountId}/getPreviousMessagesV2WithRequest/{chatMid}",
     "get",
     {
       op: "getPreviousMessagesV2WithRequest",
@@ -300,7 +394,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/messages/{chatMid}/delta",
+    "/line/{accountId}/getMessageDelta/{chatMid}",
     "get",
     {
       op: "getMessageDelta",
@@ -312,7 +406,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/messages/{chatMid}/{messageId}/history",
+    "/line/{accountId}/getMessageHistory/{chatMid}/{messageId}",
     "get",
     {
       op: "getMessageHistory",
@@ -324,7 +418,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/send",
+    "/line/{accountId}/sendMessage",
     "post",
     {
       op: "sendMessage",
@@ -359,7 +453,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/edit-notice/{chatMid}",
+    "/line/{accountId}/getEditNotice/{chatMid}",
     "get",
     {
       op: "getEditNotice",
@@ -371,7 +465,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/unsend",
+    "/line/{accountId}/unsendMessage",
     "post",
     {
       op: "unsendMessage",
@@ -384,7 +478,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/read",
+    "/line/{accountId}/sendChatChecked",
     "post",
     {
       op: "sendChatChecked",
@@ -400,7 +494,61 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/read-receipts/{chatMid}",
+    "/line/{accountId}/read-batch",
+    "post",
+    {
+      op: "markChatsReadBatch",
+      summary: "複数チャットを一括既読",
+      description: "Vyline 拡張。chatMid と lastMessageId が揃った target のみ処理する",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: body(["targets"], {
+        targets: {
+          type: "array",
+          items: {
+            type: "object",
+            required: ["chatMid", "lastMessageId"],
+            properties: {
+              chatMid: { type: "string" },
+              lastMessageId: { type: "string" },
+            },
+          },
+        },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, count }"),
+        "400": {
+          description: "有効な targets がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/read-all",
+    "post",
+    {
+      op: "markAllChatsRead",
+      summary: "全チャットまたは指定チャットを一括既読",
+      description: "Vyline 拡張。body は省略可能",
+      tags: ["messages"],
+      params: [acc],
+      requestBody: {
+        required: false,
+        content: {
+          "application/json": {
+            schema: {
+              type: "object",
+              properties: { chatMids: { type: "array", items: { type: "string" } } },
+            },
+          },
+        },
+      },
+      responses: { "200": jsonRes("{ ok, count }") },
+    },
+  ],
+  [
+    "/line/{accountId}/getMessageReadRange/{chatMid}",
     "get",
     {
       op: "getMessageReadRange",
@@ -478,7 +626,11 @@ const routes: Array<[string, Method, OpSpec]> = [
       params: [acc],
       requestBody: body(["chatMid", "dataBase64"], {
         chatMid: { type: "string" },
-        dataBase64: { type: "string", description: "最大 ~12MB base64" },
+        dataBase64: {
+          type: "string",
+          maxLength: 15000000,
+          description: "base64文字列は最大15,000,000文字",
+        },
         mimeType: { type: "string" },
         filename: { type: "string" },
         mediaType: { type: "string", enum: ["image", "video", "audio", "file", "gif"] },
@@ -574,7 +726,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers/can-create",
+    "/line/{accountId}/canCreateCombinationSticker",
     "post",
     {
       op: "canCreateCombinationSticker",
@@ -585,10 +737,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers/available",
+    "/line/{accountId}/isStickerAvailableForCombinationSticker",
     "post",
     {
-      op: "getAvailableCombinationStickers",
+      op: "isStickerAvailableForCombinationSticker",
       summary: "利用可能スタンプ一覧",
       tags: ["stickers"],
       params: [acc],
@@ -596,7 +748,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/combination-stickers",
+    "/line/{accountId}/createCombinationSticker",
     "post",
     {
       op: "createCombinationSticker",
@@ -637,7 +789,7 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── contacts ────────────────────────────────────────────
   [
-    "/line/{accountId}/contact/{targetMid}",
+    "/line/{accountId}/getContact/{targetMid}",
     "get",
     {
       op: "getContact",
@@ -649,7 +801,23 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/common-groups/{targetMid}",
+    "/line/{accountId}/updateContactSetting/{mid}",
+    "patch",
+    {
+      op: "updateContactSetting",
+      summary: "連絡先の表示名 override を更新",
+      description:
+        "LINE: TalkService.updateContactSetting。未指定は null として override を解除する",
+      tags: ["contacts"],
+      params: [acc, pathParam("mid", "対象 MID")],
+      requestBody: body([], {
+        displayNameOverride: { type: ["string", "null"] },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/getCommonGroupIds/{targetMid}",
     "get",
     {
       op: "getCommonGroupIds",
@@ -661,7 +829,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/contacts/{mid}/block",
+    "/line/{accountId}/blockContact/{mid}",
     "post",
     {
       op: "blockContact",
@@ -673,7 +841,7 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/contacts/{mid}/block",
+    "/line/{accountId}/unblockContact/{mid}",
     "delete",
     {
       op: "unblockContact",
@@ -685,10 +853,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/blocked",
+    "/line/{accountId}/getBlockedContactIds",
     "get",
     {
-      op: "getBlockedContacts",
+      op: "getBlockedContactIds",
       summary: "ブロックリスト取得",
       description: "キャッシュ + background キュー付き（504 回避）",
       tags: ["contacts"],
@@ -722,8 +890,20 @@ const routes: Array<[string, Method, OpSpec]> = [
       op: "getNotes",
       summary: "ノート一覧取得",
       tags: ["notes"],
-      params: [acc],
+      params: [acc, queryParam("homeId", "対象グループ / ホーム ID", true)],
       responses: { "200": jsonRes("ノート配列") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/updates",
+    "post",
+    {
+      op: "getGroupHomeUpdates",
+      summary: "ノート・アルバム更新差分取得",
+      description: "iOS 実機の grouphome/isnew API。revision 以降に更新されたホームを返す。",
+      tags: ["notes", "albums"],
+      params: [acc, queryParam("revision", "前回取得した revision", true)],
+      responses: { "200": jsonRes("更新差分") },
     },
   ],
   [
@@ -734,9 +914,16 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "ノート投稿",
       tags: ["notes"],
       params: [acc],
-      requestBody: body(["homeId", "text"], {
+      requestBody: body(["homeId"], {
         homeId: { type: "string", description: "投稿先ホーム MID" },
         text: { type: "string" },
+        sharedPostId: { type: "string" },
+        stickerIds: { type: "array", items: { type: "string" } },
+        stickerPackageIds: { type: "array", items: { type: "string" } },
+        mediaObjectIds: { type: "array", items: { type: "string" } },
+        mediaObjectTypes: { type: "array", items: { type: "string", enum: ["PHOTO", "VIDEO"] } },
+        contents: { type: "object" },
+        postInfo: { type: "object" },
       }),
       responses: { "200": jsonRes("作成結果") },
     },
@@ -748,8 +935,28 @@ const routes: Array<[string, Method, OpSpec]> = [
       op: "getNoteDetail",
       summary: "ノート詳細取得",
       tags: ["notes"],
-      params: [acc, pathParam("postId", "ノート ID")],
+      params: [acc, pathParam("postId", "ノート ID"), queryParam("homeId", "対象ホーム ID", true)],
       responses: { "200": jsonRes("ノート") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}",
+    "patch",
+    {
+      op: "updateNote",
+      summary: "ノート更新",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID"), queryParam("homeId", "対象ホーム ID", true)],
+      requestBody: body(["homeId"], {
+        homeId: { type: "string" },
+        text: { type: "string" },
+        sharedPostId: { type: "string" },
+        stickerIds: { type: "array", items: { type: "string" } },
+        stickerPackageIds: { type: "array", items: { type: "string" } },
+        mediaObjectIds: { type: "array", items: { type: "string" } },
+        mediaObjectTypes: { type: "array", items: { type: "string", enum: ["PHOTO", "VIDEO"] } },
+      }),
+      responses: { "200": jsonRes("更新結果") },
     },
   ],
   [
@@ -764,6 +971,281 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/notes/{postId}/like",
+    "post",
+    {
+      op: "likeNote",
+      summary: "ノートにリアクション",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID")],
+      requestBody: body(["homeId"], {
+        homeId: { type: "string" },
+        likeType: { type: "string", enum: ["1001", "1002", "1003", "1004", "1005", "1006"] },
+      }),
+      responses: { "200": jsonRes("リアクション結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}/like",
+    "delete",
+    {
+      op: "unlikeNote",
+      summary: "ノートのリアクション解除",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID"), queryParam("homeId", "対象ホーム ID", true)],
+      responses: { "200": jsonRes("解除結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}/like",
+    "get",
+    {
+      op: "getNoteLike",
+      summary: "自分のノートリアクション取得",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID"), queryParam("homeId", "対象ホーム ID", true)],
+      responses: { "200": jsonRes("リアクション") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}/likes",
+    "get",
+    {
+      op: "listNoteLikes",
+      summary: "ノートのリアクション一覧取得",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID"), queryParam("homeId", "対象ホーム ID", true)],
+      responses: { "200": jsonRes("リアクション一覧") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/{postId}/comments",
+    "post",
+    {
+      op: "commentNote",
+      summary: "ノートへコメント",
+      tags: ["notes"],
+      params: [acc, pathParam("postId", "ノート ID")],
+      requestBody: body(["homeId"], {
+        homeId: { type: "string" },
+        text: { type: "string" },
+        imageObjectId: { type: "string" },
+      }),
+      responses: { "200": jsonRes("コメント作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/media/{type}",
+    "post",
+    {
+      op: "uploadNoteMedia",
+      summary: "ノート用画像・動画アップロード",
+      tags: ["notes"],
+      params: [acc, pathParam("type", "image または video")],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: { "200": jsonRes("OBS object ID") },
+    },
+  ],
+  [
+    "/line/{accountId}/notes/comment-image",
+    "post",
+    {
+      op: "uploadNoteCommentImage",
+      summary: "ノートコメント用画像アップロード",
+      tags: ["notes"],
+      params: [acc],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: { "200": jsonRes("OBS object ID") },
+    },
+  ],
+
+  // ── albums ──────────────────────────────────────────────
+  [
+    "/line/{accountId}/albums",
+    "get",
+    {
+      op: "listAlbums",
+      summary: "アルバム一覧取得",
+      tags: ["albums"],
+      params: [
+        acc,
+        queryParam("chatId", "対象チャット ID", true),
+        queryParam("cursor", "ページング cursor"),
+        queryParam("orderBy", "並び順"),
+        queryParam("include", "追加取得フィールド"),
+      ],
+      responses: { "200": jsonRes("アルバム一覧") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/preview",
+    "get",
+    {
+      op: "previewAlbums",
+      summary: "アルバムプレビュー取得",
+      tags: ["albums"],
+      params: [
+        acc,
+        queryParam("chatId", "対象チャット ID", true),
+        queryParam("pageSize", "取得件数"),
+        queryParam("thumbnailCount", "サムネイル数"),
+        queryParam("viewType", "表示種別"),
+      ],
+      responses: { "200": jsonRes("アルバムプレビュー") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums",
+    "post",
+    {
+      op: "createAlbum",
+      summary: "アルバム作成",
+      tags: ["albums"],
+      params: [acc],
+      requestBody: body(["chatId", "title"], {
+        chatId: { type: "string" },
+        title: { type: "string" },
+        modifyDuplicateTitle: { type: "boolean" },
+      }),
+      responses: { "200": jsonRes("作成結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}",
+    "patch",
+    {
+      op: "updateAlbum",
+      summary: "アルバム名変更",
+      tags: ["albums"],
+      params: [acc, pathParam("albumId", "アルバム ID")],
+      requestBody: body(["chatId", "title"], {
+        chatId: { type: "string" },
+        title: { type: "string" },
+      }),
+      responses: { "200": jsonRes("更新結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}",
+    "delete",
+    {
+      op: "deleteAlbum",
+      summary: "アルバム削除",
+      tags: ["albums"],
+      params: [
+        acc,
+        pathParam("albumId", "アルバム ID"),
+        queryParam("chatId", "対象チャット ID", true),
+      ],
+      responses: { "200": jsonRes("削除結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}/share",
+    "post",
+    {
+      op: "shareAlbum",
+      summary: "アルバムをチャットへ共有",
+      tags: ["albums"],
+      params: [acc, pathParam("albumId", "アルバム ID")],
+      requestBody: body(["chatId"], { chatId: { type: "string" } }),
+      responses: { "200": jsonRes("共有結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}/media",
+    "post",
+    {
+      op: "uploadAlbumMedia",
+      summary: "アルバム用画像・動画アップロード",
+      tags: ["albums"],
+      params: [
+        acc,
+        pathParam("albumId", "アルバム ID"),
+        queryParam("chatId", "対象チャット ID", true),
+      ],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: { "200": jsonRes("OBS object ID") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}/photos",
+    "post",
+    {
+      op: "addAlbumPhotos",
+      summary: "アルバムへ写真・動画追加",
+      tags: ["albums"],
+      params: [acc, pathParam("albumId", "アルバム ID")],
+      requestBody: body(["chatId", "photos"], {
+        chatId: { type: "string" },
+        photos: { type: "array", items: { type: "object" } },
+      }),
+      responses: { "200": jsonRes("追加結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}/photos",
+    "delete",
+    {
+      op: "deleteAlbumPhotos",
+      summary: "アルバム内写真・動画削除",
+      tags: ["albums"],
+      params: [acc, pathParam("albumId", "アルバム ID")],
+      requestBody: body(["chatId", "photoIds"], {
+        chatId: { type: "string" },
+        photoIds: { type: "array", items: { type: "string" } },
+      }),
+      responses: { "200": jsonRes("削除結果") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}/photos",
+    "get",
+    {
+      op: "listAlbumPhotos",
+      summary: "アルバム内写真・動画一覧",
+      tags: ["albums"],
+      params: [
+        acc,
+        pathParam("albumId", "アルバム ID"),
+        queryParam("chatId", "対象チャット ID", true),
+        queryParam("cursor", "ページング cursor"),
+        queryParam("pageSize", "取得件数"),
+        queryParam("orderBy", "並び順"),
+        queryParam("include", "追加取得フィールド"),
+        queryParam("filterType", "メディア種別フィルタ"),
+        queryParam("targetUser", "投稿者フィルタ"),
+      ],
+      responses: { "200": jsonRes("写真・動画一覧") },
+    },
+  ],
+  [
+    "/line/{accountId}/albums/{albumId}/media/{oid}",
+    "get",
+    {
+      op: "downloadAlbumMedia",
+      summary: "アルバム原寸メディア取得",
+      tags: ["albums"],
+      params: [
+        acc,
+        pathParam("albumId", "アルバム ID"),
+        pathParam("oid", "メディア object ID"),
+        queryParam("chatId", "対象チャット ID", true),
+        queryParam("mediaType", "image または video"),
+      ],
+      responses: { "200": { description: "原寸メディア" } },
+    },
+  ],
+  [
     "/line/{accountId}/notes/{postId}/share",
     "post",
     {
@@ -771,7 +1253,8 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "ノート共有",
       tags: ["notes"],
       params: [acc, pathParam("postId", "ノート ID")],
-      responses: { "200": okRes() },
+      requestBody: body(["homeId"], { homeId: { type: "string" } }),
+      responses: { "200": jsonRes("共有結果") },
     },
   ],
 
@@ -935,6 +1418,21 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/schedule/group/{chatMid}",
+    "get",
+    {
+      op: "getScheduleGroup",
+      summary: "特定グループの予定共有情報を取得",
+      description: "Vyline LIFF 拡張。共有先決定用の encId を直接取得する",
+      tags: ["schedule"],
+      params: [acc, chatMid],
+      responses: {
+        "200": jsonRes("グループ予定共有情報"),
+        "502": { description: "LIFF 側エラー", content: { "application/json": { schema: error } } },
+      },
+    },
+  ],
+  [
     "/line/{accountId}/schedule/friends/{chatMid}",
     "get",
     {
@@ -948,24 +1446,24 @@ const routes: Array<[string, Method, OpSpec]> = [
 
   // ── announcements ───────────────────────────────────────
   [
-    "/line/{accountId}/announcements/{chatMid}",
+    "/line/{accountId}/getChatRoomAnnouncements/{chatMid}",
     "get",
     {
-      op: "getChatAnnouncements",
+      op: "getChatRoomAnnouncements",
       summary: "アナウンス一覧取得",
-      description: "LINE: getChatAnnouncementsV2",
+      description: "LINE: getChatRoomAnnouncements",
       tags: ["announcements"],
       params: [acc, chatMid],
       responses: { "200": jsonRes("アナウンス配列") },
     },
   ],
   [
-    "/line/{accountId}/announcements",
+    "/line/{accountId}/createChatRoomAnnouncement",
     "post",
     {
-      op: "createChatAnnouncement",
+      op: "createChatRoomAnnouncement",
       summary: "アナウンス作成",
-      description: "LINE: createChatAnnouncementV2",
+      description: "LINE: createChatRoomAnnouncement",
       tags: ["announcements"],
       params: [acc],
       requestBody: body(["chatMid", "text"], {
@@ -977,12 +1475,12 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/announcements/{chatMid}/{seq}",
+    "/line/{accountId}/removeChatRoomAnnouncement/{chatMid}/{seq}",
     "delete",
     {
-      op: "removeChatAnnouncement",
+      op: "removeChatRoomAnnouncement",
       summary: "アナウンス削除",
-      description: "LINE: removeChatAnnouncementV2",
+      description: "LINE: removeChatRoomAnnouncement",
       tags: ["announcements"],
       params: [acc, chatMid, pathParam("seq", "アナウンス連番")],
       responses: { "200": okRes() },
@@ -994,13 +1492,40 @@ const routes: Array<[string, Method, OpSpec]> = [
     "/line/{accountId}/call/start",
     "post",
     {
-      op: "acquireCallRoute",
-      summary: "通話開始（ルート確保）",
-      description: "LINE: acquireCallRoute (/V4)",
+      op: "startCall",
+      summary: "通話開始",
+      description: "1:1通話セッション開始。映像は callType=VIDEO と media=video WebSocket を使用",
       tags: ["calls"],
       params: [acc],
-      requestBody: body([], { chatMid: { type: "string" }, mediaType: { type: "string" } }),
-      responses: { "200": jsonRes("通話情報") },
+      requestBody: body(["to"], {
+        to: { type: "string" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+      }),
+      responses: { "200": jsonRes("通話セッション。VIDEO時は video.available=true") },
+    },
+  ],
+  [
+    "/line/{accountId}/call",
+    "post",
+    {
+      op: "acquireCallRouteLegacy",
+      summary: "通話ルート確保（互換 API）",
+      description: "direct は to、group は kind=group と chatMid を指定する",
+      tags: ["calls"],
+      params: [acc],
+      requestBody: body([], {
+        to: { type: "string" },
+        chatMid: { type: "string" },
+        callType: { type: "string", enum: ["AUDIO", "VIDEO"], default: "AUDIO" },
+        kind: { type: "string", enum: ["direct", "group"] },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, route }"),
+        "400": {
+          description: "to または chatMid が不足",
+          content: { "application/json": { schema: error } },
+        },
+      },
     },
   ],
   [
@@ -1129,6 +1654,197 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/ios-backups",
+    "get",
+    {
+      op: "listIosBackups",
+      summary: "ローカル iOS バックアップ一覧",
+      description: "Vyline 拡張。内部 backupRoot は応答から除外する",
+      tags: ["backup"],
+      params: [acc],
+      responses: { "200": jsonRes("{ ok, devices }") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/ios-backup",
+    "post",
+    {
+      op: "startIosBackupRestore",
+      summary: "iOS バックアップ復元を開始",
+      tags: ["backup"],
+      params: [acc],
+      requestBody: body(["udid", "password"], {
+        udid: { type: "string" },
+        password: { type: "string" },
+      }),
+      responses: {
+        "200": jsonRes("{ ok, sessionId }"),
+        "400": {
+          description: "udid または password が不足",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/ios-backup/{sessionId}",
+    "get",
+    {
+      op: "getIosBackupRestoreStatus",
+      summary: "iOS バックアップ復元状態を取得",
+      tags: ["backup"],
+      params: [acc, pathParam("sessionId", "復元セッション ID")],
+      responses: {
+        "200": jsonRes("{ ok, session }"),
+        "404": {
+          description: "復元セッションがない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup",
+    "post",
+    {
+      op: "startAndroidBackupRestore",
+      summary: "Android バックアップ復元を開始",
+      description:
+        "raw body。X-Vyline-Backup-Name 省略時は naver_line、includeMedia=1 でメディアを含める",
+      tags: ["backup"],
+      params: [
+        acc,
+        queryParam("includeMedia", "1 の場合メディアも復元"),
+        {
+          name: "X-Vyline-Backup-Name",
+          in: "header",
+          required: false,
+          schema: { type: "string", default: "naver_line" },
+        },
+      ],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: {
+        "200": jsonRes("{ ok, sessionId }"),
+        "400": {
+          description: "バックアップ body がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/chunked",
+    "post",
+    {
+      op: "createAndroidBackupChunkUpload",
+      summary: "Android バックアップの分割アップロードを開始",
+      tags: ["backup"],
+      params: [acc],
+      requestBody: body([], {
+        sourceName: { type: "string", default: "naver_line" },
+        includeMedia: { type: "boolean", default: false },
+        expectedBytes: { type: "number", default: 0 },
+      }),
+      responses: { "200": jsonRes("{ ok, uploadId, ... }") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/chunked/{uploadId}/chunks/{index}",
+    "post",
+    {
+      op: "appendAndroidBackupChunk",
+      summary: "Android バックアップの分割データを追加",
+      tags: ["backup"],
+      params: [
+        acc,
+        pathParam("uploadId", "分割アップロード ID"),
+        pathParam("index", "チャンク番号"),
+      ],
+      requestBody: {
+        required: true,
+        content: { "application/octet-stream": { schema: { type: "string", format: "binary" } } },
+      },
+      responses: {
+        "200": jsonRes("チャンク受領結果"),
+        "400": {
+          description: "chunk body がない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/chunked/{uploadId}/complete",
+    "post",
+    {
+      op: "completeAndroidBackupChunkUpload",
+      summary: "Android バックアップの分割アップロードを完了",
+      tags: ["backup"],
+      params: [acc, pathParam("uploadId", "分割アップロード ID")],
+      responses: { "200": jsonRes("{ ok, sessionId }") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/android-backup/{sessionId}",
+    "get",
+    {
+      op: "getAndroidBackupRestoreStatus",
+      summary: "Android バックアップ復元状態を取得",
+      tags: ["backup"],
+      params: [acc, pathParam("sessionId", "復元セッション ID")],
+      responses: {
+        "200": jsonRes("{ ok, session }"),
+        "404": {
+          description: "復元セッションがない",
+          content: { "application/json": { schema: error } },
+        },
+      },
+    },
+  ],
+  [
+    "/line/{accountId}/credentials/handoff/export",
+    "post",
+    {
+      op: "exportCredentialHandoff",
+      summary: "認証情報を暗号化引き継ぎファイルとして書き出す",
+      description: "通常の VylineBackup とは分離。パスフレーズは保存しない。",
+      tags: ["credentials"],
+      params: [acc],
+      requestBody: body(["passphrase"], { passphrase: { type: "string", minLength: 8 } }),
+      responses: { "200": jsonRes("暗号化 credential handoff bundle") },
+    },
+  ],
+  [
+    "/line/{accountId}/credentials/handoff/import",
+    "post",
+    {
+      op: "importCredentialHandoff",
+      summary: "暗号化認証情報を指定アカウントへ復元",
+      tags: ["credentials"],
+      params: [acc],
+      requestBody: body(["passphrase", "bundle"], {
+        passphrase: { type: "string", minLength: 8 },
+        bundle: { type: "object" },
+      }),
+      responses: { "200": okRes() },
+    },
+  ],
+  [
+    "/line/{accountId}/credentials/channel/{channelId}/reissue",
+    "post",
+    {
+      op: "reissueChannelToken",
+      summary: "チャネルトークンを明示的に再発行",
+      description: "新しいトークン値そのものは API 応答へ返さない。",
+      tags: ["credentials"],
+      params: [acc, pathParam("channelId", "LINE Channel ID")],
+      responses: { "200": okRes() },
+    },
+  ],
+  [
     "/line/{accountId}/vyline/cache",
     "get",
     {
@@ -1216,6 +1932,20 @@ const routes: Array<[string, Method, OpSpec]> = [
       responses: { "200": okRes() },
     },
   ],
+  [
+    "/line/{accountId}/vyline/saved-media/{chatMid}/{messageId}/restore",
+    "post",
+    {
+      op: "restoreSavedMedia",
+      summary: "保存メディアをゴミ箱から復元",
+      tags: ["storage"],
+      params: [acc, chatMid, pathParam("messageId", "メッセージ ID")],
+      responses: {
+        "200": okRes(),
+        "404": { description: "復元対象が見つからない" },
+      },
+    },
+  ],
 
   // ── misc (Vyline 拡張) ──────────────────────────────────
   [
@@ -1253,10 +1983,10 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/notifications",
+    "/line/{accountId}/setNotificationsEnabled",
     "post",
     {
-      op: "updateNotificationSettings",
+      op: "setNotificationsEnabled",
       summary: "通知設定更新",
       tags: ["misc"],
       params: [acc],
@@ -1280,9 +2010,16 @@ const routes: Array<[string, Method, OpSpec]> = [
     "post",
     {
       op: "controlPlugin",
-      summary: "プラグイン操作（enable/disable/uninstall）",
+      summary: "プラグイン操作（enable/disable）",
       tags: ["misc"],
-      params: [acc, pathParam("pluginId", "プラグイン ID"), pathParam("action", "操作")],
+      params: [
+        acc,
+        pathParam("pluginId", "プラグイン ID"),
+        {
+          ...pathParam("action", "操作"),
+          schema: { type: "string", enum: ["enable", "disable"] },
+        },
+      ],
       responses: { "200": okRes() },
     },
   ],
@@ -1441,11 +2178,13 @@ export const lineOpenApiSpec = {
     { name: "stickers", description: "スタンプ・絵文字・コンビネーションスタンプ" },
     { name: "contacts", description: "連絡先・ブロック" },
     { name: "notes", description: "ノート" },
+    { name: "albums", description: "アルバム" },
     { name: "polls", description: "アンケート" },
     { name: "schedule", description: "予定" },
     { name: "announcements", description: "アナウンス" },
     { name: "calls", description: "通話" },
     { name: "backup", description: "VylineBackup の作成・復元" },
+    { name: "credentials", description: "認証情報の安全な引き継ぎ・再発行" },
     { name: "storage", description: "キャッシュ・ストレージ管理" },
     { name: "misc", description: "その他（プラグイン・プロキシ・復元など Vyline 拡張）" },
   ],
@@ -1458,7 +2197,8 @@ export const lineOpenApiSpec = {
         properties: {
           dataBase64: {
             type: "string",
-            description: "base64 エンコードされたバイナリ（最大 ~12MB）",
+            maxLength: 15000000,
+            description: "base64 エンコードされたバイナリ（最大15,000,000文字）",
           },
           mimeType: { type: "string", example: "image/png" },
           filename: { type: "string" },
@@ -1473,6 +2213,7 @@ export const lineOpenApiSpec = {
           items: {
             type: "array",
             minItems: 1,
+            maxItems: 32,
             items: { $ref: "#/components/schemas/MediaBatchItem" },
           },
         },

@@ -1,6 +1,6 @@
 {
   "name": "vyline",
-  "version": "0.6.0-beta",
+  "version": "0.8.0-beta",
   "private": true,
   "engines": {
     "bun": ">=1.4.0"
@@ -9,18 +9,28 @@
     "Vyline/packages/*",
     "Vyline/packages/plugin/sdk",
     "Vyline/apps/*",
-    "Vyline/backend"
+    "Vyline/backend",
+    "tools"
   ],
   "scripts": {
-    "dev": "concurrently -n backend,frontend -c cyan,magenta \"bun run dev:backend\" \"bun run dev:frontend\"",
+    "dev": "bun run --parallel --no-orphans dev:backend dev:frontend",
     "dev:backend": "bun --watch Vyline/backend/src/index.ts",
     "server": "bun Vyline/backend/src/index.ts",
-    "dev:frontend": "bun run --cwd Vyline/apps/desktop dev",
+    "dev:frontend": "bun --cwd Vyline/apps/desktop ./node_modules/vite/bin/vite.js",
     "build": "bun run --cwd Vyline/apps/desktop build",
+    "build:packages": "bun run --cwd Vyline/packages/ios-backup build",
+    "vyl": "bun Vyline/packages/cli/src/index.ts",
+    "vyl:init": "bun Vyline/packages/cli/src/index.ts init",
+    "vyl:doctor": "bun Vyline/packages/cli/src/index.ts doctor",
+    "vyl:fix": "bun Vyline/packages/cli/src/index.ts fix",
+    "vyl:snapshot": "bun Vyline/packages/cli/src/index.ts snapshot",
     "package:windows": "bun scripts/build-windows-release.ts",
+    "package:windows:portable": "bun scripts/build-windows-release.ts --skip-installer",
     "package:linux": "bun scripts/build-linux-release.ts",
-    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck",
-    "lint": "biome check Vyline",
+    "test": "bun test --path-ignore-patterns \"Vyline-Desktop/**\"",
+    "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck && bun run --cwd Vyline/packages/cli typecheck && bun run --cwd Vyline/packages/create-plugin typecheck && bun run --cwd Vyline/packages/vyl typecheck && bun run --cwd Vyline/packages/ios-backup typecheck && bun run --cwd tools typecheck",
+    "lint": "biome check Vyline/apps Vyline/backend Vyline/docs Vyline/packages/cli Vyline/packages/create-plugin Vyline/packages/vyl Vyline/packages/ios-backup Vyline/packages/line-types Vyline/packages/loose-types Vyline/packages/plugin Vyline/packages/themes Vyline/packages/types tools",
+    "test:tooling": "bun test Vyline/packages/create-plugin/src/index.test.ts Vyline/packages/cli/src/snapshotSecurity.test.ts Vyline/backend/src/line/pluginManager.manifest.test.ts Vyline/packages/ios-backup/src",
     "vyline:delta": "bun Vyline/packages/protocol/src/tools/reportDesktopDelta.ts",
     "vyline:find-native": "bun tools/src/findNativeSymbol.ts",
     "vyline:focus-recovered": "bun tools/src/focusRecoveredSource.ts",
@@ -38,12 +48,30 @@
     "test:api": "bun scripts/apiSmokeTest.ts",
     "update": "git submodule update --init --recursive && git pull --ff-only && bun install && bun run build",
     "bump": "bun scripts/bump-version.ts",
+    "docs:readme": "bun scripts/generate-readmes.ts",
+    "docs:readme:check": "bun scripts/generate-readmes.ts --check",
     "postinstall": "git config core.hooksPath .githooks"
   },
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "^1.4.0",
     "concurrently": "^9.1.2"
+  },
+  "overrides": {
+    "@babel/core": "^7.29.6",
+    "brace-expansion": "^5.0.12",
+    "browserslist": "^4.28.7",
+    "hono": "^4.13.7",
+    "nanoid": "^3.3.18",
+    "postcss": "^8.5.23",
+    "postcss-selector-parser": "^6.1.3",
+    "react-router": "^7.18.2",
+    "react-router-dom": "^7.18.2",
+    "shell-quote": "^1.9.0",
+    "thrift": "^0.23.0",
+    "undici": "^7.29.1",
+    "vite": "^6.4.3",
+    "ws": "^8.21.0"
   },
   "trustedDependencies": [
     "@biomejs/biome"

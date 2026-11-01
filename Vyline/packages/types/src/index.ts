@@ -66,6 +66,11 @@ export interface VylineCachedGroup {
   updatedAt: number;
 }
 
+export * from "./accountFeatures.js";
+export * from "./unsendPolicy.js";
+export * from "./callVideo.js";
+export * from "./callRecording.js";
+
 // ─── Chat ─────────────────────────────────────
 
 export type ChatKind = "group" | "room" | "direct" | "unknown";
@@ -88,6 +93,8 @@ export interface Chat {
   left?: boolean;
   /** 公式アカウント（userType=BOT） */
   isOfficial?: boolean;
+  /** 外部バックアップから復元された履歴を持つ */
+  restoredHistory?: boolean;
   /** ステータスメッセージ（直接トーク相手） */
   statusMessage?: string;
   /** プロフィール背景 URL */
@@ -257,10 +264,14 @@ export type SavedSession = {
   savedAt: string;
   hasToken: boolean;
   active?: boolean;
+  /** access token の期限切れ等で、同じ accountId の再認証が必要。 */
+  reauthRequired?: boolean;
   mid?: string;
   displayName?: string;
   picturePath?: string;
   statusMessage?: string;
+  hasRefreshToken?: boolean;
+  tokenRefreshAt?: number;
   premium?: {
     active: boolean;
     planType?: string | number;
@@ -282,6 +293,12 @@ export type SessionsResponse = ApiResult<{ sessions: SavedSession[] }>;
 
 export type CallType = "AUDIO" | "VIDEO";
 
+export interface CallParticipant {
+  mid: string;
+  hasAudioStream: boolean;
+  hasVideoStream: boolean;
+}
+
 export type CallSessionState =
   | "idle"
   | "acquiring"
@@ -300,6 +317,7 @@ export interface CallSessionInfo {
   state: CallSessionState;
   transport: "planet" | "andromeda" | "unknown";
   startedAt: number;
+  participants?: CallParticipant[];
   error?: string;
 }
 

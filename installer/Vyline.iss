@@ -26,6 +26,10 @@ RestartApplications=no
 Uninstallable=yes
 [Languages]
 Name: "japanese"; MessagesFile: "compiler:Languages\Japanese.isl"
+[InstallDelete]
+; Vite asset names are content-hashed. Remove obsolete bundles on upgrade,
+; while leaving the separate user data directory untouched.
+Type: filesandordirs; Name: "{app}\web"
 [Files]
 Source: "{#SourceDir}\Vyline.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\VylineBackend.exe"; DestDir: "{app}"; Flags: ignoreversion
@@ -37,5 +41,5 @@ Name: "{autodesktop}\Vyline"; Filename: "{app}\Vyline.exe"; WorkingDir: "{app}"
 [Run]
 Filename: "{app}\Vyline.exe"; Description: "Vylineを起動する"; Flags: nowait postinstall skipifsilent
 [UninstallRun]
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM Vyline.exe"; Flags: runhidden
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM VylineBackend.exe"; Flags: runhidden
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM Vyline.exe"; Flags: runhidden; RunOnceId: "VylineLauncher"
+Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM VylineBackend.exe"; Flags: runhidden; RunOnceId: "VylineBackend"
