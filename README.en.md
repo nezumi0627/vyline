@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.2-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.3-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
 </p>
 
@@ -19,7 +19,7 @@
 > Vyline is an unofficial client and is not affiliated with LINE Corporation or LY Corporation. Understand the risks to your account and data, as well as LINE's terms, before using it. See [Privacy and Data](docs/user-guide/privacy-and-data.en.md).
 
 > [!NOTE]
-> **v1.0.2 is the current stable release and development baseline.** It fixes diagnostic logging enablement and reorganizes Beta features and settings. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2) · [Changelog](CHANGELOG.md)
+> **v1.0.3 is the current stable release and development baseline.** Docker images now build natively for amd64 and arm64, with stronger release validation and checksums for all downloadable archives. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3) · [Changelog](CHANGELOG.md)
 
 ## About Vyline
 
@@ -38,8 +38,8 @@ See the [Feature Guide](docs/features.en.md) for descriptions and limitations an
 
 ## Get started
 
-- **Windows**: Download the [v1.0.2 Setup](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2).
-- **Linux**: The same release includes a Linux x64 build.
+- **Windows**: Download the [v1.0.3 Setup or portable build](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3).
+- **Linux**: The same release includes a Linux x64 build. Docker supports linux/amd64 and linux/arm64.
 - **Web / self-hosting**: See the [Self-hosting Guide](docs/selfhosting.md).
 - **macOS**: There is no dedicated installer. Run from source or access a hosted instance in a browser.
 - **Updating**: [Update Guide](docs/user-guide/update.md).

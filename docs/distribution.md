@@ -1,13 +1,15 @@
 # Vyline 配布ガイド（Windows / Linux / Docker）
 
-`v<version>` タグを push すると GitHub Actions が品質チェック後に Windows Setup.exe、Linux x64 tar.gz、GHCR Docker image を作成します。
+`v<version>` タグを push すると GitHub Actions が品質チェック後に Windows Setup.exe、Windows portable ZIP、Linux x64 tar.gz、SHA-256チェックサム、GHCR Docker imageを作成します。Dockerはlinux/amd64とlinux/arm64を各ネイティブRunnerで並列ビルドし、単一のマルチアーキテクチャmanifestとして公開します。
+
+GitHub Releaseの `SHA256SUMS.txt` でWindows Setup.exe、Windows portable ZIP、Linux x64 tar.gzの完全性を確認できます。Docker manifestはリリース処理内で両platformを検証します。
 
 ```bash
 docker compose pull
 docker compose up -d
 ```
 
-Linux単体版は `Vyline-linux-x64-<version>.tar.gz` を展開し、`./install.sh` を実行します。Windows単体版は `VylineSetup-<version>.exe` を実行します。いずれも Bun の事前インストールは不要です。
+Linux単体版は `Vyline-linux-x64-<version>.tar.gz` を展開し、`./install.sh` を実行します。Windowsでは `VylineSetup-<version>.exe` でインストールするか、`Vyline-portable-<version>.zip` を展開して `Vyline.exe` を実行します。いずれも Bun の事前インストールは不要です。
 
 ローカルビルド:
 

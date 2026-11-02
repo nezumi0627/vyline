@@ -492,12 +492,12 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "1.0.2",
-  title: "Vyline 1.0.2 — 設定・診断ログの修正",
+  version: "1.0.3",
+  title: "Vyline 1.0.3 — Dockerマルチアーキテクチャ改善",
   items: [
-    "診断ログを設定画面から有効化できない場合がある問題を修正",
-    "Beta機能を整理し、既定機能と設定画面の分類を見直し",
-    "未公開のプラグイン機能をアプリの画面・APIから除去",
+    "Dockerイメージをlinux/amd64とlinux/arm64のネイティブRunnerで並列ビルドし、配布を高速化",
+    "リリース時に両アーキテクチャのDocker manifestを検証",
+    "Windowsポータブル版を含む配布物のSHA-256チェックサムを提供",
   ],
 };
 
