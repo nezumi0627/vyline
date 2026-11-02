@@ -1,6 +1,6 @@
 # Documentation Ownership / Source of Truth
 
-最終更新: 2026-08-31
+最終更新: 2026-11-02
 
 Vyline の文書は「現在仕様」「調査記録」「作業計画」を混ぜない。重複した説明がある場合は、下表の正本を更新し、他の文書は必要最小限の要約とリンクに留める。
 
@@ -8,7 +8,10 @@ Vyline の文書は「現在仕様」「調査記録」「作業計画」を混�
 
 | 領域 | 正本 | 補足 |
 | --- | --- | --- |
-| ユーザー向け入口 | `README.src.md` / `README.en.src.md`, `docs/start-here.md` | README 生成物は直接編集しない |
+| ユーザー向け入口 | `README.src.md` / `README.en.src.md`, `docs/start-here.md` | README生成物は直接編集しない |
+| 機能一覧 | `docs/features.md` / `docs/features.en.md`, `docs/feature-capabilities.md` | 利用者向け案内と検証Evidenceを分ける |
+| リリース基準・履歴 | `docs/history/releases.md`, `CHANGELOG.md` | 現行基準はv1.0.1、古い仕様はhistoryへ |
+| プライバシーとデータ | `docs/user-guide/privacy-and-data.md` | 保存先・AI送信・サポートログの注意 |
 | 機能の検証状態 | `docs/feature-capabilities.md` | `verified / partial / unverified / unsupported` の定義もここ |
 | アーキテクチャ | `docs/architecture.md` | 実コードと食い違う場合はコードを再確認して更新 |
 | 開発手順 | `docs/developers/index.md`, `docs/development.md`, `docs/CONTRIBUTING.md` | 人間向け |
