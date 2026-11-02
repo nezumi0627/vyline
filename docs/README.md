@@ -9,6 +9,7 @@
 
 安定版は **1.0.3** です。[導入ツアーと検索できるドキュメント](https://nezumi0627.github.io/Vyline/)からも読めます。
 OS別手順：[Windows](./install/windows.md) / [Linux](./install/linux.md) / [macOS](./install/macos.md) / [Docker](./install/docker.md)。
+コマンドで起動する場合は、全OS共通の [Bun + vyl CLI](./install/cli.md) を使えます。
 機能の要約は[機能ガイド](./features.md)へ統合し、操作の詳細は分野別の正本へリンクしています。
 
 ## 利用者向けガイド
@@ -16,6 +17,7 @@ OS別手順：[Windows](./install/windows.md) / [Linux](./install/linux.md) / [m
 | ドキュメント | 内容 |
 | --- | --- |
 | [features.md](./features.md) / [features.en.md](./features.en.md) | v1.0.3の機能案内、制限、分野別ガイドへの入口 |
+| [install/cli.md](./install/cli.md) | Bunを使った `vyl` の登録、起動、登録解除（Windows / macOS / Linux） |
 | [history/releases.md](./history/releases.md) | 安定版の基準とリリース履歴 |
 | [maintainers.md](./maintainers.md) / [maintainers.en.md](./maintainers.en.md) | メンテナー募集、協力、支援 |
 | [user-guide/privacy-and-data.en.md](./user-guide/privacy-and-data.en.md) | Privacy and data (English) |

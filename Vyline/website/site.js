@@ -61,7 +61,7 @@ if (panel) {
   const chooser = panel.innerHTML;
   const readState = () => {
     const params = new URL(location.href).searchParams;
-    const os = Object.hasOwn(platforms, params.get("os")) ? params.get("os") : "windows";
+    const os = Object.hasOwn(platforms, params.get("os")) ? params.get("os") : "bun";
     const raw = Number(params.get("step"));
     return { os, step: Number.isInteger(raw) && raw >= 0 && raw <= 3 ? raw : 0 };
   };

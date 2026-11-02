@@ -11,10 +11,11 @@ Gitと **Bun 1.4.0以降** を準備してください。
 git clone --recurse-submodules --branch v1.0.3 https://github.com/nezumi0627/vyline.git
 cd vyline
 bun install
-bun run dev
+bun run vyl register
+vyl dev
 ```
 
-ターミナルを起動したまま `http://localhost:5173` を開きます。
+`vyl register` はこのチェックアウトを既定の起動先として登録します。以後はどのフォルダからも `vyl dev` で起動できます。ターミナルを起動したまま `http://localhost:5173` を開きます。
 フロントエンドは5173番、バックエンドは3001番で動きます。
 終了するときはターミナルで `Ctrl+C` を押します。
 これは開発サーバーで動かす方法です。常時稼働の設定は[セルフホストガイド](../selfhosting.md)を確認してください。

@@ -51,6 +51,8 @@ See the [Feature Guide](docs/features.en.md) for descriptions and limitations an
 | macOS | Run from source or use a browser. No dedicated installer | [macOS](docs/install/macos.md) |
 | Docker / Web | Run on an amd64 or arm64 server | [Docker](docs/install/docker.md) |
 
+For a command-first setup, the **Bun + vyl CLI** works the same on Windows, macOS, and Linux. [Register and start vyl](docs/install/cli.md)
+
 Continue with [Login and initial setup](docs/start-here.md#ログインと初回設定). Read the [Update Guide](docs/user-guide/update.md) before updating.
 Verify downloads against [SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/SHA256SUMS.txt).
 
@@ -65,6 +67,7 @@ Vyline is not an official LINE app. When using an external server, verify where 
 | Features | [Feature Guide](docs/features.en.md) |
 | Setup and FAQ | [Getting Started](docs/start-here.md) |
 | Windows, Linux, and Docker | [Distribution Guide](docs/distribution.md) |
+| Register and launch with Bun and vyl | [CLI installation guide](docs/install/cli.md) |
 | API | [OpenAPI and Public API](docs/api/openapi.md) |
 | Contributions and maintainers | [Contribution Guide](docs/CONTRIBUTING.md) · [Maintainers](docs/maintainers.en.md) |
 | Historical behavior such as v0.5.0 | [Release History](docs/history/releases.en.md) |

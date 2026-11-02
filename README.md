@@ -51,6 +51,8 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 | macOS | ソース起動またはブラウザ利用。専用インストーラーなし | [macOS](docs/install/macos.md) |
 | Docker / Web | amd64 / arm64のサーバーで動かす | [Docker](docs/install/docker.md) |
 
+コマンドから始めるなら、Windows・macOS・Linuxで共通の **Bun + vyl CLI** が使えます。[vylを登録して起動する](docs/install/cli.md)
+
 導入後は[ログインと初回設定](docs/start-here.md#ログインと初回設定)へ。更新前は[アップデートガイド](docs/user-guide/update.md)を確認してください。
 配布物の整合性は[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/SHA256SUMS.txt)で確認できます。
 
@@ -65,6 +67,7 @@ VylineはLINEの公式アプリではありません。外部サーバー利用�
 | できること | [機能ガイド](docs/features.md) |
 | セットアップとFAQ | [使い始める](docs/start-here.md) |
 | Windows・Linux・Docker配布 | [配布ガイド](docs/distribution.md) |
+| Bunとvyl CLIを登録して起動する | [CLI導入ガイド](docs/install/cli.md) |
 | API | [OpenAPI・公開API](docs/api/openapi.md) |
 | 開発への参加 | [コントリビューション](docs/CONTRIBUTING.md) · [メンテナー募集](docs/maintainers.md) |
 | v0.5.0など過去仕様 | [リリース履歴](docs/history/releases.md) |

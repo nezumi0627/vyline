@@ -5,6 +5,7 @@ export const download = (name) => `${repository}/releases/download/v${version}/$
 
 export const documents = [
   ["docs/start-here.md", "はじめに", "Vylineを使い始める", "導入から最初の設定まで"],
+  ["docs/install/cli.md", "インストール", "Bunとvyl CLI", "全OS共通のコマンド起動と登録"],
   ["docs/install/windows.md", "インストール", "Windows", "Setupとポータブル版の導入"],
   ["docs/install/linux.md", "インストール", "Linux", "x64配布版の展開と起動"],
   ["docs/install/macos.md", "インストール", "macOS", "ソース起動とブラウザからの利用"],
@@ -27,6 +28,14 @@ export const documents = [
 ];
 
 export const platforms = {
+  bun: {
+    name: "Bun + vyl", detail: "おすすめ / Windows・macOS・Linux", guide: "cli",
+    title: "Bunとvylで、どのOSからも。",
+    description: "Bun 1.4.0以降とGitがあれば、Windows・macOS・Linuxで同じコマンドを使えます。vylを一度登録すると、次からは好きなフォルダから起動できます。",
+    file: null, label: "Bun + vyl の手順を見る",
+    command: `git clone --recurse-submodules --branch v${version} ${repository}.git\ncd vyline\nbun install\nbun run vyl register\nvyl dev`,
+    note: "vyl register はこのチェックアウトを既定に保存します。解除するときは vyl unregister を実行します。",
+  },
   windows: {
     name: "Windows", detail: "インストーラー / x64", guide: "windows",
     title: "Setupを開いて、インストール。",

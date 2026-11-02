@@ -29,13 +29,12 @@
       <div class="hero-inner wrap">
       <div class="hero-copy">
         <p class="release-note"><span class="waypoint" aria-hidden="true"></span><a href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3">Vyline 1.0.3 <span aria-hidden="true">↗</span></a><span>安定版</span></p>
-        <h1 id="hero-title">会話は、<span>もっと自由に。</span></h1>
-        <p class="hero-description">LINEの会話を、自分の見た目と環境で。<br>Vylineを知る、小さな旅に出よう。</p>
-        <a class="launch-button hero-launch" href="#start"><span class="launch-index" aria-hidden="true">01</span><span>ツアーをはじめる<small>自分の環境を選ぶところから</small></span><span class="button-orbit" aria-hidden="true">↗</span></a>
+        <h1 id="hero-title">いつものLINEを、<span>自分の環境で。</span></h1>
+        <p class="hero-description">会話はいつものままに。<br>動かす場所も、見た目も、自分で選ぶ。</p>
+        <a class="launch-button hero-launch" href="#start"><span class="launch-index" aria-hidden="true">01</span><span>導入をはじめる<small>Bun + vylなら、どのOSからも</small></span><span class="button-orbit" aria-hidden="true">↗</span></a>
         <p class="hero-footnote">LINE非公式クライアント <span aria-hidden="true">/</span> オープンソース</p>
       </div>
-      <div class="hero-transmission" aria-label="このサイトでできること"><span class="transmission-line" aria-hidden="true"></span><span class="waypoint" aria-hidden="true"></span><div><p>遠くの誰かと。近くの自分に。</p><small>Install → Connect → Make it yours</small></div></div>
-      <nav class="destination-dock" aria-label="次の行き先"><a href="#start"><span class="dock-number">01</span><span>使いはじめる<small>OSを選んで、ひとつずつ</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a><a href="#experience"><span class="dock-number">02</span><span>Vylineを知る<small>できることと、使い方を知る</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a><a href="#docs"><span class="dock-number">03</span><span>使い方を探す<small>やりたいことから、道順を選ぶ</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a></nav>
+      <nav class="destination-dock" aria-label="次の行き先"><a href="#start"><span class="dock-number">01</span><span>使いはじめる<small>Bun + vylで、全OS共通</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a><a href="#experience"><span class="dock-number">02</span><span>Vylineのこと<small>会話、表示、データのこと</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a><a href="#docs"><span class="dock-number">03</span><span>使い方を探す<small>目的や困りごとから案内</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a></nav>
       </div>
     </section>
 
@@ -48,7 +47,7 @@
           <div class="tour-meta"><span id="tour-coordinate">Step 01 / 04</span><span id="selected-platform">Windows</span></div>
           <div id="tour-panel" tabindex="-1">
             <h3>どこから、はじめる？</h3><p class="tour-intro">使いたい環境を選ぶと、あなたに合った手順へ切り替わります。</p>
-            <div class="platform-picker" role="group" aria-label="利用環境"><button data-os="windows" aria-pressed="true"><span class="platform-glyph" aria-hidden="true">⊞</span><span>Windows<small>インストーラー / x64</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="linux" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">&gt;_</span><span>Linux<small>tar.gz / x64</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="macos" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">⌘</span><span>macOS<small>ソース / ブラウザ</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="docker" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">[ ]</span><span>Docker / Web<small>amd64 / arm64</small></span><span class="selection-mark" aria-hidden="true"></span></button></div>
+            <div class="platform-picker" role="group" aria-label="利用環境"><button class="platform-recommended" data-os="bun" aria-pressed="true"><span class="platform-glyph" aria-hidden="true">&gt;_</span><span>Bun + vyl<small>おすすめ / Windows・macOS・Linux</small></span><span class="recommended-mark">RECOMMENDED</span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="windows" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">⊞</span><span>Windows<small>インストーラー / x64</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="linux" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">$_</span><span>Linux<small>tar.gz / x64</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="macos" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">⌘</span><span>macOS<small>ソース / ブラウザ</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="docker" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">[ ]</span><span>Docker / Web<small>amd64 / arm64</small></span><span class="selection-mark" aria-hidden="true"></span></button></div>
             <p class="quiet-note">macOSはソース起動またはブラウザから。専用インストーラーはありません。</p>
           </div>
           <div class="tour-bottom"><button class="back-button" id="tour-back" disabled><span aria-hidden="true">←</span> 戻る</button><p id="tour-hint">選んだ環境の手順へ</p><button class="next-button" id="tour-next">次へ <span aria-hidden="true">→</span></button></div>
