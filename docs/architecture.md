@@ -1,37 +1,34 @@
 # Architecture
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 ---
 
 ## 全体構成
 
-```
-┌─────────────────────────────────────────────────────────┐
-│              Frontend (React + Vite)                     │
-│         apps/desktop — UI は別タスクで改善               │
-└──────────────────────────┬──────────────────────────────┘
-                           │ HTTP / WebSocket
-┌──────────────────────────▼──────────────────────────────┐
-│              Backend (Hono on Bun)                       │
-│  api/  →  service/lineService  →  line/clientManager     │
-└──────────────────────────┬──────────────────────────────┘
-                           │ @vyline/protocol
-┌──────────────────────────▼──────────────────────────────┐
-│  protocol                                                │
-│  ┌─────────────┐  ┌──────────────┐  ┌─────────────────┐ │
-│  │ domain/     │  │ dictionary/  │  │ login/ e2ee/    │ │
-│  │ (facade)    │  │ (RPC map)    │  │ obs/ desktop/   │ │
-│  └──────┬──────┘  └──────────────┘  └────────┬────────┘ │
-│         └─────────────────┬─────────────────┘          │
-│                           ▼                             │
-│                      stack/ (Talk /S4, Login, OBS)      │
-└──────────────────────────┬──────────────────────────────┘
-                           │
-┌──────────────────────────▼──────────────────────────────┐
-│  LINE Legy / OBS (Desktop 準拠 Thrift + HTTP)             │
-└───────────────────────────────────────────────────────────┘
-```
+<figure class="architecture-map" role="group" aria-labelledby="architecture-map-title">
+<figcaption id="architecture-map-title">Vyline の通信経路</figcaption>
+<div class="architecture-layer">
+<div class="architecture-node"><small>01 · FRONTEND</small><strong>apps/desktop</strong><span>React + Vite — 画面と操作</span></div>
+<div class="architecture-connector"><span>HTTP · WebSocket</span><b aria-hidden="true">↓</b></div>
+<div class="architecture-node"><small>02 · BACKEND</small><strong>Hono on Bun</strong><span>api/ → lineService → clientManager</span></div>
+<div class="architecture-connector"><span>@vyline/protocol</span><b aria-hidden="true">↓</b></div>
+<section class="architecture-protocol" aria-label="protocol の内部レイヤー">
+<div class="architecture-node protocol-title"><small>03 · PROTOCOL</small><strong>packages/protocol</strong></div>
+<div class="architecture-branches">
+<div><strong>domain/</strong><span>プロフィール・チャットの facade</span></div>
+<div><strong>dictionary/</strong><span>RPC 名と Desktop 証拠</span></div>
+<div><strong>login/ · e2ee/ · obs/</strong><span>ログイン・暗号化・メディア</span></div>
+</div>
+<div class="architecture-down"><span>Thrift RPC</span><b aria-hidden="true">↓</b></div>
+<div class="architecture-flow">
+<div class="architecture-node"><small>STACK</small><strong>Talk · Login · OBS</strong><span>/S4 · /api/v3p/rs</span></div>
+<div class="architecture-connector"><span>vendored Thrift types</span><b aria-hidden="true">↔</b></div>
+<div class="architecture-node"><small>LINE SERVER</small><strong>LINE Legy / OBS</strong><span>Desktop 準拠の HTTP / Thrift</span></div>
+</div>
+</section>
+</div>
+</figure>
 
 **外部 `@evex/linejs` 依存なし。** Thrift 型は `@vyline/line-types`（vendored）。
 

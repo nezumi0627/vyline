@@ -1,6 +1,6 @@
 # Feature Capability Matrix
 
-最終更新: 2026-08-31
+最終更新: 2026-11-03
 
 この表は「コードが存在する」ことではなく、現在の worktree で確認できる Evidence Chain を基準に Vyline の機能状態を分類する。
 
@@ -52,7 +52,7 @@
 | Multi Account | partial | 複数アカウントを切替・分離する | auth account routes → client manager/token store → frontend account store | token account isolation + frontend account switching tests PASS | 複数 live LINE session の同時/長時間 E2E 未実証 |
 | Subdevice | partial | サブデバイスをペアリングして利用する | subdevice API/store → installation ID/session binding | pairing/session blocking、device binding、LAN URL policy tests PASS | 実別端末との E2E pairing 未実証 |
 | Theme | partial | テーマを選択・適用する | settings/store → CSS variables/theme package | implementation reviewed | visual regression/runtime matrix 未実行 |
-| Plugin | partial | plugin を有効化・無効化して動かす | plugin runtime → plugin package/hooks | lifecycle activate/deactivate test PASS | third-party plugin compatibility/security matrix 未実証 |
+| Plugin | unverified | plugin runtime と SDK を開発者が利用する | backend plugin runtime / plugin package | runtime と SDK のコードは存在 | 現行版に管理 API とユーザー向け UI がなく、利用者向けの有効化経路を確認できない |
 | Diagnostics | verified | 診断ログを記録・閲覧・削除し安全に出力する | settings/BFF/service → diagnostics persistence/redaction | persist/levels/disable/retention + credential/PII/JWT redaction tests PASS | `verified` はローカル診断機能範囲。外部 Issue 投稿は別機能 |
 | Update | partial | 更新を検出・案内/適用する | update UI/backend/tooling → version/update flow | implementation/docs reviewed | 配布物を使った end-to-end updater test 未実証 |
 

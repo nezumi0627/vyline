@@ -1,6 +1,6 @@
 # API / RPC Mapping
 
-最終更新: 2026-08-31
+最終更新: 2026-11-03
 
 Vyline の HTTP BFF、service/domain、LINE transport/RPC の対応を evidence-backed な範囲だけ記録する。推測で domain mapping や request/response type を埋めない。
 

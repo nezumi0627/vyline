@@ -1,6 +1,6 @@
 # セルフホスティング（Docker 自宅サーバー）
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 Vyline はバックエンド（BFF）とフロントエンド（React ビルド）を 1 つの Bun プロセスで配信できます。Docker で自宅サーバーに立てれば、**複数端末（PC・スマホ・タブレット）から同じ LINE セッションを Web ブラウザで使え**、チャット履歴・画像・トークンはサーバー側に永続化されます。端末を変えても履歴は消えません。
 
@@ -61,23 +61,25 @@ tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 
 ---
 
-## 3. 遠隔アクセス — Tailscale 推奨（最優先）
+## 3. 遠隔アクセス — Tailscale
 
-Vyline の遠隔アクセスは **Tailscale を推奨**します。PC で Vyline を起動した状態で、スマホ／タブレットにも Tailscale をインストールし、**同じアカウントで Tailscale にログイン**すれば、追加のポート開放なしで安全にアクセスできます。
+外出先から使う場合は、インターネットへ直接ポートを公開せず、Tailscale などのプライベートネットワークを使います。LANモードではサブデバイス認証が必須です。Docker Compose の既定 bind は `127.0.0.1` のため、遠隔端末から使う場合だけ bind を変更し、ファイアウォールで信頼するインターフェースに制限してください。
 
 ### 手順
 
-1. **PC 側**: [Tailscale](https://tailscale.com/download) をインストールしてログイン → Vyline を起動（`bun run dev` または Docker）
-2. **スマホ側**: Tailscale アプリをインストールして同じアカウントでログイン
-3. **アクセス**: PC の Tailscale IP（`100.x.y.z`）で `http://100.x.y.z:3000`（Docker）または `http://100.x.y.z:3001`（Bun）を開く
+1. PC と接続する端末に [Tailscale](https://tailscale.com/download) をインストールし、同じ tailnet に参加させる
+2. ソース起動では `VYLINE_LAN_ACCESS=true bun run server` を使う。Docker Compose では `VYLINE_BIND_ADDRESS=0.0.0.0` と `VYLINE_LAN_ACCESS=true` を設定して起動する
+3. Tailscale の IP で Vyline を開き、PC側の設定 → サブデバイスから QR を表示して端末をペアリングする
 
-Vyline バックエンドは起動時および 30 秒ごとに Tailscale IP を検出し、ログに URL を自動出力します。
+`0.0.0.0` は全ネットワークインターフェースで待ち受けます。OS・ルーターのファイアウォールで不要な接続を遮断し、未認証端末を使わせないでください。`VYLINE_LAN_ACCESS=true` のとき、遠隔 API はペアリング済みサブデバイスに限定されます。
+
+Vyline バックエンドは起動時および 30 秒ごとに Tailscale IP を検出し、候補 URL をログに出力します。Docker ではホスト側の bind とファイアウォール設定が別途必要です。
 
 ```
 Tailscale detected — Vyline accessible via Tailscale {"tailscaleIp":"100.x.y.z","url":"http://100.x.y.z:3000"}
 ```
 
-Tailscale が起動していない間は通常の LAN/ローカルアクセスのみ有効です。Tailscale 起動後は自動で URL がログに追加されます。
+URL がログに出ても、待受 bind・ファイアウォール・サブデバイスの登録が済んでいなければ接続できません。
 
 > Tailscale は WireGuard ベースのメッシュ VPN で、外部公開やリバースプロキシより簡単かつ安全です。家族や自分専用の閉じたネットワークとして使えます。
 
@@ -105,9 +107,9 @@ server {
 
 ---
 
-## 4. Cloudflare Access で外部公開（推奨）
+## 4. Cloudflare Access で外部公開する場合
 
-Cloudflare は自宅サーバーを守る認証レイヤーを無料で提供しています。LINE セッションは実質的にアカウントそのものなので、**必ず認証を入れましょう**。
+Cloudflare Access を使う場合も、Vyline のサブデバイス認証を有効にし、Cloudflare Access と二段階で保護してください。LINE セッションはアカウントと会話データへアクセスできるため、認証なしで公開しないでください。
 
 ### 手順（無料プラン）
 
@@ -117,7 +119,7 @@ Cloudflare は自宅サーバーを守る認証レイヤーを無料で提供し
    - Cloudflare dashboard → Zero Trust → Set up → プランは Free を選択
 4. **Cloudflare Tunnel** を作成
    - Zero Trust → Networks → Tunnels → Create a tunnel → **Cloudflared** を選択
-   - 公開ホスト名: `vyline.example.com` → Service: `http://localhost:3000`
+   - 公開ホスト名: `vyline.example.com` → Service: ホスト上で動く場合は `http://localhost:3000`。Cloudflare Tunnel をコンテナで動かす場合は同じ Docker ネットワーク内の Vyline サービス名を指定
    - 表示されるインストールコマンドを**自宅サーバー（Docker ホスト）**で実行:
      ```bash
      sudo cloudflared service install <トークン>
@@ -143,7 +145,7 @@ Cloudflare Access（OTP 認証）
    └─ ./data ディレクトリ（トークン・履歴・画像）
 ```
 
-これで **端末を問わず 1 つの LINE セッション** を Web から使えます。スマホはホーム画面に追加してアプリのように使えます。
+接続後は、初めて使うブラウザをPC側のサブデバイス設定からQRで登録します。スマホはホーム画面に追加して使えます。
 
 ---
 
@@ -159,7 +161,7 @@ Cloudflare Access（OTP 認証）
 
 - **自己責任**: LINE 非公式クライアントです。アカウント停止リスクがあり、メインアカウント利用は推奨しません。
 - **アクセス保護**: 認証なしの外部公開は LINE アカウントを乗っ取られるのと同じです。必ず Cloudflare Access 等で保護してください。
-- **E2EE 過去鍵**: 過去メッセージの復号には Desktop から抽出した鍵（`./data/desktop-e2ee-keys.json`）が必要です。バックアップに含めてください。
+- **E2EE 過去鍵**: Desktop から抽出した E2EE 鍵を使う構成では、`VYLINE_DATA_DIR` 配下の `desktop-e2ee-keys.json` も保護対象です。鍵・トークンを公開場所や共有バックアップへ置かないでください。
 - **HTTPS**: Cloudflare Access を使えば自動で HTTPS になります。
 
 ---

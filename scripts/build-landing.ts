@@ -44,7 +44,8 @@ await writeFile(join(output, "search.json"), JSON.stringify(metadata.map(({ mark
 
 function row(doc: typeof metadata[number]) {
   const terms = `${doc.title} ${doc.summary} ${doc.category} ${doc.markdown.replace(/[`#*|<>]/g, " ")}`.toLocaleLowerCase();
-  return `<a class="document-row" href="${doc.url}" data-category="${escapeHtml(doc.category)}" data-search="${escapeHtml(terms)}"><span class="doc-category">${escapeHtml(doc.category)}</span><span><strong>${escapeHtml(doc.title)}</strong><small>${escapeHtml(doc.summary)}</small></span><span aria-hidden="true">↗</span></a>`;
+  const prefixLength = `${doc.title} ${doc.summary} ${doc.category} `.length;
+  return `<a class="document-row" href="${doc.url}" data-category="${escapeHtml(doc.category)}" data-title="${escapeHtml(doc.title)}" data-summary="${escapeHtml(doc.summary)}" data-content-offset="${prefixLength}" data-search="${escapeHtml(terms)}"><span class="doc-category">${escapeHtml(doc.category)}</span><span><strong>${escapeHtml(doc.title)}</strong><small>${escapeHtml(doc.summary)}</small><small class="search-match"></small></span><span aria-hidden="true">↗</span></a>`;
 }
 const home = (await readFile(join(source, "index.html"), "utf8")).replaceAll("{{BASE}}", base).replace("{{DOCUMENTS}}", metadata.map(row).join("\n"));
 await writeFile(join(output, "index.html"), home);

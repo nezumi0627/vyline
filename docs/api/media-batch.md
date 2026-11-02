@@ -1,6 +1,6 @@
 # Media Batch API（複数メディア一括送信）
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 ## エンドポイント
 
@@ -25,8 +25,8 @@ OpenAPI 仕様: `GET /openapi.json`（Swagger UI: `GET /docs`）
 | field | 型 | 必須 | 備考 |
 |---|---|---|---|
 | chatMid | string | ✓ | 送信先 (u.../c.../r...) |
-| items | array | ✓ | 1 件以上 |
-| items[].dataBase64 | string | ✓ | 最大 ~12MB |
+| items | array | ✓ | 1〜32 件 |
+| items[].dataBase64 | string | ✓ | 既定の上限は 15,000,000 Base64 文字（元データで約 11.4 MiB） |
 | items[].mimeType | string |  | 既定 `image/png` |
 | items[].filename | string |  | 既定 `screenshot.png` 等 |
 | items[].mediaType | string |  | image/video/audio/file/gif（mimeType から推論可） |
@@ -38,6 +38,8 @@ OpenAPI 仕様: `GET /openapi.json`（Swagger UI: `GET /docs`）
 ```
 
 `count` は送信できたアイテム数。エラー時は `4xx` と `{ ok: false, error }`。
+
+既定では全アイテム合計 60,000,000 Base64 文字までです。上限は `VYLINE_MAX_MEDIA_BASE64_CHARS`、`VYLINE_MAX_MEDIA_BATCH_BASE64_CHARS`、`VYLINE_MAX_MEDIA_BATCH_ITEMS` で変更できます。
 
 ## 送信経路の内部動作
 

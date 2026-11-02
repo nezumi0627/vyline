@@ -5,6 +5,7 @@ const base = new URL("../", import.meta.url).pathname;
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
+const normalizeSearch = (text) => String(text).normalize("NFKC").toLocaleLowerCase("ja").replace(/[\u200b-\u200d\ufeff]/g, "");
 let toastTimer;
 function notify(message) {
   const toast = $("#status-message"); if (!toast) return;
@@ -160,13 +161,46 @@ if (search) {
   const list = $("#document-list");
   const countNode = $("#result-count");
   const empty = $("#search-empty");
+  const excerptFor = (row, terms) => {
+    const source = row.dataset.search ?? "";
+    const body = source.slice(Number(row.dataset.contentOffset ?? 0)).replace(/[`#*_|<>\[\]()!]/g, " ").replace(/\s+/g, " ").trim();
+    const normalized = normalizeSearch(body);
+    const term = terms.find((item) => normalized.includes(item));
+    if (!term) return row.dataset.summary ?? "";
+    const position = normalized.indexOf(term);
+    const start = Math.max(0, position - 52);
+    const end = Math.min(body.length, position + term.length + 92);
+    return `${start ? "…" : ""}${body.slice(start, end).trim()}${end < body.length ? "…" : ""}`;
+  };
   function filter() {
-    const terms = search.value.toLocaleLowerCase().trim().split(/\s+/).filter(Boolean);
-    let count = 0;
-    rows.forEach((row) => { const match = terms.length > 0 && terms.every((term) => row.dataset.search.includes(term)); row.hidden = !match; if (match) count++; });
-    list.hidden = terms.length === 0 || count === 0; empty.hidden = terms.length === 0 || count !== 0;
-    countNode.textContent = terms.length ? `${count} 件の候補` : "";
+    const query = normalizeSearch(search.value).trim();
+    const terms = query.split(/\s+/).filter(Boolean);
+    const matches = terms.length ? rows.map((row) => {
+      const title = normalizeSearch(row.dataset.title ?? "");
+      const summary = normalizeSearch(row.dataset.summary ?? "");
+      const category = normalizeSearch(row.dataset.category ?? "");
+      const content = normalizeSearch(row.dataset.search ?? "");
+      if (!terms.every((term) => content.includes(term))) return null;
+      const score = terms.reduce((total, term) => total + (title.includes(term) ? 12 : 0) + (summary.includes(term) ? 6 : 0) + (category.includes(term) ? 3 : 0) + (content.includes(term) ? 1 : 0), 0);
+      return { row, score };
+    }).filter(Boolean).sort((a, b) => b.score - a.score) : [];
+    matches.forEach(({ row }) => {
+      row.hidden = false;
+      row.dataset.searchResult = "true";
+      $(".search-match", row).textContent = excerptFor(row, terms);
+      list.append(row);
+    });
+    rows.filter((row) => !matches.some((match) => match.row === row)).forEach((row) => { row.hidden = true; delete row.dataset.searchResult; });
+    list.hidden = matches.length === 0;
+    empty.hidden = terms.length === 0 || matches.length > 0;
+    empty.textContent = `「${search.value.trim()}」に一致する記事はありません。別の言葉で検索するか、左側の目的から選んでください。`;
+    countNode.textContent = terms.length ? `${matches.length} 件の記事が見つかりました` : "検索語を入力するか、上の項目を選んでください。";
   }
   $(".search-form").addEventListener("submit", (event) => event.preventDefault());
   search.addEventListener("input", filter); filter();
+  $$("[data-search-term]").forEach((button) => button.addEventListener("click", () => {
+    search.value = button.dataset.searchTerm ?? "";
+    filter();
+    search.focus();
+  }));
 }

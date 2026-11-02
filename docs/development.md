@@ -1,6 +1,6 @@
 # Development Workflow
 
-最終更新: 2026-08-26
+最終更新: 2026-11-03
 
 ---
 
@@ -41,8 +41,9 @@ bun test
 cd Vyline/packages/protocol && bun run stack:types
 
 # Desktop 調査
-bun run vyline:dump-desktop              # インストール一式 → source/desktop/
-bun run vyline:dump-desktop -- --full    # Data/bin ミラー + exe 文字列
+bun run vyline:check                     # Desktop のインストール版/実行版を確認
+bun run vyline:versions                  # インストール済み Desktop の一覧
+bun run vyline:update                    # Desktop を最新版へ更新
 bun run vyline:find-native -- sendMessage --list-only --skip-setup
 bun run vyline:delta
 bun run vyline:focus-recovered -- sendMessage

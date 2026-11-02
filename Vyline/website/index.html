@@ -42,25 +42,28 @@
         <h1 id="hero-title">LINEの会話を、<span>自分の場所で。</span></h1>
         <p class="hero-description">Vylineは、会話を送受信するオープンソースのLINEクライアント。<br>PCで動かすか、自分のサーバーで使うかを選べます。</p>
         <a class="launch-button hero-launch" href="#start"><span>起動方法を選ぶ</span><span class="button-orbit" aria-hidden="true">↗</span></a>
-        <a class="release-note" href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3">安定版 <span>1.0.3 ↗</span></a>
+        <a class="release-note" href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3" aria-label="安定版 Vyline 1.0.3 のリリースを見る"><span>安定版</span><strong>1.0.3</strong><span aria-hidden="true">↗</span></a>
       </div>
-      <a class="hero-next" href="#start"><span>01</span> まずは起動する <span aria-hidden="true">↓</span></a>
       </div>
     </section>
 
     <section id="tour" data-view="start" hidden class="section wrap" aria-labelledby="tour-title">
       <div class="view-heading"><a class="back-home" href="#home">← Vyline</a><span>SETUP / v1.0.3</span><a class="text-link" href="{{BASE}}guide/docs/start-here.html">詳細な導入ガイド ↗</a></div>
       <div class="section-heading route-heading"><div><h2 id="tour-title">選んだ環境で、Vylineを起動する。</h2><p>環境ごとの手順とコマンドを、ここで確かめられます。</p></div></div>
-      <div class="environment-picker">
-        <p>動かす環境 <span>SELECT ONE</span></p>
-        <div class="platform-picker" role="group" aria-label="利用環境"><button class="platform-recommended" data-os="bun" aria-pressed="true"><span>Bun + vyl<small>全OS共通・コマンド起動</small></span><span class="platform-choice">推奨</span></button><button data-os="windows" aria-pressed="false"><span>Windows<small>Setup / x64</small></span></button><button data-os="linux" aria-pressed="false"><span>Linux<small>tar.gz / x64</small></span></button><button data-os="macos" aria-pressed="false"><span>macOS<small>ソース / ブラウザ</small></span></button><button data-os="docker" aria-pressed="false"><span>Docker / Web<small>amd64 / arm64</small></span></button></div>
-      </div>
-      <div class="tour-shell">
-        <nav class="tour-steps" aria-label="導入手順"><button data-step="0" aria-current="step"><span>01</span> 起動する</button><button data-step="1"><span>02</span> ログインする</button><button data-step="2"><span>03</span> 使い方を整える</button></nav>
-        <div class="tour-body">
-          <div class="tour-meta"><span id="tour-coordinate">01 / 03</span><span id="selected-platform">Bun + vyl</span></div>
-          <div id="tour-panel" tabindex="-1"></div>
-          <div class="tour-bottom"><button class="back-button" id="tour-back" disabled><span aria-hidden="true">←</span> 戻る</button><p id="tour-hint">コマンドを実行したら、ログインへ。</p><button class="next-button" id="tour-next">次へ <span aria-hidden="true">→</span></button></div>
+      <div class="tour-layout">
+        <aside class="tour-rail" aria-label="導入の選択">
+          <div class="environment-picker">
+            <p>動かす環境 <span>01 — SELECT</span></p>
+            <div class="platform-picker" role="group" aria-label="利用環境"><button class="platform-recommended" data-os="bun" aria-pressed="true"><span>Bun + vyl<small>全OS共通・コマンド起動</small></span><span class="platform-choice">推奨</span></button><button data-os="windows" aria-pressed="false"><span>Windows<small>Setup / x64</small></span></button><button data-os="linux" aria-pressed="false"><span>Linux<small>tar.gz / x64</small></span></button><button data-os="macos" aria-pressed="false"><span>macOS<small>ソース / ブラウザ</small></span></button><button data-os="docker" aria-pressed="false"><span>Docker / Web<small>amd64 / arm64</small></span></button></div>
+          </div>
+          <nav class="tour-steps" aria-label="導入手順"><p>導入の流れ <span>02 — FOLLOW</span></p><button data-step="0" aria-current="step"><span>01</span> 起動する</button><button data-step="1"><span>02</span> ログインする</button><button data-step="2"><span>03</span> 使い方を整える</button></nav>
+        </aside>
+        <div class="tour-shell">
+          <div class="tour-body">
+            <div class="tour-meta"><span><b id="tour-coordinate">01 / 03</b> <i aria-hidden="true">/</i> <span id="selected-platform">Bun + vyl</span></span><span>STEP-BY-STEP</span></div>
+            <div id="tour-panel" tabindex="-1"></div>
+            <div class="tour-bottom"><button class="back-button" id="tour-back" disabled><span aria-hidden="true">←</span> 戻る</button><p id="tour-hint">コマンドを実行したら、ログインへ。</p><button class="next-button" id="tour-next">次へ <span aria-hidden="true">→</span></button></div>
+          </div>
         </div>
       </div>
       <noscript><p>ツアーの操作にはJavaScriptが必要です。[<a href="{{BASE}}guide/docs/install/windows.html">Windows</a>] [<a href="{{BASE}}guide/docs/install/linux.html">Linux</a>] [<a href="{{BASE}}guide/docs/install/macos.html">macOS</a>] [<a href="{{BASE}}guide/docs/install/docker.html">Docker</a>] の手順はそのまま読めます。</p></noscript>
@@ -78,12 +81,12 @@
       <div class="guide-finder">
         <div id="intent-picker"><p class="finder-prompt">いま、やりたいことは？</p><button data-intent="install"><span class="intent-number">01</span><span>はじめて使う<small>自分のOSに合う導入手順へ</small></span><span class="intent-arrow" aria-hidden="true">→</span></button><button data-intent="appearance"><span class="intent-number">02</span><span>見た目を変えたい<small>テーマと表示を自分好みに</small></span><span class="intent-arrow" aria-hidden="true">→</span></button><button data-intent="data"><span class="intent-number">03</span><span>履歴を保存・移したい<small>何を残すかで、手順が変わります</small></span><span class="intent-arrow" aria-hidden="true">→</span></button><button data-intent="help"><span class="intent-number">04</span><span>うまく動かない<small>ログイン、更新、診断の入口</small></span><span class="intent-arrow" aria-hidden="true">→</span></button><a class="developer-entry" href="{{BASE}}guide/docs/developers/index.html">開発者向けの資料を探している ↗</a></div>
         <div id="intent-result" hidden tabindex="-1"></div>
-        <div class="search-column"><p>探す言葉があるなら。</p><form class="search-form" role="search"><label for="doc-search">ドキュメント検索</label><div class="search-field"><span aria-hidden="true">⌕</span><input id="doc-search" type="search" placeholder="例：バックアップ、QRログイン" autocomplete="off"><kbd aria-hidden="true">/</kbd></div></form><p class="search-description">タイトルと本文から検索します。<br>検索語を入れると、候補を表示します。</p><p class="result-count" id="result-count" role="status"></p></div>
+        <div class="search-column"><p>言葉から、手順へ。</p><form class="search-form" role="search"><label for="doc-search">ドキュメント内を検索</label><div class="search-field"><span aria-hidden="true">⌕</span><input id="doc-search" type="search" placeholder="例：バックアップ、QRログイン" autocomplete="off" aria-controls="document-list"><kbd aria-hidden="true">/</kbd></div></form><div class="search-suggestions" aria-label="よく検索される項目"><button type="button" data-search-term="QRログイン">QRログイン</button><button type="button" data-search-term="テーマ">テーマ</button><button type="button" data-search-term="バックアップ">バックアップ</button><button type="button" data-search-term="Docker">Docker</button></div><p class="result-count" id="result-count" role="status" aria-live="polite"></p></div>
       </div>
-      <div class="document-list" id="document-list" hidden>{{DOCUMENTS}}</div><p id="search-empty" hidden>見つかりませんでした。別の言葉で検索するか、目的から選んでください。</p>
+        <div class="document-results" aria-live="polite"><div class="document-list" id="document-list" hidden>{{DOCUMENTS}}</div><p id="search-empty" hidden>見つかりませんでした。別の言葉で検索するか、目的から選んでください。</p></div>
     </section>
   </main>
-  <footer class="site-footer wrap"><div class="footer-top"><a class="brand" href="{{BASE}}"><img src="{{BASE}}assets/logo.svg" width="32" height="32" alt=""><span>Vyline</span></a><p>Vision Beyond Limits.</p><a href="https://github.com/nezumi0627/vyline">ソースコード ↗</a><a href="{{BASE}}guide/docs/user-guide/privacy-and-data.html">プライバシー</a></div><p>Software © Project Vyline / MIT · Logo © 2026 y2mc / <a href="{{BASE}}assets/LOGO-LICENCE.txt">CC BY 4.0</a></p><p class="design-credit">Design process informed by <a href="https://github.com/heydamir/unslop">Unslop by @heydamir</a> / CC BY 4.0</p></footer>
+  <footer class="site-footer wrap"><div class="footer-top"><a class="brand" href="{{BASE}}"><img src="{{BASE}}assets/logo.svg" width="32" height="32" alt=""><span>Vyline</span></a><p>会話を、自分の環境で。</p><nav aria-label="フッターナビゲーション"><a href="https://github.com/nezumi0627/vyline">GitHub <span aria-hidden="true">↗</span></a><a href="{{BASE}}guide/docs/user-guide/privacy-and-data.html">プライバシー <span aria-hidden="true">↗</span></a></nav></div><p class="footer-legal">Software © Project Vyline / MIT <span aria-hidden="true">·</span> Logo © 2026 y2mc / <a href="{{BASE}}assets/LOGO-LICENCE.txt">CC BY 4.0</a></p></footer>
   <p class="toast" role="status" id="status-message"></p>
 </body>
 </html>
