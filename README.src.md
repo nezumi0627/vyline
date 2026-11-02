@@ -2,6 +2,10 @@
 <!--@default=ja-->
 [English](README.en.md)
 
+<p align="center">
+  <img src="logo/assets/color/128.png" alt="Vyline logo" width="88" height="88" />
+</p>
+
 <h1 align="center">Vyline</h1>
 
 <p align="center">
@@ -63,6 +67,10 @@ VylineはLINEの公式アプリではありません。外部サーバー利用�
 
 バグ報告、機能提案、コード・調査・翻訳の協力を歓迎します。[コントリビューションガイド](docs/CONTRIBUTING.md)をご覧ください。
 
+## 謝辞
+
+Vylineのロゴ・アイコンを制作してくださった [@yuz-mc](https://github.com/yuz-mc) さんに感謝します。[PR #294](https://github.com/nezumi0627/vyline/pull/294) のロゴ素材はCC BY 4.0で提供されています。アプリ用の各サイズ画像・Windows ICO・macOS ICNSは元のロゴから生成した派生形式です。著作権・ライセンス表記は [`logo/LICENCE`](logo/LICENCE) をご確認ください。
+
 ## ライセンス
 
-MIT。[LICENSE](LICENSE)
+ソフトウェア本体はMIT（[LICENSE](LICENSE)）、ロゴ・アイコン素材は別途CC BY 4.0（[`logo/LICENCE`](logo/LICENCE)）です。

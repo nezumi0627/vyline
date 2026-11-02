@@ -34,6 +34,8 @@ function run(command: string, args: string[]) {
 await rm(join(releaseDir, packageName), { recursive: true, force: true });
 await mkdir(macOSDir, { recursive: true });
 await mkdir(webDir, { recursive: true });
+const iconsetDir = join(resourcesDir, "Vyline.iconset");
+await mkdir(iconsetDir, { recursive: true });
 run("bun", ["run", "build"]);
 await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
 await cp(join(root, "openapi.yaml"), join(resourcesDir, "openapi.yaml"));
@@ -47,6 +49,27 @@ const fallbackProfile = join(
 );
 await mkdir(join(resourcesDir, "data"), { recursive: true });
 await cp(fallbackProfile, join(resourcesDir, "data", "desktop-profile.fallback.json"));
+
+const logoDir = join(root, "logo", "assets", "color");
+for (const [name, sourceSize, outputSize] of [
+  ["icon_16x16.png", 64, 16],
+  ["icon_16x16@2x.png", 64, 32],
+  ["icon_32x32.png", 64, 32],
+  ["icon_32x32@2x.png", 64, 64],
+  ["icon_128x128.png", 128, 128],
+  ["icon_128x128@2x.png", 256, 256],
+  ["icon_256x256.png", 256, 256],
+  ["icon_256x256@2x.png", 512, 512],
+  ["icon_512x512.png", 512, 512],
+  ["icon_512x512@2x.png", 1024, 1024],
+] as const) {
+  const source = join(logoDir, `${sourceSize}.png`);
+  const destination = join(iconsetDir, name);
+  if (sourceSize === outputSize) await cp(source, destination);
+  else run("sips", ["-z", String(outputSize), String(outputSize), source, "--out", destination]);
+}
+run("iconutil", ["-c", "icns", iconsetDir, "-o", join(resourcesDir, "Vyline.icns")]);
+await rm(iconsetDir, { recursive: true, force: true });
 
 const target = `bun-darwin-${arch}`;
 run("bun", [
@@ -77,6 +100,7 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <key>CFBundleVersion</key><string>${version}</string>
 <key>CFBundleShortVersionString</key><string>${version}</string>
 <key>CFBundleExecutable</key><string>Vyline</string>
+<key>CFBundleIconFile</key><string>Vyline.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict></plist>

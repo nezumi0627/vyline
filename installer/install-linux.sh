@@ -46,6 +46,7 @@ cat > "$DESKTOP_TMP" <<EOF
 Name=Vyline
 Comment=LINE third-party client
 Exec=$BIN_DIR/vyline
+Icon=$PREFIX/icon.png
 Terminal=false
 Type=Application
 Categories=Network;Chat;

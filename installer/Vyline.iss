@@ -7,6 +7,9 @@
 #ifndef OutputDir
   #define OutputDir "..\\dist\\windows"
 #endif
+#ifndef SetupIconFile
+  #define SetupIconFile SourceDir + "\\icon.ico"
+#endif
 [Setup]
 AppId={{9B8C7F0E-4E4D-4E7A-9C9F-6D6E5E8C8A21}
 AppName=Vyline
@@ -17,6 +20,7 @@ DefaultDirName={localappdata}\Programs\Vyline
 DefaultGroupName=Vyline
 OutputDir={#OutputDir}
 OutputBaseFilename=VylineSetup-{#AppVersion}
+SetupIconFile={#SetupIconFile}
 Compression=lzma2/ultra64
 SolidCompression=yes
 PrivilegesRequired=lowest
