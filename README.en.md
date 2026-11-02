@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.2-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
 </p>
 
@@ -19,7 +19,7 @@
 > Vyline is an unofficial client and is not affiliated with LINE Corporation or LY Corporation. Understand the risks to your account and data, as well as LINE's terms, before using it. See [Privacy and Data](docs/user-guide/privacy-and-data.en.md).
 
 > [!NOTE]
-> **v1.0.1 is the current stable release and development baseline.** It fixes a startup failure in the v1.0.0 Windows distribution. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.0.1) · [Changelog](CHANGELOG.md)
+> **v1.0.2 is the current stable release and development baseline.** It fixes diagnostic logging enablement and reorganizes Beta features and settings. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2) · [Changelog](CHANGELOG.md)
 
 ## About Vyline
 
@@ -38,7 +38,7 @@ See the [Feature Guide](docs/features.en.md) for descriptions and limitations an
 
 ## Get started
 
-- **Windows**: Download the [v1.0.1 Setup](https://github.com/nezumi0627/vyline/releases/tag/v1.0.1).
+- **Windows**: Download the [v1.0.2 Setup](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2).
 - **Linux**: The same release includes a Linux x64 build.
 - **Web / self-hosting**: See the [Self-hosting Guide](docs/selfhosting.md).
 - **macOS**: There is no dedicated installer. Run from source or access a hosted instance in a browser.

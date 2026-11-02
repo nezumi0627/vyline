@@ -1,8 +1,12 @@
 # Release History and Baseline
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
-The current stable baseline is **v1.0.1**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+The current stable baseline is **v1.0.2**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+
+## v1.0.2 — Settings and diagnostics fixes
+
+Fixed diagnostic logging enablement and stale status during account switching. Beta features and settings categories were reorganized, and the unreleased plugin entry points were removed from the app. See the [changelog](../../CHANGELOG.md) and [GitHub Release](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2).
 
 ## v1.0.1 — Windows distribution startup fix
 
