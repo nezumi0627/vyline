@@ -33,9 +33,11 @@ import {
   IconMemo,
   IconLogout,
   IconChevron,
+  IconUpdate,
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { MidSearchProfileDrawer, type MidSearchProfile } from "@/components/mid-search-profile";
+import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official";
 
@@ -118,6 +120,7 @@ function SidebarBase() {
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
+  const [availableUpdate, setAvailableUpdate] = useState<UpdateInfo | null>(null);
   const activeChatId = useStore((s) => s.activeChatId);
   const openChat = useStore((s) => s.openChat);
   const setScreen = useStore((s) => s.setScreen);
@@ -128,6 +131,21 @@ function SidebarBase() {
   const customOrder = useStore((s) => s.customOrder);
   const setCustomOrder = useStore((s) => s.setCustomOrder);
   const self = useStore((s) => s.self);
+
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = () => {
+      void checkForUpdates().then((info) => {
+        if (!cancelled) setAvailableUpdate(info.hasUpdate ? info : null);
+      });
+    };
+    refresh();
+    const timer = window.setInterval(refresh, 30 * 60_000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
 
   const togglePin = useStore((s) => s.togglePin);
   const toggleHide = useStore((s) => s.toggleHide);
@@ -452,6 +470,18 @@ function SidebarBase() {
           Vyline
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
+          {availableUpdate && (
+            <button
+              type="button"
+              onClick={() => setScreen("updater")}
+              aria-label={`Vyline ${availableUpdate.latestVersion} に更新できます`}
+              title={`Vyline ${availableUpdate.latestVersion} の更新があります`}
+              className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent)] transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+            >
+              <IconUpdate size={19} />
+              <span className="absolute right-1 top-1 h-2 w-2 rounded-full bg-[var(--vy-danger)]" />
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setScreen("chat")}

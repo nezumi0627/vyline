@@ -1,4 +1,4 @@
-export type Screen = "lock" | "home" | "chat" | "settings" | "login";
+export type Screen = "lock" | "home" | "chat" | "settings" | "updater" | "login";
 
 export type { VyTheme } from "@vyline/themes";
 
