@@ -14,7 +14,8 @@ Vyline はバックエンド（BFF）とフロントエンド（React ビルド�
 docker compose up -d --build
 ```
 
-ブラウザで `http://localhost:3001` を開くと Vyline が起動します。
+ブラウザで `http://localhost:3000` を開くとVylineが起動します（Compose配布時）。
+初回導入の手順は[Docker導入ガイド](./install/docker.md)にまとめています。
 **注意**: デフォルトではホストマシン（`127.0.0.1`）からのみアクセス可能です。同一LANのスマホ等から使う場合は、[サブデバイス接続ガイド](./subdevices.md) のQRペアリングを使用してください。`VYLINE_LAN_ACCESS=true` なしでLAN公開しないでください。
 
 ### 永続化されるデータ

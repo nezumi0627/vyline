@@ -7,7 +7,7 @@ UI からカスタムテーマを作るか、コードでプリセットを追�
 
 ## 方法 A: UI で作る（コード不要）
 
-1. 設定 > **NezuTheme** を開く
+1. 設定 > **VyTheme** を開く
 2. プリセット（telegram-night / line-dark / soft-day）を選ぶか「custom」で編集
 3. トークンを調整:
    - `accent` — アクセントカラー（リンク・ボタン）

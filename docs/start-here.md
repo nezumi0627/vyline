@@ -1,8 +1,30 @@
 # Vyline を使い始める
 
-最終更新: 2026-11-02
+最終更新: 2026-11-03
 
-このページは、コードを読まずにVylineを試したい人向けの入口です。現在の安定版・開発基準はv1.0.1です。VylineはLINE非公式・未承認のクライアントです。利用前に[プライバシーとデータ](./user-guide/privacy-and-data.md)を確認してください。
+このページは、Vylineを初めて使う人向けの入口です。
+現在の安定版は **1.0.3** です。
+[操作できる導入ツアー](https://nezumi0627.github.io/Vyline/#start)でも手順を確認できます。
+VylineはLINE非公式のクライアントです。利用前に[プライバシーとデータ](./user-guide/privacy-and-data.md)を確認してください。
+
+## 環境を選ぶ
+
+| 環境 | 導入方法 | 手順 |
+| --- | --- | --- |
+| Windows x64 | SetupまたはポータブルZIP。Bun不要 | [Windows](./install/windows.md) |
+| Linux x64 | tar.gzを展開しinstall.shを実行。Bun不要 | [Linux](./install/linux.md) |
+| macOS | ソース起動またはブラウザ接続。専用インストーラーなし | [macOS](./install/macos.md) |
+| Docker / Web | amd64またはarm64サーバーで起動 | [Docker](./install/docker.md) |
+
+## ログインと初回設定
+
+1. 起動したVylineでQRコードログインを選びます。
+2. スマホのLINEのQRコードリーダーで読み取り、ログインを承認します。確認番号が表示された場合は画面の案内に従ってください。
+3. ログイン後のVyline Setupで、使い方とアカウントごとの設定を選びます。
+4. 設定からテーマ、文字サイズ、表示密度、通知を調整します。
+
+QRコードの期限が切れた場合は、VylineでQRコードを再発行してください。
+詳しい流れは[ログインフロー](./login-flow.md)を参照してください。
 
 ## まず知っておくこと
 
@@ -10,12 +32,11 @@
 - 「実装がある」と「今回の監査で実 LINE 環境まで確認済み」は同じ意味ではありません。検証状態は [Feature Capability Matrix](./feature-capabilities.md) を正本にします。
 - Windows / Linuxの配布物、ソース起動、Dockerなどの導入方法は[配布ガイド](./distribution.md)と[セルフホストガイド](./selfhosting.md)を参照してください。
 
-## 最短ルート
+## 使い始めたら
 
-1. [配布ガイド](./distribution.md) から自分に合う導入方法を選びます。
-2. 初回ログイン後は Vyline Setup の案内に従って設定します。設定はアカウント単位で保存されます。
-3. 更新前や大きな設定変更前は Snapshot / VylineBackup を作成します。更新手順は [update.md](./user-guide/update.md) を参照してください。
-4. 別環境へ設定を移す場合は、設定画面の引継ぎ機能を使います。引継ぎ ZIP は認証 token や E2EE 鍵を含めない設計です。
+1. [機能ガイド](./features.md)から会話や表示の使い方を確認します。
+2. 更新前や大きな設定変更前はSnapshot / VylineBackupを作成します。[更新手順](./user-guide/update.md)を確認してください。
+3. 別環境へ設定を移す場合は設定画面の引継ぎ機能を使います。引継ぎZIPには認証トークンやE2EE鍵を含めません。履歴は[VylineBackup](../Vyline/docs/guides/vyline-backup-restore.md)で別に扱います。
 
 ## Backup / Restore
 

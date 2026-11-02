@@ -5,15 +5,19 @@
 
 <h1 align="center">Vyline</h1>
 
+<p align="center"><img src="logo/assets/color/128.png" alt="Vyline ロゴ" width="72" height="72" /></p>
+
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
   LINE向けの非公式クライアント。Web・Windows・Linuxで利用できます。
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.3-a78bfa?style=flat-square" />
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
+  <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3"><img alt="安定版 1.0.3" src="https://img.shields.io/badge/version-1.0.3-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
+  <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-eeeeee?style=flat-square&amp;labelColor=181818" />
 </p>
+
+<p align="center"><a href="https://nezumi0627.github.io/Vyline/#start">導入ツアー</a> · <a href="docs/features.md">機能を知る</a> · <a href="https://nezumi0627.github.io/Vyline/#docs">目的からドキュメントを探す</a></p>
 
 > [!CAUTION]
 > VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用規約やアカウント、データに関するリスクを理解したうえで使用してください。[プライバシーとデータ](docs/user-guide/privacy-and-data.md)
@@ -30,7 +34,7 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 - **トーク**: DM・グループ、メッセージ、既読管理、検索、メンション、URLプレビュー
 - **メディアと表示**: 画像・動画・音声・ファイル、スタンプ・絵文字、Flex/Rich、リアクション
 - **プロフィールとグループ**: プロフィール、友だち・ブロック管理、グループ作成・設定
-- **自分向けの調整**: NezuTheme、文字サイズ、通知・プライバシー設定、ストリーマーモード
+- **自分向けの調整**: VyTheme、文字サイズ、通知・プライバシー設定、ストリーマーモード
 - **データとサポート**: VylineBackup、Snapshot、履歴取り込み、診断ログ、Agent Iサポート
 - **運用と拡張**: 複数アカウント、サブデバイス、公開API、CLI、Dockerセルフホスト
 
@@ -38,11 +42,17 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 
 ## はじめる
 
-- **Windows**: [v1.0.3 Setupまたはポータブル版](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3)をダウンロードします。
-- **Linux**: 同じReleaseからLinux x64版を入手できます。Dockerはlinux/amd64・linux/arm64に対応します。
-- **Web・セルフホスト**: [セルフホストガイド](docs/selfhosting.md)を参照してください。
-- **macOS**: 専用インストーラーはありません。ソースから起動するか、サーバーを立ててブラウザから利用してください。
-- **更新**: [アップデートガイド](docs/user-guide/update.md)
+**安定版は1.0.3です。** 環境に合った手順を選んでください。
+
+| 環境 | 入手方法 | インストール手順 |
+| --- | --- | --- |
+| Windows x64 | [Setup.exe](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/VylineSetup-1.0.3.exe) / [ポータブルZIP](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/Vyline-portable-1.0.3.zip)。Bun不要 | [Windows](docs/install/windows.md) |
+| Linux x64 | [tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/Vyline-linux-x64-1.0.3.tar.gz)。Bun不要 | [Linux](docs/install/linux.md) |
+| macOS | ソース起動またはブラウザ利用。専用インストーラーなし | [macOS](docs/install/macos.md) |
+| Docker / Web | amd64 / arm64のサーバーで動かす | [Docker](docs/install/docker.md) |
+
+導入後は[ログインと初回設定](docs/start-here.md#ログインと初回設定)へ。更新前は[アップデートガイド](docs/user-guide/update.md)を確認してください。
+配布物の整合性は[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/SHA256SUMS.txt)で確認できます。
 
 ## 利用前の注意
 
@@ -67,3 +77,5 @@ VylineはLINEの公式アプリではありません。外部サーバー利用�
 ## ライセンス
 
 MIT。[LICENSE](LICENSE)
+
+ロゴは別ライセンスです。Copyright © 2026 y2mc / Project Vyline、[CC BY 4.0](logo/LICENCE)。

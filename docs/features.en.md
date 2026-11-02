@@ -1,8 +1,8 @@
 # Vyline Feature Guide
 
-Last updated: 2026-11-02
+Last updated: 2026-11-03
 
-This guide describes user-facing features based on v1.0.1. Implementation and live verification against LINE are different things; see the [Capability Matrix](./feature-capabilities.md) for evidence and limitations.
+This guide brings together the user-facing feature summaries for stable **1.0.3**. See [Getting Started](./start-here.md) for installation. Implementation and live verification against LINE are different things; see the [Capability Matrix](./feature-capabilities.md) for evidence and limitations.
 
 ## Accounts and devices
 
@@ -24,7 +24,7 @@ This guide describes user-facing features based on v1.0.1. Implementation and li
 
 - Sending and displaying images, video, audio, files, stickers, and LINE emoji.
 - Flex, carousel, and Rich content rendering.
-- NezuTheme, font size, display density, and profile backgrounds.
+- VyTheme, font size, display density, and profile backgrounds.
 - Image compression and high-quality sending, media auto-save, and preview behavior can be managed in settings.
 
 ## Privacy and support
@@ -41,6 +41,19 @@ This guide describes user-facing features based on v1.0.1. Implementation and li
 - Setup, diagnostics, and repair with the CLI.
 - Docker self-hosting, browser access, and a Bearer-token public API.
 - Standalone Windows and Linux distributions are available. There is no dedicated macOS installer.
+
+## Data and extension guides
+
+| Goal | Feature | Guide |
+| --- | --- | --- |
+| Save and restore chats and saved media | VylineBackup, with per-chat and text-only restore options | [Backup and restore](../Vyline/docs/guides/vyline-backup-restore.md) |
+| Move settings to another environment | Settings handoff ZIP, excluding authentication tokens and E2EE keys | [Settings handoff](./setup-account-handoff-debug.md) |
+| Import local iPhone history | Encrypted iOS backup import, subject to documented limitations | [iOS backup import](../Vyline/docs/guides/ios-backup-restore.md) |
+| Update the application | Update notices and release downloads | [Update guide](./user-guide/update.md) |
+
+For appearance, see [VyTheme](./user-guide/themes.md). For developer extensions and permissions, see [Plugins](./developers/plugin-system.md). The unpublished plugin UI was removed in 1.0.2; this is a developer reference, not a promise of an available in-app plugin catalogue.
+For integrations and hosting, see [Public API](./api/openapi.md), [Docker installation](./install/docker.md), and [Self-hosting](./selfhosting.md).
+See [Subdevices](./subdevices.md) for pairing another device.
 
 ## Verification
 

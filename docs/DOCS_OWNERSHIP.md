@@ -10,7 +10,9 @@ Vyline の文書は「現在仕様」「調査記録」「作業計画」を混�
 | --- | --- | --- |
 | ユーザー向け入口 | `README.src.md` / `README.en.src.md`, `docs/start-here.md` | README生成物は直接編集しない |
 | 機能一覧 | `docs/features.md` / `docs/features.en.md`, `docs/feature-capabilities.md` | 利用者向け案内と検証Evidenceを分ける |
-| リリース基準・履歴 | `docs/history/releases.md`, `CHANGELOG.md` | 現行基準はv1.0.1、古い仕様はhistoryへ |
+| リリース基準・履歴 | `docs/history/releases.md`, `CHANGELOG.md` | 現行基準はv1.0.3、古い仕様はhistoryへ |
+| OS別インストール | `docs/install/` | READMEと導入ツアーはこの手順へ案内 |
+| 公開ドキュメントサイト | `Vyline/website/`, `scripts/build-landing.ts` | 明示した公開リストからMarkdownを生成。解析と作業計画は検索に混ぜない |
 | プライバシーとデータ | `docs/user-guide/privacy-and-data.md` | 保存先・AI送信・サポートログの注意 |
 | 機能の検証状態 | `docs/feature-capabilities.md` | `verified / partial / unverified / unsupported` の定義もここ |
 | アーキテクチャ | `docs/architecture.md` | 実コードと食い違う場合はコードを再確認して更新 |

@@ -2,7 +2,11 @@
 
 Last updated: 2026-11-03
 
-The current stable baseline is **v1.0.2**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+The current stable baseline is **v1.0.3**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+
+## v1.0.3 — Distribution and validation improvements
+
+Docker images build natively for amd64 and arm64 in parallel, followed by platform validation. SHA-256 checksums cover release archives including Windows portable. See the [GitHub Release](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3).
 
 ## v1.0.2 — Settings and diagnostics fixes
 
