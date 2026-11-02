@@ -2363,7 +2363,7 @@ function InfoSection() {
             )}
           </p>
           <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            ロゴ制作: {" "}
+            ロゴ制作:{" "}
             <a
               className="underline underline-offset-2 hover:text-[var(--vy-text)]"
               href="https://github.com/yuz-mc"
@@ -2380,8 +2380,8 @@ function InfoSection() {
               rel="noopener noreferrer"
             >
               CC BY 4.0
-            </a>
-            {" "}·{" "}
+            </a>{" "}
+            ·{" "}
             <a
               className="underline underline-offset-2 hover:text-[var(--vy-text)]"
               href="/logo-license.txt"
