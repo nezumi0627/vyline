@@ -492,12 +492,12 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "1.0.1",
-  title: "Vyline 1.0.1 — Windows配布版の起動修正",
+  version: "1.0.3",
+  title: "Vyline 1.0.3 — Dockerマルチアーキテクチャ改善",
   items: [
-    "Windows配布版がpino-prettyの解決エラーで起動しない問題を修正",
-    "起動失敗時のBackendログを保存し、原因を確認しやすく改善",
-    "必要なprotocol fallback profileを配布物に同梱",
+    "Dockerイメージをlinux/amd64とlinux/arm64のネイティブRunnerで並列ビルドし、配布を高速化",
+    "リリース時に両アーキテクチャのDocker manifestを検証",
+    "Windowsポータブル版を含む配布物のSHA-256チェックサムを提供",
   ],
 };
 

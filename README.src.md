@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.3-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
 </p>
 
@@ -18,7 +18,7 @@
 > VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用規約やアカウント、データに関するリスクを理解したうえで使用してください。[プライバシーとデータ](docs/user-guide/privacy-and-data.md)
 
 > [!NOTE]
-> **v1.0.1を現在の安定版・開発の基準点とします。** v1.0.0のWindows配布版で発生した起動問題を修正しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.0.1) · [変更履歴](CHANGELOG.md)
+> **v1.0.3を現在の安定版・開発の基準点とします。** Dockerのamd64/arm64配布をネイティブ並列ビルドに変更し、リリース検証と配布物チェックサムを強化しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3) · [変更履歴](CHANGELOG.md)
 
 ## Vylineについて
 
@@ -37,8 +37,8 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 
 ## はじめる
 
-- **Windows**: [v1.0.1 Setup](https://github.com/nezumi0627/vyline/releases/tag/v1.0.1)をダウンロードします。
-- **Linux**: 同じReleaseからLinux x64版を入手できます。
+- **Windows**: [v1.0.3 Setupまたはポータブル版](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3)をダウンロードします。
+- **Linux**: 同じReleaseからLinux x64版を入手できます。Dockerはlinux/amd64・linux/arm64に対応します。
 - **Web・セルフホスト**: [セルフホストガイド](docs/selfhosting.md)を参照してください。
 - **macOS**: 専用インストーラーはありません。ソースから起動するか、サーバーを立ててブラウザから利用してください。
 - **更新**: [アップデートガイド](docs/user-guide/update.md)

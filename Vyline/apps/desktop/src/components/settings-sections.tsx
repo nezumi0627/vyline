@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
@@ -11,7 +11,6 @@ import {
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { SupportSection } from "@/components/support-section";
-import { AgentIBetaPanel } from "@/components/agent-i-beta-panel";
 import { IosBackupBetaPanel } from "@/components/ios-backup-beta-panel";
 import { AndroidBackupPanel } from "@/components/android-backup-panel";
 import { QRCodeSVG } from "qrcode.react";
@@ -19,6 +18,7 @@ import type { AccountSettings, SavedSession } from "@vyline/types";
 import { useThemeStore } from "@/stores/themeStore";
 import { createSettingsBackup, parseSettingsBackup } from "@/lib/settingsBackup";
 import { betaFeatureIdForSetting, recordBetaFeatureDecision } from "@/lib/betaConsent";
+import { resolveDiagnosticsMid } from "@/lib/diagnosticsMid";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -78,29 +78,65 @@ type Section =
   | "advanced"
   | "subdevices"
   | "storage"
-  | "plugins"
+  | "backup"
   | "info"
   | "beta"
   | "handoff"
   | "support";
 
-const NAV: { key: Section; label: string; icon: React.ReactNode }[] = [
-  { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
-  { key: "read", label: "既読", icon: <IconEye size={18} /> },
-  { key: "display", label: "表示", icon: <IconSettings size={18} /> },
-  { key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> },
-  { key: "notifications", label: "通知", icon: <IconBell size={18} /> },
-  { key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> },
-  { key: "session", label: "ログイン・セッション", icon: <IconShield size={18} /> },
-  { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
-  { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
-  { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
-  { key: "plugins", label: "プラグイン", icon: <IconSpark size={18} /> },
-  { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
-  { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
-  { key: "support", label: "サポート", icon: <IconSpark size={18} /> },
-  { key: "info", label: "情報", icon: <IconSpark size={18} /> },
+type NavItem = { key: Section; label: string; icon: React.ReactNode };
+const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
+  {
+    title: "アカウント",
+    items: [
+      { key: "profile", label: "プロフィール", icon: <IconEdit size={18} /> },
+      { key: "session", label: "ログイン・セッション", icon: <IconShield size={18} /> },
+    ],
+  },
+  {
+    title: "トーク",
+    items: [
+      { key: "read", label: "既読", icon: <IconEye size={18} /> },
+      { key: "display", label: "表示", icon: <IconSettings size={18} /> },
+    ],
+  },
+  {
+    title: "外観",
+    items: [{ key: "theme", label: "NezuTheme", icon: <IconPalette size={18} /> }],
+  },
+  {
+    title: "通知",
+    items: [{ key: "notifications", label: "通知", icon: <IconBell size={18} /> }],
+  },
+  {
+    title: "プライバシー",
+    items: [{ key: "privacy", label: "プライバシー", icon: <IconShield size={18} /> }],
+  },
+  {
+    title: "デバイス・データ",
+    items: [
+      { key: "advanced", label: "詳細・復元", icon: <IconChevron size={18} /> },
+      { key: "subdevices", label: "サブデバイス", icon: <IconSettings size={18} /> },
+      { key: "storage", label: "ストレージ", icon: <IconHardDrive size={18} /> },
+      { key: "backup", label: "VylineBackup", icon: <IconDownload size={18} /> },
+    ],
+  },
+  {
+    title: "サポート",
+    items: [
+      { key: "support", label: "サポート", icon: <IconSpark size={18} /> },
+      { key: "handoff", label: "引継ぎ・診断", icon: <IconDownload size={18} /> },
+    ],
+  },
+  {
+    title: "その他",
+    items: [
+      { key: "beta", label: "ベータ機能", icon: <IconSpark size={18} /> },
+      { key: "info", label: "情報", icon: <IconSpark size={18} /> },
+    ],
+  },
 ];
+const NAV = NAV_GROUPS.flatMap((group) => group.items);
 
 function Row({
   title,
@@ -278,22 +314,29 @@ export function SettingsSections() {
       <div className="mx-auto flex w-full max-w-5xl flex-1 overflow-hidden">
         {/* nav */}
         <nav className="vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block">
-          {NAV.map((n) => (
-            <button
-              key={n.key}
-              type="button"
-              onClick={() => setSection(n.key)}
-              className={cn(
-                "mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
-                section === n.key
-                  ? "text-[var(--vy-accent-contrast)]"
-                  : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
-              )}
-              style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
-            >
-              {n.icon}
-              {n.label}
-            </button>
+          {NAV_GROUPS.map((group) => (
+            <div key={group.title} className="mb-3">
+              <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--vy-text-dim)]">
+                {group.title}
+              </p>
+              {group.items.map((n) => (
+                <button
+                  key={n.key}
+                  type="button"
+                  onClick={() => setSection(n.key)}
+                  className={cn(
+                    "mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+                    section === n.key
+                      ? "text-[var(--vy-accent-contrast)]"
+                      : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
+                  )}
+                  style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
+                >
+                  {n.icon}
+                  {n.label}
+                </button>
+              ))}
+            </div>
           ))}
         </nav>
 
@@ -592,7 +635,7 @@ export function SettingsSections() {
 
               {section === "storage" && <StorageSection />}
 
-              {section === "plugins" && <PluginsSection />}
+              {section === "backup" && <VylineBackupPanel accountId={accountId} />}
 
               {section === "info" && <InfoSection />}
 
@@ -600,12 +643,7 @@ export function SettingsSections() {
 
               {section === "support" && <SupportSection />}
 
-              {section === "beta" && (
-                <>
-                  <BetaSection />
-                  {settings.betaAgentI && <AgentIBetaPanel />}
-                </>
-              )}
+              {section === "beta" && <BetaSection />}
             </div>
           </div>
         </div>
@@ -614,114 +652,14 @@ export function SettingsSections() {
   );
 }
 
-function PluginsSection() {
-  const accountId = useStore((s) => s.accountId);
-  const [plugins, setPlugins] = useState<
-    Array<{
-      id: string;
-      name: string;
-      version: string;
-      description?: string;
-      permissions?: string[];
-      loadable: boolean;
-      enabled: boolean;
-      active: boolean;
-    }>
-  >([]);
-  const [loading, setLoading] = useState(true);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [message, setMessage] = useState<string | null>(null);
-  const loadGeneration = useRef(0);
-
-  const load = async () => {
-    const generation = ++loadGeneration.current;
-    if (!accountId) {
-      setPlugins([]);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setMessage(null);
-    try {
-      const result = await api.line.plugins(accountId);
-      if (generation !== loadGeneration.current) return;
-      setPlugins(result.plugins ?? []);
-    } catch (error) {
-      if (generation !== loadGeneration.current) return;
-      setMessage(error instanceof Error ? error.message : "プラグイン一覧を取得できませんでした");
-    } finally {
-      if (generation === loadGeneration.current) setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    void load();
-  }, [accountId]);
-
-  const toggle = async (plugin: (typeof plugins)[number]) => {
-    if (!accountId || busyId) return;
-    setBusyId(plugin.id);
-    setMessage(null);
-    try {
-      const result = await api.line.setPluginEnabled(accountId, plugin.id, !plugin.enabled);
-      if (!result.ok) throw new Error(result.error ?? "プラグインの切替に失敗しました");
-      await load();
-    } catch (error) {
-      setMessage(error instanceof Error ? error.message : "プラグインの切替に失敗しました");
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  return (
-    <Section title="プラグイン" desc="この PC に置いた信頼できるローカルプラグインを管理します">
-      <p className="mb-4 rounded-xl border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-        プラグインは Vyline
-        の権限でローカルコードを実行します。内容と要求権限を確認したものだけを有効にしてください。
-      </p>
-      <Card>
-        {loading ? (
-          <p className="py-4 text-sm text-[var(--vy-text-dim)]">読み込み中…</p>
-        ) : plugins.length === 0 ? (
-          <p className="py-4 text-sm leading-relaxed text-[var(--vy-text-dim)]">
-            プラグインはまだありません。`backend/data/plugins` に `manifest.json`
-            を含むフォルダを置くと表示されます。
-          </p>
-        ) : (
-          plugins.map((plugin) => (
-            <Row
-              key={plugin.id}
-              title={`${plugin.name} v${plugin.version}`}
-              desc={`${plugin.description ?? plugin.id}${plugin.permissions?.length ? ` · ${plugin.permissions.join(", ")}` : " · 権限なし"}${!plugin.loadable ? " · 実行ファイルがありません" : plugin.enabled && !plugin.active ? " · 起動に失敗しました。バックエンドログを確認してください" : ""}`}
-            >
-              <Toggle
-                checked={plugin.enabled}
-                onChange={() => void toggle(plugin)}
-                disabled={!accountId || !plugin.loadable || busyId === plugin.id}
-                label={`${plugin.name}を有効にする`}
-              />
-            </Row>
-          ))
-        )}
-      </Card>
-      {message && <p className="mt-3 text-xs text-red-300">{message}</p>}
-      <button
-        type="button"
-        onClick={() => void load()}
-        disabled={loading}
-        className="mt-4 rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
-      >
-        再読み込み
-      </button>
-    </Section>
-  );
-}
-
 function HandoffSection() {
   const mid = useStore((s) => s.self.mid);
   const accountId = useStore((s) => s.accountId);
   const updateSelf = useStore((s) => s.updateSelf);
-  const [resolvedMid, setResolvedMid] = useState<string | undefined>(mid);
+  const [resolvedProfile, setResolvedProfile] = useState<{
+    accountId: string;
+    mid: string;
+  } | null>(null);
   const [message, setMessage] = useState<string | null>(null);
   const [entries, setEntries] = useState<unknown[]>([]);
   const [diagnosticStatus, setDiagnosticStatus] = useState<{
@@ -733,6 +671,8 @@ function HandoffSection() {
     entryCount: number;
   } | null>(null);
   const [diagnosticSaving, setDiagnosticSaving] = useState(false);
+  const [diagnosticLoading, setDiagnosticLoading] = useState(false);
+  const [diagnosticStatusError, setDiagnosticStatusError] = useState<string | null>(null);
   const [issuePreview, setIssuePreview] = useState<{
     title: string;
     report: string;
@@ -741,17 +681,17 @@ function HandoffSection() {
     issueUrl?: string;
   } | null>(null);
   useEffect(() => {
-    if (mid) {
-      setResolvedMid(mid);
+    if (resolveDiagnosticsMid(mid ?? undefined, accountId ?? undefined)) {
       return;
     }
     if (!accountId) return;
+    setResolvedProfile(null);
     let cancelled = false;
     void api.line
       .getProfile(accountId)
       .then((result) => {
         if (cancelled || !result.ok || !result.profile?.mid) return;
-        setResolvedMid(result.profile.mid);
+        setResolvedProfile({ accountId, mid: result.profile.mid });
         updateSelf({ mid: result.profile.mid });
       })
       .catch(() => undefined);
@@ -759,20 +699,44 @@ function HandoffSection() {
       cancelled = true;
     };
   }, [accountId, mid, updateSelf]);
-  const diagnosticMid = resolvedMid ?? mid;
-  useEffect(() => {
-    if (!diagnosticMid) return;
-    let cancelled = false;
-    void api.diagnostics
-      .status(diagnosticMid)
-      .then((result) => {
-        if (!cancelled) setDiagnosticStatus(result.status);
-      })
-      .catch(() => undefined);
-    return () => {
-      cancelled = true;
-    };
+  const diagnosticMid = resolveDiagnosticsMid(
+    mid ?? (resolvedProfile?.accountId === accountId ? resolvedProfile.mid : undefined),
+    accountId ?? undefined,
+  );
+  const diagnosticRequestId = useRef(0);
+  const loadDiagnosticStatus = useCallback(async () => {
+    const requestId = ++diagnosticRequestId.current;
+    if (!diagnosticMid) {
+      setDiagnosticStatus(null);
+      setDiagnosticStatusError(
+        "ログイン情報からアカウントMIDを確認できません。再ログイン後に再試行してください。",
+      );
+      return;
+    }
+    setDiagnosticLoading(true);
+    setDiagnosticStatusError(null);
+    setDiagnosticStatus(null);
+    try {
+      const result = await api.diagnostics.status(diagnosticMid);
+      if (requestId !== diagnosticRequestId.current) return;
+      if (!result.ok) throw new Error("診断ログの状態を読み込めませんでした");
+      setDiagnosticStatus(result.status);
+    } catch (error) {
+      if (requestId !== diagnosticRequestId.current) return;
+      setDiagnosticStatus(null);
+      setDiagnosticStatusError(
+        error instanceof Error ? error.message : "診断ログの状態を読み込めませんでした",
+      );
+    } finally {
+      if (requestId === diagnosticRequestId.current) setDiagnosticLoading(false);
+    }
   }, [diagnosticMid]);
+  useEffect(() => {
+    void loadDiagnosticStatus();
+    return () => {
+      diagnosticRequestId.current += 1;
+    };
+  }, [loadDiagnosticStatus]);
 
   const updateDiagnostics = async (
     patch: Partial<{
@@ -787,6 +751,7 @@ function HandoffSection() {
     try {
       const result = await api.diagnostics.configure(diagnosticMid, patch);
       setDiagnosticStatus(result.status);
+      setDiagnosticStatusError(null);
       setMessage(
         result.status.enabled ? "診断ログ設定を更新しました" : "診断ログの記録を停止しました",
       );
@@ -908,7 +873,7 @@ function HandoffSection() {
               checked={diagnosticStatus?.enabled ?? false}
               onChange={(enabled) => void updateDiagnostics({ enabled })}
               label="診断ログを記録"
-              disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
+              disabled={!diagnosticMid || diagnosticLoading || diagnosticSaving}
             />
           </Row>
           <Row title="ログレベル" desc="通常は info。調査時だけ debug を使ってください">
@@ -1006,6 +971,34 @@ function HandoffSection() {
             </button>
           </Row>
         </Card>
+        {diagnosticStatusError && (
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-xs">
+            <p role="alert" className="min-w-0 flex-1 leading-relaxed">
+              {diagnosticStatusError}
+            </p>
+            {diagnosticMid && (
+              <button
+                type="button"
+                onClick={() => void loadDiagnosticStatus()}
+                disabled={diagnosticLoading}
+                className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 disabled:opacity-50"
+              >
+                {diagnosticLoading ? "確認中…" : "再試行"}
+              </button>
+            )}
+          </div>
+        )}
+        {!diagnosticStatus && diagnosticMid && diagnosticStatusError && (
+          <button
+            type="button"
+            onClick={() => void updateDiagnostics({ enabled: true })}
+            disabled={diagnosticSaving}
+            className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+            style={{ background: "var(--vy-accent)" }}
+          >
+            {diagnosticSaving ? "有効化中…" : "状態を取得できないまま診断ログをONにする"}
+          </button>
+        )}
         {entries.length > 0 && (
           <pre className="mt-3 max-h-56 overflow-auto rounded-xl bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
             {JSON.stringify(entries, null, 2)}
@@ -1767,10 +1760,6 @@ function AdvancedSection() {
           </button>
         </Row>
       </Card>
-
-      <div className="mt-4">
-        <VylineBackupPanel accountId={accountId} />
-      </div>
 
       {restoreResult && (
         <div

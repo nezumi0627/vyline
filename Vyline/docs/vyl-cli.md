@@ -15,10 +15,7 @@ bunx vyl init
 bunx vyl install
 ```
 
-`vyl install` offers two paths:
-
-- **Release/archive first**: easier install path that avoids a full manual GitHub clone.
-- **Developer shallow clone**: shallow clone + shallow submodules for source work.
+`vyl install` performs a shallow clone including the required submodules. Source archives are not used because GitHub source archives omit submodule contents required to run Vyline.
 
 ### Existing repository checkout
 
@@ -51,7 +48,7 @@ Starts a small interactive setup menu for common actions:
 - repair setup
 - create a plugin
 - create a Snapshot
-- install from an archive
+- install Vyline with required submodules
 
 ### Install without a full manual clone
 
@@ -61,7 +58,7 @@ bunx vyl install
 bun run vyl install
 ```
 
-The installer prefers an archive-based flow so users do not need to manually clone the whole repository. Developer mode is available when source work is needed.
+The installer shallow-clones the repository and its submodules. The target must not already exist. Git is required.
 
 ### Doctor
 
@@ -71,7 +68,7 @@ bun run vyl:doctor
 bun run vyl doctor
 ```
 
-Checks the local environment:
+Checks the local environment without creating directories or probe files:
 
 - Bun
 - Git
@@ -81,8 +78,8 @@ Checks the local environment:
 - protocol package / submodule state
 - root `node_modules`
 - `.env`
-- data directory write access
-- storage directory write access
+- configured data directory or its parent accessibility (`VYLINE_DATA_DIR`, default `Vyline/backend/data`)
+- configured storage directory or its parent accessibility (`VYLINE_STORAGE_DIR`, default `Vyline/backend/storage`)
 
 ### Fix
 
@@ -91,9 +88,9 @@ bun run vyl:fix
 bun run vyl fix --build
 ```
 
-Repairs common setup issues:
+Repairs common setup issues in the same locations used by the Backend:
 
-- creates `data/` and `storage/`
+- creates the configured data and storage directories (defaults: `Vyline/backend/data/` and `Vyline/backend/storage/`)
 - creates `.env` from `.env.example` when available
 - initializes submodules when running inside a Git checkout
 - runs `bun install`
@@ -124,7 +121,7 @@ The generated plugin is intentionally small and TypeScript-first. It is meant to
 
 ## Snapshots
 
-Backup/restore is rebranded as **Snapshot**. A Snapshot is a restorable archive of the Vyline data directory.
+Backup/restore is rebranded as **Snapshot**. A Snapshot archives `VYLINE_DATA_DIR` only. It does not include `VYLINE_STORAGE_DIR` (saved media/cache). Stop Vyline before creating or restoring one for a consistent point-in-time copy.
 
 ```bash
 bun run vyl snapshot create manual
@@ -138,6 +135,8 @@ Snapshot commands support custom directories:
 ```bash
 bun run vyl snapshot create auto --data-dir ./data --snapshots ./snapshots
 ```
+
+Without `--data-dir`, snapshots use `VYLINE_DATA_DIR`, or the Backend's default `Vyline/backend/data/` directory. Restore stages and validates the replacement before switching directories; with `--force`, the previous data is retained in a `.before-restore-*` directory and restored if the switch fails. The archive contains sensitive local account/session data; store and share it accordingly.
 
 The schedule command stores `.vyline/snapshot-schedule.json`.
 
