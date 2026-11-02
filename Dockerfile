@@ -3,7 +3,6 @@
 # 実行:  docker run -p 127.0.0.1:3000:3000 -v ./data:/app/data vyline
 
 ARG BUN_VERSION=1.4.0
-ARG VYLINE_VERSION=dev
 FROM oven/bun:${BUN_VERSION} AS deps
 WORKDIR /app
 COPY package.json bun.lock* ./
@@ -34,8 +33,8 @@ COPY . .
 RUN bun run build
 
 ARG BUN_VERSION=1.4.0
-ARG VYLINE_VERSION=dev
 FROM oven/bun:${BUN_VERSION} AS runtime
+ARG VYLINE_VERSION=dev
 WORKDIR /app
 ENV NODE_ENV=production \
     VYLINE_VERSION=${VYLINE_VERSION} \
