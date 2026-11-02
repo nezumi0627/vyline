@@ -9,6 +9,7 @@ async function runDpapi(script: string, input: string): Promise<string> {
     "powershell.exe",
     ["-NoProfile", "-NonInteractive", "-Command", script],
     {
+      windowsHide: true,
       // With -Command, trailing CLI values become PowerShell source rather than $args.
       // Pass the value through the child-only environment instead, keeping it out of
       // the command line and avoiding script injection from persisted data.
