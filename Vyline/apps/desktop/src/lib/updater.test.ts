@@ -4,6 +4,7 @@ import {
   clearUpdateCheckCache,
   detectUpdatePlatform,
   formatBuildVersion,
+  isLocalHostname,
   isNewerVersion,
   isTrustedInstallerUrl,
   normalizeReleaseTag,
@@ -109,6 +110,17 @@ describe("detectUpdatePlatform", () => {
     expect(detectUpdatePlatform("Android; Linux arm64")).toBe("unknown");
     expect(detectUpdatePlatform("X11; Linux aarch64")).toBe("unknown");
     expect(detectUpdatePlatform("Some other platform")).toBe("unknown");
+  });
+});
+
+describe("isLocalHostname", () => {
+  test("allows loopback addresses and rejects remote hosts", () => {
+    expect(isLocalHostname("localhost")).toBe(true);
+    expect(isLocalHostname("127.0.0.1")).toBe(true);
+    expect(isLocalHostname("127.8.9.10")).toBe(true);
+    expect(isLocalHostname("::1")).toBe(true);
+    expect(isLocalHostname("vyline.example.com")).toBe(false);
+    expect(isLocalHostname("192.168.1.20")).toBe(false);
   });
 });
 

@@ -2398,7 +2398,9 @@ function InfoSection() {
               </div>
               {!updateInfo.downloadUrl && (
                 <p className="mt-3 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                  この環境向けの自動配布ファイルはありません。リリースページで対応状況を確認してください。
+                  {updateInfo.isLocalInstall
+                    ? "この端末向けの公式配布ファイルはありません。リリースページで対応状況を確認してください。"
+                    : "リモートサーバーで実行中です。この画面からサーバーを更新しません。サーバー管理者がリリースページの手順で更新してください。"}
                 </p>
               )}
               {updateInfo.body && (
