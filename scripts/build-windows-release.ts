@@ -38,6 +38,18 @@ await mkdir(webDir, { recursive: true });
 run("bun", ["run", "build"]);
 await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
 await cp(join(root, "openapi.yaml"), join(packageDir, "openapi.yaml"));
+const fallbackProfile = join(
+  root,
+  "Vyline",
+  "packages",
+  "protocol",
+  "data",
+  "desktop-profile.fallback.json",
+);
+if (!existsSync(fallbackProfile))
+  throw new Error(`Required protocol data is missing: ${fallbackProfile}`);
+await mkdir(join(packageDir, "data"), { recursive: true });
+await cp(fallbackProfile, join(packageDir, "data", "desktop-profile.fallback.json"));
 const args = [
   "build",
   "--compile",
