@@ -84,7 +84,7 @@ jobs:
           VYLINE_SMOKE_HOME: ${{ runner.temp }}/vyline-smoke
         run: |
           set -euo pipefail
-          version=$(node -p 'require("./package.json").version')
+          version=$(node -p "require('./package.json').version")
           app="dist/macos/Vyline-macos-${{ matrix.arch }}-${version}/Vyline.app"
           executable="$app/Contents/MacOS/Vyline"
           test -x "$executable"
