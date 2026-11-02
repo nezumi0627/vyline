@@ -2077,35 +2077,6 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
-    "/line/{accountId}/plugins",
-    "get",
-    {
-      op: "listPlugins",
-      summary: "プラグイン一覧",
-      tags: ["misc"],
-      params: [acc],
-      responses: { "200": jsonRes("プラグイン配列") },
-    },
-  ],
-  [
-    "/line/{accountId}/plugins/{pluginId}/{action}",
-    "post",
-    {
-      op: "controlPlugin",
-      summary: "プラグイン操作（enable/disable）",
-      tags: ["misc"],
-      params: [
-        acc,
-        pathParam("pluginId", "プラグイン ID"),
-        {
-          ...pathParam("action", "操作"),
-          schema: { type: "string", enum: ["enable", "disable"] },
-        },
-      ],
-      responses: { "200": okRes() },
-    },
-  ],
-  [
     "/line/{accountId}/proxy",
     "get",
     {
@@ -2268,7 +2239,7 @@ export const lineOpenApiSpec = {
     { name: "backup", description: "VylineBackup の作成・復元" },
     { name: "credentials", description: "認証情報の安全な引き継ぎ・再発行" },
     { name: "storage", description: "キャッシュ・ストレージ管理" },
-    { name: "misc", description: "その他（プラグイン・プロキシ・復元など Vyline 拡張）" },
+    { name: "misc", description: "その他（プロキシ・復元など Vyline 拡張）" },
   ],
   paths: buildPaths(),
   components: {

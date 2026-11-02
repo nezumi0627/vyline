@@ -48,8 +48,6 @@ import {
 import { fetchLinkPreview, readLinkPreviewImage } from "../service/linkPreviewService.js";
 import { getProxyConfig, setProxyConfig } from "../proxyConfig.js";
 import { getFeatureLocks, unbanCreateGroup } from "../storage/featureLocks.js";
-import { getPluginStates, listPlugins, setPluginState } from "../line/pluginManager.js";
-import { isPluginActive } from "../line/pluginRuntime.js";
 import {
   commentNote,
   deleteNoteComment,
@@ -779,40 +777,6 @@ lineRouter.put("/:accountId/chat-locks/:chatMid", async (c) => {
     return handleError(err, c);
   }
 });
-// ─── plugins（ローカルの信頼済みプラグインのみ実行） ───
-lineRouter.get("/:accountId/plugins", async (c) => {
-  const accountId = c.req.param("accountId");
-  const states = getPluginStates(accountId);
-  return c.json({
-    plugins: listPlugins().map((p) => ({
-      ...p,
-      enabled: states[p.id] === true,
-      active: isPluginActive(accountId, p.id),
-    })),
-  });
-});
-
-lineRouter.post("/:accountId/plugins/:pluginId/:action", async (c) => {
-  const accountId = c.req.param("accountId");
-  const pluginId = c.req.param("pluginId");
-  const action = c.req.param("action");
-  if (action !== "enable" && action !== "disable") {
-    return c.json({ ok: false, error: "action must be enable or disable" }, 400);
-  }
-  try {
-    await setPluginState(accountId, pluginId, action === "enable");
-    return c.json({ ok: true, pluginId, enabled: action === "enable" });
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    const unknownPlugin = msg.startsWith("unknown plugin:");
-    log.warn({ err, accountId, pluginId }, "plugin state update failed");
-    return c.json(
-      { ok: false, error: unknownPlugin ? "unknown plugin" : "plugin state update failed" },
-      unknownPlugin ? 404 : 422,
-    );
-  }
-});
-
 // ─── helpers ─────────────────────────────
 
 function isLiffError(res: unknown): { statusCode: number; statusMessage: string } | null {
