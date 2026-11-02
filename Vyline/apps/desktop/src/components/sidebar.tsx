@@ -467,7 +467,10 @@ function SidebarBase() {
           />
         </button>
         <span className="pointer-events-none truncate text-sm font-medium tracking-wide text-[var(--vy-text)]">
-          Vyline
+          <span className="inline-flex items-center gap-1.5">
+            <img src="/icon-64.png" alt="" className="h-5 w-5 object-contain" />
+            Vyline
+          </span>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
           {availableUpdate && (

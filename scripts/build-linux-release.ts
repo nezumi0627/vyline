@@ -31,6 +31,7 @@ try {
   run("bun", ["run", "build"]);
   await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
   await cp(join(root, "openapi.yaml"), join(packageDir, "openapi.yaml"));
+  await cp(join(root, "logo", "assets", "color", "128.png"), join(packageDir, "icon.png"));
 
   const fallbackProfile = join(
     root,

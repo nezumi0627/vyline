@@ -1,6 +1,6 @@
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Avatar } from "@/components/vy-ui";
-import { IconChat, IconClose, IconChevron, IconSpark } from "@/components/icons";
+import { IconClose, IconChevron, IconSpark } from "@/components/icons";
 
 /**
  * アップデート時のみ表示するリリースノート画面。
@@ -25,12 +25,7 @@ export function HubHome() {
       <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-6 py-10 md:px-10 md:py-14">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <div
-              className="flex h-10 w-10 items-center justify-center rounded-xl text-[var(--vy-accent-contrast)]"
-              style={{ background: "var(--vy-accent)" }}
-            >
-              <IconChat size={22} />
-            </div>
+            <img src="/icon-128.png" alt="" className="h-10 w-10 rounded-xl object-contain" />
             <span className="text-lg font-semibold tracking-tight">Vyline</span>
           </div>
         </div>

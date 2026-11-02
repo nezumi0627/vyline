@@ -2341,12 +2341,11 @@ function InfoSection() {
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         {/* Logo & version */}
         <div className="flex flex-col items-center px-6 py-8 text-center">
-          <div
-            className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
-            style={{ background: "var(--vy-accent)" }}
-          >
-            V
-          </div>
+          <img
+            src="/icon-512.png"
+            alt="Vyline ロゴ"
+            className="h-16 w-16 rounded-2xl object-contain shadow-lg"
+          />
           <h2 className="mt-4 text-xl font-bold">Vyline</h2>
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
             {BUILD_COMMIT_SHA !== "unknown" ? (
@@ -2362,6 +2361,35 @@ function InfoSection() {
             ) : (
               formatBuildVersion(UPDATE_NOTES.version, BUILD_COMMIT_SHA)
             )}
+          </p>
+          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+            ロゴ制作:{" "}
+            <a
+              className="underline underline-offset-2 hover:text-[var(--vy-text)]"
+              href="https://github.com/yuz-mc"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              yuz-mc
+            </a>{" "}
+            · Copyright © 2026 y2mc ·{" "}
+            <a
+              className="underline underline-offset-2 hover:text-[var(--vy-text)]"
+              href="https://creativecommons.org/licenses/by/4.0/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              CC BY 4.0
+            </a>{" "}
+            ·{" "}
+            <a
+              className="underline underline-offset-2 hover:text-[var(--vy-text)]"
+              href="/logo-license.txt"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ライセンス表記
+            </a>
           </p>
           {updateInfo?.hasUpdate && (
             <div className="mt-3 w-full max-w-md rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-left">

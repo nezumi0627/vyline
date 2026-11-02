@@ -12,6 +12,7 @@ const stagingDir = join(root, "dist", `windows-staging-${randomUUID()}`);
 const previousDir = join(root, "dist", "windows.previous");
 const packageDir = join(stagingDir, "Vyline");
 const webDir = join(packageDir, "web");
+const appIcon = join(root, "logo", "assets", "color", "vyline.ico");
 const skipInstaller = Bun.argv.includes("--skip-installer") || Bun.argv.includes("--portable");
 function run(command: string, args: string[]) {
   const r = Bun.spawnSync([command, ...args], { cwd: root, stdout: "inherit", stderr: "inherit" });
@@ -40,6 +41,7 @@ try {
   run("bun", ["run", "build"]);
   await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
   await cp(join(root, "openapi.yaml"), join(packageDir, "openapi.yaml"));
+  await cp(appIcon, join(packageDir, "icon.ico"));
   const fallbackProfile = join(
     root,
     "Vyline",
@@ -59,6 +61,7 @@ try {
     "--target=bun-windows-x64",
     `--windows-version=${version.match(/^\d+\.\d+\.\d+/)?.[0] ?? "0.0.0"}.0`,
     "--windows-hide-console",
+    `--windows-icon=${appIcon}`,
     "--outfile",
   ];
   run("bun", [
@@ -76,6 +79,7 @@ try {
       `/DAppVersion=${version}`,
       `/DSourceDir=${packageDir}`,
       `/DOutputDir=${stagingDir}`,
+      `/DSetupIconFile=${join(packageDir, "icon.ico")}`,
       join(root, "installer", "Vyline.iss"),
     ]);
     const installerName = `VylineSetup-${version}.exe`;

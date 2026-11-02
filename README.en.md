@@ -3,6 +3,10 @@
 
 [日本語](README.md)
 
+<p align="center">
+  <img src="logo/assets/color/128.png" alt="Vyline logo" width="88" height="88" />
+</p>
+
 <h1 align="center">Vyline</h1>
 
 <p align="center">
@@ -64,6 +68,10 @@ Vyline is not an official LINE app. When using an external server, verify where 
 
 Bug reports, feature proposals, and help with code, research, or translation are welcome. See the [Contribution Guide](docs/CONTRIBUTING.md).
 
+## Acknowledgements
+
+Thank you to [@yuz-mc](https://github.com/yuz-mc) for creating Vyline's logo and app icon ([PR #294](https://github.com/nezumi0627/vyline/pull/294)). The logo assets are licensed under CC BY 4.0. App-size PNGs, the Windows ICO, and macOS ICNS are derived formats generated from the original logo. See [`logo/LICENCE`](logo/LICENCE) for the attribution and license terms.
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
+The software is MIT licensed ([LICENSE](LICENSE)); logo and icon assets are separately licensed under CC BY 4.0 ([`logo/LICENCE`](logo/LICENCE)).
