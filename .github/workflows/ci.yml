@@ -89,20 +89,50 @@ jobs:
           executable="$app/Contents/MacOS/Vyline"
           test -x "$executable"
           mkdir -p "$VYLINE_SMOKE_HOME"
-          HOME="$VYLINE_SMOKE_HOME" "$executable" &
-          launcher_pid=$!
+          resources="$app/Contents/Resources"
+          backend="$resources/VylineBackend"
+          backend_pid=""
+          launcher_pid=""
           cleanup() {
-            children="$(pgrep -P "$launcher_pid" || true)"
-            if [ -n "$children" ]; then kill $children 2>/dev/null || true; fi
-            kill "$launcher_pid" 2>/dev/null || true
-            wait "$launcher_pid" 2>/dev/null || true
+            for pid in "$launcher_pid" "$backend_pid"; do
+              if [ -n "$pid" ]; then
+                children="$(pgrep -P "$pid" || true)"
+                if [ -n "$children" ]; then kill $children 2>/dev/null || true; fi
+                kill "$pid" 2>/dev/null || true
+                wait "$pid" 2>/dev/null || true
+              fi
+            done
           }
           trap cleanup EXIT
+          backend_url="http://127.0.0.1:18766"
+          HOME="$VYLINE_SMOKE_HOME" PORT=18766 VYLINE_HOST=127.0.0.1 \
+            VYLINE_CORS_ORIGIN="$backend_url" VYLINE_STATIC_DIR="$resources/web" \
+            VYLINE_OPENAPI_PATH="$resources/openapi.yaml" \
+            VYLINE_DATA_DIR="$VYLINE_SMOKE_HOME/data" \
+            VYLINE_STORAGE_DIR="$VYLINE_SMOKE_HOME/storage" \
+            VYLINE_LOG_DIR="$VYLINE_SMOKE_HOME/data/logs" \
+            "$backend" &
+          backend_pid=$!
+          for attempt in {1..30}; do
+            if curl --fail --silent "$backend_url/healthz" >/dev/null; then break; fi
+            if ! kill -0 "$backend_pid" 2>/dev/null; then
+              wait "$backend_pid" || true
+              echo "Bundled macOS backend exited before becoming healthy"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent "$backend_url/healthz" | grep -q '"status":"ready"'
+          curl --fail --silent "$backend_url/" | grep -q '/assets/'
+          kill "$backend_pid"
+          wait "$backend_pid" 2>/dev/null || true
+          backend_pid=""
+
+          HOME="$VYLINE_SMOKE_HOME" "$executable" &
+          launcher_pid=$!
           url="http://127.0.0.1:18765"
           for attempt in {1..30}; do
-            if curl --fail --silent "$url/healthz" >/dev/null; then
-              break
-            fi
+            if curl --fail --silent "$url/healthz" >/dev/null; then break; fi
             if ! kill -0 "$launcher_pid" 2>/dev/null; then
               echo "Vyline.app launcher exited before the backend became healthy"
               exit 1
