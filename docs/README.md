@@ -1,11 +1,21 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-08-30
+最終更新: 2026-11-02
 
 一般ユーザーは **[start-here.md](./start-here.md)**、人間の開発者は **[developers/index.md](./developers/index.md)** から始めてください。
 エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読み、その後 **[developers/for-ai.md](./developers/for-ai.md)** を router として使ってください。
 
 文書の正本と各フォルダの役割は **[DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md)** にまとめています。
+
+## 利用者向けガイド
+
+| ドキュメント | 内容 |
+| --- | --- |
+| [features.md](./features.md) / [features.en.md](./features.en.md) | v1.0.1を基準にした機能一覧と制限 |
+| [history/releases.md](./history/releases.md) | 安定版の基準とリリース履歴 |
+| [maintainers.md](./maintainers.md) / [maintainers.en.md](./maintainers.en.md) | メンテナー募集、協力、支援 |
+| [user-guide/privacy-and-data.en.md](./user-guide/privacy-and-data.en.md) | Privacy and data (English) |
+| [user-guide/privacy-and-data.md](./user-guide/privacy-and-data.md) | データ保存、AI、サポートログの注意 |
 
 ### ベータ機能
 
@@ -25,7 +35,6 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [api/openapi.md](./api/openapi.md)                      | OpenAPI / Swagger ルートと仕様の管理方法                 |
 | [api/media-batch.md](./api/media-batch.md)              | 複数メディア一括送信 API                                 |
 | [deployment/docker.md](./deployment/docker.md)          | Docker / Docker Compose デプロイ                         |
-| [deployment/linux-macos.md](./deployment/linux-macos.md) | Linux / macOS 起動・ポート・LAN設定                     |
 | [developers/index.md](./developers/index.md)                             | 開発者ガイド（読む順序・人間向け入口）     |
 | [developers/for-ai.md](./developers/for-ai.md)                           | AI エージェント向け指示書                 |
 | [developers/plugin-system.md](./developers/plugin-system.md)              | プラグインシステム（ユーザーガイド）       |
@@ -50,7 +59,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [development-worktrees.md](./development-worktrees.md) | **推奨: 1 task = 1 branch = 1 git worktree** の並行開発フロー |
 | [performance.md](./performance.md)   | 起動時間・CPU・メモリ計測と Bun/Vite 最適化                       |
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
-| [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
+| [distribution.md](./distribution.md) | Windows / macOS / Linux 配布・アップデーター / リリース手順                        |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
 | [security/threat-model.md](./security/threat-model.md) | 信頼境界・攻撃面・セキュリティ設計                         |
 | [security/findings-2026-08-31.md](./security/findings-2026-08-31.md) | 2026-08-31 Security / CVE / Threat 監査結果        |
@@ -83,7 +92,6 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 
 | リソース                                                                                                     | 内容                                                          |
 | ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| [../Vyline/packages/protocol/src/dictionary/rpcMap.ts](../Vyline/packages/protocol/src/dictionary/rpcMap.ts) | **RPC_DICTIONARY** — linejs名→Desktop証拠→実装の対応表        |
 | [tools/vyline-search.md](./tools/vyline-search.md)                                                           | **vyline-search ツールキット** — unpack・find-native・delta 概要 |
 | [tools/find-native-symbol.md](./tools/find-native-symbol.md)                                                 | Desktop LINE.exe 内 RPC 名検索 (`bun run vyline:find-native`) |
 | `@evex/linejs`                                                                                               | **参考元**（外部依存なし）。メソッド名・構造パターンのみ参照  |
@@ -107,12 +115,6 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [tools/desktop-delta.md](./tools/desktop-delta.md)                   | Desktop 更新時の差分調査     |
 
 ---
-
-## パッケージ README
-
-| パス                                                                                       | 内容                               |
-| ------------------------------------------------------------------------------------------ | ---------------------------------- |
-| [../Vyline/packages/protocol/README.md](../Vyline/packages/protocol/README.md)             | Vyline（identity / E2EE / domain） |
 
 ---
 

@@ -1,18 +1,18 @@
 # Vyline を使い始める
 
-最終更新: 2026-08-31
+最終更新: 2026-11-02
 
-このページは、コードを読まずに Vyline を試したい人向けの入口です。Vyline は LINE 非公式・未承認のサードパーティクライアントで、現在は Beta です。利用前に [README の重要事項](../README.md#ご利用前の重要事項) を確認してください。
+このページは、コードを読まずにVylineを試したい人向けの入口です。現在の安定版・開発基準はv1.0.1です。VylineはLINE非公式・未承認のクライアントです。利用前に[プライバシーとデータ](./user-guide/privacy-and-data.md)を確認してください。
 
 ## まず知っておくこと
 
-- できることの一覧は [README](../README.md#主な機能) にあります。
+- できることの一覧は[機能ガイド](./features.md)にあります。
 - 「実装がある」と「今回の監査で実 LINE 環境まで確認済み」は同じ意味ではありません。検証状態は [Feature Capability Matrix](./feature-capabilities.md) を正本にします。
-- Windows / Linux の配布物、ソース起動、Docker など導入方法ごとの違いは [README のインストール・更新](../README.md#インストール更新) を参照してください。
+- Windows / macOS / Linuxの配布物、ソース起動、Dockerなどの導入方法は[配布ガイド](./distribution.md)と[セルフホストガイド](./selfhosting.md)を参照してください。
 
 ## 最短ルート
 
-1. [README のインストール・更新](../README.md#インストール更新) から自分に合う導入方法を選びます。
+1. [配布ガイド](./distribution.md) から自分に合う導入方法を選びます。
 2. 初回ログイン後は Vyline Setup の案内に従って設定します。設定はアカウント単位で保存されます。
 3. 更新前や大きな設定変更前は Snapshot / VylineBackup を作成します。更新手順は [update.md](./user-guide/update.md) を参照してください。
 4. 別環境へ設定を移す場合は、設定画面の引継ぎ機能を使います。引継ぎ ZIP は認証 token や E2EE 鍵を含めない設計です。

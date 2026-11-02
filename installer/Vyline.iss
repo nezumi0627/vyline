@@ -34,6 +34,7 @@ Type: filesandordirs; Name: "{app}\web"
 Source: "{#SourceDir}\Vyline.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\VylineBackend.exe"; DestDir: "{app}"; Flags: ignoreversion
 Source: "{#SourceDir}\openapi.yaml"; DestDir: "{app}"; Flags: ignoreversion
+Source: "{#SourceDir}\data\desktop-profile.fallback.json"; DestDir: "{app}\data"; Flags: ignoreversion
 Source: "{#SourceDir}\web\*"; DestDir: "{app}\web"; Flags: ignoreversion recursesubdirs createallsubdirs
 [Icons]
 Name: "{autoprograms}\Vyline"; Filename: "{app}\Vyline.exe"; WorkingDir: "{app}"
