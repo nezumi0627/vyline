@@ -339,7 +339,7 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 
 **機能・改善・バグ修正などの変更を PR で出す場合は、必ず新しいブランチを切ってから PR を開き、承認後にマージする。**
 
-### 推奨: 1 task = 1 branch = 1 git worktree
+### 必須: 1 task = 1 branch = 1 git worktree
 
 複数のAIエージェント・人間・IDEが並行してVylineを触る場合、repository全体のコピーではなく **タスクごとに独立した Git worktree** を使う。
 
@@ -347,7 +347,11 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - `.codex-worktrees` のような特定エージェント専用名は新規利用しない
 - 本体 `E:\projects\Vyline` を複数タスクの共有編集場所にしない
 - 他worktreeのdirty差分・未追跡ファイルは触らない
-- 作業完了後はPRをmergeしてから `git worktree remove` で片付ける
+- エージェントが作業用に新規作成した worktree・clone・隔離フォルダは、作業完了後に必ず削除してディスクと依存関係のリソースを返す
+- 削除前に差分・未追跡ファイル・コミットのpush/merge状況を確認し、必要な変更がすべて保存済みであることを確認する
+- 削除対象は自分が今回作成したフォルダだけに限定し、既存・他タスク・ユーザー管理のworktreeやフォルダには触れない
+- PR作業ではPRのmerge後に `git worktree remove` と `git worktree prune` を行い、隔離用branchも不要なら削除する
+- 詳細手順: `docs/development-worktrees.md`
 - 詳細手順: `docs/development-worktrees.md`
 
 - `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
