@@ -352,7 +352,6 @@ bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
 - 削除対象は自分が今回作成したフォルダだけに限定し、既存・他タスク・ユーザー管理のworktreeやフォルダには触れない
 - PR作業ではPRのmerge後に `git worktree remove` と `git worktree prune` を行い、隔離用branchも不要なら削除する
 - 詳細手順: `docs/development-worktrees.md`
-- 詳細手順: `docs/development-worktrees.md`
 
 - `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
