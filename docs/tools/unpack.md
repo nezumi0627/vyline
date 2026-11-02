@@ -1,6 +1,6 @@
 # unpack — Themida LINE.exe → unpacked_LINE.exe
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 [ergrelet/unlicense](https://github.com/ergrelet/unlicense) を使って、Desktop LINE の Themida 保護を動的に unpack し、`data/unpacked_LINE.exe` に配置します。
 
@@ -18,27 +18,27 @@
 
 ```powershell
 # インストール済み LINE.exe を自動検出して unpack
-bun run unpack
+bun run vyline:unpack
 
 # timeout を延ばす（既定 120s）
-bun run unpack -- --timeout 180
+bun run vyline:unpack -- --timeout 180
 
 # パス明示
-bun run unpack -- --exe "C:\Users\...\LINE\bin\26.3.0.3916\LINE.exe"
+bun run vyline:unpack -- --exe "C:\Users\...\LINE\bin\26.3.0.3916\LINE.exe"
 
 # インストール済みバージョンを明示選択（過去版も可）
-bun run unpack -- --version 26.3.0.3916
+bun run vyline:unpack -- --version 26.3.0.3916
 
 # CLI 経由
-bun run search -- unpack
+bun run vyline:unpack
 ```
 
-インストール済みバージョンの一覧は `bun run versions`（root: `bun run vyline:versions`）で確認できます。
+インストール済みバージョンの一覧は `bun run vyline:versions` で確認できます。
 
 成功後:
 
 ```powershell
-bun run find -- sendMessage --list-only
+bun run vyline:find-native -- sendMessage --list-only
 ```
 
 ## オプション

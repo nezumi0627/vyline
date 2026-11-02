@@ -1,6 +1,6 @@
 # vyline-search — 解析ツールキット
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 [github.com/nezumi0627/vyline-search](https://github.com/nezumi0627/vyline-search) は、LINE Desktop の解析を支援するツールキットです。  
 このリポジトリ内の `Vyline/tools/` ディレクトリにツール本体が同梱されており、`package.json` の `vyline:*` スクリプトから実行できます。

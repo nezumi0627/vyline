@@ -1,10 +1,10 @@
 # Vyline Threat Model
 
-最終更新: 2026-08-31
+最終更新: 2026-11-03
 
 ## 概要
 
-Vyline の主要な信頼境界、保護対象、攻撃面、既定の防御を整理します。対象は Desktop frontend、Bun/Hono backend、Public API、LINE protocol、LAN/subdevice、plugin/LIFF、backup/archive、通話 WebSocket、CI/release です。
+Vyline の主要な信頼境界、保護対象、攻撃面、既定の防御を整理します。対象は Desktop frontend、Bun/Hono backend、Public API、LINE protocol、LAN/subdevice、backend plugin runtime、LIFF、backup/archive、通話 WebSocket、CI/release です。プラグイン管理 API は現行版では公開されていません。
 
 ## 保護対象
 
