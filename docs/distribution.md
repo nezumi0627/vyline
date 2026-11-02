@@ -9,7 +9,7 @@ docker compose up -d
 
 各OSの単体版はそのPC内でバックエンドを起動し、ブラウザで `127.0.0.1` のVylineを開きます。データはそのPCに保存されます。Bunの事前インストールは不要です。
 
-- **Windows**: `VylineSetup-<version>.exe` を実行します。
+- **Windows**: `VylineSetup-<version>.exe` を実行します。インストールせず使う場合は `Vyline-portable-<version>.zip` を展開して `Vyline.exe` を起動します。
 - **macOS**: CPUに合わせて `Vyline-macos-arm64-<version>.zip`（Apple Silicon）または `Vyline-macos-x64-<version>.zip`（Intel）を取得し、展開した `Vyline.app` を「アプリケーション」へ移動します。初回起動時に未署名アプリの警告が出た場合は、FinderでアプリをControlクリックして「開く」を選び、表示される確認に進みます。
 - **Linux / Ubuntu x64**: `Vyline-linux-x64-<version>.tar.gz` を展開し、`./install.sh` を実行します。
 
