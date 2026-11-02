@@ -60,23 +60,33 @@ jobs:
       - run: bun run build:packages
 
   docker-build:
-    name: Docker build + runtime smoke
-    runs-on: ubuntu-latest
+    name: Docker build + runtime smoke (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            arch: amd64
+            runner: ubuntu-24.04
+          - platform: linux/arm64
+            arch: arm64
+            runner: ubuntu-24.04-arm
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - uses: docker/setup-buildx-action@v3
-      - name: Build image with shared architecture cache
+      - name: Build native image with shared architecture cache
         uses: docker/build-push-action@v6
         with:
           context: .
-          platforms: linux/amd64
+          platforms: ${{ matrix.platform }}
           pull: true
           load: true
           tags: vyline
-          cache-from: type=gha,scope=container-amd64
-          cache-to: type=gha,scope=container-amd64,mode=max
+          cache-from: type=gha,scope=container-${{ matrix.arch }}
+          cache-to: type=gha,scope=container-${{ matrix.arch }},mode=max
       - name: Verify container startup
         shell: bash
         run: |
