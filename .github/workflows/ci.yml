@@ -79,6 +79,38 @@ jobs:
           bun-version: "1.4.0"
       - run: bun install --frozen-lockfile
       - run: bun run package:mac
+      - name: Smoke test the packaged macOS app
+        env:
+          VYLINE_SMOKE_HOME: ${{ runner.temp }}/vyline-smoke
+        run: |
+          set -euo pipefail
+          version="$(node -p \"require('./package.json').version\")"
+          app="dist/macos/Vyline-macos-${{ matrix.arch }}-${version}/Vyline.app"
+          executable="$app/Contents/MacOS/Vyline"
+          test -x "$executable"
+          mkdir -p "$VYLINE_SMOKE_HOME"
+          HOME="$VYLINE_SMOKE_HOME" "$executable" &
+          launcher_pid=$!
+          cleanup() {
+            children="$(pgrep -P "$launcher_pid" || true)"
+            if [ -n "$children" ]; then kill $children 2>/dev/null || true; fi
+            kill "$launcher_pid" 2>/dev/null || true
+            wait "$launcher_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          url="http://127.0.0.1:18765"
+          for attempt in {1..30}; do
+            if curl --fail --silent "$url/healthz" >/dev/null; then
+              break
+            fi
+            if ! kill -0 "$launcher_pid" 2>/dev/null; then
+              echo "Vyline.app launcher exited before the backend became healthy"
+              exit 1
+            fi
+            sleep 1
+          done
+          curl --fail --silent "$url/healthz" | grep -q '"status":"ready"'
+          curl --fail --silent "$url/" | grep -q '/assets/'
 
   docker-build:
     name: Docker build + runtime smoke
