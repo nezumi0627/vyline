@@ -35,6 +35,7 @@ async function startBackend(): Promise<Bun.Subprocess> {
       VYLINE_CORS_ORIGIN: url,
       VYLINE_STATIC_DIR: join(resourcesDir, "web"),
       VYLINE_OPENAPI_PATH: join(resourcesDir, "openapi.yaml"),
+      VYLINE_DESKTOP_PROFILE_FALLBACK: join(resourcesDir, "data", "desktop-profile.fallback.json"),
       VYLINE_DATA_DIR: join(dataRoot, "data"),
       VYLINE_STORAGE_DIR: join(dataRoot, "storage"),
       VYLINE_LOG_DIR: join(dataRoot, "data", "logs"),

@@ -108,6 +108,7 @@ jobs:
           HOME="$VYLINE_SMOKE_HOME" PORT=18766 VYLINE_HOST=127.0.0.1 \
             VYLINE_CORS_ORIGIN="$backend_url" VYLINE_STATIC_DIR="$resources/web" \
             VYLINE_OPENAPI_PATH="$resources/openapi.yaml" \
+            VYLINE_DESKTOP_PROFILE_FALLBACK="$resources/data/desktop-profile.fallback.json" \
             VYLINE_DATA_DIR="$VYLINE_SMOKE_HOME/data" \
             VYLINE_STORAGE_DIR="$VYLINE_SMOKE_HOME/storage" \
             VYLINE_LOG_DIR="$VYLINE_SMOKE_HOME/data/logs" \

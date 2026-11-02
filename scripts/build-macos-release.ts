@@ -37,6 +37,16 @@ await mkdir(webDir, { recursive: true });
 run("bun", ["run", "build"]);
 await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
 await cp(join(root, "openapi.yaml"), join(resourcesDir, "openapi.yaml"));
+const fallbackProfile = join(
+  root,
+  "Vyline",
+  "packages",
+  "protocol",
+  "data",
+  "desktop-profile.fallback.json",
+);
+await mkdir(join(resourcesDir, "data"), { recursive: true });
+await cp(fallbackProfile, join(resourcesDir, "data", "desktop-profile.fallback.json"));
 
 const target = `bun-darwin-${arch}`;
 run("bun", [
