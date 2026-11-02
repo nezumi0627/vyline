@@ -23,6 +23,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.0" }
       - run: bun install --frozen-lockfile
+      - name: Test Linux installer upgrade and rollback in temporary directories
+        run: bash installer/install-linux.test.sh
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test

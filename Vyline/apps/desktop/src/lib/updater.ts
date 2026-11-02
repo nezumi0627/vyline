@@ -2,9 +2,7 @@
  * updater.ts — Vyline アップデーター基盤
  *
  * GitHub Releases から最新バージョンをチェックし、
- * 更新があれば通知する。
- *
- * Windows 配布時は GitHub Release の Setup.exe を直接案内する。
+ * 更新があれば対応OSの公式成果物とリリース情報を案内する。
  */
 
 import { UPDATE_NOTES } from "./store";
@@ -26,8 +24,44 @@ export interface UpdateInfo {
   downloadUrl: string | null;
   /** GitHub's SHA-256 digest for the installer, when the release provides it. */
   downloadDigest: string | null;
+  downloadName: string | null;
+  platform: UpdatePlatform;
   body: string | null;
   error: string | null;
+}
+
+export type UpdatePlatform = "windows" | "linux" | "macos" | "unknown";
+export const BUILD_COMMIT_SHA =
+  typeof __VYLINE_COMMIT_SHA__ === "string" ? __VYLINE_COMMIT_SHA__ : "unknown";
+
+interface ReleaseAsset {
+  name?: string;
+  browser_download_url?: string;
+  digest?: string;
+}
+
+interface SelectedReleaseAsset {
+  name: string;
+  browser_download_url: string;
+  digest: string | null;
+}
+
+export function formatBuildVersion(version: string, sha: string): string {
+  const shortSha = /^[\da-f]{7,40}$/i.test(sha) ? sha.slice(0, 7).toLowerCase() : null;
+  return `V${version}${shortSha ? `(${shortSha})` : ""}`;
+}
+
+export function detectUpdatePlatform(platform: string): UpdatePlatform {
+  const value = platform.toLowerCase();
+  if (/windows|win32/.test(value)) {
+    return /win64|x64|amd64|wow64/.test(value) ? "windows" : "unknown";
+  }
+  if (/macintosh|mac os|macos|darwin/.test(value)) return "macos";
+  if (/android|aarch64|arm64|armv\d/.test(value)) return "unknown";
+  if (/linux|x11|ubuntu/.test(value)) {
+    return /x86_64|x64|amd64/.test(value) ? "linux" : "unknown";
+  }
+  return "unknown";
 }
 
 /** Return true only when the release is newer than the installed version. */
@@ -66,8 +100,47 @@ export function isNewerVersion(latest: string, current: string): boolean {
 }
 
 export function isTrustedInstallerUrl(value: string, tag: string): boolean {
-  const prefix = `https://github.com/${REPO_OWNER}/${REPO_NAME}/releases/download/${tag}/`;
-  return value.startsWith(prefix) && value === `${prefix}VylineSetup-${tag}.exe`;
+  return isTrustedReleaseAssetUrl(value, tag, `VylineSetup-${tag}.exe`);
+}
+
+function isTrustedReleaseAssetUrl(value: string, version: string, assetName: string): boolean {
+  try {
+    const url = new URL(value);
+    const expectedPath = `/${REPO_OWNER}/${REPO_NAME}/releases/download/v${version}/${assetName}`;
+    return (
+      url.protocol === "https:" &&
+      url.hostname === "github.com" &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      !url.search &&
+      !url.hash &&
+      url.pathname.toLowerCase() === expectedPath.toLowerCase()
+    );
+  } catch {
+    return false;
+  }
+}
+
+export function selectReleaseAsset(
+  platform: UpdatePlatform,
+  version: string,
+  assets: ReleaseAsset[],
+): SelectedReleaseAsset | null {
+  const name =
+    platform === "windows"
+      ? `VylineSetup-${version}.exe`
+      : platform === "linux"
+        ? `Vyline-linux-x64-${version}.tar.gz`
+        : null;
+  if (!name) return null;
+  const asset = assets.find((item) => item.name === name);
+  const downloadUrl = asset?.browser_download_url;
+  if (!asset || !downloadUrl || !isTrustedReleaseAssetUrl(downloadUrl, version, name)) return null;
+  const digest = /^sha256:[\da-f]{64}$/i.test(asset.digest ?? "")
+    ? asset.digest!.toLowerCase()
+    : null;
+  return { name, browser_download_url: downloadUrl, digest };
 }
 
 /** Keep release metadata untrusted until it matches the version format we ship. */
@@ -79,6 +152,10 @@ export function normalizeReleaseTag(value: unknown): string | null {
 
 async function fetchUpdateInfo(): Promise<UpdateInfo> {
   const current = UPDATE_NOTES.version;
+  const platform =
+    typeof navigator === "undefined"
+      ? "unknown"
+      : detectUpdatePlatform(`${navigator.userAgent} ${navigator.platform}`);
   const controller = new AbortController();
   const timeout = globalThis.setTimeout(() => controller.abort(), UPDATE_CHECK_TIMEOUT_MS);
   try {
@@ -94,6 +171,8 @@ async function fetchUpdateInfo(): Promise<UpdateInfo> {
         url: null,
         downloadUrl: null,
         downloadDigest: null,
+        downloadName: null,
+        platform,
         body: null,
         error: `GitHub API returned ${res.status}`,
       };
@@ -102,25 +181,24 @@ async function fetchUpdateInfo(): Promise<UpdateInfo> {
       tag_name?: string;
       html_url?: string;
       body?: string;
-      assets?: Array<{ name?: string; browser_download_url?: string; digest?: string }>;
+      assets?: ReleaseAsset[];
     };
     const tag = normalizeReleaseTag(release.tag_name);
     const hasUpdate = tag != null && isNewerVersion(tag, current);
-    const installer = release.assets?.find((asset) => asset.name === `VylineSetup-${tag}.exe`);
-    const candidateUrl = installer?.browser_download_url ?? null;
-    const downloadUrl =
-      candidateUrl && tag && isTrustedInstallerUrl(candidateUrl, tag) ? candidateUrl : null;
-    const downloadDigest =
-      downloadUrl && /^sha256:[0-9a-f]{64}$/i.test(installer?.digest ?? "")
-        ? installer!.digest!.toLowerCase()
-        : null;
+    const asset = tag
+      ? hasUpdate
+        ? selectReleaseAsset(platform, tag, release.assets ?? [])
+        : null
+      : null;
     return {
       currentVersion: current,
       latestVersion: tag,
       hasUpdate,
       url: release.html_url ?? null,
-      downloadUrl,
-      downloadDigest,
+      downloadUrl: asset?.browser_download_url ?? null,
+      downloadDigest: asset?.digest ?? null,
+      downloadName: asset?.name ?? null,
+      platform,
       body: release.body ?? null,
       error: null,
     };
@@ -132,6 +210,8 @@ async function fetchUpdateInfo(): Promise<UpdateInfo> {
       url: null,
       downloadUrl: null,
       downloadDigest: null,
+      downloadName: null,
+      platform,
       body: null,
       error: controller.signal.aborted
         ? `update check timed out after ${UPDATE_CHECK_TIMEOUT_MS}ms`
@@ -145,9 +225,9 @@ async function fetchUpdateInfo(): Promise<UpdateInfo> {
 }
 
 /** Avoid repeating the same release request while settings is revisited. */
-export async function checkForUpdates(): Promise<UpdateInfo> {
+export async function checkForUpdates(options: { force?: boolean } = {}): Promise<UpdateInfo> {
   const now = Date.now();
-  if (cachedUpdate && now - cachedUpdate.at < UPDATE_CHECK_CACHE_MS) {
+  if (!options.force && cachedUpdate && now - cachedUpdate.at < UPDATE_CHECK_CACHE_MS) {
     return cachedUpdate.info;
   }
   if (updateCheckInflight) return updateCheckInflight;

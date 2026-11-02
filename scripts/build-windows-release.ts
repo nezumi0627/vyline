@@ -34,61 +34,73 @@ async function sha256File(filePath: string): Promise<string> {
   return hasher.digest("hex");
 }
 await rm(stagingDir, { recursive: true, force: true });
-await mkdir(webDir, { recursive: true });
-run("bun", ["run", "build"]);
-await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
-await cp(join(root, "openapi.yaml"), join(packageDir, "openapi.yaml"));
-const fallbackProfile = join(
-  root,
-  "Vyline",
-  "packages",
-  "protocol",
-  "data",
-  "desktop-profile.fallback.json",
-);
-if (!existsSync(fallbackProfile))
-  throw new Error(`Required protocol data is missing: ${fallbackProfile}`);
-await mkdir(join(packageDir, "data"), { recursive: true });
-await cp(fallbackProfile, join(packageDir, "data", "desktop-profile.fallback.json"));
-const args = [
-  "build",
-  "--compile",
-  "--minify",
-  "--target=bun-windows-x64",
-  `--windows-version=${version.match(/^\d+\.\d+\.\d+/)?.[0] ?? "0.0.0"}.0`,
-  "--windows-hide-console",
-  "--outfile",
-];
-run("bun", [
-  ...args,
-  join(packageDir, "VylineBackend.exe"),
-  join(root, "Vyline", "backend", "src", "index.ts"),
-]);
-run("bun", [...args, join(packageDir, "Vyline.exe"), join(root, "scripts", "windows-launcher.ts")]);
-if (!skipInstaller) {
-  run(findIscc(), [
-    `/DAppVersion=${version}`,
-    `/DSourceDir=${packageDir}`,
-    `/DOutputDir=${stagingDir}`,
-    join(root, "installer", "Vyline.iss"),
-  ]);
-}
-
-// Keep the last successful package recoverable until the new package is complete.
-await rm(previousDir, { recursive: true, force: true });
-if (existsSync(releaseDir)) await rename(releaseDir, previousDir);
+let previousMoved = false;
 try {
+  await mkdir(webDir, { recursive: true });
+  run("bun", ["run", "build"]);
+  await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
+  await cp(join(root, "openapi.yaml"), join(packageDir, "openapi.yaml"));
+  const fallbackProfile = join(
+    root,
+    "Vyline",
+    "packages",
+    "protocol",
+    "data",
+    "desktop-profile.fallback.json",
+  );
+  if (!existsSync(fallbackProfile))
+    throw new Error(`Required protocol data is missing: ${fallbackProfile}`);
+  await mkdir(join(packageDir, "data"), { recursive: true });
+  await cp(fallbackProfile, join(packageDir, "data", "desktop-profile.fallback.json"));
+  const args = [
+    "build",
+    "--compile",
+    "--minify",
+    "--target=bun-windows-x64",
+    `--windows-version=${version.match(/^\d+\.\d+\.\d+/)?.[0] ?? "0.0.0"}.0`,
+    "--windows-hide-console",
+    "--outfile",
+  ];
+  run("bun", [
+    ...args,
+    join(packageDir, "VylineBackend.exe"),
+    join(root, "Vyline", "backend", "src", "index.ts"),
+  ]);
+  run("bun", [
+    ...args,
+    join(packageDir, "Vyline.exe"),
+    join(root, "scripts", "windows-launcher.ts"),
+  ]);
+  if (!skipInstaller) {
+    run(findIscc(), [
+      `/DAppVersion=${version}`,
+      `/DSourceDir=${packageDir}`,
+      `/DOutputDir=${stagingDir}`,
+      join(root, "installer", "Vyline.iss"),
+    ]);
+    const installerName = `VylineSetup-${version}.exe`;
+    const installerPath = join(stagingDir, installerName);
+    const installerDigest = await sha256File(installerPath);
+    await Bun.write(`${installerPath}.sha256`, `${installerDigest}  ${installerName}\n`);
+  }
+
+  // Keep the last successful package recoverable until the new package is complete.
+  await rm(previousDir, { recursive: true, force: true });
+  if (existsSync(releaseDir)) {
+    await rename(releaseDir, previousDir);
+    previousMoved = true;
+  }
   await rename(stagingDir, releaseDir);
 } catch (error) {
-  if (existsSync(previousDir) && !existsSync(releaseDir)) await rename(previousDir, releaseDir);
+  await rm(stagingDir, { recursive: true, force: true });
+  if (previousMoved && !existsSync(releaseDir) && existsSync(previousDir)) {
+    await rename(previousDir, releaseDir);
+  }
   throw error;
 }
 
 if (skipInstaller) {
   console.log(`Portable Windows package created at ${join(releaseDir, "Vyline")}`);
 } else {
-  const installerName = `VylineSetup-${version}.exe`;
-  const installerPath = join(releaseDir, installerName);
-  const installerDigest = await sha256File(installerPath);
-  await Bun.write(`${installerPath}.sha256`, `${installerDigest}  ${installerName}\n`);
+  console.log(`Windows installer created at ${join(releaseDir, `VylineSetup-${version}.exe`)}`);
 }
