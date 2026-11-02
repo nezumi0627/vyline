@@ -53,7 +53,7 @@ git worktree list
 git status --short --branch
 ```
 
-## PR とマージ
+## PR・マージ・作業領域の必須片付け
 
 作業が完了したら通常のbranchと同じようにcommit / pushし、`main` 向けPRを作成します。
 
@@ -63,7 +63,7 @@ git commit -m "feat(scope): describe change"
 git push -u origin feature/<task-name>
 ```
 
-PR が merge されたあと、worktreeに未保存作業がないことを確認して削除します。
+エージェントがタスク用に新規作成したworktree・clone・隔離フォルダは、タスク完了後に必ず削除してディスクと依存関係のリソースを返します。PR作業ではmerge後、削除対象が今回自分で作った場所であること、未コミット差分・未追跡ファイル・未push commitがないことを確認してから削除します。既存・他タスク・ユーザー管理のworktreeは削除しません。
 
 ```powershell
 cd E:\projects\Vyline
@@ -71,6 +71,8 @@ git worktree remove E:\projects\Vyline-worktrees\<task-name>
 git worktree prune
 git branch -d feature/<task-name>
 ```
+
+submoduleを含むworktreeが通常の `git worktree remove` で削除できない場合は、まず各submoduleの作業状態と保存済みcommitを確認します。自分が作成した隔離worktree内のsubmoduleだけをdeinitしてから、親worktreeを削除します。未保存差分を捨てる `--force` は使いません。
 
 `--force` は未コミット差分や未追跡ファイルを失う可能性があるため、通常の後片付けでは使いません。
 

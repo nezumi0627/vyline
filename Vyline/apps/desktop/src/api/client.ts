@@ -274,6 +274,14 @@ async function requestBlob<T>(method: string, path: string, blob: Blob): Promise
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  updater: {
+    capability: () =>
+      request<{ ok: boolean; canLaunchInstaller: boolean }>("GET", "/updater/capability"),
+    launchInstaller: (version: string) =>
+      request<{ ok: boolean; launched?: boolean; error?: string }>("POST", "/updater/launch", {
+        version,
+      }),
+  },
   subdevices: {
     createPairing: (accountId: string, origin?: string) =>
       request<{
@@ -983,26 +991,6 @@ export const api = {
         "PUT",
         `/line/${accountId}/chat-locks/${encodeURIComponent(chatMid)}`,
         { locked },
-      ),
-
-    plugins: (accountId: string) =>
-      request<{
-        plugins: Array<{
-          id: string;
-          name: string;
-          version: string;
-          description?: string;
-          permissions?: string[];
-          loadable: boolean;
-          enabled: boolean;
-          active: boolean;
-        }>;
-      }>("GET", `/line/${accountId}/plugins`),
-
-    setPluginEnabled: (accountId: string, pluginId: string, enabled: boolean) =>
-      request<{ ok: boolean; enabled?: boolean; error?: string }>(
-        "POST",
-        `/line/${accountId}/plugins/${encodeURIComponent(pluginId)}/${enabled ? "enable" : "disable"}`,
       ),
 
     blockContact: (accountId: string, mid: string, sqliteDiffSync = false) =>

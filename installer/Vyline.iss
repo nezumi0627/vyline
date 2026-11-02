@@ -41,6 +41,3 @@ Name: "{autoprograms}\Vyline"; Filename: "{app}\Vyline.exe"; WorkingDir: "{app}"
 Name: "{autodesktop}\Vyline"; Filename: "{app}\Vyline.exe"; WorkingDir: "{app}"
 [Run]
 Filename: "{app}\Vyline.exe"; Description: "Vylineを起動する"; Flags: nowait postinstall skipifsilent
-[UninstallRun]
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM Vyline.exe"; Flags: runhidden; RunOnceId: "VylineLauncher"
-Filename: "{sys}\taskkill.exe"; Parameters: "/F /IM VylineBackend.exe"; Flags: runhidden; RunOnceId: "VylineBackend"

@@ -618,7 +618,7 @@ export function ProfileDrawer({
                 />
               </div>
 
-              {!streamerMode && settings.betaAgentI && chat.type === "friend" && !chat.isSelf && (
+              {!streamerMode && settings.aiEnabled && chat.type === "friend" && !chat.isSelf && (
                 <button
                   type="button"
                   disabled={!conversationText}
@@ -633,44 +633,41 @@ export function ProfileDrawer({
                 </button>
               )}
 
-              {!streamerMode &&
-                settings.betaBlockCheckManual &&
-                chat.type === "friend" &&
-                !chat.isOfficial && (
-                  <div className="mt-3">
-                    <button
-                      type="button"
-                      disabled={verifyBusy}
-                      onClick={() => {
-                        if (!accountId) return;
-                        setVerifyBusy(true);
-                        setVerifyMsg(null);
-                        void api.line
-                          .verifyFriendBlockStatus(accountId, chat.id)
-                          .then((res) => {
-                            const result = res.results?.[0];
-                            setVerifyMsg(
-                              result?.status === "blocked"
-                                ? "ブロック中です"
-                                : result?.status === "not_blocked"
-                                  ? "ブロックされていません"
-                                  : (result?.reason ?? "確認できませんでした"),
-                            );
-                          })
-                          .catch((err) =>
-                            setVerifyMsg(err instanceof Error ? err.message : "確認に失敗しました"),
-                          )
-                          .finally(() => setVerifyBusy(false));
-                      }}
-                      className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2 text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
-                    >
-                      {verifyBusy ? "ブロック状態を確認中…" : "ブロック状態を確認"}
-                    </button>
-                    {verifyMsg && (
-                      <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{verifyMsg}</p>
-                    )}
-                  </div>
-                )}
+              {!streamerMode && chat.type === "friend" && !chat.isOfficial && (
+                <div className="mt-3">
+                  <button
+                    type="button"
+                    disabled={verifyBusy}
+                    onClick={() => {
+                      if (!accountId) return;
+                      setVerifyBusy(true);
+                      setVerifyMsg(null);
+                      void api.line
+                        .verifyFriendBlockStatus(accountId, chat.id)
+                        .then((res) => {
+                          const result = res.results?.[0];
+                          setVerifyMsg(
+                            result?.status === "blocked"
+                              ? "ブロック中です"
+                              : result?.status === "not_blocked"
+                                ? "ブロックされていません"
+                                : (result?.reason ?? "確認できませんでした"),
+                          );
+                        })
+                        .catch((err) =>
+                          setVerifyMsg(err instanceof Error ? err.message : "確認に失敗しました"),
+                        )
+                        .finally(() => setVerifyBusy(false));
+                    }}
+                    className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2 text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+                  >
+                    {verifyBusy ? "ブロック状態を確認中…" : "ブロック状態を確認"}
+                  </button>
+                  {verifyMsg && (
+                    <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{verifyMsg}</p>
+                  )}
+                </div>
+              )}
 
               {chat.type === "friend" &&
                 !streamerMode &&

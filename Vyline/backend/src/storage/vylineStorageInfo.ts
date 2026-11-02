@@ -101,6 +101,7 @@ async function getDiskInfo(
     const proc = Bun.spawn(["powershell", "-NoProfile", "-Command", ps], {
       stdout: "pipe",
       stderr: "pipe",
+      windowsHide: true,
     });
     const [code, stdout] = await Promise.all([proc.exited, streamToText(proc.stdout)]);
     if (typeof code === "number" && code === 0 && stdout.trim()) {

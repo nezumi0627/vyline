@@ -29,6 +29,7 @@ import { getSubdeviceSession } from "./storage/subdeviceStore.js";
 import { accountSettingsRouter } from "./api/accountSettings.js";
 import { handoffRouter } from "./api/handoff.js";
 import { diagnosticsRouter } from "./api/diagnostics.js";
+import { updaterRouter } from "./api/updater.js";
 import {
   appendDiagnosticToKnownAccounts,
   initializeDiagnostics,
@@ -259,6 +260,7 @@ app.route("/api/cdn", cdnRouter);
 app.route("/api/settings/accounts", accountSettingsRouter);
 app.route("/api/handoff", handoffRouter);
 app.route("/api/diagnostics", diagnosticsRouter);
+app.route("/api/updater", updaterRouter);
 
 // 公開 REST API（Bearer トークン認証）
 app.route("/v1", publicRouter);

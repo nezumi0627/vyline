@@ -47,7 +47,7 @@ async function moveSystemCursor(x: number, y: number): Promise<void> {
       "-Command",
       `Add-Type -AssemblyName System.Windows.Forms; Add-Type -AssemblyName System.Drawing; ${command}`,
     ],
-    { stdout: "ignore", stderr: "ignore" },
+    { stdout: "ignore", stderr: "ignore", windowsHide: true },
   );
   await process.exited;
 }
