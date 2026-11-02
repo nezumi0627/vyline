@@ -11,7 +11,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.2-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
 </p>
 
@@ -19,7 +19,7 @@
 > VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用規約やアカウント、データに関するリスクを理解したうえで使用してください。[プライバシーとデータ](docs/user-guide/privacy-and-data.md)
 
 > [!NOTE]
-> **v1.0.1を現在の安定版・開発の基準点とします。** v1.0.0のWindows配布版で発生した起動問題を修正しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.0.1) · [変更履歴](CHANGELOG.md)
+> **v1.0.2を現在の安定版・開発の基準点とします。** 診断ログの有効化、Beta機能の整理、設定画面の分類を修正しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2) · [変更履歴](CHANGELOG.md)
 
 ## Vylineについて
 
@@ -38,7 +38,7 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 
 ## はじめる
 
-- **Windows**: [v1.0.1 Setup](https://github.com/nezumi0627/vyline/releases/tag/v1.0.1)をダウンロードします。
+- **Windows**: [v1.0.2 Setup](https://github.com/nezumi0627/vyline/releases/tag/v1.0.2)をダウンロードします。
 - **Linux**: 同じReleaseからLinux x64版を入手できます。
 - **Web・セルフホスト**: [セルフホストガイド](docs/selfhosting.md)を参照してください。
 - **macOS**: 専用インストーラーはありません。ソースから起動するか、サーバーを立ててブラウザから利用してください。
