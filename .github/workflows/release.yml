@@ -181,7 +181,7 @@ jobs:
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum VylineSetup-*.exe Vyline-linux-x64-*.tar.gz > SHA256SUMS.txt
+          sha256sum VylineSetup-*.exe Vyline-portable-*.zip Vyline-linux-x64-*.tar.gz > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
