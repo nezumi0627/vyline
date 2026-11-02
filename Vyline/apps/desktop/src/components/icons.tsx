@@ -129,6 +129,13 @@ export const IconDownload = (p: IconProps) => (
   </svg>
 );
 
+export const IconUpdate = (p: IconProps) => (
+  <svg {...base(p)}>
+    <path d="M12 3v12m0 0 4-4m-4 4-4-4" />
+    <path d="M5 17v3h14v-3" />
+  </svg>
+);
+
 export const IconCheck = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="m5 13 4 4L19 7" />

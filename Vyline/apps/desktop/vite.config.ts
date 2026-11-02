@@ -1,8 +1,26 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { execFileSync } from "node:child_process";
 import { resolve } from "node:path";
 
+function buildCommitSha(): string {
+  const configured = process.env.VYLINE_COMMIT_SHA?.trim();
+  if (configured && /^[\da-f]{7,40}$/i.test(configured)) return configured;
+  try {
+    return execFileSync("git", ["rev-parse", "--short=12", "HEAD"], {
+      cwd: resolve(__dirname, "../../.."),
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    }).trim();
+  } catch {
+    return "unknown";
+  }
+}
+
 export default defineConfig({
+  define: {
+    __VYLINE_COMMIT_SHA__: JSON.stringify(buildCommitSha()),
+  },
   plugins: [react()],
   resolve: {
     alias: {
