@@ -492,13 +492,12 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "1.0.0",
-  title: "Vyline 1.0.0 — 安定版の開始",
+  version: "1.0.1",
+  title: "Vyline 1.0.1 — Windows配布版の起動修正",
   items: [
-    "メッセージ・既読のSQLite保存、検索、URLプレビュー、設定バックアップを改善",
-    "プロフィール・グループ管理、サポート、プライバシー設定と端末引継ぎを拡充",
-    "Beta機能を整理し、本番機能へ統合。シニアバグの駆除を含む品質改善を実施",
-    "1.0.0を安定版の基準点として、今後も修正・機能追加を継続",
+    "Windows配布版がpino-prettyの解決エラーで起動しない問題を修正",
+    "起動失敗時のBackendログを保存し、原因を確認しやすく改善",
+    "必要なprotocol fallback profileを配布物に同梱",
   ],
 };
 
