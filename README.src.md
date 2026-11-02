@@ -10,7 +10,7 @@
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.0-a78bfa?style=flat-square" />
+  <img alt="version" src="https://img.shields.io/badge/version-1.0.1-a78bfa?style=flat-square" />
   <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
   <img alt="runtime" src="https://img.shields.io/badge/runtime-Bun-f472b6?style=flat-square" />
   <img alt="backend" src="https://img.shields.io/badge/backend-Hono-e879f9?style=flat-square" />
@@ -34,7 +34,7 @@
 > Vyline は **LINE 非公式・未承認**のサードパーティクライアントです。LINE 株式会社および LY Corporation とは関係ありません。利用規約への抵触やアカウント停止を含むリスクを理解したうえで、自己責任で使用してください。
 
 > [!NOTE]
-> 2026年11月2日、**Vyline 1.0.0 安定版**を公開しました。1.0.0を今後の改善の基準点とします。LINE側の仕様変更や利用環境による制約は引き続きあり、アカウント停止やデータ損失のリスクがなくなるものではありません。
+> **Vyline 1.0.1** は、1.0.0で確認されたWindows配布版の起動問題を修正したパッチリリースです。1.0.0の公開タグと配布ファイルは変更せず、修正版を別バージョンとして提供します。LINE側の仕様変更や利用環境による制約は引き続きあり、アカウント停止やデータ損失のリスクがなくなるものではありません。
 
 ---
 
@@ -49,7 +49,7 @@
 | 対象 | UI を自分好みに調整したいユーザー、開発者、セルフホスト利用者 |
 | 特徴 | 自前プロトコル、VyTheme、公開 API、ローカル優先のデータ管理 |
 | 技術 | React + Vite / Hono on Bun / TypeScript / Thrift |
-| 状態 | Stable 1.0.0 |
+| 状態 | Stable 1.0.1 |
 | ライセンス | MIT |
 
 ## 主な機能
