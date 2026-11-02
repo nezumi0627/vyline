@@ -42,7 +42,7 @@ import { releaseAccountChatLocks } from "../storage/chatLockStore.js";
 import { loadAccountSettings } from "../service/accountSettingsService.js";
 import { appendDiagnostic } from "../service/diagnosticsService.js";
 import { resetAgentISession } from "../service/agentIService.js";
-import { deactivatePluginsForAccount, restoreEnabledPlugins } from "./pluginManager.js";
+import { deactivatePluginsForAccount } from "./pluginManager.js";
 import { endManagedCallsForAccount } from "../call/callManager.js";
 import { resetIncomingCalls } from "../call/incomingCallRegistry.js";
 
@@ -89,12 +89,6 @@ const contentQrState = new Map<
 >();
 const contentTokenId = (accountId: string) => `${accountId}:content`;
 const opsListenerStartTimers = new Map<string, ReturnType<typeof setTimeout>>();
-
-function restorePluginsForSession(accountId: string): void {
-  void restoreEnabledPlugins(accountId).catch((error) =>
-    log.warn({ accountId, error }, "enabled plugins could not be restored"),
-  );
-}
 
 /** アカウントごとの fetchOps カーソル（revision ベース）。永続化ファイルが正本。 */
 export type OpsRevisionCursor = {
@@ -663,7 +657,6 @@ export async function loginWithEmail(
     pincode: null,
     loggedInAt: Date.now(),
   });
-  restorePluginsForSession(accountId);
   log.info({ accountId }, "email login success");
   return client;
 }
@@ -732,7 +725,6 @@ export async function loginWithQRCode(
     managed.loggedInAt = Date.now();
     watchAuthToken(client, accountId);
     void warmLineCache(accountId).catch(() => undefined);
-    restorePluginsForSession(accountId);
     log.info({ accountId }, "QR login success");
     return client;
   } catch (err) {
@@ -788,7 +780,6 @@ async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
     loggedInAt: Date.now(),
   });
   void warmLineCache(accountId).catch(() => undefined);
-  restorePluginsForSession(accountId);
   log.info({ accountId }, "token login success");
   return client;
 }
@@ -835,7 +826,6 @@ export async function loginWithAuthToken(
     loggedInAt: Date.now(),
   });
   void warmLineCache(accountId).catch(() => undefined);
-  restorePluginsForSession(accountId);
   log.info({ accountId }, "authToken login success");
   return client;
 }
