@@ -33,6 +33,12 @@ docker compose up -d
 
 ソースコードから再ビルドする場合は `docker compose up -d --build` を使います。
 
+## macOS の場合
+
+GitHub ReleasesからCPUに合うZIPを取得します。Apple Silicon（M1以降）は `arm64`、Intel Macは `x64` です。`Vyline.app` を「アプリケーション」へ置き、起動します。アプリはそのMac内でサービスを起動し、ローカルブラウザを開きます。履歴やログイン情報は `~/Library/Application Support/Vyline/` に残ります。
+
+更新時はVylineを終了して新しい `Vyline.app` に置き換えてください。データフォルダを削除しないでください。macOS版は未署名・未公証のため、初回だけGatekeeperの確認が表示される場合があります。詳細は[配布ガイド](../distribution.md)を参照してください。
+
 ## 更新前のバックアップ（推奨)
 
 - アプリ内: 設定 > 詳細・復元 > **VylineBackup** でスナップショット作成

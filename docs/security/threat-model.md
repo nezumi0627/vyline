@@ -75,7 +75,7 @@ GitHub Actions
 
 ### CI / release
 
-- release artifact は `SHA256SUMS.txt` を生成して Windows/Linux 配布物と同時公開する。
+- release artifact は `SHA256SUMS.txt` を生成して Windows/macOS/Linux 配布物と同時公開する。
 - GitHub Actions の third-party action は tag pin が残るため、commit SHA pin は未対応の supply-chain hardening 項目。
 
 ## 主要な攻撃シナリオ

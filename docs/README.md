@@ -59,7 +59,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [development-worktrees.md](./development-worktrees.md) | **推奨: 1 task = 1 branch = 1 git worktree** の並行開発フロー |
 | [performance.md](./performance.md)   | 起動時間・CPU・メモリ計測と Bun/Vite 最適化                       |
 | [architecture.md](./architecture.md) | 層構造・データフロー                                               |
-| [distribution.md](./distribution.md) | Windows exe / アップデーター / リリース手順                        |
+| [distribution.md](./distribution.md) | Windows / macOS / Linux 配布・アップデーター / リリース手順                        |
 | [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
 | [security/threat-model.md](./security/threat-model.md) | 信頼境界・攻撃面・セキュリティ設計                         |
 | [security/findings-2026-08-31.md](./security/findings-2026-08-31.md) | 2026-08-31 Security / CVE / Threat 監査結果        |

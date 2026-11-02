@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
-  An unofficial LINE client for the web, Windows, and Linux.
+  An unofficial LINE client for the web, Windows, macOS, and Linux.
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ See the [Feature Guide](docs/features.en.md) for descriptions and limitations an
 - **Windows**: Download the [v1.0.3 Setup or portable build](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3).
 - **Linux**: The same release includes a Linux x64 build. Docker supports linux/amd64 and linux/arm64.
 - **Web / self-hosting**: See the [Self-hosting Guide](docs/selfhosting.md).
-- **macOS**: There is no dedicated installer. Run from source or access a hosted instance in a browser.
+- **macOS**: Download the `Vyline.app` ZIP for Apple Silicon (arm64) or Intel (x64) from Releases. See the [distribution guide](docs/distribution.md) for the first-launch Gatekeeper prompt for the unsigned app.
 - **Updating**: [Update Guide](docs/user-guide/update.md).
 
 ## Before you use Vyline
@@ -54,7 +54,7 @@ Vyline is not an official LINE app. When using an external server, verify where 
 | --- | --- |
 | Features | [Feature Guide](docs/features.en.md) |
 | Setup and FAQ | [Getting Started](docs/start-here.md) |
-| Windows, Linux, and Docker | [Distribution Guide](docs/distribution.md) |
+| Windows, macOS, Linux, and Docker | [Distribution Guide](docs/distribution.md) |
 | API | [OpenAPI and Public API](docs/api/openapi.md) |
 | Contributions and maintainers | [Contribution Guide](docs/CONTRIBUTING.md) · [Maintainers](docs/maintainers.en.md) |
 | Historical behavior such as v0.5.0 | [Release History](docs/history/releases.en.md) |

@@ -40,7 +40,7 @@ This guide describes user-facing features based on v1.0.1. Implementation and li
 - Create, list, and restore Snapshots; import chat history from iOS backups.
 - Setup, diagnostics, and repair with the CLI.
 - Docker self-hosting, browser access, and a Bearer-token public API.
-- Standalone Windows and Linux distributions are available. There is no dedicated macOS installer.
+- Standalone Windows and Linux distributions and macOS app ZIPs for Apple Silicon and Intel are available. The macOS app is not signed or notarized, so Gatekeeper confirmation is required on first launch.
 
 ## Verification
 

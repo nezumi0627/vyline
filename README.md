@@ -7,7 +7,7 @@
 
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
-  LINE向けの非公式クライアント。Web・Windows・Linuxで利用できます。
+  LINE向けの非公式クライアント。Web・Windows・macOS・Linuxで利用できます。
 </p>
 
 <p align="center">
@@ -41,7 +41,7 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 - **Windows**: [v1.0.3 Setupまたはポータブル版](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3)をダウンロードします。
 - **Linux**: 同じReleaseからLinux x64版を入手できます。Dockerはlinux/amd64・linux/arm64に対応します。
 - **Web・セルフホスト**: [セルフホストガイド](docs/selfhosting.md)を参照してください。
-- **macOS**: 専用インストーラーはありません。ソースから起動するか、サーバーを立ててブラウザから利用してください。
+- **macOS**: ReleaseからApple Silicon（arm64）またはIntel（x64）用の`Vyline.app` ZIPを取得できます。初回起動時の未署名アプリの確認手順は[配布ガイド](docs/distribution.md)を参照してください。
 - **更新**: [アップデートガイド](docs/user-guide/update.md)
 
 ## 利用前の注意
@@ -54,7 +54,7 @@ VylineはLINEの公式アプリではありません。外部サーバー利用�
 | --- | --- |
 | できること | [機能ガイド](docs/features.md) |
 | セットアップとFAQ | [使い始める](docs/start-here.md) |
-| Windows・Linux・Docker配布 | [配布ガイド](docs/distribution.md) |
+| Windows・macOS・Linux・Docker配布 | [配布ガイド](docs/distribution.md) |
 | API | [OpenAPI・公開API](docs/api/openapi.md) |
 | 開発への参加 | [コントリビューション](docs/CONTRIBUTING.md) · [メンテナー募集](docs/maintainers.md) |
 | v0.5.0など過去仕様 | [リリース履歴](docs/history/releases.md) |

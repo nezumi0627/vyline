@@ -1,3 +1,5 @@
+<!-- The PR title appears in generated release notes as #number + title; keep it short and user-facing. -->
+
 ## Summary
 
 <!-- 変更内容を1-3行で -->
