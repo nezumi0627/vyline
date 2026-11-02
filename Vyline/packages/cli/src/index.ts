@@ -2,8 +2,18 @@
 
 import { spawnSync } from "node:child_process";
 import { createHash, randomUUID } from "node:crypto";
-import { existsSync } from "node:fs";
-import { cp, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { constants, existsSync } from "node:fs";
+import {
+  access,
+  cp,
+  mkdir,
+  readFile,
+  readdir,
+  rename,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { homedir, platform, tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import {
@@ -15,7 +25,8 @@ import {
 } from "./snapshotSecurity.js";
 
 const repoUrl = "https://github.com/nezumi0627/vyline";
-const archiveUrl = "https://github.com/nezumi0627/vyline/archive/refs/heads/main.tar.gz";
+const defaultDataDir = (root: string) => join(root, "Vyline", "backend", "data");
+const defaultStorageDir = (root: string) => join(root, "Vyline", "backend", "storage");
 const commandSet = new Set([
   "help",
   "init",
@@ -84,7 +95,7 @@ function printHelp() {
 
 Usage:
   vyl init                         Interactive setup
-  vyl install                      Install without a full manual clone
+  vyl install                      Shallow clone Vyline with required submodules
   vyl doctor                       Check local Vyline health
   vyl fix [--build]                Repair common setup issues
   vyl dev                          Start backend + frontend
@@ -105,7 +116,7 @@ async function init() {
     "Repair setup",
     "Create plugin",
     "Create snapshot",
-    "Install from archive",
+    "Install Vyline with submodules",
   ]);
 
   if (choice === "Start development server") {
@@ -166,8 +177,15 @@ async function doctor(verbose: boolean) {
         "Copy .env.example to .env, then edit secrets.",
       ),
     );
-    checks.push(await writableCheck("Data directory", join(root, "data")));
-    checks.push(await writableCheck("Storage directory", join(root, "storage")));
+    checks.push(
+      await writableCheck("Data directory", process.env.VYLINE_DATA_DIR ?? defaultDataDir(root)),
+    );
+    checks.push(
+      await writableCheck(
+        "Storage directory",
+        process.env.VYLINE_STORAGE_DIR ?? defaultStorageDir(root),
+      ),
+    );
   }
 
   if (verbose) {
@@ -191,8 +209,8 @@ async function fix(fixArgs: string[]) {
   const root = await requireRepoRoot();
   console.log("Repairing Vyline setup...");
 
-  await mkdir(join(root, "data"), { recursive: true });
-  await mkdir(join(root, "storage"), { recursive: true });
+  await mkdir(process.env.VYLINE_DATA_DIR ?? defaultDataDir(root), { recursive: true });
+  await mkdir(process.env.VYLINE_STORAGE_DIR ?? defaultStorageDir(root), { recursive: true });
 
   const envPath = join(root, ".env");
   const examplePath = join(root, ".env.example");
@@ -221,35 +239,19 @@ async function install(installArgs: string[]) {
   const target = resolve(
     installArgs[0] ?? (await prompt("Install directory", join(homedir(), "Vyline"))),
   );
-  const mode = await select("Install mode", ["Release/archive first", "Developer shallow clone"]);
-
   await mkdir(dirname(target), { recursive: true });
-
-  if (mode === "Developer shallow clone") {
-    runChecked(
-      "git",
-      ["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", repoUrl, target],
-      process.cwd(),
-      true,
-    );
-  } else {
-    await installArchive(target);
+  if (existsSync(target)) {
+    throw new Error(`Install target already exists: ${target}. Choose a new directory.`);
   }
+  runChecked(
+    "git",
+    ["clone", "--depth", "1", "--recurse-submodules", "--shallow-submodules", repoUrl, target],
+    process.cwd(),
+    true,
+  );
 
   console.log(`Installed to ${target}`);
   console.log(`Next: cd "${target}" && bun install && bun run vyl doctor`);
-}
-
-async function installArchive(target: string) {
-  const tempFile = join(tmpdir(), `vyline-${randomUUID()}.tar.gz`);
-  console.log("Downloading Vyline archive...");
-  await download(archiveUrl, tempFile);
-  await mkdir(target, { recursive: true });
-  runChecked("tar", ["-xzf", tempFile, "--strip-components", "1", "-C", target]);
-  await rm(tempFile, { force: true });
-  console.log(
-    "Archive install completed. Some source submodules are not included in archive mode.",
-  );
 }
 
 async function snapshot(snapshotArgs: string[]) {
@@ -257,7 +259,7 @@ async function snapshot(snapshotArgs: string[]) {
   const root = (await findRepoRoot()) ?? process.cwd();
   const snapshotDir = option(snapshotArgs, "--snapshots") ?? join(root, "snapshots");
   const dataDir =
-    option(snapshotArgs, "--data-dir") ?? process.env.VYLINE_DATA_DIR ?? join(root, "data");
+    option(snapshotArgs, "--data-dir") ?? process.env.VYLINE_DATA_DIR ?? defaultDataDir(root);
 
   if (action === "help") {
     printSnapshotHelp();
@@ -330,41 +332,40 @@ async function restoreSnapshot(archive: string, dataDir: string, force: boolean)
   }
 
   const stage = join(tmpdir(), `vyline-restore-${randomUUID()}`);
+  const replacement = `${dataDir}.restore-${randomUUID()}`;
+  const backupPath = `${dataDir}.before-restore-${Date.now()}`;
+  let movedCurrent = false;
   await validateSnapshotArchive(archive);
-  await mkdir(stage, { recursive: true });
-  runChecked("tar", ["-xzf", archive, "-C", stage]);
-
-  const payload = join(stage, "payload");
-  if (!existsSync(payload)) {
-    await rm(stage, { recursive: true, force: true });
-    throw new Error("Invalid snapshot: payload directory is missing");
-  }
-
-  const extracted = await measureSnapshotTree(stage);
-  if (extracted.files > MAX_SNAPSHOT_FILES) {
-    await rm(stage, { recursive: true, force: true });
-    throw new Error(`Snapshot contains too many files (limit: ${MAX_SNAPSHOT_FILES})`);
-  }
-  if (extracted.bytes > MAX_SNAPSHOT_EXTRACTED_BYTES) {
-    await rm(stage, { recursive: true, force: true });
-    throw new Error(
-      `Snapshot expands beyond the size limit (${MAX_SNAPSHOT_EXTRACTED_BYTES} bytes)`,
-    );
-  }
-
-  if (existsSync(dataDir)) {
-    if (!force) {
-      throw new Error("Data directory already exists. Re-run with --force to replace it safely.");
+  try {
+    await mkdir(stage, { recursive: true });
+    runChecked("tar", ["-xzf", archive, "-C", stage]);
+    const payload = join(stage, "payload");
+    if (!existsSync(payload)) throw new Error("Invalid snapshot: payload directory is missing");
+    const extracted = await measureSnapshotTree(stage);
+    if (extracted.files > MAX_SNAPSHOT_FILES)
+      throw new Error(`Snapshot contains too many files (limit: ${MAX_SNAPSHOT_FILES})`);
+    if (extracted.bytes > MAX_SNAPSHOT_EXTRACTED_BYTES)
+      throw new Error(
+        `Snapshot expands beyond the size limit (${MAX_SNAPSHOT_EXTRACTED_BYTES} bytes)`,
+      );
+    await mkdir(dirname(dataDir), { recursive: true });
+    await cp(payload, replacement, { recursive: true });
+    if (existsSync(dataDir)) {
+      if (!force)
+        throw new Error("Data directory already exists. Re-run with --force to replace it safely.");
+      await rename(dataDir, backupPath);
+      movedCurrent = true;
     }
-    const backupPath = `${dataDir}.before-restore-${Date.now()}`;
-    await rename(dataDir, backupPath);
-    console.log(`Moved current data to ${backupPath}`);
+    await rename(replacement, dataDir);
+    console.log(`Restored snapshot to ${dataDir}`);
+    if (movedCurrent) console.log(`Previous data retained at ${backupPath}`);
+  } catch (error) {
+    if (movedCurrent && !existsSync(dataDir)) await rename(backupPath, dataDir);
+    throw error;
+  } finally {
+    await rm(stage, { recursive: true, force: true });
+    await rm(replacement, { recursive: true, force: true });
   }
-
-  await mkdir(dirname(dataDir), { recursive: true });
-  await cp(payload, dataDir, { recursive: true });
-  await rm(stage, { recursive: true, force: true });
-  console.log(`Restored snapshot to ${dataDir}`);
 }
 
 /**
@@ -535,16 +536,18 @@ function existsCheck(name: string, filePath: string, fix: string): Check {
 
 async function writableCheck(name: string, dirPath: string): Promise<Check> {
   try {
-    await mkdir(dirPath, { recursive: true });
-    const probe = join(dirPath, `.probe-${randomUUID()}`);
-    await writeFile(probe, "ok");
-    await rm(probe, { force: true });
-    return { name, ok: true, detail: dirPath };
+    const target = existsSync(dirPath) ? dirPath : dirname(dirPath);
+    await access(target, constants.W_OK);
+    return {
+      name,
+      ok: true,
+      detail: `${dirPath} (${existsSync(dirPath) ? "exists" : "parent accessible"})`,
+    };
   } catch (error) {
     return {
       name,
       ok: false,
-      detail: String(error),
+      detail: existsSync(dirPath) ? String(error) : `${dirPath} (not created yet)`,
       fix: `Check permissions for ${dirPath}.`,
     };
   }
@@ -605,14 +608,6 @@ async function readLine() {
   }
 
   return new TextDecoder().decode(Buffer.concat(chunks)).replace(/\r?\n$/, "");
-}
-
-async function download(url: string, target: string) {
-  const response = await fetch(url);
-  if (!response.ok || !response.body) {
-    throw new Error(`Download failed: ${response.status} ${response.statusText}`);
-  }
-  await Bun.write(target, response);
 }
 
 function option(optionArgs: string[], name: string) {
