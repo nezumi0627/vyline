@@ -30,7 +30,7 @@ export const documents = [
 export const platforms = {
   bun: {
     name: "Bun + vyl", detail: "おすすめ / Windows・macOS・Linux", guide: "cli",
-    title: "Bunとvylで、どのOSからも。",
+    title: "Bun + vylを登録して起動する。",
     description: "Bun 1.4.0以降とGitがあれば、Windows・macOS・Linuxで同じコマンドを使えます。vylを一度登録すると、次からは好きなフォルダから起動できます。",
     file: null, label: "Bun + vyl の手順を見る",
     command: `git clone --recurse-submodules --branch v${version} ${repository}.git\ncd vyline\nbun install\nbun run vyl register\nvyl dev`,

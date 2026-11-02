@@ -58,29 +58,32 @@ scheduleAtmosphere();
 
 const panel = $("#tour-panel");
 if (panel) {
-  const chooser = panel.innerHTML;
   const readState = () => {
     const params = new URL(location.href).searchParams;
     const os = Object.hasOwn(platforms, params.get("os")) ? params.get("os") : "bun";
     const raw = Number(params.get("step"));
-    return { os, step: Number.isInteger(raw) && raw >= 0 && raw <= 3 ? raw : 0 };
+    return { os, step: Number.isInteger(raw) && raw >= 0 && raw <= 2 ? raw : 0 };
   };
   let state = readState();
   function render(focus = false) {
     const platform = platforms[state.os];
-    $("#tour-coordinate").textContent = `Step 0${state.step + 1} / 04`;
+    $("#tour-coordinate").textContent = `0${state.step + 1} / 03`;
     $("#selected-platform").textContent = platform.name;
     $$('[data-step]').forEach((button) => button.dataset.step === String(state.step) ? button.setAttribute("aria-current", "step") : button.removeAttribute("aria-current"));
+    $$('[data-os]').forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.os === state.os)));
     $("#tour-back").disabled = state.step === 0;
-    $("#tour-next").innerHTML = state.step === 3 ? '使い方を探す <span aria-hidden="true">↗</span>' : '次へ <span aria-hidden="true">→</span>';
-    $("#tour-hint").textContent = ["選んだ環境の手順へ", "インストールはご自身で確認してから次へ", "ログインはアプリ側で行います", "見た目やデータの扱いを整える"][state.step];
+    $("#tour-next").innerHTML = state.step === 2 ? '使い方を探す <span aria-hidden="true">↗</span>' : '次へ <span aria-hidden="true">→</span>';
+    $("#tour-hint").textContent = ["コマンドを実行したら、ログインへ。", "ログインできたら、表示を整えます。", "必要な設定を、目的から探せます。"][state.step];
     if (state.step === 0) {
-      panel.innerHTML = chooser;
-      $$('[data-os]', panel).forEach((button) => button.setAttribute("aria-pressed", String(button.dataset.os === state.os)));
-    } else if (state.step === 1) {
       const guide = `${base}guide/docs/install/${platform.guide}.html`;
-      panel.innerHTML = `<h3>${platform.title}</h3><p class="tour-intro">${platform.description}</p><div class="install-actions"><a class="next-button" href="${platform.file ? download(platform.file) : guide}">${platform.label} <span aria-hidden="true">↗</span></a>${platform.file ? `<a class="text-link" href="${guide}">詳しい手順と困ったとき ↗</a>` : ""}</div>${platform.command ? `<div class="code-block"><header><span>${state.os === "macos" ? "Terminal / Git + Bun 1.4.0+" : "Terminal"}</span><button class="mini-button" data-copy-command>コピー</button></header><pre><code>${escapeHtml(platform.command)}</code></pre></div>` : `<a class="text-link" href="${download(`Vyline-portable-${version}.zip`)}">ポータブルZIPを選ぶ ↗</a>`}<p class="quiet-note">${platform.note}</p><p class="quiet-note">SHA-256は<a href="${download("SHA256SUMS.txt")}">配布元の一覧</a>で確認できます。</p>`;
-    } else if (state.step === 2) {
+      const portableLink = platform.file
+        ? `<a class="text-link" href="${download(`Vyline-portable-${version}.zip`)}">ポータブルZIPを選ぶ ↗</a>`
+        : "";
+      const commandPanel = platform.command
+        ? `<div class="install-command"><div class="code-block"><header><span>${state.os === "macos" ? "Terminal / Bun + Git" : state.os === "bun" ? "Terminal / PowerShell" : "Terminal"}</span><button class="mini-button" data-copy-command>コピー</button></header><pre><code>${escapeHtml(platform.command)}</code></pre></div></div>`
+        : "";
+      panel.innerHTML = `<div class="install-stage${platform.command ? "" : " no-command"}"><div class="install-copy"><h3>${platform.title}</h3><p class="tour-intro">${platform.description}</p><div class="install-actions"><a class="next-button" href="${platform.file ? download(platform.file) : guide}">${platform.label} <span aria-hidden="true">↗</span></a>${platform.file ? `<a class="text-link" href="${guide}">導入の詳細 ↗</a>` : ""}</div>${portableLink}<p class="quiet-note">${platform.note}</p></div>${commandPanel}</div>`;
+    } else if (state.step === 1) {
       panel.innerHTML = `<h3>スマホのLINEで、つなぐ。</h3><p class="tour-intro">ここからは起動したVylineの画面で進めます。このサイトはログイン情報を受け取りません。</p><ol class="checklist"><li><div>VylineでQRコードログインを選ぶ<small>アプリ側に表示されたQRコードを使用します。</small></div></li><li><div>スマホのLINEで読み取る<small>LINEのQRコードリーダーを開き、ログインを承認します。確認番号が出た場合は画面の案内に従ってください。</small></div></li><li><div>初回設定を進める<small>ログイン後のVyline Setupで利用方法とアカウントごとの設定を選びます。</small></div></li></ol><a class="text-link" href="${base}guide/docs/start-here.html">ログインに困ったら ↗</a>`;
     } else {
       panel.innerHTML = `<h3>使いやすい場所に、整える。</h3><p class="tour-intro">インストールと初回設定の次は、使い方を選びます。必要なときに、必要な設定だけ読めます。</p><ol class="checklist"><li><div>テーマや表示を選ぶ<small>テーマ、文字サイズ、表示密度を自分に合わせます。</small></div></li><li><div>必要なデータを残す<small>会話のバックアップと設定の引継ぎは、保存する内容が異なります。</small></div></li><li><div>困ったときは原因から探す<small>ログイン、更新、診断のガイドへ進めます。</small></div></li></ol><a class="text-link" href="#docs">目的から使い方を探す ↗</a>`;
@@ -92,7 +95,7 @@ if (panel) {
     const url = new URL(location.href); url.searchParams.set("os", state.os); url.searchParams.set("step", String(state.step)); url.hash = "start";
     history.pushState({}, "", url); render(focus);
   }
-  $(".tour-shell").addEventListener("click", async (event) => {
+  $("#tour").addEventListener("click", async (event) => {
     const osButton = event.target.closest("[data-os]");
     const stepButton = event.target.closest("[data-step]");
     if (osButton) { update({ os: osButton.dataset.os }, false); panel.querySelector(`[data-os="${state.os}"]`)?.focus({ preventScroll: true }); }
@@ -103,7 +106,7 @@ if (panel) {
     }
   });
   $("#tour-back").addEventListener("click", () => update({ step: Math.max(0, state.step - 1) }));
-  $("#tour-next").addEventListener("click", () => state.step < 3 ? update({ step: state.step + 1 }) : (location.hash = "docs"));
+  $("#tour-next").addEventListener("click", () => state.step < 2 ? update({ step: state.step + 1 }) : (location.hash = "docs"));
   window.addEventListener("popstate", () => { state = readState(); render(); });
   render();
 }

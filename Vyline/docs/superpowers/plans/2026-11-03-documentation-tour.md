@@ -29,7 +29,7 @@
 ## Tasks
 
 - [ ] Build: add a failing integration test for new output, local links, prefix and output safety. Replace former build entry unread; implement static copy and Markdown rendering.
-- [ ] Experience: create website index, styles and JS. Implement chapter navigation, OS-specific guided steps, local conversation/theming preview, document search, accessible mobile navigation and copy feedback.
+- [ ] Experience: create website index, styles and JS. Implement OS-specific command guidance, a three-stage setup flow, product story, task-based document search, accessible mobile navigation and copy feedback. Do not add a simulated chat or settings preview.
 - [ ] Content: add OS installation guides and consolidated feature content; update documentation ownership/index and start page. Improve both README sources and regenerate outputs.
 - [ ] Verify: run build tests, README check, browser interaction checks, link audit and visual review at desktop/mobile widths. Update deployment triggers. Review the whole branch and fix findings.
 - [ ] Delivery: commit and push the task branch, open a PR for review, attach it, and preserve work until merge approval. Clean up only the task-created worktree after merge.

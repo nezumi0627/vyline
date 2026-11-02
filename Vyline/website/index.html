@@ -25,32 +25,42 @@
   </header>
   <main id="main">
     <section class="hero" data-view="home" aria-labelledby="hero-title">
-      <img class="hero-backdrop" src="{{BASE}}assets/listening-horizon.webp" width="1774" height="887" alt="" fetchpriority="high">
+      <div class="hero-route" aria-hidden="true">
+          <div class="route-topline"><span>Vyline / message route</span><span>local by design</span></div>
+        <div class="route-diagram">
+          <div class="route-source"><span class="route-label">YOUR CONVERSATION</span><strong>LINE</strong><small>messages as they are</small></div>
+          <span class="route-wire route-wire-in"></span>
+          <div class="route-client"><img src="{{BASE}}assets/logo.svg" width="52" height="52" alt=""><span>Vyline</span><small>OPEN-SOURCE CLIENT</small></div>
+          <span class="route-wire route-wire-out"></span>
+          <div class="route-branches"><span>RUN IT ON</span><strong>Windows</strong><strong>Linux</strong><strong>macOS</strong><strong>Your server</strong></div>
+          <div class="route-index">MESSAGE <b>→</b> VYLINE <b>→</b> YOUR CHOICE</div>
+        </div>
+        <div class="route-foot"><span>LOCAL APP / SELF-HOSTED WEB</span><span>CHOOSE WHERE IT RUNS</span></div>
+      </div>
       <div class="hero-inner wrap">
       <div class="hero-copy">
-        <p class="release-note"><span class="waypoint" aria-hidden="true"></span><a href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3">Vyline 1.0.3 <span aria-hidden="true">↗</span></a><span>安定版</span></p>
-        <h1 id="hero-title">いつものLINEを、<span>自分の環境で。</span></h1>
-        <p class="hero-description">会話はいつものままに。<br>動かす場所も、見た目も、自分で選ぶ。</p>
-        <a class="launch-button hero-launch" href="#start"><span class="launch-index" aria-hidden="true">01</span><span>導入をはじめる<small>Bun + vylなら、どのOSからも</small></span><span class="button-orbit" aria-hidden="true">↗</span></a>
-        <p class="hero-footnote">LINE非公式クライアント <span aria-hidden="true">/</span> オープンソース</p>
+        <h1 id="hero-title">LINEの会話を、<span>自分の場所で。</span></h1>
+        <p class="hero-description">Vylineは、会話を送受信するオープンソースのLINEクライアント。<br>PCで動かすか、自分のサーバーで使うかを選べます。</p>
+        <a class="launch-button hero-launch" href="#start"><span>起動方法を選ぶ</span><span class="button-orbit" aria-hidden="true">↗</span></a>
+        <a class="release-note" href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3">安定版 <span>1.0.3 ↗</span></a>
       </div>
-      <nav class="destination-dock" aria-label="次の行き先"><a href="#start"><span class="dock-number">01</span><span>使いはじめる<small>Bun + vylで、全OS共通</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a><a href="#experience"><span class="dock-number">02</span><span>Vylineのこと<small>会話、表示、データのこと</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a><a href="#docs"><span class="dock-number">03</span><span>使い方を探す<small>目的や困りごとから案内</small></span><span class="dock-arrow" aria-hidden="true">↗</span></a></nav>
+      <a class="hero-next" href="#start"><span>01</span> まずは起動する <span aria-hidden="true">↓</span></a>
       </div>
     </section>
 
     <section id="tour" data-view="start" hidden class="section wrap" aria-labelledby="tour-title">
-      <div class="view-heading"><a class="back-home" href="#home">← ホーム</a><span>01 / Setup</span><a class="text-link" href="{{BASE}}guide/docs/start-here.html">手順をまとめて読む ↗</a></div>
-      <div class="section-heading"><div><h2 id="tour-title">あなたの環境から、はじめよう。</h2><p>環境に合った道順だけを。設定はあとから変えられます。</p></div></div>
+      <div class="view-heading"><a class="back-home" href="#home">← Vyline</a><span>SETUP / v1.0.3</span><a class="text-link" href="{{BASE}}guide/docs/start-here.html">詳細な導入ガイド ↗</a></div>
+      <div class="section-heading route-heading"><div><h2 id="tour-title">選んだ環境で、Vylineを起動する。</h2><p>環境ごとの手順とコマンドを、ここで確かめられます。</p></div></div>
+      <div class="environment-picker">
+        <p>動かす環境 <span>SELECT ONE</span></p>
+        <div class="platform-picker" role="group" aria-label="利用環境"><button class="platform-recommended" data-os="bun" aria-pressed="true"><span>Bun + vyl<small>全OS共通・コマンド起動</small></span><span class="platform-choice">推奨</span></button><button data-os="windows" aria-pressed="false"><span>Windows<small>Setup / x64</small></span></button><button data-os="linux" aria-pressed="false"><span>Linux<small>tar.gz / x64</small></span></button><button data-os="macos" aria-pressed="false"><span>macOS<small>ソース / ブラウザ</small></span></button><button data-os="docker" aria-pressed="false"><span>Docker / Web<small>amd64 / arm64</small></span></button></div>
+      </div>
       <div class="tour-shell">
-        <nav class="tour-steps" aria-label="導入ツアーのステップ"><button data-step="0" aria-current="step"><span>01</span> 環境を選ぶ</button><button data-step="1"><span>02</span> インストール</button><button data-step="2"><span>03</span> ログイン</button><button data-step="3"><span>04</span> 自分の場所に</button></nav>
+        <nav class="tour-steps" aria-label="導入手順"><button data-step="0" aria-current="step"><span>01</span> 起動する</button><button data-step="1"><span>02</span> ログインする</button><button data-step="2"><span>03</span> 使い方を整える</button></nav>
         <div class="tour-body">
-          <div class="tour-meta"><span id="tour-coordinate">Step 01 / 04</span><span id="selected-platform">Windows</span></div>
-          <div id="tour-panel" tabindex="-1">
-            <h3>どこから、はじめる？</h3><p class="tour-intro">使いたい環境を選ぶと、あなたに合った手順へ切り替わります。</p>
-            <div class="platform-picker" role="group" aria-label="利用環境"><button class="platform-recommended" data-os="bun" aria-pressed="true"><span class="platform-glyph" aria-hidden="true">&gt;_</span><span>Bun + vyl<small>おすすめ / Windows・macOS・Linux</small></span><span class="recommended-mark">RECOMMENDED</span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="windows" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">⊞</span><span>Windows<small>インストーラー / x64</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="linux" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">$_</span><span>Linux<small>tar.gz / x64</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="macos" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">⌘</span><span>macOS<small>ソース / ブラウザ</small></span><span class="selection-mark" aria-hidden="true"></span></button><button data-os="docker" aria-pressed="false"><span class="platform-glyph" aria-hidden="true">[ ]</span><span>Docker / Web<small>amd64 / arm64</small></span><span class="selection-mark" aria-hidden="true"></span></button></div>
-            <p class="quiet-note">macOSはソース起動またはブラウザから。専用インストーラーはありません。</p>
-          </div>
-          <div class="tour-bottom"><button class="back-button" id="tour-back" disabled><span aria-hidden="true">←</span> 戻る</button><p id="tour-hint">選んだ環境の手順へ</p><button class="next-button" id="tour-next">次へ <span aria-hidden="true">→</span></button></div>
+          <div class="tour-meta"><span id="tour-coordinate">01 / 03</span><span id="selected-platform">Bun + vyl</span></div>
+          <div id="tour-panel" tabindex="-1"></div>
+          <div class="tour-bottom"><button class="back-button" id="tour-back" disabled><span aria-hidden="true">←</span> 戻る</button><p id="tour-hint">コマンドを実行したら、ログインへ。</p><button class="next-button" id="tour-next">次へ <span aria-hidden="true">→</span></button></div>
         </div>
       </div>
       <noscript><p>ツアーの操作にはJavaScriptが必要です。[<a href="{{BASE}}guide/docs/install/windows.html">Windows</a>] [<a href="{{BASE}}guide/docs/install/linux.html">Linux</a>] [<a href="{{BASE}}guide/docs/install/macos.html">macOS</a>] [<a href="{{BASE}}guide/docs/install/docker.html">Docker</a>] の手順はそのまま読めます。</p></noscript>
