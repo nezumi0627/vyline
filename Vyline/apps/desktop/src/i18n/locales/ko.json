@@ -64,7 +64,7 @@
   "GitHubへ送る内容のプレビュー": "GitHub로 보내는 내용 미리보기",
   "GitHubを開く": "GitHub 열기",
   "GitHubリリースの詳細": "GitHub 릴리스에 대해 자세히 알아보기",
-  "HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）": "HTTP/HTTPS/SOCKS(예: http://127.0.0.1:7890）",
+  "HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）": "HTTP/HTTPS/SOCKS (예: http://127.0.0.1:7890)",
   "Issue作成": "Issue 만들기",
   "LINE authToken を貼り付け（JWT または key:secret 形式）": "LINE authToken 붙여넣기(JWT 또는 key:secret 형식)",
   "LINE から ABUSE_BLOCK が返ったため、アカウント BAN を避ける目的でグループ作成を無効化しています。": "LINE에서 ABUSE_BLOCK이 반환되었으므로 BAN 계정을 피하기 위해 그룹 생성을 사용 중지했습니다.",

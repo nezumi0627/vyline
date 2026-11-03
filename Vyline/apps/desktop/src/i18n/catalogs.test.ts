@@ -54,4 +54,30 @@ describe("bundled UI locale catalogs", () => {
       ],
     ).toContain("Credentials are redacted");
   });
+
+  test("preserves proxy URLs and localizes the example hint cleanly", async () => {
+    const exampleHints: Record<string, string> = {
+      en: "HTTP/HTTPS/SOCKS (e.g. http://127.0.0.1:7890)",
+      "zh-TW": "HTTP/HTTPS/SOCKS（例如 http://127.0.0.1:7890）",
+      "zh-CN": "HTTP/HTTPS/SOCKS（例如 http://127.0.0.1:7890）",
+      id: "HTTP/HTTPS/SOCKS (misalnya http://127.0.0.1:7890)",
+      ko: "HTTP/HTTPS/SOCKS (예: http://127.0.0.1:7890)",
+      es: "HTTP/HTTPS/SOCKS (por ejemplo, http://127.0.0.1:7890)",
+      fr: "HTTP/HTTPS/SOCKS (par exemple http://127.0.0.1:7890)",
+      de: "HTTP/HTTPS/SOCKS (z. B. http://127.0.0.1:7890)",
+      "pt-BR": "HTTP/HTTPS/SOCKS (por exemplo, http://127.0.0.1:7890)",
+      vi: "HTTP/HTTPS/SOCKS (ví dụ: http://127.0.0.1:7890)",
+      th: "HTTP/HTTPS/SOCKS (เช่น http://127.0.0.1:7890)",
+    };
+
+    for (const [locale, expected] of Object.entries(exampleHints)) {
+      const catalog = (await Bun.file(
+        new URL(`./locales/${locale}.json`, import.meta.url),
+      ).json()) as Record<string, string>;
+      expect(catalog["HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）"], `${locale} proxy hint`).toBe(
+        expected,
+      );
+      expect(catalog["http://127.0.0.1:7890"], `${locale} proxy URL`).toBe("http://127.0.0.1:7890");
+    }
+  });
 });

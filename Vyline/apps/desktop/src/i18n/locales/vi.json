@@ -64,7 +64,7 @@
   "GitHubへ送る内容のプレビュー": "Xem trước nội dung cần gửi tới GitHub",
   "GitHubを開く": "Mở GitHub",
   "GitHubリリースの詳細": "Chi tiết phát hành GitHub",
-  "HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）": "HTTP/HTTPS/SOCKS (ví dụ: http://127.0.0.1:7890）",
+  "HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）": "HTTP/HTTPS/SOCKS (ví dụ: http://127.0.0.1:7890)",
   "Issue作成": "Tạo vấn đề",
   "LINE authToken を貼り付け（JWT または key:secret 形式）": "Dán LINE authToken (định dạng JWT hoặc key:secret)",
   "LINE から ABUSE_BLOCK が返ったため、アカウント BAN を避ける目的でグループ作成を無効化しています。": "Vì LINE trả về ABUSE_BLOCK nên chúng tôi đã vô hiệu hóa việc tạo nhóm để tránh bị cấm tài khoản.",
