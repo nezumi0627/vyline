@@ -4,6 +4,7 @@ import { guideIntents, routeFromHash } from "./navigation.js";
 const base = new URL("../", import.meta.url).pathname;
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
+const pointerParallax = Boolean($(".article-layout"));
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const normalizeSearch = (text) => String(text).normalize("NFKC").toLocaleLowerCase("ja").replace(/[\u200b-\u200d\ufeff]/g, "");
 let toastTimer;
@@ -67,13 +68,13 @@ function updateAtmosphere() {
   frame = 0;
   const max = Math.max(1, document.documentElement.scrollHeight - innerHeight);
   document.documentElement.style.setProperty("--page-travel", `${Math.min(1, scrollY / max)}`);
-  document.documentElement.style.setProperty("--pointer-x", `${(window.__vylinePointer?.x ?? .5) - .5}`);
-  document.documentElement.style.setProperty("--pointer-y", `${(window.__vylinePointer?.y ?? .5) - .5}`);
+  document.documentElement.style.setProperty("--pointer-x", `${pointerParallax ? (window.__vylinePointer?.x ?? .5) - .5 : 0}`);
+  document.documentElement.style.setProperty("--pointer-y", `${pointerParallax ? (window.__vylinePointer?.y ?? .5) - .5 : 0}`);
 }
 function scheduleAtmosphere() { if (!frame) frame = requestAnimationFrame(updateAtmosphere); }
 addEventListener("scroll", scheduleAtmosphere, { passive: true });
 addEventListener("resize", scheduleAtmosphere, { passive: true });
-addEventListener("pointermove", (event) => {
+if (pointerParallax) addEventListener("pointermove", (event) => {
   window.__vylinePointer = { x: event.clientX / innerWidth, y: event.clientY / innerHeight };
   scheduleAtmosphere();
 }, { passive: true });
