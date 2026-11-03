@@ -400,6 +400,8 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
 .architecture-types small{color:#b7d19d;}
 .architecture-map .architecture-down>b,.architecture-flow-bottom .architecture-connector>b{color:#d8b478;}
 .platform-ident{display:flex;align-items:center;gap:12px;}
+.platform-ident>span:last-child{text-align:center;}
+.platform-icon-slot{display:flex;flex:none;width:24px;height:24px;align-items:center;justify-content:center;}
 .platform-icon{display:block;flex:none;width:24px;height:24px;object-fit:contain;}
 .platform-icon-mono{filter:brightness(0) invert(1);}
 .platform-picker button[aria-pressed=true] .platform-icon-mono{filter:none;}
