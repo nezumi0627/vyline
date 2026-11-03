@@ -8,6 +8,7 @@ on:
       - "Vyline/website/**"
       - "docs/**"
       - "Vyline/docs/**"
+      - "**/*.md"
       - "logo/**"
       - "README*.src.md"
   push:
@@ -18,6 +19,7 @@ on:
       - "Vyline/website/**"
       - "docs/**"
       - "Vyline/docs/**"
+      - "**/*.md"
       - "logo/**"
       - "README*.src.md"
   workflow_dispatch:
