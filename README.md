@@ -9,8 +9,6 @@
 
 <h1 align="center">Vyline</h1>
 
-<p align="center"><img src="logo/assets/color/128.png" alt="Vyline ロゴ" width="72" height="72" /></p>
-
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
   LINE向けの非公式クライアント。Web・Windows・macOS・Linuxで利用できます。

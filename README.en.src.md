@@ -6,8 +6,6 @@
 
 <h1 align="center">Vyline</h1>
 
-<p align="center"><img src="logo/assets/color/128.png" alt="Vyline logo" width="72" height="72" /></p>
-
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
   An unofficial LINE client for the web, Windows, macOS, and Linux.
