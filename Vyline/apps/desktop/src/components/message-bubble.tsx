@@ -677,12 +677,12 @@ const REACTION_EMOJI: Record<number, string> = {
 
 // 各リアクションの公式 sticon（LINE 本家の絵文字画像）: productId / sticonId
 const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
-  2: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "143" }, // NICE 👍
-  3: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "165" }, // LOVE ❤️
-  4: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "079" }, // FUN 😆
-  5: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "172" }, // AMAZING 🎉
-  6: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "092" }, // SAD 😢
-  7: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "094" }, // OMG 😲
+  2: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "240" }, // NICE 👍
+  3: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "037" }, // LOVE ❤️
+  4: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "002" }, // FUN 😆
+  5: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "003" }, // AMAZING 🎉
+  6: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "024" }, // SAD 😢
+  7: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "029" }, // OMG 😲
 };
 
 /** リアクション公式 sticon のプロキシ URL（未定義は空文字） */
