@@ -34,9 +34,19 @@ const supportedLanguages: ResolvedUiLanguage[] = [
   "vi",
   "th",
 ];
-const localeLoaders = import.meta.glob<Record<string, string>>("./locales/*.json", {
-  import: "default",
-});
+const localeLoaders: Record<string, () => Promise<Record<string, string>>> = {
+  "./locales/en.json": () => import("./locales/en.json").then((module) => module.default),
+  "./locales/zh-TW.json": () => import("./locales/zh-TW.json").then((module) => module.default),
+  "./locales/zh-CN.json": () => import("./locales/zh-CN.json").then((module) => module.default),
+  "./locales/id.json": () => import("./locales/id.json").then((module) => module.default),
+  "./locales/ko.json": () => import("./locales/ko.json").then((module) => module.default),
+  "./locales/es.json": () => import("./locales/es.json").then((module) => module.default),
+  "./locales/fr.json": () => import("./locales/fr.json").then((module) => module.default),
+  "./locales/de.json": () => import("./locales/de.json").then((module) => module.default),
+  "./locales/pt-BR.json": () => import("./locales/pt-BR.json").then((module) => module.default),
+  "./locales/vi.json": () => import("./locales/vi.json").then((module) => module.default),
+  "./locales/th.json": () => import("./locales/th.json").then((module) => module.default),
+};
 
 function resolveSystemLanguage(): ResolvedUiLanguage {
   const candidates = typeof navigator === "undefined" ? [] : navigator.languages;
@@ -103,6 +113,7 @@ export function getIntlLocale(): ResolvedUiLanguage {
 
 /** Japanese source text is also the stable fallback key for untranslated UI. */
 export function tr(source: string, values?: Record<string, unknown>): string {
+  if (!i18n.isInitialized) return source;
   return i18n.t(source, { defaultValue: source, ...values });
 }
 
