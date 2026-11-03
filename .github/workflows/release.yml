@@ -62,6 +62,8 @@ jobs:
         with: { bun-version: "1.4.0" }
       - run: bun install --frozen-lockfile
       - run: bun run package:linux
+      - name: Smoke test the compiled Linux package
+        run: bash installer/linux-package-smoke.test.sh
       - uses: actions/upload-artifact@v4
         with:
           name: linux-archive
