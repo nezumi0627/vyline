@@ -7,6 +7,28 @@ const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const normalizeSearch = (text) => String(text).normalize("NFKC").toLocaleLowerCase("ja").replace(/[\u200b-\u200d\ufeff]/g, "");
 let toastTimer;
+
+// Each chalk-like star has its own path, fall speed, and starting point.
+const sky = $(".world-background");
+if (sky) {
+  const moon = document.createElement("span");
+  moon.className = "sky-moon";
+  moon.innerHTML = '<svg viewBox="0 0 100 120" aria-hidden="true"><path d="M68 8C29 15 13 43 17 70c4 28 30 44 57 39-18-8-28-25-25-46C52 42 60 22 68 8Z"/><path d="M66 13C35 22 20 46 22 70c2 23 23 37 45 36"/></svg>';
+  sky.append(moon);
+  for (let index = 0; index < 26; index++) {
+    const star = document.createElement("span");
+    const size = 9 + ((index * 13) % 15);
+    const duration = 17 + ((index * 7) % 19);
+    const delay = -((index * 11) % duration);
+    star.className = `sky-star sky-star-${index % 4}`;
+    star.style.cssText = `--sky-x:${(index * 37 + 9) % 100}%;--sky-y:${(index * 43 + 7) % 90}vh;--sky-size:${size}px;--sky-duration:${duration}s;--sky-delay:${delay}s;--sky-drift:${((index % 7) - 3) * 24}px;--sky-turn:${index % 2 ? 48 : -48}deg;`;
+    star.innerHTML = index % 3 === 0
+      ? '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 2C14 9 10 14 3 16c7 2 11 6 13 14 2-8 6-12 13-14C22 14 18 9 16 2Z"/><path d="M16 5c-2 6-5 9-10 11 5 2 8 5 10 11 2-6 5-9 10-11-5-2-8-5-10-11Z"/></svg>'
+      : '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-1 7-5 11-12 13 7 2 11 6 12 13 2-7 6-11 13-13-7-2-11-6-13-13Z"/></svg>';
+    sky.append(star);
+  }
+}
+
 function notify(message) {
   const toast = $("#status-message"); if (!toast) return;
   toast.textContent = message; toast.classList.add("visible");

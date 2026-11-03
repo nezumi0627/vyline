@@ -397,10 +397,17 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
 .architecture-types{border-color:#687f66;background:#141812;}
 .architecture-types small{color:#b7d19d;}
 .architecture-map .architecture-down>b,.architecture-flow-bottom .architecture-connector>b{color:#d8b478;}
-.world-background::before{position:absolute;inset:-14vh -2vw;z-index:0;background:url("./hero-stars.png") center top/cover no-repeat;content:"";opacity:.12;pointer-events:none;animation:crayon-sky-drift 72s ease-in-out infinite alternate;}
-.world-background::after{position:absolute;inset:-95vh -10vw 0;z-index:1;background-image:linear-gradient(154deg,transparent 47%,rgba(246,244,233,.7) 49%,rgba(246,244,233,.3) 50%,transparent 53%),linear-gradient(154deg,transparent 47%,rgba(246,244,233,.62) 49%,rgba(246,244,233,.22) 50%,transparent 53%),linear-gradient(154deg,transparent 47%,rgba(246,244,233,.6) 49%,rgba(246,244,233,.18) 50%,transparent 53%);background-repeat:no-repeat;background-size:2px 72px,2px 58px,2px 84px;background-position:19% 0,58% 44vh,84% 12vh;content:"";opacity:.2;pointer-events:none;animation:crayon-stars-fall 34s linear infinite;}
-@keyframes crayon-sky-drift{from{transform:translate3d(0,-12px,0)}to{transform:translate3d(0,12px,0)}}
-@keyframes crayon-stars-fall{from{transform:translate3d(0,-8vh,0)}to{transform:translate3d(-3vw,120vh,0)}}
+.sky-moon{position:absolute;top:8vh;right:8vw;width:clamp(58px,7vw,96px);height:clamp(70px,9vw,116px);color:#e8e4d8;opacity:.58;animation:moon-drift 8s ease-in-out infinite alternate;}
+.sky-moon svg{width:100%;height:100%;overflow:visible;fill:none;stroke:currentColor;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;filter:drop-shadow(0 0 8px #e8e4d830);}
+.sky-moon svg path+path{opacity:.72;stroke-width:1.4;stroke-dasharray:3 2;}
+.sky-star{position:absolute;top:0;left:var(--sky-x);width:var(--sky-size);height:var(--sky-size);color:#f2eee3;opacity:.82;filter:drop-shadow(0 0 5px #f2eee350);animation:starfall var(--sky-duration) linear var(--sky-delay) infinite;will-change:transform;}
+.sky-star svg{display:block;width:100%;height:100%;overflow:visible;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+.sky-star svg path+path{stroke-width:1.15;stroke-dasharray:2 1.5;opacity:.88;}
+.sky-star-1{color:#d9e4ed;opacity:.7;}
+.sky-star-2{color:#e9d9c7;opacity:.76;}
+.sky-star-3{opacity:.62;}
+@keyframes starfall{0%{transform:translate3d(0,-12vh,0) rotate(0)}100%{transform:translate3d(var(--sky-drift),115vh,0) rotate(var(--sky-turn))}}
+@keyframes moon-drift{from{transform:translate3d(0,-3px,0) rotate(-2deg)}to{transform:translate3d(0,5px,0) rotate(2deg)}}
 @media(max-width:760px){
  .article-content .architecture-map{margin:20px 0;padding:14px;}
  .architecture-map figcaption{font-size:13px;}
@@ -412,4 +419,4 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
  .architecture-branches>div{padding:10px 12px;}
  .architecture-node{padding:12px 14px;}
 }
-@media(prefers-reduced-motion:reduce){.world-background::before,.world-background::after{animation:none!important}.release-arrow{transition:none!important;}}
+@media(prefers-reduced-motion:reduce){.sky-star{animation:none!important;top:var(--sky-y);will-change:auto}.sky-moon{animation:none!important;will-change:auto}.release-arrow{transition:none!important;}}
