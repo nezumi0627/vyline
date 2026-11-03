@@ -19,6 +19,12 @@
 <p align="center">
   <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3"><img alt="Stable 1.0.3" src="https://img.shields.io/badge/version-1.0.3-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
   <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-eeeeee?style=flat-square&amp;labelColor=181818" />
+  <img alt="runtime Bun" src="https://img.shields.io/badge/runtime-Bun-000000?style=flat-square" />
+  <img alt="frontend React" src="https://img.shields.io/badge/frontend-React-61DAFB?style=flat-square" />
+  <img alt="backend Hono" src="https://img.shields.io/badge/backend-Hono-E36002?style=flat-square" />
+  <img alt="language TypeScript" src="https://img.shields.io/badge/language-TypeScript-3178C6?style=flat-square" />
+  <img alt="build Vite" src="https://img.shields.io/badge/build-Vite-646CFF?style=flat-square" />
+  <img alt="database SQLite" src="https://img.shields.io/badge/database-SQLite-003B57?style=flat-square" />
 </p>
 
 <p align="center"><a href="https://nezumi0627.github.io/Vyline/#start">Installation tour</a> · <a href="docs/features.en.md">Explore features</a> · <a href="https://nezumi0627.github.io/Vyline/#docs">Find documentation by task</a></p>
