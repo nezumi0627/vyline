@@ -125,6 +125,8 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
 .route-branches strong{padding-block:5px;border-bottom:1px solid #34363b;color:#e4e5e8;font-size:12px;font-weight:400;width:100%;}
 .route-index{position:absolute;left:8px;bottom:0;color:#85888f;font:9px ui-monospace,SFMono-Regular,Consolas,monospace;}
 .route-index b{padding-inline:8px;color:#e6e7e9;font-weight:400;}
+.route-topline,.route-foot,.route-label,.route-branches>span,.route-source small,.route-client small,.route-index{color:#fff;}
+.route-branches strong{color:#fff;}
 .destination-dock{display:none;}
 
 .route-heading{display:block;margin:16px 0 20px;}
