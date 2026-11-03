@@ -27,9 +27,12 @@ import { safePathComponent, writeTextAtomic } from "../storage/safeFile.js";
 const log = childLogger("vyline-backup");
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_BACKUP_DIR = join(_dir, "../../data/backups");
+const DEFAULT_DATA_DIR = join(_dir, "../../data");
 function backupDir(): string {
-  return process.env.VYLINE_BACKUP_DIR ?? DEFAULT_BACKUP_DIR;
+  return (
+    process.env.VYLINE_BACKUP_DIR ??
+    join(process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR, "backups")
+  );
 }
 
 const SCHEMA = "vyline-backup";

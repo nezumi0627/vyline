@@ -1,5 +1,5 @@
 import { afterAll, describe, expect, test } from "bun:test";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, stat } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -90,5 +90,46 @@ describe("VylineBackup path safety", () => {
     expect(await listBackups("recoverable-account")).toEqual([]);
     expect(await readBackup("recoverable-account", created.id)).toBeNull();
     expect(await Bun.file(path).text()).toContain('"deletedAt"');
+  });
+
+  test("defaults to VYLINE_DATA_DIR/backups and keeps accounts isolated", async () => {
+    const backupOverride = process.env.VYLINE_BACKUP_DIR;
+    Reflect.deleteProperty(process.env, "VYLINE_BACKUP_DIR");
+    try {
+      const accountId = "data-dir-account";
+      const otherAccountId = "other-data-dir-account";
+      const directory = join(process.env.VYLINE_DATA_DIR!, "backups");
+
+      expect(await listBackups(accountId)).toEqual([]);
+      expect(
+        await stat(directory).then(
+          (entry) => entry.isDirectory(),
+          () => false,
+        ),
+      ).toBe(true);
+
+      const created = await createBackup(accountId, { includeMedia: false });
+      const path = join(directory, `${created.id}.json`);
+      expect(await Bun.file(path).exists()).toBe(true);
+      expect((await listBackups(accountId)).map((item) => item.id)).toEqual([created.id]);
+      expect(await readBackup(accountId, created.id)).not.toBeNull();
+      expect(await listBackups(otherAccountId)).toEqual([]);
+      expect(await readBackup(otherAccountId, created.id)).toBeNull();
+      expect(await deleteBackup(otherAccountId, created.id)).toBe(false);
+      await expect(
+        restoreBackup(otherAccountId, created.id, { includeMedia: false }),
+      ).rejects.toThrow("バックアップが見つかりません");
+      expect(await restoreBackup(accountId, created.id, { includeMedia: false })).toEqual({
+        restoredChats: 0,
+        restoredMessages: 0,
+        restoredMedia: 0,
+      });
+      expect(await deleteBackup(accountId, created.id)).toBe(true);
+      expect(await listBackups(accountId)).toEqual([]);
+      expect(await Bun.file(path).exists()).toBe(true);
+    } finally {
+      if (backupOverride === undefined) Reflect.deleteProperty(process.env, "VYLINE_BACKUP_DIR");
+      else process.env.VYLINE_BACKUP_DIR = backupOverride;
+    }
   });
 });
