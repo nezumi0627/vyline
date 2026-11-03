@@ -1,6 +1,6 @@
 # Feature Capability Matrix
 
-最終更新: 2026-11-03
+最終更新: 2026-11-04
 
 この表は「コードが存在する」ことではなく、現在の worktree で確認できる Evidence Chain を基準に Vyline の機能状態を分類する。
 
@@ -42,7 +42,7 @@
 | Contacts | partial | 連絡先を取得・設定変更する | `GET /getContact/:targetMid` → Relation `getContactsV3`/`getTargetProfiles`; rename/settings → Talk `updateContactSetting` | `/RE4` Relation evidence corrected and documented | live contact fetch/update E2E 未実証 |
 | Groups | partial | グループ作成・招待などを行う | BFF `createChat`, `inviteIntoChat` → service → Talk `/S4` | Desktop/Talk RPC evidence reviewed | live group mutation E2E 未実証 |
 | Group Members | partial | メンバー一覧・プロフィールを見る | BFF member routes → contact/profile resolution/cache → protocol | implementation reviewed | live large-group resolution/cache convergence 未実証 |
-| OpenChat / Square | unverified | OpenChat/Square を利用する | protocol baseline に SquareService `/SQ1` と多数 RPC | lower-layer baseline reviewed | 現 worktree で専用 frontend → BFF → backend → Square chain を確認できない。通常チャットの `openChat()` は Square evidence ではない |
+| OpenChat / Square | partial | Beta opt-in 後に参加中一覧・検索・選択ルーム履歴・テキスト送信を使う | `BetaSection` → `/line/:accountId/square/*` → `squareService.ts` → SquareService `/SQ1` → account-scoped `square.sqlite` | opt-in gate / isolated cache / cursor handling / send limiter tests pass; live LINE E2E not run | threads, subrooms, roles, reactions, read, notes, media, live talk, LIFF, E2EE, region behavior and backup restore remain unverified or unsupported. See [OpenChat / Square Beta](./openchat-square.md) |
 | Album | partial | アルバム一覧/作成/編集/写真操作を行う | frontend → BFF/backend → Album REST (`legy-jp.line-apps.com`, `obs-jp.line-apps.com`) | consumer/BFF/backend chain reviewed | live external Album API 成功未実証 |
 | Note | partial | ノート作成/編集/削除/閲覧する | frontend → BFF/backend → Timeline/Note REST `/ext/note/nt/api/v57/...` | consumer/BFF/backend chain reviewed | live external Note API 成功未実証 |
 | Calls | partial | 通話開始/終了、音声送受信を行う | `useCall.ts` → `/call/start` → call manager → `/call/ws` → binary PCM → `/call/end` | frontend/BFF/session/WebSocket PCM chain reviewed | 実 LINE call E2E 成功未実証 |

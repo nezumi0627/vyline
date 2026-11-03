@@ -455,6 +455,80 @@ export const api = {
   },
 
   line: {
+    squareStatus: (accountId: string) =>
+      request<{ ok: boolean; enabled: boolean }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/status`,
+      ),
+
+    squareEnable: (accountId: string) =>
+      request<{ ok: boolean; enabled: boolean }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/enable`,
+        { enabled: true },
+      ),
+
+    squareDisable: (accountId: string) =>
+      request<{ ok: boolean; enabled: boolean }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/disable`,
+      ),
+
+    squareOverview: (accountId: string) =>
+      request<{
+        ok: boolean;
+        stale?: boolean;
+        squares: Array<{ mid: string; name: string; profileImageObsHash?: string; desc?: string }>;
+        rooms: Array<{ id: string; name?: string; parentSquareId?: string | null }>;
+      }>("GET", `/line/${encodeURIComponent(accountId)}/square/overview`),
+
+    squareSearch: (accountId: string, query: string) =>
+      request<{
+        ok: boolean;
+        error?: string;
+        retryAfterMs?: number;
+        squares?: Array<{
+          mid: string;
+          name: string;
+          desc?: string;
+          invitationURL?: string;
+          profileImageObsHash?: string;
+        }>;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/search?q=${encodeURIComponent(query)}`,
+      ),
+
+    squareMessages: (accountId: string, roomId: string, limit = 50) =>
+      request<{
+        ok: boolean;
+        stale?: boolean;
+        roomId: string;
+        messages: Array<{
+          message?: {
+            id: string;
+            text?: string;
+            createdTime?: number | string;
+            from?: string;
+            contentType?: number | string;
+          };
+        }>;
+        continuationToken: string | null;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages?limit=${limit}`,
+      ),
+
+    squareSendMessage: (accountId: string, roomId: string, operationId: string, text: string) =>
+      request<{ ok: boolean; error?: string; retryAfterMs?: number }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages`,
+        { operationId, text },
+      ),
+
+    squareClearCache: (accountId: string) =>
+      request<{ ok: boolean }>("DELETE", `/line/${encodeURIComponent(accountId)}/square/cache`),
+
     getProfile: (accountId: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/getProfile`),
 

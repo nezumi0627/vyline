@@ -9,17 +9,46 @@ import { UpdaterPage } from "@/components/updater-page";
 const ChatArea = lazy(() =>
   import("@/components/chat-area").then((module) => ({ default: module.ChatArea })),
 );
+const SquareChatPane = lazy(() =>
+  import("@/components/square-chat-pane").then((module) => ({ default: module.SquareChatPane })),
+);
+
+type SquareRoomSelection = { id: string; name?: string; squareName?: string };
 
 function ChatShellBase() {
   const screen = useStore((s) => s.screen);
   const activeChatId = useStore((s) => s.activeChatId);
+  const closeChat = useStore((s) => s.closeChat);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const collapsed = useStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useStore((s) => s.toggleSidebar);
 
   const [dragging, setDragging] = useState(false);
+  const [squareRoom, setSquareRoom] = useState<SquareRoomSelection | null>(null);
   const shellRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const selectRoom = (event: Event) => {
+      const detail = (event as CustomEvent<SquareRoomSelection>).detail;
+      if (!detail || typeof detail.id !== "string") return;
+      setSquareRoom(detail);
+      closeChat();
+    };
+    const clearRoom = () => setSquareRoom(null);
+    const onSquareSettingChanged = (event: Event) => {
+      const detail = (event as CustomEvent<{ enabled?: boolean }>).detail;
+      if (detail?.enabled === false) setSquareRoom(null);
+    };
+    window.addEventListener("vyline:square-room", selectRoom);
+    window.addEventListener("vyline:square-close", clearRoom);
+    window.addEventListener("vyline:square-changed", onSquareSettingChanged);
+    return () => {
+      window.removeEventListener("vyline:square-room", selectRoom);
+      window.removeEventListener("vyline:square-close", clearRoom);
+      window.removeEventListener("vyline:square-changed", onSquareSettingChanged);
+    };
+  }, [closeChat]);
 
   const onMove = useCallback(
     (clientX: number) => {
@@ -60,7 +89,11 @@ function ChatShellBase() {
       <div
         className={cn(
           "vy-chat-sidebar-pane h-full shrink-0 md:w-[var(--sb-w)]",
-          collapsed ? "hidden" : activeChatId ? "hidden w-full md:block" : "block w-full",
+          collapsed
+            ? "hidden"
+            : activeChatId || squareRoom
+              ? "hidden w-full md:block"
+              : "block w-full",
         )}
       >
         <Sidebar />
@@ -87,7 +120,7 @@ function ChatShellBase() {
       <div
         className={cn(
           "vy-chat-pane relative h-full min-w-0 flex-1",
-          activeChatId ? "flex" : "hidden md:flex",
+          activeChatId || squareRoom ? "flex" : "hidden md:flex",
         )}
       >
         {/* collapse / expand toggle */}
@@ -101,6 +134,14 @@ function ChatShellBase() {
         </button>
         {screen === "updater" ? (
           <UpdaterPage />
+        ) : squareRoom ? (
+          <Suspense fallback={null}>
+            <SquareChatPane
+              room={squareRoom}
+              squareName={squareRoom.squareName}
+              onBack={() => setSquareRoom(null)}
+            />
+          </Suspense>
         ) : activeChatId ? (
           <Suspense fallback={null}>
             <ChatArea />

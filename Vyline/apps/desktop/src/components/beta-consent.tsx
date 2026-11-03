@@ -1,7 +1,8 @@
 import { tr as uiText } from "@/i18n";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Button, SettingsRow, Toggle } from "@/components/vy-ui";
+import { api } from "@/api/client";
 import { WindowsLineTokenBetaPanel } from "@/components/windows-line-token-beta-panel";
 import {
   betaFeatureIdForSetting,
@@ -54,6 +55,10 @@ export function BetaSection() {
       </div>
 
       <Card>
+        <SquareBetaToggle accountId={accountId} />
+      </Card>
+
+      <Card className="mt-4">
         <SettingsRow
           title={uiText("Windows版LINEのトークン確認（Beta）")}
           description={uiText(
@@ -91,6 +96,111 @@ export function BetaSection() {
         <SqliteBlockedListConsent />
       </div>
     </Section>
+  );
+}
+
+function SquareBetaToggle({ accountId }: { accountId: string | null }) {
+  const [enabled, setEnabled] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    setEnabled(false);
+    if (!accountId)
+      return () => {
+        cancelled = true;
+      };
+    void api.line
+      .squareStatus(accountId)
+      .then((status) => {
+        if (!cancelled) setEnabled(status.enabled);
+      })
+      .catch(() => {
+        if (!cancelled) setMessage(uiText("OpenChatの設定状態を読み込めませんでした"));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId]);
+
+  const change = async (next: boolean) => {
+    if (!accountId || busy || next === enabled) return;
+    setBusy(true);
+    setMessage("");
+    try {
+      if (next) {
+        const accepted = window.confirm(
+          uiText(
+            "OpenChat Betaを有効にします。LINEのSquare APIへ接続し、参加中のOpenChat一覧と、開いたルームのメッセージをこのアカウント専用SQLiteに保存します。機能は未検証の部分があり、送信操作も可能です。有効にしますか？",
+          ),
+        );
+        const recorded = await recordBetaFeatureDecision(
+          betaFeatureIdForSetting("betaOpenChatSquare"),
+          accepted ? "accepted" : "declined",
+          { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+        );
+        if (!accepted || !recorded) {
+          setMessage(
+            uiText(accepted ? "同意履歴を保存できないためOFFのままです" : "キャンセルしました"),
+          );
+          return;
+        }
+        await api.line.squareEnable(accountId);
+        setEnabled(true);
+        window.dispatchEvent(
+          new CustomEvent("vyline:square-changed", { detail: { enabled: true } }),
+        );
+        setMessage(uiText("有効にしました。一覧を取得します"));
+        return;
+      }
+      await api.line.squareDisable(accountId);
+      setEnabled(false);
+      window.dispatchEvent(
+        new CustomEvent("vyline:square-changed", { detail: { enabled: false } }),
+      );
+      const recorded = await recordBetaFeatureDecision(
+        betaFeatureIdForSetting("betaOpenChatSquare"),
+        "withdrawn",
+        { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+      );
+      setMessage(
+        uiText(
+          recorded
+            ? "無効にしました。以後Square通信を停止します。保存済みキャッシュは保持されます。"
+            : "無効にしましたが、同意撤回履歴を保存できませんでした",
+        ),
+      );
+    } catch {
+      setMessage(
+        uiText("設定を変更できませんでした。通信が行われていないことを確認して再試行してください"),
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <SettingsRow
+      title={uiText("OpenChat / Square（Beta）")}
+      description={uiText(
+        "有効にするまでSquare APIへの通信は行いません。有効化後も選択したルームだけを同期します。",
+      )}
+    >
+      <div className="flex flex-col items-end gap-1">
+        <Toggle
+          checked={enabled}
+          onChange={(value) => void change(value)}
+          disabled={busy || !accountId}
+          label={uiText("OpenChatを有効にする")}
+        />
+        {message && (
+          <span role="status" className="max-w-72 text-right text-[11px] text-[var(--vy-text-dim)]">
+            {message}
+          </span>
+        )}
+      </div>
+    </SettingsRow>
   );
 }
 
@@ -173,9 +283,11 @@ function SqliteBlockedListConsent() {
   );
 }
 
-function Card({ children }: { children: React.ReactNode }) {
+function Card({ children, className = "" }: { children: React.ReactNode; className?: string }) {
   return (
-    <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
+    <div
+      className={`rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)] ${className}`}
+    >
       {children}
     </div>
   );
