@@ -4,7 +4,8 @@ import { guideIntents, routeFromHash } from "./navigation.js";
 const base = new URL("../", import.meta.url).pathname;
 const $ = (selector, root = document) => root.querySelector(selector);
 const $$ = (selector, root = document) => [...root.querySelectorAll(selector)];
-const pointerParallax = Boolean($(".article-layout"));
+const pointerParallax = false;
+if ($(".article-layout")) document.body.classList.add("docs-page");
 const escapeHtml = (text) => String(text).replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]);
 const normalizeSearch = (text) => String(text).normalize("NFKC").toLocaleLowerCase("ja").replace(/[\u200b-\u200d\ufeff]/g, "");
 let toastTimer;
@@ -41,6 +42,40 @@ if (sky) {
       : '<svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3c-1 7-5 11-12 13 7 2 11 6 12 13 2-7 6-11 13-13-7-2-11-6-13-13Z"/></svg>';
     sky.append(star);
   }
+}
+
+// Docs headings use one restrained line icon family to make long pages easier to scan.
+const article = $(".article-content");
+if (article) {
+  const icons = {
+    start: '<path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/>',
+    install: '<path d="M12 3v12m-5-5 5 5 5-5"/><path d="M5 17v4h14v-4"/>',
+    architecture: '<rect x="3" y="4" width="7" height="6" rx="1"/><rect x="14" y="14" width="7" height="6" rx="1"/><path d="M10 7h4v10"/>',
+    data: '<path d="M4 7h16v13H4z"/><path d="M3 4h18M8 11h8m-8 4h8"/>',
+    privacy: '<path d="M12 3 20 6v5c0 5-3.3 8-8 10-4.7-2-8-5-8-10V6z"/><path d="m9 12 2 2 4-4"/>',
+    theme: '<path d="M12 3a9 9 0 1 0 0 18h1.2a2 2 0 0 0 1.4-3.4 1.8 1.8 0 0 1 1.3-3.1H18a3 3 0 0 0 3-3c0-4.7-4-8.5-9-8.5Z"/><path d="M7.5 10h.01M10 7.5h.01M14 7.5h.01"/>',
+    operations: '<path d="M14 6a5 5 0 0 0-6.4 6.4L3 17l4 4 4.6-4.6A5 5 0 0 0 18 10l-3 3-4-4z"/>',
+    default: '<path d="M5 3h9l5 5v13H5z"/><path d="M14 3v6h5M8 13h8m-8 4h8"/>',
+  };
+  const iconFor = (text) => {
+    if (/install|導入|インストール|はじめ|使い始め|ログイン/i.test(text)) return icons.install;
+    if (/architecture|構成|データフロー|設計|protocol|通信/i.test(text)) return icons.architecture;
+    if (/data|データ|バックアップ|履歴|復元/i.test(text)) return icons.data;
+    if (/privacy|プライバシー|安全|保護|セキュリティ/i.test(text)) return icons.privacy;
+    if (/theme|テーマ|表示|外観/i.test(text)) return icons.theme;
+    if (/update|運用|開発|トラブル|診断|contribut/i.test(text)) return icons.operations;
+    if (/guide|使い方|機能/i.test(text)) return icons.start;
+    return icons.default;
+  };
+  $$('h1, h2', article).forEach((heading) => {
+    const icon = document.createElement("span");
+    icon.className = `chapter-icon${heading.tagName === "H1" ? " chapter-icon-large" : ""}`;
+    icon.setAttribute("aria-hidden", "true");
+    icon.innerHTML = `<svg viewBox="0 0 24 24" focusable="false">${iconFor(heading.textContent ?? "")}</svg>`;
+    heading.prepend(icon);
+  });
+  // The Markdown source is already linked in the global header; remove the duplicate footer link row.
+  $(".article-source", article)?.remove();
 }
 
 function notify(message) {
