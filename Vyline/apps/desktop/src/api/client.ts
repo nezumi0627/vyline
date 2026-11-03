@@ -1211,7 +1211,12 @@ export const api = {
         importedMessages?: number;
         oldestCreatedTimeMs?: number | null;
         newestCreatedTimeMs?: number | null;
-        wal?: { frameCount: number; committedTransactions: number; appliedPages: number };
+        wal?: {
+          validFrames: number;
+          committedFrames: number;
+          transactions: number;
+          updatedPages: number;
+        };
         hint?: string;
         error?: string;
       }>("POST", `/line/${accountId}/restore/desktop/history`, { databaseId, acceptedMemoryScan }),

@@ -1852,7 +1852,7 @@ function AdvancedSection() {
                       ? `${new Date(desktopHistoryResult.oldestCreatedTimeMs).toLocaleString(getIntlLocale())} – ${new Date(desktopHistoryResult.newestCreatedTimeMs).toLocaleString(getIntlLocale())}`
                       : uiText("日付範囲を確認できませんでした")}
                     {desktopHistoryResult.wal
-                      ? ` · WAL ${desktopHistoryResult.wal.frameCount} ${uiText("フレームを確認")}`
+                      ? ` · WAL ${desktopHistoryResult.wal.validFrames} ${uiText("フレームを確認")}`
                       : ""}
                   </p>
                   <p className="mt-1 text-[var(--vy-text-dim)]">
