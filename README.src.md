@@ -16,6 +16,7 @@
 <p align="center">
   <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.1.0"><img alt="安定版 1.1.0" src="https://img.shields.io/badge/version-1.1.0-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
   <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-eeeeee?style=flat-square&amp;labelColor=181818" />
+  <a href="https://技術者倫理.com"><img alt="技術者倫理 遵守済み" src="https://img.shields.io/badge/%E6%8A%80%E8%A1%93%E8%80%85%E5%80%AB%E7%90%86-%E9%81%B5%E5%AE%88%E6%B8%88%E3%81%BF-0a0a0a?style=for-the-badge&amp;labelColor=ffffff" /></a>
   <img alt="runtime Bun" src="https://img.shields.io/badge/runtime-Bun-000000?style=flat-square" />
   <img alt="frontend React" src="https://img.shields.io/badge/frontend-React-61DAFB?style=flat-square" />
   <img alt="backend Hono" src="https://img.shields.io/badge/backend-Hono-E36002?style=flat-square" />
