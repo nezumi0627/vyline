@@ -21,7 +21,18 @@ export type UiLanguage = (typeof UI_LANGUAGES)[number]["code"];
 export type ResolvedUiLanguage = Exclude<UiLanguage, "system">;
 
 const supportedLanguages: ResolvedUiLanguage[] = [
-  "ja", "en", "zh-TW", "zh-CN", "id", "ko", "es", "fr", "de", "pt-BR", "vi", "th",
+  "ja",
+  "en",
+  "zh-TW",
+  "zh-CN",
+  "id",
+  "ko",
+  "es",
+  "fr",
+  "de",
+  "pt-BR",
+  "vi",
+  "th",
 ];
 const localeLoaders = import.meta.glob<Record<string, string>>("./locales/*.json", {
   import: "default",
@@ -37,9 +48,15 @@ function resolveSystemLanguage(): ResolvedUiLanguage {
       continue;
     }
     if (!normalized) continue;
-    if (normalized.toLowerCase().startsWith("zh-tw") || normalized.toLowerCase().startsWith("zh-hant")) return "zh-TW";
+    if (
+      normalized.toLowerCase().startsWith("zh-tw") ||
+      normalized.toLowerCase().startsWith("zh-hant")
+    )
+      return "zh-TW";
     if (normalized.toLowerCase().startsWith("zh")) return "zh-CN";
-    const exact = supportedLanguages.find((language) => language.toLowerCase() === normalized.toLowerCase());
+    const exact = supportedLanguages.find(
+      (language) => language.toLowerCase() === normalized.toLowerCase(),
+    );
     if (exact) return exact;
     const base = normalized.split("-")[0]?.toLowerCase();
     const match = supportedLanguages.find((language) => language.toLowerCase() === base);
