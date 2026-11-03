@@ -25,6 +25,7 @@ export const documents = [
   ["docs/api/openapi.md", "開発", "公開API", "HTTP APIとOpenAPIの参照"],
   ["docs/CONTRIBUTING.md", "開発", "コントリビューション", "実装、調査、レビューの進め方"],
   ["docs/developers/plugin-system.md", "開発", "プラグイン開発資料", "旧実装の設計資料。現行配布版では無効"],
+  ["links/README.md", "開発", "関連リポジトリ", "Vyline本体と周辺repoの役割、依存関係"],
 ];
 
 export const platforms = {
