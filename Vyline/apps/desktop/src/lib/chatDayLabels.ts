@@ -1,3 +1,39 @@
+import { getIntlLocale, type ResolvedUiLanguage } from "../i18n/index.js";
+
+export function formatChatListTime(
+  ts: number,
+  now = new Date(),
+  locale: ResolvedUiLanguage = getIntlLocale(),
+): string {
+  const d = new Date(ts);
+  const todayUtc = Date.UTC(now.getFullYear(), now.getMonth(), now.getDate());
+  const targetUtc = Date.UTC(d.getFullYear(), d.getMonth(), d.getDate());
+  const diffDays = Math.floor((todayUtc - targetUtc) / 86_400_000);
+
+  if (diffDays === 0) {
+    return `${d.getHours().toString().padStart(2, "0")}:${d.getMinutes().toString().padStart(2, "0")}`;
+  }
+  if (diffDays === 1) {
+    return new Intl.RelativeTimeFormat(locale, { numeric: "auto" }).format(-1, "day");
+  }
+  if (diffDays >= 2 && diffDays < 7) {
+    return d.toLocaleDateString(locale, {
+      weekday: locale === "ja" || locale === "ko" ? "long" : "short",
+    });
+  }
+  if (d.getFullYear() === now.getFullYear()) {
+    return d.toLocaleDateString(locale, {
+      month: "numeric",
+      day: "numeric",
+    });
+  }
+  return d.toLocaleDateString(locale, {
+    year: "numeric",
+    month: "numeric",
+    day: "numeric",
+  });
+}
+
 export function createChatDayLabels(
   messages: readonly { createdAt: number }[],
   now = new Date(),
