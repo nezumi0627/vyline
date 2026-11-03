@@ -24,7 +24,7 @@
   <img alt="database SQLite" src="https://img.shields.io/badge/database-SQLite-003B57?style=flat-square" />
 </p>
 
-<p align="center"><a href="https://nezumi0627.github.io/Vyline/#start">導入ツアー</a> · <a href="docs/features.md">機能を知る</a> · <a href="https://nezumi0627.github.io/Vyline/#docs">目的からドキュメントを探す</a></p>
+<p align="center"><a href="https://nezumi0627.github.io/vyline/#start">導入ツアー</a> · <a href="docs/features.md">機能を知る</a> · <a href="https://nezumi0627.github.io/vyline/#docs">目的からドキュメントを探す</a> · <a href="links/">関連リポジトリ</a></p>
 
 > [!CAUTION]
 > VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用規約やアカウント、データに関するリスクを理解したうえで使用してください。[プライバシーとデータ](docs/user-guide/privacy-and-data.md)

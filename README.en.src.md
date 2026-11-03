@@ -22,7 +22,7 @@
   <img alt="database SQLite" src="https://img.shields.io/badge/database-SQLite-003B57?style=flat-square" />
 </p>
 
-<p align="center"><a href="https://nezumi0627.github.io/Vyline/#start">Installation tour</a> · <a href="docs/features.en.md">Explore features</a> · <a href="https://nezumi0627.github.io/Vyline/#docs">Find documentation by task</a></p>
+<p align="center"><a href="https://nezumi0627.github.io/vyline/#start">Installation tour</a> · <a href="docs/features.en.md">Explore features</a> · <a href="https://nezumi0627.github.io/vyline/#docs">Find documentation by task</a> · <a href="links/">Related repositories</a></p>
 
 > [!CAUTION]
 > Vyline is an unofficial client and is not affiliated with LINE Corporation or LY Corporation. Understand the risks to your account and data, as well as LINE's terms, before using it. See [Privacy and Data](docs/user-guide/privacy-and-data.en.md).
