@@ -22,4 +22,36 @@ describe("bundled UI locale catalogs", () => {
       }
     }
   });
+
+  test("localizes optional URL hints and accurately describes credential redaction", async () => {
+    const optionalUrlHints: Record<string, string> = {
+      en: "https://… (optional)",
+      "zh-TW": "https://…（選填）",
+      "zh-CN": "https://…（可选）",
+      id: "https://… (opsional)",
+      ko: "https://… (선택)",
+      es: "https://… (opcional)",
+      fr: "https://… (facultatif)",
+      de: "https://… (optional)",
+      "pt-BR": "https://… (opcional)",
+      vi: "https://… (tùy chọn)",
+      th: "https://… (ไม่บังคับ)",
+    };
+
+    for (const [locale, expected] of Object.entries(optionalUrlHints)) {
+      const catalog = (await Bun.file(
+        new URL(`./locales/${locale}.json`, import.meta.url),
+      ).json()) as Record<string, string>;
+      expect(catalog["https://…（任意）"], `${locale} optional URL hint`).toBe(expected);
+    }
+
+    const english = (await Bun.file(
+      new URL("./locales/en.json", import.meta.url),
+    ).json()) as Record<string, string>;
+    expect(
+      english[
+        "ZIPにはバージョン、端末・LINE接続情報、設定、テーマ、入力した相談内容が入ります。認証情報は伏せ、ZIPはこの端末に保存します。"
+      ],
+    ).toContain("Credentials are redacted");
+  });
 });

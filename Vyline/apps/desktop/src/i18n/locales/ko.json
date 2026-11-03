@@ -127,7 +127,7 @@
   "debug": "debug",
   "error": "error",
   "http://127.0.0.1:7890": "http://127.0.0.1:7890",
-  "https://…（任意）": "https://…（任意）",
+  "https://…（任意）": "https://… (선택)",
   "iOSバックアップ復元の進捗": "iOS 백업 복원 진행",
   "iTunes / Apple Devices の復元": "iTunes / Apple Devices 복원",
   "info": "정보",
