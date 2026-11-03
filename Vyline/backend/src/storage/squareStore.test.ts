@@ -60,6 +60,19 @@ describe("SquareStore", () => {
     store.close();
   });
 
+  test("retrieves only the requested cached message for preview authorization", () => {
+    const store = new SquareStore(":memory:");
+    store.upsertRoom({ id: "room" });
+    store.upsertMessages([
+      { roomId: "room", id: "image-message", payload: { message: { id: "image-message" } } },
+    ]);
+    expect(store.getMessage("room", "image-message")).toEqual({
+      message: { id: "image-message" },
+    });
+    expect(store.getMessage("other-room", "image-message")).toBeNull();
+    store.close();
+  });
+
   test("throttles repeated sends per room without blocking a different room", () => {
     const store = new SquareStore(":memory:");
     expect(store.reserveRoomSend("room-a", "op-1", 10_000, 1_250)).toEqual({ status: "reserved" });

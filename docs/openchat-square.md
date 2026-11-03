@@ -8,7 +8,7 @@ OpenChat 対応は Beta です。設定 > ベータ機能で「OpenChatを有効
 
 現在の実装は、参加中の OpenChat / ルーム一覧、OpenChat 内の検索、選択したルームのメッセージ取得・テキスト送信です。通常トークの Talk `/S4`・Chat・Message・既読処理とは別の `/SQ1` BFF 経路、別 UI、別 DB を使います。
 
-この実装では、参加・退出、管理者操作、ルーム設定、スレッド移動・返信、ノート投稿、メディア、既読通知、リアクション、ライブトーク、LIFF 操作は提供しません。プロトコル型や HAR に名前があることだけでは、実際の画面フロー・権限・地域差を確認したことにならないためです。役職 enum `ADMIN` / `CO_ADMIN` / `MEMBER` はありますが、現在の取得結果から本人の役職を誤認なく対応付けられていないため、オーナーの青い王冠やサブオーナー表示もまだ出しません。
+この実装は、参加中ルームの閲覧・テキスト送信に加えて、HARとprotocol実装を照合したスレッド閲覧・テキスト返信、メンバー役職表示、画像/動画/音声の遅延プレビューに対応します。メディア添付送信、ノート本文、既読通知、リアクション、役職・管理操作、ライブトーク、ルーム参加/退出は未対応です。OpenChatの「スレッド」と通常ルームの「サブルーム」は同一機能と確認できていないため、画面ではスレッドのみを扱います。
 
 ## データフロー
 
@@ -44,15 +44,29 @@ flowchart LR
 | OpenChat 検索 | 実装 | `/SQ1` `searchSquares`、2〜100 文字、結果 20 件、サーバー側 1 秒間隔制限 |
 | ルーム履歴 | 部分実装 | `/SQ1` `fetchSquareChatEvents`、1 回最大 5 ページ、継続トークン保存 |
 | テキスト送信 | 実装 | `/SQ1` `sendMessage`。ルームごと 1.25 秒間隔、操作 UUID を SQLite に記録 |
-| 添付・スタンプ | 未対応 | Square 用送信経路とメディア処理の検証が必要 |
-| スレッド / サブルーム | 未対応 | 型・イベント項目は存在するが、親子関係と API の履歴境界を fixtures で確定していない |
+| スレッド閲覧・返信 | 部分実装 | 親メッセージに記録された `threadInfo.chatThreadMid` のみ開く。`getSquareThread` で本人が `JOINED` の場合に限り `sendSquareThreadMessage` を許可。ルームごとの送信間隔と操作 UUID 重複防止を共有 |
+| メンバー・役職 | 読み取り実装 | `getSquareChatMembers` を100件ずつ取得し、SQLiteへアカウント・ルーム別に保存。`ADMIN`は青い王冠、`CO_ADMIN`は反転した王冠で表示。管理操作はなし |
+| 画像・動画・音声プレビュー | 部分実装 | `SquareMessage`の`isSquare` OBS経路を利用し、可視範囲へ近づいた時だけ取得。取得後8 MiB超を表示前に拒否するが、転送・メモリ確保前のサイズ上限ではない。URLメタデータはフェッチしない |
+| ファイル・スタンプ送信 | 未対応 | Square 用送信経路の検証が必要 |
 | 既読・リアクション | 未対応 | Square 専用 API はあるが、UI 操作・状態同期はまだ実装していない |
-| 役職・権限 | 未対応 | enum / authority API はある。本人の役職と権限表示の対応付けを未検証 |
-| ノート | 未対応 | Square Note と LINE Timeline Note を混同しない。HAR の OpenNote 経路を別途解析中 |
+| 役職・権限操作 | 部分実装 | メンバー一覧の`SquareMember.role`のみ表示。HARで取得APIを3回確認。権限変更・本人の管理者権限操作は未実装 |
+| ノート | 未対応 | HARで`getNoteStatus`を1回確認。これはノート状態取得の証拠で、本文取得・投稿の全フローは確認できていない。OpenNote系HTTP通信をSquare Note APIと同一視しない |
 | 参加・退出・管理 | 未対応 | 状態変更前の確認 UI、エラー復旧、権限条件を未確認 |
 | ライブトーク | 未対応 | 対応を示す protocol 型があっても画面フローは未検証 |
 | LIFF | 未対応 | OpenChat 内で LIFF が公式サポートされる前提は置かない |
 | E2EE | 未確認 | Square メッセージクラスに Talk E2EE 復号経路が見つからない。暗号化状態を仮定して復号しない |
+
+### HARで確認したスレッド通信
+
+提供された約98 MBのHARを、protocol packageのThrift decoderでローカル解析しました。値はレポートに出さず、要求/応答のフィールド名とRPC名だけを照合しています。
+
+- `/SQ1` の `sendSquareThreadMessage` は7回。要求は `reqSeq`、`chatMid`、`threadMid`、`threadMessage.message` を持ち、テキストでは `to`、`text`、`contentType`（`NONE`）、`toType`（`SQUARE_THREAD`）が記録されていました。応答は `createdThreadMessage` を返します。
+- `getSquareThread`、`getSquareThreadMid`、`joinSquareThread`、`leaveSquareThread`、`markThreadsAsRead` も各1回観測しました。`getSquareThread`の応答に`myThreadMember`が含まれるため、送信前に参加状態を照合します。
+- `getSquareChatMembers`は3回観測し、応答型は`SquareMember[]`でroleを持ちます。公式ヘルプでは作成者が管理者、管理者は共同管理者へ権限を移譲可能と説明されています。よってADMIN/CO_ADMINは表示にだけ使い、権限変更RPCは呼びません。
+- `fetchSquareChatEvents`の復号可能な応答から`IMAGE` 8件、`VIDEO` 0件、`AUDIO` 1件、`FILE` 1件、`STICKER` 11件などのcontent typeを確認しました。画像/動画/音声の表示経路はProtocolのSquare OBS download APIを使い、Square本文に入った任意URLは取得しません。HARで型が見つかったことは、各メディア形式のダウンロード成功を意味しません。
+- Vylineの既存 `SquareThreadMessage` 実装がHARの送信構造と一致することを確認し、同じreqseq取得・本文構造を使います。未参加スレッドへの自動参加はしません。送信本文はテキストだけです。
+- HARは単一セッションの記録であり、別アカウント・地域・スレッド状態のサーバー応答を保証しません。実ユーザーへ送信する検証やHARリプレイはしていません。
+- Squareメッセージ一覧は`(room_id, message_id)`で共通重複排除し、スレッドの同期カーソル/継続トークンはルーム本体とは別キーで管理します。
 
 ## 同期・重複排除・取消し
 
@@ -92,6 +106,8 @@ HAR は約 98 MB のため、リポジトリには含めません。解析記録
 - [LINE OpenChat ガイド](https://guide.line.me/ja/services/openchat.html)
 - [LINE ヘルプ: OpenChat の利用地域](https://help.line.me/line/smartphone?a8=.V&contentId=20014753&lang=en)
 - [LINE ヘルプ: OpenChat のサブトークと同期](https://help.line.me/line/?contentId=20024116&lang=ja)
+- [LINE ヘルプ: OpenChat 管理者向けの権限](https://help.line.me/line/?contentId=20005393&lang=ja)
+- [LINE ヘルプ: トークのノート](https://help.line.me/line/?contentId=20000246&lang=ja)
 - [LINE Developers: LIFF 概要と OpenChat の制約](https://developers.line.biz/ja/docs/liff/overview/)
 - [LINE Developers: Messaging API rate limits](https://developers.line.biz/en/tips/2026/09/10/messaging-api-rate-limits/) — Square RPC の制限値を示す資料ではありません
 

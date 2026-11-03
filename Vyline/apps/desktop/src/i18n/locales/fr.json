@@ -731,7 +731,7 @@
   "取得できるメッセージがありません": "Aucun message disponible.",
   "OpenChatにメッセージを送信": "Envoyer un message à OpenChat",
   "スレッドの親メッセージ": "Message racine du fil",
-  "スレッド返信": "Réponse au fil",
+  "スレッド返信": "Réponse du fil",
   "OpenChat": "OpenChat",
   "接続できないため保存済み一覧を表示しています": "Connexion impossible ; affichage de la liste enregistrée.",
   "接続できないため保存済みメッセージを表示しています": "Connexion impossible ; affichage des messages enregistrés.",
@@ -744,5 +744,16 @@
   "送信結果を確認できませんでした。重複送信を避けるため、履歴を更新してください": "Résultat non confirmé. Actualisez l’historique avant de réessayer afin d’éviter un doublon.",
   "OpenChat一覧を取得できません。接続状態を確認してください": "Impossible de charger les OpenChat. Vérifiez la connexion.",
   "OpenChat設定を読み込めません": "Impossible de charger les paramètres OpenChat.",
-  "テキスト以外のメッセージ（表示未対応）": "Message non textuel (affichage non pris en charge)"
+  "テキスト以外のメッセージ（表示未対応）": "Message non textuel (affichage non pris en charge)",
+  "スレッドを開く": "Ouvrir le fil",
+  "スレッドから戻る": "Retour au chat",
+  "スレッドに参加": "Rejoindre le fil",
+  "参加中…": "Participation…",
+  "スレッドの参加状態を取得できませんでした": "Impossible de vérifier la participation au fil.",
+  "スレッドに参加できませんでした": "Impossible de rejoindre le fil.",
+  "管理者": "Admin",
+  "共同管理者": "Co-admin",
+  "続きを読み込む": "Charger plus",
+  "メンバー一覧を取得できませんでした": "Impossible de charger la liste des membres.",
+  "メディアプレビューを取得できませんでした": "Impossible de charger l’aperçu du média."
 }

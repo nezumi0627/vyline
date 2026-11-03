@@ -20,6 +20,16 @@ export class SquareRoomUnavailableError extends Error {
   }
 }
 
+export class SquareThreadNotJoinedError extends Error {
+  readonly code = "SQUARE_THREAD_NOT_JOINED";
+  readonly status = 409;
+
+  constructor() {
+    super("Join this OpenChat thread before sending a reply");
+    this.name = "SquareThreadNotJoinedError";
+  }
+}
+
 /** Must run before obtaining a Square RPC or REST client. */
 export async function withSquareEnabled<T>(
   store: SquareStore,

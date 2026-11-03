@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { accountFile } from "./accountDirs.js";
 
-export type SquareEntityKind = "square" | "room" | "member";
+export type SquareEntityKind = "square" | "room" | "member" | "squareMember";
 export type SquareRoomRecord = { id: string; name?: string; parentSquareId?: string | null };
 export type SquareStoredMessage = {
   roomId: string;
@@ -248,6 +248,13 @@ export class SquareStore {
           ORDER BY created_at DESC, message_id DESC LIMIT ?`)
           .all(roomId, boundedLimit) as Array<{ payload: string }>);
     return rows.map((row) => JSON.parse(row.payload) as T).reverse();
+  }
+
+  getMessage<T>(roomId: string, messageId: string): T | null {
+    const row = this.db
+      .query("SELECT payload FROM square_messages WHERE room_id=? AND message_id=?")
+      .get(roomId, messageId) as { payload: string } | null;
+    return row ? (JSON.parse(row.payload) as T) : null;
   }
 
   clearCache(): void {

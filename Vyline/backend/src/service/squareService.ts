@@ -1,8 +1,10 @@
 import type { VylineClient } from "@vyline/protocol";
+import { enums } from "../../../packages/line-types/line_types.js";
 import type * as LINE from "../../../packages/line-types/line_types.ts";
 import {
   SquareDisabledError,
   SquareRoomUnavailableError,
+  SquareThreadNotJoinedError,
   withSquareEnabled,
 } from "./squareFeatureGate.js";
 import { getSquareStore, type SquareStore } from "../storage/squareStore.js";
@@ -12,6 +14,27 @@ const MAX_PAGES = 20;
 const MAX_EVENT_PAGES_PER_REQUEST = 5;
 const SQUARE_SEARCH_MIN_INTERVAL_MS = 1_000;
 const ROOM_SEND_COOLDOWN_MS = 1_250;
+
+export function buildSquareThreadTextRequest(
+  reqSeq: number,
+  roomId: string,
+  threadMid: string,
+  text: string,
+) {
+  return {
+    reqSeq,
+    chatMid: roomId,
+    threadMid,
+    threadMessage: {
+      message: {
+        to: roomId,
+        text,
+        contentType: "NONE" as const,
+        toType: "SQUARE_THREAD" as const,
+      },
+    },
+  };
+}
 
 function toJson(value: unknown): string {
   const result = JSON.stringify(value, (_name, item) =>
@@ -62,6 +85,35 @@ export async function setSquareFeatureEnabled(accountId: string, enabled: boolea
 
 export function getSquareFeatureStatus(accountId: string) {
   return { ok: true as const, enabled: getSquareStore(accountId).isEnabled() };
+}
+
+/** Return a stale cache only while the same enabled session is still active. */
+export function readSquareCacheForGeneration(
+  store: SquareStore,
+  generation: number,
+  roomId?: string,
+  threadMid?: string,
+) {
+  if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+  const result = roomId
+    ? {
+        ok: true as const,
+        messages: threadMid
+          ? store
+              .listMessages<{
+                threadInfo?: { chatThreadMid?: string };
+              }>(roomId, 200)
+              .filter((item) => item.threadInfo?.chatThreadMid === threadMid)
+              .slice(-100)
+          : store.listMessages(roomId, 100),
+      }
+    : {
+        ok: true as const,
+        squares: store.listEntities<LINE.Square>("square"),
+        rooms: store.listRooms(),
+      };
+  if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+  return result;
 }
 
 export async function loadSquareOverview(accountId: string, client: VylineClient) {
@@ -143,20 +195,35 @@ export async function listSquareMessages(
   roomId: string,
   client: VylineClient,
   limit = 50,
+  threadMid?: string,
 ) {
   if (!roomId || roomId.length > 512) throw new Error("invalid Square room id");
+  if (threadMid !== undefined && (!threadMid || threadMid.length > 512))
+    throw new Error("invalid Square thread id");
   const store = getSquareStore(accountId);
   return withSquareEnabled(store, async () => {
     if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    if (
+      threadMid &&
+      !store
+        .listMessages<{
+          threadInfo?: { chatThreadMid?: string };
+        }>(roomId, 200)
+        .some((item) => item.threadInfo?.chatThreadMid === threadMid)
+    ) {
+      throw new Error("Square thread was not discovered in this room");
+    }
     const generation = store.getGeneration();
     const boundedLimit = Math.max(1, Math.min(100, Math.trunc(limit)));
-    const roomCursor = store.getRoomSyncCursor(roomId);
-    let continuationToken = store.getRoomContinuationToken(roomId);
+    const stateKey = threadMid ? `thread:${roomId}:${threadMid}` : roomId;
+    const roomCursor = store.getRoomSyncCursor(stateKey);
+    let continuationToken = store.getRoomContinuationToken(stateKey);
     let nextSyncCursor = roomCursor;
     const events: LINE.SquareEvent[] = [];
     for (let page = 0; page < MAX_EVENT_PAGES_PER_REQUEST; page++) {
       const response = await client.base.square.fetchSquareChatEvents({
         squareChatMid: roomId,
+        ...(threadMid ? { threadMid } : {}),
         ...(roomCursor ? { syncToken: roomCursor } : {}),
         ...(continuationToken ? { continuationToken } : {}),
         limit: boundedLimit,
@@ -204,15 +271,23 @@ export async function listSquareMessages(
     // Don't move the durable cursor until every continuation page was applied.
     // If capped, the next call resumes from the saved continuation token.
     store.setRoomSyncState(
-      roomId,
+      stateKey,
       continuationToken ? roomCursor : nextSyncCursor,
       continuationToken,
     );
     return {
       ok: true as const,
       roomId,
-      messages: store.listMessages(roomId, boundedLimit),
+      messages: threadMid
+        ? store
+            .listMessages<{
+              threadInfo?: { chatThreadMid?: string };
+            }>(roomId, 200)
+            .filter((item) => item.threadInfo?.chatThreadMid === threadMid)
+            .slice(-boundedLimit)
+        : store.listMessages(roomId, boundedLimit),
       continuationToken,
+      threadMid: threadMid ?? null,
     };
   });
 }
@@ -255,6 +330,222 @@ export async function sendSquareText(
     const result = await client.base.square.sendMessage({ squareChatMid: roomId, text });
     if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
     return { ok: true as const, result };
+  });
+}
+
+export async function sendSquareThreadText(
+  accountId: string,
+  roomId: string,
+  threadMid: string,
+  operationId: string,
+  text: string,
+  client: VylineClient,
+) {
+  if (!roomId || roomId.length > 512 || !threadMid || threadMid.length > 512)
+    throw new Error("invalid Square thread identity");
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)
+  ) {
+    throw new Error("invalid Square operation id");
+  }
+  if (!text.trim() || text.length > 5000) throw new Error("invalid Square message text");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const knownThread = store
+      .listMessages<{ threadInfo?: { chatThreadMid?: string } }>(roomId, 200)
+      .some((item) => item.threadInfo?.chatThreadMid === threadMid);
+    if (!knownThread) throw new Error("Square thread was not discovered in this room");
+
+    const generation = store.getGeneration();
+    const thread = await client.base.square.getSquareThread({
+      request: { threadMid, includeRootMessage: false },
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    if (
+      thread.squareThread?.chatMid !== roomId ||
+      thread.myThreadMember?.membershipState !== enums.SquareThreadMembershipState.JOINED
+    ) {
+      throw new SquareThreadNotJoinedError();
+    }
+
+    const reservation = store.reserveRoomSend(
+      roomId,
+      operationId,
+      Date.now(),
+      ROOM_SEND_COOLDOWN_MS,
+    );
+    if (reservation.status === "duplicate")
+      return { ok: false as const, error: "SQUARE_SEND_ALREADY_ATTEMPTED" };
+    if (reservation.status === "cooldown") {
+      return {
+        ok: false as const,
+        error: "SQUARE_SEND_RATE_LIMIT",
+        retryAfterMs: reservation.retryAfterMs,
+      };
+    }
+
+    // Matches the verified SquareThreadMessage client path and captured request shape.
+    const result = await client.base.square.sendSquareThreadMessage({
+      request: buildSquareThreadTextRequest(
+        await client.base.getReqseq("sq"),
+        roomId,
+        threadMid,
+        text,
+      ),
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    const created = result.createdThreadMessage;
+    if (created?.message?.id) {
+      store.upsertMessages([
+        {
+          roomId,
+          id: created.message.id,
+          createdAt: asInt(created.message.createdTime),
+          revision: asInt(created.squareMessageRevision),
+          payload: {
+            eventType: "sendSquareThreadMessage",
+            state: created.state,
+            threadInfo: created.threadInfo,
+            message: created.message,
+            fromType: created.fromType,
+          },
+        },
+      ]);
+    }
+    return { ok: true as const, result };
+  });
+}
+
+function assertKnownSquareThread(store: SquareStore, roomId: string, threadMid: string): void {
+  if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+  const knownThread = store
+    .listMessages<{ threadInfo?: { chatThreadMid?: string } }>(roomId, 200)
+    .some((item) => item.threadInfo?.chatThreadMid === threadMid);
+  if (!knownThread) throw new Error("Square thread was not discovered in this room");
+}
+
+export async function loadSquareThreadContext(
+  accountId: string,
+  roomId: string,
+  threadMid: string,
+  client: VylineClient,
+) {
+  if (!roomId || roomId.length > 512 || !threadMid || threadMid.length > 512)
+    throw new Error("invalid Square thread identity");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    assertKnownSquareThread(store, roomId, threadMid);
+    const generation = store.getGeneration();
+    const result = await client.base.square.getSquareThread({
+      request: { threadMid, includeRootMessage: true },
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    if (result.squareThread?.chatMid !== roomId) throw new Error("Square thread room mismatch");
+    return {
+      ok: true as const,
+      state: result.squareThread.state,
+      membershipState: result.myThreadMember?.membershipState ?? null,
+      rootMessage: result.rootMessage,
+    };
+  });
+}
+
+export async function joinSquareThreadForAccount(
+  accountId: string,
+  roomId: string,
+  threadMid: string,
+  client: VylineClient,
+) {
+  if (!roomId || roomId.length > 512 || !threadMid || threadMid.length > 512)
+    throw new Error("invalid Square thread identity");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    assertKnownSquareThread(store, roomId, threadMid);
+    const generation = store.getGeneration();
+    const result = await client.base.square.joinSquareThread({
+      request: { chatMid: roomId, threadMid },
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    return { ok: true as const, result };
+  });
+}
+
+export async function listSquareMembers(
+  accountId: string,
+  roomId: string,
+  client: VylineClient,
+  continuationToken?: string,
+  limit = 100,
+) {
+  if (!roomId || roomId.length > 512) throw new Error("invalid Square room id");
+  if (continuationToken && continuationToken.length > 4096)
+    throw new Error("invalid Square member cursor");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const generation = store.getGeneration();
+    const response = await client.base.square.getSquareChatMembers({
+      squareChatMid: roomId,
+      limit: Math.max(1, Math.min(100, Math.trunc(limit))),
+      ...(continuationToken ? { continuationToken } : {}),
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    for (const member of response.squareChatMembers ?? []) {
+      store.upsertEntity("squareMember", member.squareMemberMid, member, roomId);
+    }
+    return {
+      ok: true as const,
+      members: response.squareChatMembers ?? [],
+      continuationToken: response.continuationToken || null,
+    };
+  });
+}
+
+export async function loadSquareMediaPreview(
+  accountId: string,
+  roomId: string,
+  messageId: string,
+  client: VylineClient,
+) {
+  if (!roomId || roomId.length > 512 || !messageId || messageId.length > 512)
+    throw new Error("invalid Square media identity");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const stored = store.getMessage<{
+      message?: { id?: string; contentType?: string | number };
+    }>(roomId, messageId);
+    const contentType = stored?.message?.contentType;
+    const previewTypes = new Set<string | number>([
+      "IMAGE",
+      "VIDEO",
+      "AUDIO",
+      enums.ContentType.IMAGE,
+      enums.ContentType.VIDEO,
+      enums.ContentType.AUDIO,
+    ]);
+    if (stored?.message?.id !== messageId || !previewTypes.has(contentType ?? "")) {
+      throw new Error("Square message has no supported media preview");
+    }
+    const generation = store.getGeneration();
+    // Always use Square OBS by message ID; never fetch URLs from message metadata.
+    const file = await client.base.obs.downloadMessageData({
+      messageId,
+      isPreview: true,
+      isSquare: true,
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    if (file.size > 8 * 1024 * 1024) throw new Error("Square preview is too large");
+    const mediaType = file.type.toLowerCase();
+    if (!/^(image|video|audio)\/[a-z0-9.+-]+$/.test(mediaType)) {
+      throw new Error("Square preview returned an unsupported media type");
+    }
+    return {
+      ok: true as const,
+      bytes: new Uint8Array(await file.arrayBuffer()),
+      mediaType,
+    };
   });
 }
 

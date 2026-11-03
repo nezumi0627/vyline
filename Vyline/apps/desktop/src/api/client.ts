@@ -499,7 +499,7 @@ export const api = {
         `/line/${encodeURIComponent(accountId)}/square/search?q=${encodeURIComponent(query)}`,
       ),
 
-    squareMessages: (accountId: string, roomId: string, limit = 50) =>
+    squareMessages: (accountId: string, roomId: string, limit = 50, threadMid?: string) =>
       request<{
         ok: boolean;
         stale?: boolean;
@@ -512,12 +512,68 @@ export const api = {
             from?: string;
             contentType?: number | string;
           };
+          threadInfo?: { chatThreadMid?: string; threadRoot?: boolean };
+        }>;
+        continuationToken: string | null;
+        threadMid: string | null;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages?limit=${limit}${threadMid ? `&threadMid=${encodeURIComponent(threadMid)}` : ""}`,
+      ),
+
+    squareThreadSendMessage: (
+      accountId: string,
+      roomId: string,
+      threadMid: string,
+      operationId: string,
+      text: string,
+    ) =>
+      request<{ ok: boolean; error?: string; retryAfterMs?: number }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/threads/${encodeURIComponent(threadMid)}/messages`,
+        { operationId, text },
+      ),
+
+    squareThreadContext: (accountId: string, roomId: string, threadMid: string) =>
+      request<{
+        ok: boolean;
+        state: number | string;
+        membershipState: number | string | null;
+        rootMessage?: unknown;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/threads/${encodeURIComponent(threadMid)}`,
+      ),
+
+    squareThreadJoin: (accountId: string, roomId: string, threadMid: string) =>
+      request<{ ok: boolean }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/threads/${encodeURIComponent(threadMid)}/join`,
+      ),
+
+    squareMembers: (accountId: string, roomId: string, cursor?: string, limit = 100) =>
+      request<{
+        ok: boolean;
+        members: Array<{
+          squareMemberMid: string;
+          displayName: string;
+          profileImageObsHash?: string;
+          role: string | number;
         }>;
         continuationToken: string | null;
       }>(
         "GET",
-        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages?limit=${limit}`,
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/members?limit=${limit}${cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""}`,
       ),
+
+    squareMediaPreview: async (accountId: string, roomId: string, messageId: string) => {
+      const fetchBackend = captureBackendFetch();
+      const response = await fetchBackend(
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/media-preview`,
+      );
+      if (!response.ok) throw new Error("Square media preview unavailable");
+      return response.blob();
+    },
 
     squareSendMessage: (accountId: string, roomId: string, operationId: string, text: string) =>
       request<{ ok: boolean; error?: string; retryAfterMs?: number }>(

@@ -744,5 +744,16 @@
   "送信結果を確認できませんでした。重複送信を避けるため、履歴を更新してください": "Hasil pengiriman tidak dapat dipastikan. Segarkan riwayat sebelum mencoba lagi untuk menghindari duplikasi.",
   "OpenChat一覧を取得できません。接続状態を確認してください": "OpenChat tidak dapat dimuat. Periksa koneksi.",
   "OpenChat設定を読み込めません": "Pengaturan OpenChat tidak dapat dimuat.",
-  "テキスト以外のメッセージ（表示未対応）": "Pesan nonteks (belum didukung)"
+  "テキスト以外のメッセージ（表示未対応）": "Pesan nonteks (belum didukung)",
+  "スレッドを開く": "Buka utas",
+  "スレッドから戻る": "Kembali ke obrolan",
+  "スレッドに参加": "Gabung utas",
+  "参加中…": "Bergabung…",
+  "スレッドの参加状態を取得できませんでした": "Status keanggotaan utas tidak dapat diperiksa.",
+  "スレッドに参加できませんでした": "Tidak dapat bergabung ke utas.",
+  "管理者": "Admin",
+  "共同管理者": "Admin bersama",
+  "続きを読み込む": "Muat lainnya",
+  "メンバー一覧を取得できませんでした": "Daftar anggota tidak dapat dimuat.",
+  "メディアプレビューを取得できませんでした": "Pratinjau media tidak dapat dimuat."
 }

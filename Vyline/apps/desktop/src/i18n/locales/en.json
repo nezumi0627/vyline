@@ -747,5 +747,16 @@
   "OpenChat検索結果": "OpenChat search results",
   "説明はありません": "No description",
   "参加中": "Joined",
-  "検索結果。参加操作は未対応です": "Search result. Joining is not supported yet."
+  "検索結果。参加操作は未対応です": "Search result. Joining is not supported yet.",
+  "スレッドを開く": "Open thread",
+  "スレッドから戻る": "Back to chat",
+  "スレッドに参加": "Join thread",
+  "参加中…": "Joining…",
+  "スレッドの参加状態を取得できませんでした": "Could not check thread membership.",
+  "スレッドに参加できませんでした": "Could not join the thread.",
+  "管理者": "Admin",
+  "共同管理者": "Co-admin",
+  "続きを読み込む": "Load more",
+  "メンバー一覧を取得できませんでした": "Could not load the member list.",
+  "メディアプレビューを取得できませんでした": "Could not load media preview."
 }

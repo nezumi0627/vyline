@@ -6,9 +6,9 @@ Last updated: 2026-11-04
 
 OpenChat support is Beta. Vyline makes no Square requests until the user enables **OpenChat** in Settings > Beta Features and records consent. While disabled, only the local account-scoped SQLite flag is read.
 
-The current implementation lists joined OpenChats/rooms, searches OpenChats, fetches messages for the selected room, and sends text. It uses a separate `/SQ1` BFF path, UI, and database from regular Talk `/S4`, Chat, Message, and read-state code.
+The current implementation lists joined OpenChats/rooms, searches OpenChats, fetches messages for a selected room, and sends text. It also supports thread reading/text replies, read-only member roles, and lazy image/video/audio previews after matching the HAR with the existing protocol implementation. It uses a separate `/SQ1` BFF path, UI, and database from regular Talk `/S4`, Chat, Message, and read-state code.
 
-Joining/leaving, administrative actions, room settings, thread navigation/replies, note publishing, media, read receipts, reactions, live talk, and LIFF are not exposed. A name in the protocol types or HAR does not establish a safe UI flow, permissions, or regional behavior. `ADMIN`, `CO_ADMIN`, and `MEMBER` role enums exist, but the current responses do not yet identify the current user's role with sufficient confidence. Owner and co-owner crowns are therefore not shown yet.
+Media attachment sending, note content, read receipts, reactions, role/admin actions, live talk, and room join/leave are not implemented. OpenChat threads have not been proven equivalent to ordinary subrooms, so the UI handles thread references only.
 
 ## Data flow
 
@@ -44,15 +44,29 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 | OpenChat search | Implemented | `/SQ1` `searchSquares`, query length 2–100, 20 results, one-second server-side interval |
 | Room messages | Partial | `/SQ1` `fetchSquareChatEvents`, at most five pages per call, persisted continuation |
 | Text send | Implemented | `/SQ1` `sendMessage`, 1.25-second per-room cooldown and SQLite operation UUID |
-| Attachments / stickers | Not supported | Square-specific send and media flows need verification |
-| Threads / subrooms | Not supported | Types and event fields exist, but parent relationships and history boundaries lack fixture-backed confirmation |
+| Thread read/reply | Partial | Opens only `threadInfo.chatThreadMid` discovered in a parent message. `getSquareThread` must confirm the user's membership is `JOINED` before `sendSquareThreadMessage`; shares per-room cooldown and operation deduplication |
+| Members / roles | Read-only | Fetches `getSquareChatMembers` in pages of 100 and caches members by account and room. `ADMIN` gets a blue crown and `CO_ADMIN` an inverted crown; no admin controls are exposed |
+| Image/video/audio previews | Partial | Uses the `SquareMessage` Square OBS path and loads lazily near the viewport. Rejects a result larger than 8 MiB after download, so this is not a transfer or pre-allocation limit. Does not fetch message metadata URLs |
+| File/sticker sending | Not supported | Square-specific send path needs verification |
 | Read / reactions | Not supported | Square APIs exist; UI actions and reconciliation are not implemented |
-| Roles / authority | Not supported | Enums and authority APIs exist; self-role mapping is unverified |
-| Notes | Not supported | Square Notes must not be confused with LINE Timeline Notes; the HAR OpenNote path needs separate analysis |
+| Role changes / authority | Partial | Displays only `SquareMember.role` from the member list. HAR showed three member-list calls. Role changes and self-admin operations are not implemented |
+| Notes | Not supported | HAR contains one `getNoteStatus`; this does not establish note-content read/post flows. Do not equate OpenNote HTTP traffic with Square Note APIs |
 | Join / leave / admin | Not supported | Confirmation UI, permissions, and recovery behavior remain unverified |
 | Live talk | Not supported | Protocol types do not establish a verified UI flow |
 | LIFF | Not supported | No assumption that LIFF works inside OpenChat |
 | E2EE | Unverified | No Talk E2EE decrypt path was found in the Square message class; do not guess how to decrypt |
+
+### Thread communication verified in the HAR
+
+The supplied ~98 MB HAR was parsed locally with the protocol package's Thrift decoder. Only RPC and field names are documented; values are omitted.
+
+- `/SQ1` contained seven `sendSquareThreadMessage` calls. The request has `reqSeq`, `chatMid`, `threadMid`, and `threadMessage.message`; text requests include `to`, `text`, `contentType` (`NONE`), and `toType` (`SQUARE_THREAD`). The response returns `createdThreadMessage`.
+- `getSquareThread`, `getSquareThreadMid`, `joinSquareThread`, `leaveSquareThread`, and `markThreadsAsRead` were each observed once. `getSquareThread` returns `myThreadMember`, which is checked before sending.
+- `getSquareChatMembers` was observed three times; its typed response is `SquareMember[]` with a role. LINE Help says the creator becomes the admin and an admin can transfer that role to a co-admin. Vyline uses ADMIN/CO_ADMIN only for display and makes no role-change calls.
+- Decodable `fetchSquareChatEvents` responses included content types such as 8 `IMAGE`, 1 `AUDIO`, 1 `FILE`, and 11 `STICKER` messages. The preview path uses the protocol's Square OBS download API and never fetches arbitrary URLs from message metadata. Seeing a type in a HAR does not prove a successful download for every media type.
+- Existing Vyline `SquareThreadMessage` code matches the captured request shape. Sending uses the same reqseq and payload shape. The app does not auto-join a thread; only text replies are enabled.
+- This is one session capture, not proof of behavior for other accounts, regions, or membership states. No live account send or HAR replay was performed.
+- Thread and room events share `(room_id, message_id)` deduplication; thread sync cursors and continuation tokens use a separate state key.
 
 ## Sync, deduplication, and deletion
 
@@ -92,6 +106,8 @@ References:
 - [LINE OpenChat guide](https://guide.line.me/ja/services/openchat.html)
 - [LINE Help: OpenChat availability](https://help.line.me/line/smartphone?a8=.V&contentId=20014753&lang=en)
 - [LINE Help: OpenChat subchats and sync](https://help.line.me/line/?contentId=20024116&lang=ja)
+- [LINE Help: OpenChat admin permissions](https://help.line.me/line/?contentId=20005393&lang=ja)
+- [LINE Help: Notes in chats](https://help.line.me/line/?contentId=20000246&lang=en)
 - [LINE Developers: LIFF overview and OpenChat limitation](https://developers.line.biz/ja/docs/liff/overview/)
 - [LINE Developers: Messaging API rate limits](https://developers.line.biz/en/tips/2026/09/10/messaging-api-rate-limits/) — this does not publish Square RPC limits
 

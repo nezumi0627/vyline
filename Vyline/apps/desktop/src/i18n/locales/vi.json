@@ -744,5 +744,16 @@
   "送信結果を確認できませんでした。重複送信を避けるため、履歴を更新してください": "Không xác định được kết quả gửi. Hãy tải lại lịch sử trước khi thử lại để tránh gửi trùng.",
   "OpenChat一覧を取得できません。接続状態を確認してください": "Không thể tải OpenChat. Hãy kiểm tra kết nối.",
   "OpenChat設定を読み込めません": "Không thể tải cài đặt OpenChat.",
-  "テキスト以外のメッセージ（表示未対応）": "Tin nhắn không phải văn bản (chưa hỗ trợ hiển thị)"
+  "テキスト以外のメッセージ（表示未対応）": "Tin nhắn không phải văn bản (chưa hỗ trợ hiển thị)",
+  "スレッドを開く": "Mở chuỗi thảo luận",
+  "スレッドから戻る": "Quay lại trò chuyện",
+  "スレッドに参加": "Tham gia chuỗi",
+  "参加中…": "Đang tham gia…",
+  "スレッドの参加状態を取得できませんでした": "Không thể kiểm tra trạng thái tham gia chuỗi.",
+  "スレッドに参加できませんでした": "Không thể tham gia chuỗi.",
+  "管理者": "Quản trị viên",
+  "共同管理者": "Đồng quản trị viên",
+  "続きを読み込む": "Tải thêm",
+  "メンバー一覧を取得できませんでした": "Không thể tải danh sách thành viên.",
+  "メディアプレビューを取得できませんでした": "Không thể tải bản xem trước nội dung."
 }

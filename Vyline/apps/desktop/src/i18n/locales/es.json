@@ -744,5 +744,16 @@
   "送信結果を確認できませんでした。重複送信を避けるため、履歴を更新してください": "No se pudo confirmar el resultado. Actualiza el historial antes de volver a enviar para evitar duplicados.",
   "OpenChat一覧を取得できません。接続状態を確認してください": "No se pudieron cargar los OpenChat. Comprueba la conexión.",
   "OpenChat設定を読み込めません": "No se pudo cargar la configuración de OpenChat.",
-  "テキスト以外のメッセージ（表示未対応）": "Mensaje no textual (visualización no compatible)"
+  "テキスト以外のメッセージ（表示未対応）": "Mensaje no textual (visualización no compatible)",
+  "スレッドを開く": "Abrir hilo",
+  "スレッドから戻る": "Volver al chat",
+  "スレッドに参加": "Unirse al hilo",
+  "参加中…": "Uniéndose…",
+  "スレッドの参加状態を取得できませんでした": "No se pudo comprobar la participación en el hilo.",
+  "スレッドに参加できませんでした": "No se pudo unir al hilo.",
+  "管理者": "Admin",
+  "共同管理者": "Co-admin",
+  "続きを読み込む": "Cargar más",
+  "メンバー一覧を取得できませんでした": "No se pudo cargar la lista de miembros.",
+  "メディアプレビューを取得できませんでした": "No se pudo cargar la vista previa del contenido."
 }
