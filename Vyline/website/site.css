@@ -92,7 +92,7 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
 
 /* A message route replaces the stock lunar scene. */
 .hero{height:calc(100svh - 88px);min-height:620px;max-height:900px;background:#08090a}
-.hero:after{background:linear-gradient(90deg,#08090a 0%,#08090a 42%,#08090ae8 54%,transparent 82%);}
+.hero:after{background:linear-gradient(90deg,rgba(8,9,10,.34) 0%,rgba(8,9,10,.28) 42%,rgba(8,9,10,.12) 72%,rgba(8,9,10,.08) 100%),linear-gradient(0deg,#08090a 0%,transparent 14%,transparent 88%,#08090a 100%);}
 .hero-inner{display:block;padding-bottom:0}
 .hero-copy{position:absolute;left:0;top:43%;transform:translateY(-50%);max-width:560px;padding:0;}
 .hero h1{font-size:clamp(50px,5.4vw,76px);line-height:1.28;letter-spacing:-.045em;}
@@ -182,7 +182,7 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
  .route-diagram{grid-template-columns:1fr 28px 120px 28px 1fr;}
  .route-client{min-height:128px;}
  .hero h1{font-size:clamp(46px,6.2vw,64px);}
- .hero:after{background:linear-gradient(90deg,#08090a 0%,#08090a 40%,#08090ad9 55%,transparent 100%);}
+ .hero:after{background:linear-gradient(90deg,rgba(8,9,10,.38) 0%,rgba(8,9,10,.3) 45%,rgba(8,9,10,.12) 100%),linear-gradient(0deg,#08090a 0%,transparent 16%,transparent 88%,#08090a 100%);}
 }
 @media(max-width:760px){
  .site-header{height:64px;}
@@ -236,7 +236,7 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
 }
 
 /* Second-pass reading hierarchy: select a route on the left, follow it on the right. */
-.hero-copy .release-note{display:inline-flex;align-items:baseline;gap:10px;margin-top:22px;padding:9px 0 0;border-top:1px solid #4a4c51;color:#c7c9cd;font:12px inherit;text-decoration:none;}
+.hero-copy .release-note{display:flex;align-items:baseline;gap:10px;margin-top:14px;padding:8px 0 0;border-top:1px solid #4a4c51;color:#c7c9cd;font:12px inherit;text-decoration:none;}
 .hero-copy .release-note>span:first-child{color:#aeb0b5;font-size:12px;}
 .hero-copy .release-note strong{color:#f5f5f5;font-size:23px;font-weight:500;letter-spacing:-.04em;line-height:1.2;}
 .hero-copy .release-note>span:last-child{color:#c7c9cd;font-size:14px;transition:transform .16s;}

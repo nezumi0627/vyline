@@ -37,6 +37,7 @@ const metadata = await Promise.all(documents.map(async ([path, category, title, 
 await mkdir(join(output, "assets"), { recursive: true });
 await writeFile(join(output, ".vyline-site"), "Vyline documentation build\n");
 for (const name of ["site.css", "site.js", "site-data.js", "navigation.js"]) await copyFile(join(source, name), join(output, "assets", name));
+await copyFile(join(source, "assets/hero-stars.png"), join(output, "assets/hero-stars.png"));
 await copyFile(join(root, "logo/assets/mono/original.svg"), join(output, "assets/logo.svg"));
 await copyFile(join(root, "logo/LICENCE"), join(output, "assets/LOGO-LICENCE.txt"));
 await writeFile(join(output, ".nojekyll"), "");
