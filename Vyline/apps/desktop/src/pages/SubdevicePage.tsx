@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams, useNavigate } from "react-router-dom";
 import { api } from "@/api/client";
@@ -67,14 +68,14 @@ export function SubdevicePage() {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[var(--vy-bg)] p-6 text-[var(--vy-text)]">
       <section className="w-full max-w-md rounded-3xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-6 shadow-xl">
-        <h1 className="text-xl font-bold">Vyline サブデバイス</h1>
+        <h1 className="text-xl font-bold">{uiText("Vyline サブデバイス")}</h1>
         <p className="mt-2 text-sm text-[var(--vy-text-dim)]">{message}</p>
         {pairingToken && message.includes("登録") && (
           <div className="mt-6 space-y-4">
             <input
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="端末名（例: iPhone）"
+              placeholder={uiText("端末名（例: iPhone）")}
               className="w-full rounded-xl border border-[var(--vy-border)] bg-transparent px-3 py-2"
             />
             <button
@@ -82,7 +83,7 @@ export function SubdevicePage() {
               onClick={() => void complete()}
               className="w-full rounded-xl bg-[var(--vy-accent)] px-4 py-3 font-semibold text-white"
             >
-              この端末を接続
+              {uiText("この端末を接続")}{" "}
             </button>
           </div>
         )}

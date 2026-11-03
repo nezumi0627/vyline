@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -97,7 +98,7 @@ export function AgentIActionDialog({
           <button
             type="button"
             onClick={onClose}
-            aria-label="閉じる"
+            aria-label={uiText("閉じる")}
             className="rounded-full p-1.5 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
           >
             <IconClose size={17} />
@@ -106,11 +107,12 @@ export function AgentIActionDialog({
         {sourceText && (
           <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
             <label className="text-xs font-semibold" htmlFor="agent-i-edit-instruction">
-              AIへの指示
+              {uiText("AIへの指示")}{" "}
             </label>
             <p className="mt-1 text-[11px] text-[var(--vy-text-dim)]">
-              例: 英語にしてください / 敬語にしてください / 数字を漢字に変えて /
-              計算して答えだけにして
+              {uiText(
+                "例: 英語にしてください / 敬語にしてください / 数字を漢字に変えて / 計算して答えだけにして",
+              )}{" "}
             </p>
             <div className="mt-2 flex gap-2">
               <input
@@ -135,11 +137,15 @@ export function AgentIActionDialog({
         {sourceText ? (
           <div className="mt-4 grid gap-3 md:grid-cols-2">
             <div className="min-h-28 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
-              <p className="mb-2 text-xs font-semibold text-[var(--vy-text-dim)]">元の文章</p>
+              <p className="mb-2 text-xs font-semibold text-[var(--vy-text-dim)]">
+                {uiText("元の文章")}
+              </p>
               <p className="whitespace-pre-wrap text-sm leading-relaxed">{sourceText}</p>
             </div>
             <div className="min-h-28 rounded-xl border border-[var(--vy-accent)]/50 bg-[var(--vy-surface-2)] p-3">
-              <p className="mb-2 text-xs font-semibold text-[var(--vy-accent)]">変更後</p>
+              <p className="mb-2 text-xs font-semibold text-[var(--vy-accent)]">
+                {uiText("変更後")}
+              </p>
               <p className="whitespace-pre-wrap text-sm leading-relaxed">
                 {loading
                   ? "Agent I が処理中…"
@@ -159,7 +165,7 @@ export function AgentIActionDialog({
               onClick={() => void navigator.clipboard?.writeText(result)}
               className="flex items-center gap-1.5 rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs"
             >
-              <IconCopyCode size={14} /> コピー
+              <IconCopyCode size={14} /> {uiText("コピー")}{" "}
             </button>
             {onApply && (
               <button
@@ -171,7 +177,7 @@ export function AgentIActionDialog({
                 className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)]"
                 style={{ background: "var(--vy-accent)" }}
               >
-                下書きに反映
+                {uiText("下書きに反映")}{" "}
               </button>
             )}
           </div>

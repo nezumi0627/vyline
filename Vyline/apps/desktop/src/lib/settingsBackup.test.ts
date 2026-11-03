@@ -7,6 +7,7 @@ describe("settings backup import", () => {
   const current = {
     settings: {
       fontScale: 0.9,
+      uiLanguage: "system",
       proxyEnabled: false,
       betaBlockedListSqliteSync: false,
       linkPreviewLimit: 3,
@@ -76,5 +77,24 @@ describe("settings backup import", () => {
 
     expect(result.settings?.linkPreviewLimit).toBe(7);
     expect(invalid.settings?.linkPreviewLimit).toBeUndefined();
+  });
+
+  test("restores supported UI languages and ignores invalid locale values", () => {
+    const supported = parseSettingsBackup(
+      JSON.stringify({ version: 2, settings: { uiLanguage: "zh-TW" } }),
+      current,
+    );
+    const invalid = parseSettingsBackup(
+      JSON.stringify({ version: 2, settings: { uiLanguage: "zh-HK" } }),
+      current,
+    );
+    const legacy = parseSettingsBackup(
+      JSON.stringify({ version: 1, settings: { fontScale: 1 } }),
+      current,
+    );
+
+    expect(supported.settings?.uiLanguage).toBe("zh-TW");
+    expect(invalid.settings?.uiLanguage).toBeUndefined();
+    expect(legacy.settings?.fontScale).toBe(1);
   });
 });

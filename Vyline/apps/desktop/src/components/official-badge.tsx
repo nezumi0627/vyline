@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 /** 公式アカウントバッジ（緑の丸 + 白チェックマーク） */
@@ -13,8 +14,8 @@ export function OfficialBadge({ className }: { className?: string }) {
         height: 14,
         background: "var(--vy-official, #06c755)",
       }}
-      aria-label="公式アカウント"
-      title="公式アカウント"
+      aria-label={uiText("公式アカウント")}
+      title={uiText("公式アカウント")}
     >
       <svg
         viewBox="0 0 24 24"

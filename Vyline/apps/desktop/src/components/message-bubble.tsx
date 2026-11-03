@@ -1,3 +1,5 @@
+import { tr as uiText } from "@/i18n";
+import { getIntlLocale } from "@/i18n";
 import { memo, useEffect, useRef, useState } from "react";
 import {
   useStore,
@@ -54,7 +56,9 @@ export async function deleteRevokedMessageFromDevice(
     !accountId ||
     useStore.getState().accountId !== accountId ||
     !window.confirm(
-      "このメッセージをこの端末のローカルDBから完全に削除します。削除後は復元できません。相手の端末には影響しません。削除しますか？",
+      uiText(
+        "このメッセージをこの端末のローカルDBから完全に削除します。削除後は復元できません。相手の端末には影響しません。削除しますか？",
+      ),
     )
   )
     return;
@@ -71,7 +75,7 @@ export async function deleteRevokedMessageFromDevice(
           },
     );
   } catch {
-    window.alert("この端末からの削除に失敗しました。もう一度お試しください。");
+    window.alert(uiText("この端末からの削除に失敗しました。もう一度お試しください。"));
   }
 }
 
@@ -93,10 +97,10 @@ function SpoilerMedia({ src, alt, video }: { src: string; alt: string; video?: b
       type="button"
       onClick={() => setRevealed(true)}
       className="flex h-40 w-[240px] flex-col items-center justify-center gap-2 rounded-xl border border-dashed border-[var(--vy-border)] bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]"
-      aria-label="メディアを表示"
+      aria-label={uiText("メディアを表示")}
     >
-      <span className="text-2xl">👁</span>
-      <span className="text-xs">画像を表示（配信者モード）</span>
+      <span className="text-2xl">{uiText("👁")}</span>
+      <span className="text-xs">{uiText("画像を表示（配信者モード）")}</span>
     </button>
   );
 }
@@ -108,7 +112,7 @@ function VideoPlayer({ src }: { src: string }) {
       controls
       playsInline
       preload="metadata"
-      aria-label="動画を再生"
+      aria-label={uiText("動画を再生")}
       className="h-auto w-[260px] max-w-full rounded-xl object-cover"
     />
   );
@@ -164,7 +168,7 @@ function LinkPreviewCard({
         {thumbnail ? (
           <img
             src={thumbnail}
-            alt=""
+            alt={uiText("")}
             loading="lazy"
             decoding="async"
             referrerPolicy="no-referrer"
@@ -506,13 +510,15 @@ function MentionSpan({
         className="inline rounded-[0.25em] px-0.5 align-baseline font-semibold underline decoration-current/60 underline-offset-2 cursor-pointer hover:brightness-125 focus-visible:outline focus-visible:outline-1 focus-visible:outline-offset-2"
         style={style}
       >
-        @{label}
+        {uiText("@")}
+        {label}
       </span>
     );
   }
   return (
     <span className="inline rounded-[0.25em] px-0.5 align-baseline font-semibold" style={style}>
-      @{label}
+      {uiText("@")}
+      {label}
     </span>
   );
 }
@@ -918,13 +924,13 @@ export const MessageBubble = memo(
       if (!accountId || message.id.startsWith("pending_")) return;
       // 公式アカウント（BOT）はリアクション不可
       if (chat.isOfficial) {
-        window.alert("公式アカウントにはリアクションできません");
+        window.alert(uiText("公式アカウントにはリアクションできません"));
         return;
       }
       // Desktop: 古いメッセージはリアクション不可
       const ageMs = Date.now() - message.createdAt;
       if (ageMs > 14 * 24 * 60 * 60 * 1000) {
-        window.alert("このメッセージは古すぎてリアクションできません");
+        window.alert(uiText("このメッセージは古すぎてリアクションできません"));
         return;
       }
       const name = (
@@ -943,7 +949,7 @@ export const MessageBubble = memo(
         .react(accountId, message.id, name as "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG")
         .then((res) => {
           if (!res.ok) {
-            window.alert(res.error ?? "リアクションに失敗しました");
+            window.alert(res.error ?? uiText("リアクションに失敗しました"));
           }
         })
         .catch(() => undefined);
@@ -967,7 +973,7 @@ export const MessageBubble = memo(
               createdTime: Date.now(),
             });
           } else {
-            window.alert("アナウンスに失敗しました");
+            window.alert(uiText("アナウンスに失敗しました"));
           }
         })
         .catch(() => undefined);
@@ -1177,11 +1183,12 @@ export const MessageBubble = memo(
 
     const readReceipt = (() => {
       if (!isMe || isRevoked) return null;
-      if (message.status === "sending") return <span className="opacity-60">送信中…</span>;
+      if (message.status === "sending")
+        return <span className="opacity-60">{uiText("送信中…")}</span>;
       if (message.status === "restricted")
-        return <span className="text-[var(--vy-danger)]">送信制限 · 再送停止</span>;
+        return <span className="text-[var(--vy-danger)]">{uiText("送信制限 · 再送停止")}</span>;
       if (message.status === "rejected")
-        return <span className="text-[var(--vy-danger)]">送信拒否 · 内容を確認</span>;
+        return <span className="text-[var(--vy-danger)]">{uiText("送信拒否 · 内容を確認")}</span>;
       if (message.status === "failed")
         return (
           <button
@@ -1192,7 +1199,7 @@ export const MessageBubble = memo(
               void retryMessage(message.id);
             }}
           >
-            送信失敗 · 再送
+            {uiText("送信失敗 · 再送")}{" "}
           </button>
         );
       if (message.status === "uncertain")
@@ -1200,7 +1207,9 @@ export const MessageBubble = memo(
           <button
             type="button"
             className="cursor-pointer underline decoration-dotted underline-offset-2 text-[var(--vy-danger)]"
-            title="通信が切れる直前に送信された可能性があります。履歴を確認してから再送してください。"
+            title={uiText(
+              "通信が切れる直前に送信された可能性があります。履歴を確認してから再送してください。",
+            )}
             onClick={async (e) => {
               e.stopPropagation();
               await refreshMessages(message.chatId, { force: true });
@@ -1210,17 +1219,19 @@ export const MessageBubble = memo(
               if (!pending?.retry) return;
               if (
                 window.confirm(
-                  "履歴で送信を確認できませんでした。送信済みの可能性は残っています。再送すると相手に同じ内容が重複して届く場合があります。それでも再送しますか？",
+                  uiText(
+                    "履歴で送信を確認できませんでした。送信済みの可能性は残っています。再送すると相手に同じ内容が重複して届く場合があります。それでも再送しますか？",
+                  ),
                 )
               ) {
                 await retryMessage(message.id);
               }
             }}
           >
-            送信結果不明 · 履歴を確認
+            {uiText("送信結果不明 · 履歴を確認")}{" "}
           </button>
         );
-      if (!message.read) return <span className="opacity-60">送信済み</span>;
+      if (!message.read) return <span className="opacity-60">{uiText("送信済み")}</span>;
       if (chat.type === "group") {
         const count = message.readBy?.length ?? 0;
         return (
@@ -1231,7 +1242,7 @@ export const MessageBubble = memo(
           </span>
         );
       }
-      return <span style={{ color: "var(--vy-accent)" }}>既読</span>;
+      return <span style={{ color: "var(--vy-accent)" }}>{uiText("既読")}</span>;
     })();
 
     const readers =
@@ -1281,7 +1292,7 @@ export const MessageBubble = memo(
                 : "編集済み"
             }
           >
-            <span className="opacity-50">·</span>
+            <span className="opacity-50">{uiText("·")}</span>
             {message.originalText ? (
               <button
                 type="button"
@@ -1294,7 +1305,7 @@ export const MessageBubble = memo(
                 {showOriginal ? "編集前を表示中" : "編集済み"}
               </button>
             ) : (
-              <span>編集済み</span>
+              <span>{uiText("編集済み")}</span>
             )}
           </span>
         )}
@@ -1305,7 +1316,7 @@ export const MessageBubble = memo(
             className="flex items-center gap-0.5 transition-colors hover:text-[var(--vy-text)]"
             aria-expanded={showReaders}
           >
-            既読者
+            {uiText("既読者")}{" "}
             <IconChevron
               size={12}
               className={cn("transition-transform", showReaders && "rotate-90")}
@@ -1371,17 +1382,17 @@ export const MessageBubble = memo(
               "vy-pop-in cursor-default",
               target.stickerSticky && "relative flex w-full justify-center py-2",
             )}
-            aria-label="スタンプ"
+            aria-label={uiText("スタンプ")}
           >
             {target.stickerSticky && (
               <span className="absolute -top-1 left-1 rounded-full bg-[color-mix(in_oklab,var(--vy-text)_15%,transparent)] px-1.5 py-0.5 text-[0.6rem] text-[var(--vy-text-dim)]">
-                くっつき
+                {uiText("くっつき")}{" "}
               </span>
             )}
             {isStickerImageSrc(target.sticker) ? (
               <img
                 src={target.stickerAnimated ? stickerAnimationUrl(target.sticker) : target.sticker}
-                alt="スタンプ"
+                alt={uiText("スタンプ")}
                 onError={hideBrokenMedia}
                 className={cn("h-32 w-32 object-contain", target.stickerSticky && "drop-shadow-md")}
                 draggable={false}
@@ -1395,7 +1406,10 @@ export const MessageBubble = memo(
 
       if (target.kind === "emoji") {
         return (
-          <div className="vy-pop-in cursor-default text-6xl leading-none" aria-label="絵文字">
+          <div
+            className="vy-pop-in cursor-default text-6xl leading-none"
+            aria-label={uiText("絵文字")}
+          >
             {target.sticons?.length ? (
               <Highlighted
                 text={target.text ?? ""}
@@ -1443,7 +1457,7 @@ export const MessageBubble = memo(
                 style={{
                   backgroundImage: `url(https://maps.googleapis.com/maps/api/staticmap?center=${target.location.latitude},${target.location.longitude}&zoom=15&size=280x128&markers=color:red%7C${target.location.latitude},${target.location.longitude}&key=)`,
                 }}
-                aria-label="地図を開く"
+                aria-label={uiText("地図を開く")}
               />
             ) : null}
             <div className="bg-[var(--vy-msg-in)] px-3 py-2 text-[var(--vy-msg-in-text)]">
@@ -1463,7 +1477,7 @@ export const MessageBubble = memo(
                   className="mt-1 inline-block text-xs font-medium"
                   style={{ color: "var(--vy-accent)" }}
                 >
-                  地図を開く
+                  {uiText("地図を開く")}{" "}
                 </a>
               )}
             </div>
@@ -1478,7 +1492,7 @@ export const MessageBubble = memo(
               {target.contact?.thumbnailUrl ? (
                 <img
                   src={target.contact.thumbnailUrl}
-                  alt=""
+                  alt={uiText("")}
                   onError={hideBrokenMedia}
                   className="h-11 w-11 rounded-full object-cover"
                 />
@@ -1489,7 +1503,9 @@ export const MessageBubble = memo(
               )}
               <div className="min-w-0">
                 <p className="truncate text-sm font-semibold">{target.contact?.name || "連絡先"}</p>
-                <p className="text-[0.65rem] text-[var(--vy-text-dim)]">連絡先が共有されました</p>
+                <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                  {uiText("連絡先が共有されました")}
+                </p>
               </div>
             </div>
           </div>
@@ -1534,11 +1550,11 @@ export const MessageBubble = memo(
                   e.stopPropagation();
                   setLightbox(true);
                 }}
-                aria-label="画像を拡大"
+                aria-label={uiText("画像を拡大")}
               >
                 <img
                   src={target.imageSrc}
-                  alt="送信された画像"
+                  alt={uiText("送信された画像")}
                   onError={hideBrokenMedia}
                   className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
                 />
@@ -1551,7 +1567,7 @@ export const MessageBubble = memo(
             <div>
               {showOriginal && target.originalText && (
                 <div className="mb-1 flex items-center justify-between border-b border-current/15 pb-1 text-[0.65rem] opacity-70">
-                  <span>編集前のメッセージ</span>
+                  <span>{uiText("編集前のメッセージ")}</span>
                   <button
                     type="button"
                     onClick={(e) => {
@@ -1560,7 +1576,7 @@ export const MessageBubble = memo(
                     }}
                     className="underline hover:opacity-100"
                   >
-                    戻す
+                    {uiText("戻す")}{" "}
                   </button>
                 </div>
               )}
@@ -1657,12 +1673,12 @@ export const MessageBubble = memo(
                 "vy-pop-in cursor-default",
                 message.stickerSticky && "relative flex w-full justify-center py-2",
               )}
-              aria-label="スタンプ"
+              aria-label={uiText("スタンプ")}
             >
               {replyQuote}
               {message.stickerSticky && (
                 <span className="absolute -top-1 left-1 rounded-full bg-[color-mix(in_oklab,var(--vy-text)_15%,transparent)] px-1.5 py-0.5 text-[0.6rem] text-[var(--vy-text-dim)]">
-                  くっつき
+                  {uiText("くっつき")}{" "}
                 </span>
               )}
               {isStickerImageSrc(message.sticker) ? (
@@ -1674,7 +1690,7 @@ export const MessageBubble = memo(
                         : message.sticker
                       : ""
                   }
-                  alt="スタンプ"
+                  alt={uiText("スタンプ")}
                   onError={hideBrokenMedia}
                   className={cn(
                     "h-32 w-32 object-contain",
@@ -1691,7 +1707,7 @@ export const MessageBubble = memo(
               type="button"
               {...pressHandlers}
               className="vy-pop-in cursor-default text-6xl leading-none"
-              aria-label="絵文字"
+              aria-label={uiText("絵文字")}
             >
               {replyQuote}
               {message.sticons?.length ? (
@@ -1742,9 +1758,9 @@ export const MessageBubble = memo(
                   target="_blank"
                   rel="noreferrer"
                   className="flex h-20 w-full items-center justify-center bg-[var(--vy-accent)]/10 text-2xl"
-                  aria-label="地図を開く"
+                  aria-label={uiText("地図を開く")}
                 >
-                  🗺️
+                  {uiText("🗺️")}{" "}
                 </a>
               ) : null}
               <div className="bg-[var(--vy-msg-in)] px-3 py-2 text-[var(--vy-msg-in-text)]">
@@ -1764,7 +1780,7 @@ export const MessageBubble = memo(
                     className="mt-1 inline-block text-xs font-medium"
                     style={{ color: "var(--vy-accent)" }}
                   >
-                    地図を開く
+                    {uiText("地図を開く")}{" "}
                   </a>
                 )}
               </div>
@@ -1777,7 +1793,7 @@ export const MessageBubble = memo(
               {replyQuote}
               <div className="flex items-center gap-3 bg-[var(--vy-msg-in)] px-3 py-3 text-[var(--vy-msg-in-text)]">
                 <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--vy-accent)]/15 text-xl">
-                  📄
+                  {uiText("📄")}{" "}
                 </span>
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-sm font-semibold">
@@ -1796,11 +1812,11 @@ export const MessageBubble = memo(
                     href={`/api/line/${encodeURIComponent(useStore.getState().accountId!)}/media/${encodeURIComponent(message.chatId)}/${encodeURIComponent(message.id)}?preview=0`}
                     download={message.file?.name || true}
                     onClick={(e) => e.stopPropagation()}
-                    aria-label="ダウンロード"
+                    aria-label={uiText("ダウンロード")}
                     className="shrink-0 rounded-md p-1.5 hover:bg-black/10"
                     style={{ color: "var(--vy-accent)" }}
                   >
-                    ⬇
+                    {uiText("⬇")}{" "}
                   </a>
                 )}
               </div>
@@ -1815,7 +1831,7 @@ export const MessageBubble = memo(
                 {message.contact?.thumbnailUrl ? (
                   <img
                     src={message.contact.thumbnailUrl}
-                    alt=""
+                    alt={uiText("")}
                     onError={hideBrokenMedia}
                     className="h-11 w-11 rounded-full object-cover"
                   />
@@ -1828,7 +1844,9 @@ export const MessageBubble = memo(
                   <p className="truncate text-sm font-semibold">
                     {message.contact?.name || "連絡先"}
                   </p>
-                  <p className="text-[0.65rem] text-[var(--vy-text-dim)]">連絡先が共有されました</p>
+                  <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
+                    {uiText("連絡先が共有されました")}
+                  </p>
                 </div>
               </div>
             </div>
@@ -1870,11 +1888,11 @@ export const MessageBubble = memo(
                         setLightboxMedia(item);
                         setLightbox(true);
                       }}
-                      aria-label="画像を拡大"
+                      aria-label={uiText("画像を拡大")}
                     >
                       <img
                         src={item.imageSrc}
-                        alt="送信された画像"
+                        alt={uiText("送信された画像")}
                         onError={hideBrokenMedia}
                         className="h-full w-full object-cover transition-opacity group-hover:opacity-95"
                       />
@@ -1896,7 +1914,11 @@ export const MessageBubble = memo(
                         src={item.imageSrc!.replace(/preview=1/, "preview=0")}
                       />
                     ) : (
-                      <SpoilerMedia key={item.id} src={item.imageSrc!} alt="送信された画像" />
+                      <SpoilerMedia
+                        key={item.id}
+                        src={item.imageSrc!}
+                        alt={uiText("送信された画像")}
+                      />
                     ),
                   )}
                 </div>
@@ -1921,11 +1943,11 @@ export const MessageBubble = memo(
                       setLightboxMedia(message);
                       setLightbox(true);
                     }}
-                    aria-label="画像を拡大"
+                    aria-label={uiText("画像を拡大")}
                   >
                     <img
                       src={message.imageSrc}
-                      alt="送信された画像"
+                      alt={uiText("送信された画像")}
                       onError={hideBrokenMedia}
                       className="max-h-[360px] max-w-[240px] object-contain transition-opacity group-hover:opacity-95"
                     />
@@ -1938,7 +1960,7 @@ export const MessageBubble = memo(
                 <div>
                   {showOriginal && message.originalText && (
                     <div className="mb-1 flex items-center justify-between border-b border-current/15 pb-1 text-[0.65rem] opacity-70">
-                      <span>編集前のメッセージ</span>
+                      <span>{uiText("編集前のメッセージ")}</span>
                       <button
                         type="button"
                         onClick={(e) => {
@@ -1947,7 +1969,7 @@ export const MessageBubble = memo(
                         }}
                         className="underline hover:opacity-100"
                       >
-                        戻す
+                        {uiText("戻す")}{" "}
                       </button>
                     </div>
                   )}
@@ -2027,18 +2049,20 @@ export const MessageBubble = memo(
           >
             <div className="max-h-[80vh] w-[360px] overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4 shadow-xl">
               <div className="mb-3 flex items-center justify-between">
-                <h3 className="text-sm font-semibold">メッセージ履歴</h3>
+                <h3 className="text-sm font-semibold">{uiText("メッセージ履歴")}</h3>
                 <button
                   type="button"
                   onClick={() => setShowHistory(false)}
                   className="rounded p-1 hover:bg-[var(--vy-surface-2)]"
                 >
-                  ✕
+                  {uiText("✕")}{" "}
                 </button>
               </div>
-              {historyLoading && <p className="text-xs text-[var(--vy-text-dim)]">読み込み中...</p>}
+              {historyLoading && (
+                <p className="text-xs text-[var(--vy-text-dim)]">{uiText("読み込み中...")}</p>
+              )}
               {!historyLoading && history.length === 0 && (
-                <p className="text-xs text-[var(--vy-text-dim)]">履歴がありません</p>
+                <p className="text-xs text-[var(--vy-text-dim)]">{uiText("履歴がありません")}</p>
               )}
               {!historyLoading &&
                 history.map((entry, i) => (
@@ -2056,10 +2080,12 @@ export const MessageBubble = memo(
                               ? "相手が削除"
                               : "自分が削除"}
                       </span>
-                      <span>{new Date(entry.updatedTime).toLocaleString()}</span>
+                      <span>{new Date(entry.updatedTime).toLocaleString(getIntlLocale())}</span>
                     </div>
                     <p className="whitespace-pre-wrap break-words text-sm">
-                      {entry.text ?? <span className="italic opacity-60">（なし）</span>}
+                      {entry.text ?? (
+                        <span className="italic opacity-60">{uiText("（なし）")}</span>
+                      )}
                     </p>
                   </div>
                 ))}

@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { cn } from "@/lib/utils";
 
 export function PremiumBadge({
@@ -21,8 +22,8 @@ export function PremiumBadge({
         background: "linear-gradient(145deg, #a855f7, #6d28d9)",
         fontSize: Math.max(8, size * 0.56),
       }}
-      aria-label="LYP Premium"
-      title="LYP Premium"
+      aria-label={uiText("LYP Premium")}
+      title={uiText("LYP Premium")}
     >
       {compact ? "" : "P"}
     </span>

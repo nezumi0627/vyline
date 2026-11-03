@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useState, useEffect, useRef, useCallback } from "react";
 import type { FormEvent } from "react";
 import { useNavigate } from "react-router-dom";
@@ -7,6 +8,7 @@ import { api } from "../api/client.js";
 import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { lineAvatarUrl } from "../utils/lineMedia.js";
+import { getIntlLocale } from "../i18n/index.js";
 
 type Tab = "email" | "qr" | "token" | "subdevice";
 type QrStatus = "idle" | "waiting" | "completed";
@@ -16,7 +18,7 @@ type TokenStatus = "idle" | "pending" | "completed" | "failed";
 function formatSavedAt(iso: string): string {
   try {
     const d = new Date(iso);
-    return d.toLocaleString("ja-JP", {
+    return d.toLocaleString(getIntlLocale(), {
       month: "numeric",
       day: "numeric",
       hour: "2-digit",
@@ -307,19 +309,25 @@ export function LoginPage() {
               onClick={backToChat}
               className="absolute left-4 top-4 flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
-              ← チャットに戻る
+              {uiText("← チャットに戻る")}{" "}
             </button>
           )}
           <div className="flex flex-col items-center mb-6 mt-4">
-            <img src="/icon-512.png" alt="" className="h-12 w-12 rounded-2xl object-contain" />
-            <h1 className="text-2xl font-bold mt-3">Vyline</h1>
-            <p className="text-[13px] text-[var(--vy-text-dim)] mt-1">LINE にログイン</p>
+            <img
+              src="/icon-512.png"
+              alt={uiText("")}
+              className="h-12 w-12 rounded-2xl object-contain"
+            />
+            <h1 className="text-2xl font-bold mt-3">{uiText("Vyline")}</h1>
+            <p className="text-[13px] text-[var(--vy-text-dim)] mt-1">
+              {uiText("LINE にログイン")}
+            </p>
           </div>
 
           {savedSessions.length > 0 && (
             <div className="mb-6">
               <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">
-                保存済みセッション
+                {uiText("保存済みセッション")}{" "}
               </p>
               <div className="space-y-2">
                 {savedSessions.map((s) => {
@@ -338,7 +346,7 @@ export function LoginPage() {
                         {thumb ? (
                           <img
                             src={thumb}
-                            alt=""
+                            alt={uiText("")}
                             className="h-full w-full object-cover"
                             referrerPolicy="no-referrer"
                           />
@@ -356,7 +364,7 @@ export function LoginPage() {
                         </p>
                         {s.reauthRequired && (
                           <p className="mt-1 text-[0.68rem] leading-relaxed text-amber-400">
-                            履歴・E2EE鍵・設定を残したまま再認証できます
+                            {uiText("履歴・E2EE鍵・設定を残したまま再認証できます")}{" "}
                           </p>
                         )}
                       </div>
@@ -380,7 +388,7 @@ export function LoginPage() {
                         className="shrink-0 rounded-lg px-2 py-1.5 text-xs text-[var(--vy-text-dim)] hover:text-red-400 disabled:opacity-50"
                         aria-label={`${name} のセッションを削除`}
                       >
-                        削除
+                        {uiText("削除")}{" "}
                       </button>
                     </div>
                   );
@@ -389,7 +397,9 @@ export function LoginPage() {
               {sessionError && <p className="mt-2 text-xs text-red-300">{sessionError}</p>}
               <div className="my-5 flex items-center gap-3">
                 <span className="h-px flex-1 bg-[var(--vy-border)]" />
-                <span className="text-[0.7rem] text-[var(--vy-text-dim)]">または新規ログイン</span>
+                <span className="text-[0.7rem] text-[var(--vy-text-dim)]">
+                  {uiText("または新規ログイン")}
+                </span>
                 <span className="h-px flex-1 bg-[var(--vy-border)]" />
               </div>
             </div>
@@ -421,7 +431,7 @@ export function LoginPage() {
               }`}
               style={tab === "subdevice" ? { background: "var(--vy-accent)" } : undefined}
             >
-              サブデバイスとして接続
+              {uiText("サブデバイスとして接続")}{" "}
             </button>
           </div>
 
@@ -434,19 +444,24 @@ export function LoginPage() {
           {tab === "email" && (
             <form onSubmit={handleEmailLogin} className="space-y-4">
               <Field
-                label="アカウント名"
+                label={uiText("アカウント名")}
                 value={accountId}
                 onChange={setAccountId}
-                placeholder="main"
+                placeholder={uiText("main")}
               />
               <Field
-                label="メールアドレス"
+                label={uiText("メールアドレス")}
                 value={email}
                 onChange={setEmail}
                 type="email"
-                placeholder="you@example.com"
+                placeholder={uiText("you@example.com")}
               />
-              <Field label="パスワード" value={password} onChange={setPassword} type="password" />
+              <Field
+                label={uiText("パスワード")}
+                value={password}
+                onChange={setPassword}
+                type="password"
+              />
               <button
                 type="submit"
                 disabled={loading}
@@ -456,7 +471,7 @@ export function LoginPage() {
                 {loading ? "ログイン中..." : "ログイン"}
               </button>
               <p className="text-center text-[0.7rem] text-[var(--vy-text-dim)]">
-                ログイン成功後、セッションは自動で保存されます
+                {uiText("ログイン成功後、セッションは自動で保存されます")}{" "}
               </p>
               {emailStatus === "pending" && emailPincode && <PinBox code={emailPincode} />}
               {emailMsg && (
@@ -468,10 +483,10 @@ export function LoginPage() {
           {tab === "qr" && (
             <div className="space-y-4">
               <Field
-                label="アカウント名"
+                label={uiText("アカウント名")}
                 value={qrAccountId}
                 onChange={setQrAccountId}
-                placeholder="main"
+                placeholder={uiText("main")}
               />
               {qrStatus === "idle" && (
                 <button
@@ -481,12 +496,12 @@ export function LoginPage() {
                   className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)]"
                   style={{ background: "var(--vy-accent)" }}
                 >
-                  QR コードを生成
+                  {uiText("QR コードを生成")}{" "}
                 </button>
               )}
               {qrStatus === "waiting" && !qrUrl && !qrExpired && (
                 <p className="text-center text-sm text-[var(--vy-text-dim)] py-8">
-                  QR コードを取得中...
+                  {uiText("QR コードを取得中...")}{" "}
                 </p>
               )}
               {(qrUrl || qrExpired) && qrStatus !== "completed" && (
@@ -503,7 +518,7 @@ export function LoginPage() {
                       className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)]"
                       style={{ background: "var(--vy-accent)" }}
                     >
-                      QR コードを再生成
+                      {uiText("QR コードを再生成")}{" "}
                     </button>
                   ) : (
                     <>
@@ -517,11 +532,11 @@ export function LoginPage() {
               )}
               {qrStatus === "completed" && (
                 <p className="text-center text-green-400 py-4">
-                  ログイン完了 — セッションを保存しました
+                  {uiText("ログイン完了 — セッションを保存しました")}{" "}
                 </p>
               )}
               <p className="text-center text-[0.7rem] text-[var(--vy-text-dim)]">
-                ログイン成功後、セッションは自動で保存されます
+                {uiText("ログイン成功後、セッションは自動で保存されます")}{" "}
               </p>
             </div>
           )}
@@ -529,19 +544,19 @@ export function LoginPage() {
           {tab === "token" && (
             <form onSubmit={handleTokenLogin} className="space-y-4">
               <Field
-                label="アカウント名"
+                label={uiText("アカウント名")}
                 value={tokenAccountId}
                 onChange={setTokenAccountId}
-                placeholder="main"
+                placeholder={uiText("main")}
               />
               <div>
                 <label className="block text-sm text-[var(--vy-text-dim)] mb-1">
-                  アクセストークン
+                  {uiText("アクセストークン")}{" "}
                 </label>
                 <textarea
                   value={authToken}
                   onChange={(e) => setAuthToken(e.target.value)}
-                  placeholder="LINE authToken を貼り付け（JWT または key:secret 形式）"
+                  placeholder={uiText("LINE authToken を貼り付け（JWT または key:secret 形式）")}
                   className="w-full rounded-xl bg-[var(--vy-surface-2)] border border-[var(--vy-border)] px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--vy-accent)] min-h-[80px] font-mono text-xs resize-y"
                   rows={4}
                 />
@@ -555,7 +570,7 @@ export function LoginPage() {
                 {loading ? "ログイン中..." : "ログイン"}
               </button>
               <p className="text-center text-[0.7rem] text-[var(--vy-text-dim)]">
-                ログイン成功後、セッションは自動で保存されます
+                {uiText("ログイン成功後、セッションは自動で保存されます")}{" "}
               </p>
               {tokenError && (
                 <div className="p-3 rounded-xl border border-red-500/40 bg-red-500/10 text-red-300 text-sm">
@@ -571,24 +586,24 @@ export function LoginPage() {
           {tab === "subdevice" && (
             <form onSubmit={handleSubdeviceConnect} className="space-y-4">
               <div className="rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">
-                <p className="font-semibold">PCのVylineに接続</p>
+                <p className="font-semibold">{uiText("PCのVylineに接続")}</p>
                 <ol className="mt-3 list-decimal space-y-2 pl-5 text-[var(--vy-text-dim)]">
-                  <li>PC側の設定から「サブデバイス」のQRコードを表示します。</li>
-                  <li>QRコードのURLをコピーして、下の欄に貼り付けます。</li>
-                  <li>「この端末を接続」を押します。</li>
+                  <li>{uiText("PC側の設定から「サブデバイス」のQRコードを表示します。")}</li>
+                  <li>{uiText("QRコードのURLをコピーして、下の欄に貼り付けます。")}</li>
+                  <li>{uiText("「この端末を接続」を押します。")}</li>
                 </ol>
               </div>
               <input
                 value={subdeviceUrl}
                 onChange={(e) => setSubdeviceUrl(e.target.value)}
-                placeholder="サブデバイス用URLを貼り付け"
+                placeholder={uiText("サブデバイス用URLを貼り付け")}
                 className="w-full rounded-xl bg-[var(--vy-surface-2)] border border-[var(--vy-border)] px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--vy-accent)]"
                 required
               />
               <input
                 value={subdeviceName}
                 onChange={(e) => setSubdeviceName(e.target.value)}
-                placeholder="端末名（任意）"
+                placeholder={uiText("端末名（任意）")}
                 className="w-full rounded-xl bg-[var(--vy-surface-2)] border border-[var(--vy-border)] px-4 py-2.5 text-sm outline-none focus:ring-2 focus:ring-[var(--vy-accent)]"
               />
               <button
@@ -639,7 +654,7 @@ function Field({
 function PinBox({ code }: { code: string }) {
   return (
     <div className="w-full rounded-xl border border-yellow-500/50 bg-yellow-500/15 px-4 py-3 text-center">
-      <p className="text-xs text-yellow-200 mb-1">LINE 端末にこの PIN を入力</p>
+      <p className="text-xs text-yellow-200 mb-1">{uiText("LINE 端末にこの PIN を入力")}</p>
       <p className="text-3xl font-bold tracking-[0.3em] text-yellow-100">{code}</p>
     </div>
   );

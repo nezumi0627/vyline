@@ -3,6 +3,7 @@
  */
 
 import type { MessageContentMeta } from "../types/index.js";
+import { getIntlLocale } from "../i18n/index.js";
 
 /** Unix ミリ秒を「今日なら HH:MM、それ以外は M/D HH:MM」に変換 */
 export function formatTime(ms: number): string {
@@ -14,9 +15,9 @@ export function formatTime(ms: number): string {
     d.getDate() === now.getDate();
 
   if (isToday) {
-    return d.toLocaleTimeString("ja-JP", { hour: "2-digit", minute: "2-digit" });
+    return d.toLocaleTimeString(getIntlLocale(), { hour: "2-digit", minute: "2-digit" });
   }
-  return d.toLocaleDateString("ja-JP", {
+  return d.toLocaleDateString(getIntlLocale(), {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",

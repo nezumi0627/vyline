@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
 import {
   useStore,
@@ -400,7 +401,11 @@ function SidebarBase() {
                   if (!accountId || blockBusy) return;
                   const mid = menu.chat.id;
                   const name = displayName(menu.chat, false);
-                  if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
+                  if (
+                    !isBlocked &&
+                    !window.confirm(uiText("「{{name}}」をブロックしますか？", { name }))
+                  )
+                    return;
                   setBlockBusy(true);
                   const req = isBlocked
                     ? api.line.unblockContact(
@@ -416,7 +421,7 @@ function SidebarBase() {
                   void req
                     .then((res) => {
                       if (!res.ok) {
-                        window.alert(res.error ?? "ブロック操作に失敗しました");
+                        window.alert(res.error ?? uiText("ブロック操作に失敗しました"));
                         return;
                       }
                       setBlockedSet((s) => {
@@ -457,7 +462,7 @@ function SidebarBase() {
           type="button"
           onClick={() => setScreen("settings")}
           className="justify-self-start rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
-          aria-label="プロフィール設定"
+          aria-label={uiText("プロフィール設定")}
         >
           <Avatar
             glyph={self.avatar}
@@ -468,8 +473,8 @@ function SidebarBase() {
         </button>
         <span className="pointer-events-none truncate text-sm font-medium tracking-wide text-[var(--vy-text)]">
           <span className="inline-flex items-center gap-1.5">
-            <img src="/icon-64.png" alt="" className="h-5 w-5 object-contain" />
-            Vyline
+            <img src="/icon-64.png" alt={uiText("")} className="h-5 w-5 object-contain" />
+            {uiText("Vyline")}{" "}
           </span>
         </span>
         <div className="ml-auto flex shrink-0 items-center gap-1">
@@ -488,7 +493,7 @@ function SidebarBase() {
           <button
             type="button"
             onClick={() => setScreen("chat")}
-            aria-label="チャット"
+            aria-label={uiText("チャット")}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
           >
             <IconChat size={19} />
@@ -496,7 +501,7 @@ function SidebarBase() {
           <button
             type="button"
             onClick={() => setScreen("settings")}
-            aria-label="設定"
+            aria-label={uiText("設定")}
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
           >
             <IconSettings size={19} />
@@ -510,18 +515,18 @@ function SidebarBase() {
           <input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="検索"
-            aria-label="チャットを検索"
+            placeholder={uiText("検索")}
+            aria-label={uiText("チャットを検索")}
             className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--vy-text-dim)]"
           />
           {query && (
             <button
               type="button"
               onClick={() => setQuery("")}
-              aria-label="検索をクリア"
+              aria-label={uiText("検索をクリア")}
               className="text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
             >
-              ×
+              {uiText("×")}{" "}
             </button>
           )}
         </div>
@@ -529,7 +534,7 @@ function SidebarBase() {
           <button
             type="button"
             onClick={() => setSortOpen((v) => !v)}
-            aria-label="並び順"
+            aria-label={uiText("並び順")}
             aria-expanded={sortOpen}
             className={cn(
               "flex h-9 w-9 items-center justify-center rounded-xl transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
@@ -545,7 +550,7 @@ function SidebarBase() {
               <div className="fixed inset-0 z-40" onClick={() => setSortOpen(false)} aria-hidden />
               <div className="vy-scale-in absolute right-0 top-11 z-50 w-40 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1 shadow-2xl">
                 <p className="px-3 py-1.5 text-[0.7rem] font-medium text-[var(--vy-text-dim)]">
-                  並び順
+                  {uiText("並び順")}{" "}
                 </p>
                 {SORTS.map((s) => (
                   <button
@@ -571,7 +576,7 @@ function SidebarBase() {
                   className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
                 >
                   <IconCheck size={15} />
-                  すべて既読にする
+                  {uiText("すべて既読にする")}{" "}
                 </button>
               </div>
             </>
@@ -582,7 +587,9 @@ function SidebarBase() {
       {midQuery && midQuery !== self.mid && (
         <div className="mx-3 mb-2 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
           {midLoading && (
-            <p className="text-xs text-[var(--vy-text-dim)]">MIDからプロフィールを検索中…</p>
+            <p className="text-xs text-[var(--vy-text-dim)]">
+              {uiText("MIDからプロフィールを検索中…")}
+            </p>
           )}
           {midProfile && (
             <button
@@ -606,7 +613,7 @@ function SidebarBase() {
                 </span>
               </span>
               <span className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs">
-                プロフィール
+                {uiText("プロフィール")}{" "}
               </span>
             </button>
           )}
@@ -616,7 +623,9 @@ function SidebarBase() {
             </p>
           )}
           {!midLoading && !midProfile && !midNotice && (
-            <p className="text-xs text-[var(--vy-text-dim)]">プロフィールを取得できませんでした</p>
+            <p className="text-xs text-[var(--vy-text-dim)]">
+              {uiText("プロフィールを取得できませんでした")}
+            </p>
           )}
         </div>
       )}
@@ -650,14 +659,14 @@ function SidebarBase() {
             className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--vy-border)] px-3 py-2 text-xs font-medium text-[var(--vy-accent)] transition-colors hover:bg-[var(--vy-surface-2)]"
           >
             <IconPlus size={14} />
-            グループを作成
+            {uiText("グループを作成")}{" "}
           </button>
         </div>
       )}
 
       {sort === "custom" && (
         <p className="vy-sidebar-sort-hint px-4 pb-1.5 text-[0.7rem] text-[var(--vy-text-dim)]">
-          ドラッグして並び替え
+          {uiText("ドラッグして並び替え")}{" "}
         </p>
       )}
 
@@ -868,8 +877,8 @@ const ChatRow = memo(function ChatRow({
         />
         {blocked && (
           <span
-            title="ブロック済み"
-            aria-label="ブロック済み"
+            title={uiText("ブロック済み")}
+            aria-label={uiText("ブロック済み")}
             className={cn(
               "absolute -bottom-0.5 -right-0.5 flex h-4 w-4 items-center justify-center rounded-full text-white shadow-sm ring-2 ring-[var(--vy-surface)]",
               "bg-[var(--vy-danger)]",
@@ -1062,7 +1071,7 @@ function AccountSwitcher() {
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">
               <IconPlus size={14} />
             </span>
-            アカウントを追加
+            {uiText("アカウントを追加")}{" "}
           </button>
           <button
             type="button"
@@ -1073,7 +1082,7 @@ function AccountSwitcher() {
             <span className="flex h-7 w-7 items-center justify-center rounded-full bg-[var(--vy-surface-2)]">
               <IconLogout size={14} />
             </span>
-            ログアウト
+            {uiText("ログアウト")}{" "}
           </button>
         </div>
       )}

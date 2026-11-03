@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import {
   useState,
   type ButtonHTMLAttributes,
@@ -136,7 +137,7 @@ export function Avatar({
       {showImg ? (
         <img
           src={lineAvatarUrl(imageUrl!)}
-          alt=""
+          alt={uiText("")}
           onError={() => setBroken(true)}
           className={cn(
             "h-full w-full rounded-full object-cover",

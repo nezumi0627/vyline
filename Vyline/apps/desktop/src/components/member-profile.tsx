@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useMemo, useState, type CSSProperties } from "react";
 import {
   useStore,
@@ -144,7 +145,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
   const blockMember = async () => {
     if (!accountId || busy) return;
     const isBlocked = useStore.getState().blockedMids.includes(member.id);
-    if (!isBlocked && !window.confirm(`「${name}」をブロックしますか？`)) return;
+    if (!isBlocked && !window.confirm(uiText("「{{name}}」をブロックしますか？", { name }))) return;
     setBusy(true);
     setMsg(null);
     try {
@@ -218,7 +219,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           <button
             type="button"
             onClick={close}
-            aria-label="閉じる"
+            aria-label={uiText("閉じる")}
             className="absolute right-3 top-3 z-20 flex h-8 w-8 items-center justify-center rounded-full bg-[var(--vy-surface)] text-[var(--vy-text)] transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           >
             <IconClose size={16} />
@@ -252,13 +253,17 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
             </p>
             {!streamerMode && (rich.statusMessage || isOfficial || isBlocked) && (
               <div className="mt-5 w-full space-y-2 border-t border-[var(--vy-border)] pt-4 text-left text-[var(--vy-text)]">
-                {rich.statusMessage && <TinyInfo label="ステメ" value={rich.statusMessage} />}
+                {rich.statusMessage && (
+                  <TinyInfo label={uiText("ステメ")} value={rich.statusMessage} />
+                )}
                 {isOfficial && (
                   <span className="inline-flex rounded-full bg-[var(--vy-surface-2)] px-2.5 py-1 text-[0.65rem] font-medium text-[var(--vy-text)]">
-                    公式アカウント
+                    {uiText("公式アカウント")}{" "}
                   </span>
                 )}
-                {isBlocked && <TinyInfo label="状態" value="アカウントをブロックしています" />}
+                {isBlocked && (
+                  <TinyInfo label={uiText("状態")} value="アカウントをブロックしています" />
+                )}
               </div>
             )}
           </div>
@@ -266,18 +271,18 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
           <div className="relative z-10 grid grid-cols-3 gap-2 p-4">
             <MiniAction
               icon={<IconChat size={18} />}
-              label="トーク"
+              label={uiText("トーク")}
               onClick={() => openDirectChatWith(member.id)}
             />
             <MiniAction
               icon={<IconPhone size={18} />}
-              label="音声通話"
+              label={uiText("音声通話")}
               disabled={!canCall || Boolean(call)}
               onClick={() => void startCall(member.id, "voice")}
             />
             <MiniAction
               icon={<IconVideo size={18} />}
-              label="ビデオ通話"
+              label={uiText("ビデオ通話")}
               disabled={!canCall || Boolean(call)}
               onClick={() => void startCall(member.id, "video")}
             />
@@ -301,7 +306,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
             <div className="relative z-10 border-t border-[var(--vy-border)] px-4 pb-4 pt-2">
               <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                 <IconUsers size={14} />
-                共通のグループ
+                {uiText("共通のグループ")}{" "}
                 {commonGroups.length > 0 && (
                   <span className="rounded-full bg-[var(--vy-surface-2)] px-2 py-0.5 text-[0.65rem]">
                     {commonGroups.length}
@@ -310,7 +315,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
               </div>
               {commonGroups.length === 0 ? (
                 <p className="text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                  履歴を読み込んだグループの中に共通グループは見つかりませんでした
+                  {uiText("履歴を読み込んだグループの中に共通グループは見つかりませんでした")}{" "}
                 </p>
               ) : (
                 <ul className="max-h-40 space-y-1 overflow-y-auto vy-scroll">
@@ -371,7 +376,9 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
 function TinyInfo({ label, value }: { label: string; value: string }) {
   return (
     <p className="break-words text-sm leading-relaxed">
-      <span className="text-[var(--vy-text-dim)]">{label} · </span>
+      <span className="text-[var(--vy-text-dim)]">
+        {label} {uiText("·")}{" "}
+      </span>
       <span>{value}</span>
     </p>
   );

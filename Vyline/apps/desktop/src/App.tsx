@@ -1,6 +1,7 @@
 import { lazy, Suspense } from "react";
 import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { VylineApp } from "./pages/VylineApp.js";
+import { useTranslation } from "react-i18next";
 
 const LoginPage = lazy(() =>
   import("./pages/LoginPage.js").then((module) => ({ default: module.LoginPage })),
@@ -16,6 +17,9 @@ const UiCatalogPage = lazy(() =>
 );
 
 export function App() {
+  // Subscribe once at the router root so non-hook leaf components also refresh
+  // when the locale changes; active chat and draft stores are left untouched.
+  useTranslation();
   return (
     <BrowserRouter>
       <Suspense fallback={null}>

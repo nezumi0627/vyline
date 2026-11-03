@@ -1,3 +1,5 @@
+import { tr as uiText } from "@/i18n";
+import { getIntlLocale } from "@/i18n";
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -222,12 +224,12 @@ export function AlbumModal({
           disabled={busy}
           className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
           onClick={() => {
-            const title = window.prompt("アルバム名");
+            const title = window.prompt(uiText("アルバム名"));
             if (title?.trim())
               void runAlbum(() => api.line.albums.create(accountId, chatId, title.trim()));
           }}
         >
-          新規作成
+          {uiText("新規作成")}{" "}
         </button>
         <button
           type="button"
@@ -239,23 +241,25 @@ export function AlbumModal({
               .catch((e) => setError(e instanceof Error ? e.message : String(e)))
           }
         >
-          プレビュー確認
+          {uiText("プレビュー確認")}{" "}
         </button>
       </div>
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs text-[var(--vy-text-dim)]">アルバム一覧</span>
+        <span className="text-xs text-[var(--vy-text-dim)]">{uiText("アルバム一覧")}</span>
         <button
           type="button"
           disabled={busy}
           className="text-xs text-[var(--vy-accent)] disabled:opacity-50"
           onClick={() => void refresh()}
         >
-          再読み込み
+          {uiText("再読み込み")}{" "}
         </button>
       </div>
       <div className="max-h-56 space-y-1 overflow-y-auto">
         {albums.length === 0 ? (
-          <p className="py-5 text-center text-xs text-[var(--vy-text-dim)]">アルバムがありません</p>
+          <p className="py-5 text-center text-xs text-[var(--vy-text-dim)]">
+            {uiText("アルバムがありません")}
+          </p>
         ) : (
           albums.map((album, index) => {
             const id = String(album.albumId ?? album.id ?? "");
@@ -285,14 +289,14 @@ export function AlbumModal({
               disabled={busy}
               className="rounded-lg border border-[var(--vy-border)] py-2 disabled:opacity-50"
               onClick={() => {
-                const title = window.prompt("新しいアルバム名");
+                const title = window.prompt(uiText("新しいアルバム名"));
                 if (title?.trim())
                   void runAlbum(() =>
                     api.line.albums.rename(accountId, selectedId, chatId, title.trim()),
                   );
               }}
             >
-              名前変更
+              {uiText("名前変更")}{" "}
             </button>
             <button
               type="button"
@@ -302,10 +306,10 @@ export function AlbumModal({
                 void runAlbum(() => api.line.albums.share(accountId, selectedId, chatId), false)
               }
             >
-              共有
+              {uiText("共有")}{" "}
             </button>
             <label className="cursor-pointer rounded-lg border border-[var(--vy-border)] py-2 text-center">
-              写真追加
+              {uiText("写真追加")}{" "}
               <input
                 className="hidden"
                 type="file"
@@ -329,13 +333,13 @@ export function AlbumModal({
                 })
               }
             >
-              アルバム削除
+              {uiText("アルバム削除")}{" "}
             </button>
           </div>
           <div className="mt-3 grid max-h-64 grid-cols-3 gap-2 overflow-y-auto rounded-lg border border-[var(--vy-border)] p-2">
             {photos.length === 0 ? (
               <p className="col-span-3 py-4 text-center text-xs text-[var(--vy-text-dim)]">
-                写真がありません
+                {uiText("写真がありません")}{" "}
               </p>
             ) : (
               photos.map((photo, index) => {
@@ -367,7 +371,7 @@ export function AlbumModal({
                     ) : (
                       <img
                         src={src}
-                        alt="アルバム写真"
+                        alt={uiText("アルバム写真")}
                         loading="lazy"
                         className="aspect-square w-full rounded-md object-cover"
                       />
@@ -383,7 +387,7 @@ export function AlbumModal({
                         )
                       }
                     >
-                      削除
+                      {uiText("削除")}{" "}
                     </button>
                   </div>
                 );
@@ -398,7 +402,7 @@ export function AlbumModal({
   return embedded ? (
     <div className="px-1 pb-4">{content}</div>
   ) : (
-    <Modal title="アルバム" onClose={onClose}>
+    <Modal title={uiText("アルバム")} onClose={onClose}>
       {content}
     </Modal>
   );
@@ -534,7 +538,7 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
               <img
                 key={`${id}-${index}`}
                 src={lineStickerUrl(id)}
-                alt="スタンプ"
+                alt={uiText("スタンプ")}
                 className="h-16 w-16 object-contain"
               />
             ) : null;
@@ -565,7 +569,7 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
               <img
                 key={`${objectId}-${index}`}
                 src={src}
-                alt="ノート画像"
+                alt={uiText("ノート画像")}
                 className="max-h-48 w-full object-cover"
               />
             );
@@ -573,7 +577,7 @@ function NoteBody({ item, compact = false }: { item: NoteView; compact?: boolean
         </div>
       )}
       {!item.text && item.stickers.length === 0 && item.media.length === 0 && (
-        <p className="text-sm text-[var(--vy-text-dim)]">（内容のないノート）</p>
+        <p className="text-sm text-[var(--vy-text-dim)]">{uiText("（内容のないノート）")}</p>
       )}
     </>
   );
@@ -717,22 +721,22 @@ export function NoteModal({
   const editor = (
     <div className="space-y-4">
       <div>
-        <p className="mb-1.5 text-xs font-medium text-[var(--vy-text-dim)]">本文</p>
+        <p className="mb-1.5 text-xs font-medium text-[var(--vy-text-dim)]">{uiText("本文")}</p>
         <textarea
           className={cn(inputCls, "min-h-32 resize-y")}
           value={text}
           onChange={(e) => setText(e.target.value)}
-          placeholder="ノートを書いてください"
+          placeholder={uiText("ノートを書いてください")}
         />
       </div>
       <label className="flex cursor-pointer items-center justify-between rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-3">
         <span>
-          <span className="block text-sm font-medium">画像・動画を追加</span>
+          <span className="block text-sm font-medium">{uiText("画像・動画を追加")}</span>
           <span className="block text-xs text-[var(--vy-text-dim)]">
             {media.length ? `${media.length}件アップロード済み` : "複数選択できます"}
           </span>
         </span>
-        <span className="text-lg">＋</span>
+        <span className="text-lg">{uiText("＋")}</span>
         <input
           type="file"
           accept="image/*,video/*"
@@ -746,18 +750,18 @@ export function NoteModal({
       </label>
       <details className="rounded-xl border border-[var(--vy-border)] px-3 py-2.5">
         <summary className="cursor-pointer text-xs font-medium text-[var(--vy-text-dim)]">
-          詳細オプション
+          {uiText("詳細オプション")}{" "}
         </summary>
         <div className="mt-3 space-y-3">
           <div className="grid grid-cols-2 gap-2">
-            <Field label="スタンプID">
+            <Field label={uiText("スタンプID")}>
               <input
                 className={inputCls}
                 value={stickerId}
                 onChange={(e) => setStickerId(e.target.value)}
               />
             </Field>
-            <Field label="パッケージID">
+            <Field label={uiText("パッケージID")}>
               <input
                 className={inputCls}
                 value={stickerPackageId}
@@ -765,7 +769,7 @@ export function NoteModal({
               />
             </Field>
           </div>
-          <Field label="共有元 postId">
+          <Field label={uiText("共有元 postId")}>
             <input
               className={inputCls}
               value={sharedPostId}
@@ -783,7 +787,7 @@ export function NoteModal({
             setMode(mode === "edit" ? "detail" : "list");
           }}
         >
-          キャンセル
+          {uiText("キャンセル")}{" "}
         </button>
         <button
           type="button"
@@ -814,12 +818,12 @@ export function NoteModal({
         <NoteBody item={selectedSummary} />
         {selectedSummary.createdTime > 0 && (
           <p className="mt-3 text-[10px] text-[var(--vy-text-dim)]">
-            {new Date(selectedSummary.createdTime).toLocaleString("ja-JP")}
+            {new Date(selectedSummary.createdTime).toLocaleString(getIntlLocale())}
           </p>
         )}
         {selectedSummary.sharedPostId && (
           <p className="mt-2 break-all text-xs text-[var(--vy-text-dim)]">
-            共有元: {selectedSummary.sharedPostId}
+            {uiText("共有元:")} {selectedSummary.sharedPostId}
           </p>
         )}
       </div>
@@ -829,7 +833,7 @@ export function NoteModal({
           className="flex-1 rounded-xl border border-[var(--vy-border)] py-2 text-sm"
           onClick={() => setMode("edit")}
         >
-          編集
+          {uiText("編集")}{" "}
         </button>
         <button
           type="button"
@@ -837,11 +841,11 @@ export function NoteModal({
           className="flex-1 rounded-xl border border-[var(--vy-border)] py-2 text-sm disabled:opacity-50"
           onClick={() => void run(() => api.line.notes.share(accountId, selectedId, chatId), false)}
         >
-          チャットへ共有
+          {uiText("チャットへ共有")}{" "}
         </button>
       </div>
       <div className="rounded-2xl border border-[var(--vy-border)] p-3">
-        <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">コメント</p>
+        <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">{uiText("コメント")}</p>
         {comments.length > 0 && (
           <div className="mb-3 space-y-2">
             {comments.map((item, index) => {
@@ -863,7 +867,7 @@ export function NoteModal({
                         src={lineCdnProxy(
                           `https://obs.line-apps.com/r/${encodeURIComponent(serviceName)}/${encodeURIComponent(obsNamespace)}/${encodeURIComponent(objectId)}`,
                         )}
-                        alt="コメント画像"
+                        alt={uiText("コメント画像")}
                         className="mt-2 max-h-44 rounded-lg object-contain"
                       />
                     );
@@ -880,7 +884,7 @@ export function NoteModal({
                           }, false)
                         }
                       >
-                        リアクション
+                        {uiText("リアクション")}{" "}
                       </button>
                       <button
                         type="button"
@@ -892,7 +896,7 @@ export function NoteModal({
                           }, false)
                         }
                       >
-                        解除
+                        {uiText("解除")}{" "}
                       </button>
                       <button
                         type="button"
@@ -905,7 +909,7 @@ export function NoteModal({
                           }, false)
                         }
                       >
-                        取り消し
+                        {uiText("取り消し")}{" "}
                       </button>
                     </div>
                   )}
@@ -919,7 +923,7 @@ export function NoteModal({
             className={cn(inputCls, "flex-1")}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
-            placeholder="コメントを入力"
+            placeholder={uiText("コメントを入力")}
           />
           <button
             type="button"
@@ -933,11 +937,11 @@ export function NoteModal({
               }, false)
             }
           >
-            送信
+            {uiText("送信")}{" "}
           </button>
         </div>
         <label className="mt-2 inline-block cursor-pointer text-xs text-[var(--vy-accent)]">
-          画像を添付
+          {uiText("画像を添付")}{" "}
           <input
             type="file"
             accept="image/*"
@@ -964,7 +968,7 @@ export function NoteModal({
       </div>
       <details className="rounded-2xl border border-[var(--vy-border)] p-3">
         <summary className="cursor-pointer text-xs font-medium text-[var(--vy-text-dim)]">
-          リアクション・その他
+          {uiText("リアクション・その他")}{" "}
         </summary>
         <div className="mt-3 grid grid-cols-2 gap-2">
           <select
@@ -974,7 +978,7 @@ export function NoteModal({
           >
             {["1001", "1002", "1003", "1004", "1005", "1006"].map((v) => (
               <option key={v} value={v}>
-                リアクション {v}
+                {uiText("リアクション")} {v}
               </option>
             ))}
           </select>
@@ -986,7 +990,7 @@ export function NoteModal({
               void run(() => api.line.notes.like(accountId, selectedId, chatId, likeType), false)
             }
           >
-            リアクション
+            {uiText("リアクション")}{" "}
           </button>
           <button
             type="button"
@@ -996,7 +1000,7 @@ export function NoteModal({
               void run(() => api.line.notes.unlike(accountId, selectedId, chatId), false)
             }
           >
-            解除
+            {uiText("解除")}{" "}
           </button>
           <button
             type="button"
@@ -1012,7 +1016,7 @@ export function NoteModal({
               }, false)
             }
           >
-            確認
+            {uiText("確認")}{" "}
           </button>
         </div>
         {likeInfo && (
@@ -1032,7 +1036,7 @@ export function NoteModal({
           })
         }
       >
-        ノートを削除
+        {uiText("ノートを削除")}{" "}
       </button>
     </div>
   ) : null;
@@ -1041,8 +1045,11 @@ export function NoteModal({
     <div>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold">ノート</p>
-          <p className="text-xs text-[var(--vy-text-dim)]">{posts.length}件</p>
+          <p className="text-sm font-semibold">{uiText("ノート")}</p>
+          <p className="text-xs text-[var(--vy-text-dim)]">
+            {posts.length}
+            {uiText("件")}
+          </p>
         </div>
         <div className="flex gap-2">
           <button
@@ -1050,7 +1057,7 @@ export function NoteModal({
             className="rounded-lg px-2.5 py-2 text-xs text-[var(--vy-accent)]"
             onClick={() => void refresh()}
           >
-            再読み込み
+            {uiText("再読み込み")}{" "}
           </button>
           <button
             type="button"
@@ -1061,16 +1068,16 @@ export function NoteModal({
               setMode("create");
             }}
           >
-            ＋ 新規作成
+            {uiText("＋ 新規作成")}{" "}
           </button>
         </div>
       </div>
       <div className="space-y-2">
         {posts.length === 0 ? (
           <div className="rounded-2xl border border-dashed border-[var(--vy-border)] px-4 py-10 text-center">
-            <p className="text-sm font-medium">ノートはまだありません</p>
+            <p className="text-sm font-medium">{uiText("ノートはまだありません")}</p>
             <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-              右上の「新規作成」から追加できます
+              {uiText("右上の「新規作成」から追加できます")}{" "}
             </p>
           </div>
         ) : (
@@ -1086,11 +1093,11 @@ export function NoteModal({
                 <NoteBody item={item} compact />
                 {item.createdTime > 0 && (
                   <span className="mt-2 block text-[10px] text-[var(--vy-text-dim)]">
-                    {new Date(item.createdTime).toLocaleString("ja-JP")}
+                    {new Date(item.createdTime).toLocaleString(getIntlLocale())}
                   </span>
                 )}
                 <span className="mt-2 block text-[10px] text-[var(--vy-text-dim)]">
-                  詳細を見る →
+                  {uiText("詳細を見る →")}{" "}
                 </span>
               </button>
             );
@@ -1109,7 +1116,7 @@ export function NoteModal({
           className="mb-4 text-xs font-medium text-[var(--vy-accent)]"
           onClick={() => setMode(mode === "edit" ? "detail" : "list")}
         >
-          ← {mode === "edit" ? "ノートに戻る" : "一覧に戻る"}
+          {uiText("←")} {mode === "edit" ? "ノートに戻る" : "一覧に戻る"}
         </button>
       )}
       {mode === "list" ? list : mode === "create" || mode === "edit" ? editor : detail}
@@ -1119,7 +1126,7 @@ export function NoteModal({
   return embedded ? (
     <div className="px-1 pb-4">{content}</div>
   ) : (
-    <Modal title="ノート" onClose={onClose}>
+    <Modal title={uiText("ノート")} onClose={onClose}>
       {content}
     </Modal>
   );
@@ -1223,28 +1230,32 @@ function LadderModal({
           await api.line.ladder.message(accountId, chatId, r.ladderHash);
         }
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "あみだくじの作成に失敗しました");
+        window.alert(e instanceof Error ? e.message : uiText("あみだくじの作成に失敗しました"));
       }
     })();
   };
 
   return (
-    <Modal title="あみだくじ" onClose={onClose}>
+    <Modal title={uiText("あみだくじ")} onClose={onClose}>
       <ErrorText error={error} />
       <div className="mb-3 flex items-center justify-between">
-        <span className="text-xs text-[var(--vy-text-dim)]">参加者（{selectedIds.length}人）</span>
+        <span className="text-xs text-[var(--vy-text-dim)]">
+          {uiText("参加者（")}
+          {selectedIds.length}
+          {uiText("人）")}
+        </span>
         <button
           type="button"
           className="text-xs text-[var(--vy-accent)] disabled:opacity-40"
           onClick={allSelected}
           disabled={membersLoading}
         >
-          全員選択
+          {uiText("全員選択")}{" "}
         </button>
       </div>
       {membersLoading ? (
         <p className="mb-3 py-6 text-center text-xs text-[var(--vy-text-dim)]">
-          参加者を読み込み中…
+          {uiText("参加者を読み込み中…")}{" "}
         </p>
       ) : (
         <div className="mb-3 max-h-56 space-y-1 overflow-y-auto">
@@ -1266,7 +1277,9 @@ function LadderModal({
       {selectedIds.length > 0 && (
         <div className="mb-3">
           <label className="block text-xs text-[var(--vy-text-dim)] mb-1">
-            選択肉 ({selectedIds.length}個の結果を入力)
+            {uiText("選択肉 (")}
+            {selectedIds.length}
+            {uiText("個の結果を入力)")}{" "}
           </label>
           <div className="space-y-1">
             {selectedIds.map((_, i) => (
@@ -1292,7 +1305,7 @@ function LadderModal({
         onClick={generate}
         className="w-full rounded-lg bg-[var(--vy-accent)] py-2 font-semibold text-[var(--vy-accent-contrast)]"
       >
-        作成して送信
+        {uiText("作成して送信")}{" "}
       </button>
     </Modal>
   );
@@ -1353,30 +1366,30 @@ function ScheduleModal({
           "イベントを作成しました。日程を回答してください。",
         );
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "イベントの作成に失敗しました");
+        window.alert(e instanceof Error ? e.message : uiText("イベントの作成に失敗しました"));
       }
     })();
   };
 
   return (
-    <Modal title="イベントを作成" onClose={onClose}>
+    <Modal title={uiText("イベントを作成")} onClose={onClose}>
       <ErrorText error={error} />
-      <Field label="タイトル">
+      <Field label={uiText("タイトル")}>
         <input
           className={inputCls}
           value={name}
           onChange={(e) => setName(e.target.value)}
-          placeholder="例: 忘年会"
+          placeholder={uiText("例: 忘年会")}
         />
       </Field>
-      <Field label="詳細（任意）">
+      <Field label={uiText("詳細（任意）")}>
         <textarea
           className={cn(inputCls, "min-h-16")}
           value={desc}
           onChange={(e) => setDesc(e.target.value)}
         />
       </Field>
-      <Field label="候補日時">
+      <Field label={uiText("候補日時")}>
         <div className="space-y-1">
           {candidates.map((c, i) => (
             <div key={i} className="flex items-center gap-1">
@@ -1393,7 +1406,7 @@ function ScheduleModal({
                 className="rounded px-1 text-[var(--vy-text-dim)] hover:text-red-400"
                 onClick={() => setCandidates((p) => p.filter((_, j) => j !== i))}
               >
-                ×
+                {uiText("×")}{" "}
               </button>
             </div>
           ))}
@@ -1403,7 +1416,7 @@ function ScheduleModal({
           className="mt-1 text-xs text-[var(--vy-accent)]"
           onClick={() => setCandidates((p) => [...p, ""])}
         >
-          + 日時を追加
+          {uiText("+ 日時を追加")}{" "}
         </button>
       </Field>
       <button
@@ -1411,7 +1424,7 @@ function ScheduleModal({
         onClick={create}
         className="mt-2 w-full rounded-lg bg-[var(--vy-accent)] py-2 font-semibold text-[var(--vy-accent-contrast)]"
       >
-        作成して共有
+        {uiText("作成して共有")}{" "}
       </button>
     </Modal>
   );
@@ -1473,26 +1486,28 @@ function PollModal({
           throw new Error("アンケートを作成しましたが、共有用 ID を取得できませんでした");
         const a = await api.line.poll.announce(accountId, chatId, questionId);
         if (!a.ok) {
-          window.alert("アンケートを作成しましたが、共有に失敗しました（再度共有してください）");
+          window.alert(
+            uiText("アンケートを作成しましたが、共有に失敗しました（再度共有してください）"),
+          );
         }
       } catch (e) {
-        window.alert(e instanceof Error ? e.message : "アンケートの作成に失敗しました");
+        window.alert(e instanceof Error ? e.message : uiText("アンケートの作成に失敗しました"));
       }
     })();
   };
 
   return (
-    <Modal title="アンケートを作成" onClose={onClose}>
+    <Modal title={uiText("アンケートを作成")} onClose={onClose}>
       <ErrorText error={error} />
-      <Field label="質問">
+      <Field label={uiText("質問")}>
         <input
           className={inputCls}
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="例: どこで飲む？"
+          placeholder={uiText("例: どこで飲む？")}
         />
       </Field>
-      <Field label="選択肢">
+      <Field label={uiText("選択肢")}>
         <div className="space-y-1">
           {choices.map((c, i) => (
             <div key={i} className="flex items-center gap-1">
@@ -1506,7 +1521,7 @@ function PollModal({
                 className="rounded px-1 text-[var(--vy-text-dim)] hover:text-red-400"
                 onClick={() => setChoices((p) => (p.length > 2 ? p.filter((_, j) => j !== i) : p))}
               >
-                ×
+                {uiText("×")}{" "}
               </button>
             </div>
           ))}
@@ -1516,7 +1531,7 @@ function PollModal({
           className="mt-1 text-xs text-[var(--vy-accent)]"
           onClick={() => setChoices((p) => [...p, ""])}
         >
-          + 選択肢を追加
+          {uiText("+ 選択肢を追加")}{" "}
         </button>
       </Field>
       <div className="mb-3 flex gap-4">
@@ -1526,7 +1541,7 @@ function PollModal({
             checked={multiple}
             onChange={(e) => setMultiple(e.target.checked)}
           />{" "}
-          複数回答可
+          {uiText("複数回答可")}{" "}
         </label>
         <label className="flex items-center gap-1.5">
           <input
@@ -1534,10 +1549,10 @@ function PollModal({
             checked={anonymous}
             onChange={(e) => setAnonymous(e.target.checked)}
           />{" "}
-          匿名
+          {uiText("匿名")}{" "}
         </label>
       </div>
-      <Field label="締切（任意）">
+      <Field label={uiText("締切（任意）")}>
         <input
           type="datetime-local"
           className={inputCls}
@@ -1550,7 +1565,7 @@ function PollModal({
         onClick={create}
         className="mt-2 w-full rounded-lg bg-[var(--vy-accent)] py-2 font-semibold text-[var(--vy-accent-contrast)]"
       >
-        作成
+        {uiText("作成")}{" "}
       </button>
     </Modal>
   );
@@ -1586,9 +1601,9 @@ export function PlusMenu({ chatId }: { chatId: string }) {
             open && "rotate-45 text-[var(--vy-accent)]",
           )}
           onClick={() => setOpen((p) => !p)}
-          aria-label="メニューを開く"
+          aria-label={uiText("メニューを開く")}
         >
-          ＋
+          {uiText("＋")}{" "}
         </button>
         {open && (
           <div
@@ -1610,7 +1625,7 @@ export function PlusMenu({ chatId }: { chatId: string }) {
                 {item.label}
                 {item.disabled && (
                   <span className="ml-auto text-[10px] text-[var(--vy-text-dim)]">
-                    グループのみ
+                    {uiText("グループのみ")}{" "}
                   </span>
                 )}
               </button>

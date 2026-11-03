@@ -1,3 +1,5 @@
+import { getIntlLocale } from "@/i18n";
+import { tr as uiText } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield } from "@/components/icons";
@@ -125,20 +127,22 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
       <div className="flex items-start gap-3">
         <IconHardDrive size={20} className="mt-0.5 shrink-0 text-[var(--vy-accent)]" />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold">Android LINE DB から復元</h3>
+          <h3 className="font-semibold">{uiText("Android LINE DB から復元")}</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            Android から取得した <span className="font-mono">naver_line</span> SQLite DB、または
-            LEINs 一括バックアップ ZIP を読み込み、トーク履歴を現在の Vyline
-            アカウントへ統合します。既存履歴と元ファイルは変更しません。
+            {uiText("Android から取得した")}{" "}
+            <span className="font-mono">{uiText("naver_line")}</span>{" "}
+            {uiText(
+              "SQLite DB、または LEINs 一括バックアップ ZIP を読み込み、トーク履歴を現在の Vyline アカウントへ統合します。既存履歴と元ファイルは変更しません。",
+            )}{" "}
           </p>
         </div>
       </div>
 
       <div className="mt-4 space-y-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3">
         <label className="block cursor-pointer rounded-lg border border-dashed border-[var(--vy-border)] bg-[var(--vy-surface)] p-3 transition hover:border-[var(--vy-accent)]">
-          <span className="block text-xs font-medium">DB / バックアップZIPを選択</span>
+          <span className="block text-xs font-medium">{uiText("DB / バックアップZIPを選択")}</span>
           <span className="mt-1 block text-[0.65rem] text-[var(--vy-text-dim)]">
-            拡張子なしの naver_line、.db、SQLite、.zip に対応
+            {uiText("拡張子なしの naver_line、.db、SQLite、.zip に対応")}{" "}
           </span>
           <input
             type="file"
@@ -169,9 +173,11 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
             className="mt-0.5 h-4 w-4 accent-[var(--vy-accent)]"
           />
           <span>
-            ZIP 内の保存済み画像・動画・音声・ファイルも復元する
+            {uiText("ZIP 内の保存済み画像・動画・音声・ファイルも復元する")}{" "}
             <span className="mt-0.5 block text-[0.65rem] opacity-80">
-              生のDBだけを選んだ場合は無視されます。ZIPが大きい場合は容量を多く使用します。
+              {uiText(
+                "生のDBだけを選んだ場合は無視されます。ZIPが大きい場合は容量を多く使用します。",
+              )}{" "}
             </span>
           </span>
         </label>
@@ -179,8 +185,9 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
         <div className="flex items-start gap-2 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
           <IconShield size={14} className="mt-0.5 shrink-0" />
           <span>
-            選択中の Vyline アカウントと、DBを取得したLINEアカウントが同じことを確認してください。
-            メッセージIDが一致する既存履歴は重複追加しません。
+            {uiText(
+              "選択中の Vyline アカウントと、DBを取得したLINEアカウントが同じことを確認してください。 メッセージIDが一致する既存履歴は重複追加しません。",
+            )}{" "}
           </span>
         </div>
 
@@ -204,7 +211,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
       {loading && uploadProgress && (
         <div className="mt-3 space-y-1.5" role="status" aria-live="polite">
           <div className="flex items-center justify-between gap-3 text-xs text-[var(--vy-text-dim)]">
-            <span>リバースプロキシ互換の分割アップロード</span>
+            <span>{uiText("リバースプロキシ互換の分割アップロード")}</span>
             <span className="shrink-0 font-mono">
               {uploadProgress.total > 0
                 ? `${Math.min(100, Math.round((uploadProgress.current / uploadProgress.total) * 100))}%`
@@ -214,7 +221,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
           <div
             className="h-1.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]"
             role="progressbar"
-            aria-label="Android DBアップロードの進捗"
+            aria-label={uiText("Android DBアップロードの進捗")}
             aria-valuemin={0}
             aria-valuemax={Math.max(1, uploadProgress.total)}
             aria-valuenow={Math.min(uploadProgress.current, Math.max(1, uploadProgress.total))}
@@ -245,7 +252,7 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
           <div
             className="h-1.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]"
             role="progressbar"
-            aria-label="Android DB復元の進捗"
+            aria-label={uiText("Android DB復元の進捗")}
             aria-valuemin={0}
             aria-valuemax={Math.max(1, session.progress.total)}
             aria-valuenow={Math.min(session.progress.current, Math.max(1, session.progress.total))}
@@ -264,19 +271,24 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
         <div className="mt-3 rounded-lg border border-emerald-500/30 bg-emerald-500/5 p-3 text-xs">
           <p className="flex items-center gap-2 text-emerald-400" role="status">
             <IconCheck size={14} />
-            復元完了：{session.result.parsed.chats} チャット /{" "}
-            {session.result.parsed.totalMessages.toLocaleString()} メッセージ
+            {uiText("復元完了：")}
+            {session.result.parsed.chats} {uiText("チャット /")}{" "}
+            {session.result.parsed.totalMessages.toLocaleString(getIntlLocale())}{" "}
+            {uiText("メッセージ")}{" "}
           </p>
           <p className="mt-1 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
-            DB v{session.result.databaseVersion} · 新規メッセージ{" "}
-            {session.result.merged.importedMessages.toLocaleString()}件 · 重複{" "}
-            {session.result.merged.skippedMessages.toLocaleString()} 件 · リアクション{" "}
-            {session.result.parsed.reactions.toLocaleString()} 件
+            {uiText("DB v")}
+            {session.result.databaseVersion} {uiText("· 新規メッセージ")}{" "}
+            {session.result.merged.importedMessages.toLocaleString(getIntlLocale())}
+            {uiText("件 · 重複")}{" "}
+            {session.result.merged.skippedMessages.toLocaleString(getIntlLocale())}{" "}
+            {uiText("件 · リアクション")}{" "}
+            {session.result.parsed.reactions.toLocaleString(getIntlLocale())} {uiText("件")}{" "}
             {session.result.media.restored > 0
-              ? ` · メディア ${session.result.media.restored.toLocaleString()} 件`
+              ? ` · メディア ${session.result.media.restored.toLocaleString(getIntlLocale())} 件`
               : ""}
             {session.result.parsed.unsupportedReactions > 0
-              ? ` · 表示未対応カスタムリアクション ${session.result.parsed.unsupportedReactions.toLocaleString()} 件（データ保持）`
+              ? ` · 表示未対応カスタムリアクション ${session.result.parsed.unsupportedReactions.toLocaleString(getIntlLocale())} 件（データ保持）`
               : ""}
           </p>
         </div>

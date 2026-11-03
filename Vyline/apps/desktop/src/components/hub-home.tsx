@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Avatar } from "@/components/vy-ui";
 import { IconClose, IconChevron, IconSpark } from "@/components/icons";
@@ -25,21 +26,25 @@ export function HubHome() {
       <div className="relative mx-auto flex min-h-dvh w-full max-w-2xl flex-col px-6 py-10 md:px-10 md:py-14">
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/icon-128.png" alt="" className="h-10 w-10 rounded-xl object-contain" />
-            <span className="text-lg font-semibold tracking-tight">Vyline</span>
+            <img
+              src="/icon-128.png"
+              alt={uiText("")}
+              className="h-10 w-10 rounded-xl object-contain"
+            />
+            <span className="text-lg font-semibold tracking-tight">{uiText("Vyline")}</span>
           </div>
         </div>
 
         <div className="mt-14 md:mt-16">
           <span className="inline-flex items-center gap-2 rounded-full bg-[var(--vy-surface-2)] px-3 py-1 text-xs font-medium text-[var(--vy-text-dim)]">
             <IconSpark size={14} />
-            {UPDATE_NOTES.version} アップデート
+            {UPDATE_NOTES.version} {uiText("アップデート")}{" "}
           </span>
           <h1 className="mt-5 text-balance text-4xl font-bold leading-[1.1] tracking-tight md:text-5xl">
             {UPDATE_NOTES.title}
           </h1>
           <p className="mt-4 max-w-xl text-pretty text-base leading-relaxed text-[var(--vy-text-dim)]">
-            今回のアップデートで変わったこと
+            {uiText("今回のアップデートで変わったこと")}{" "}
           </p>
         </div>
 
@@ -55,8 +60,8 @@ export function HubHome() {
               <IconSpark size={20} />
             </span>
             <div>
-              <p className="text-xs text-[var(--vy-text-dim)]">リリースノート</p>
-              <h2 className="text-base font-semibold">What's New</h2>
+              <p className="text-xs text-[var(--vy-text-dim)]">{uiText("リリースノート")}</p>
+              <h2 className="text-base font-semibold">{uiText("What's New")}</h2>
             </div>
           </div>
           <ul className="space-y-3 px-6 py-5">
@@ -79,8 +84,7 @@ export function HubHome() {
               className="flex flex-1 items-center justify-center gap-1 rounded-xl py-3 text-sm font-semibold text-[var(--vy-accent-contrast)] transition-opacity hover:opacity-90"
               style={{ background: "var(--vy-accent)" }}
             >
-              チャットを開く
-              <IconChevron size={16} />
+              {uiText("チャットを開く")} <IconChevron size={16} />
             </button>
             <button
               type="button"
@@ -88,11 +92,11 @@ export function HubHome() {
                 dismissUpdateNote();
                 setScreen("settings");
               }}
-              aria-label="設定へ"
+              aria-label={uiText("設定へ")}
               className="rounded-xl border border-[var(--vy-border)] px-4 py-3 text-sm text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
               <IconClose size={18} className="sr-only" />
-              設定
+              {uiText("設定")}{" "}
             </button>
           </div>
         </div>
@@ -106,7 +110,10 @@ export function HubHome() {
             imageUrl={self.avatarUrl}
           />
           <span>
-            {self.name} としてログイン中 · Vyline は LINE 非公式のサードパーティクライアントです
+            {self.name}{" "}
+            {uiText(
+              "としてログイン中 · Vyline は LINE 非公式のサードパーティクライアントです",
+            )}{" "}
           </span>
         </p>
       </div>

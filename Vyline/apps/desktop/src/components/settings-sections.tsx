@@ -1,7 +1,8 @@
+import { tr as uiText } from "@/i18n";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
-import type { AnimationMode } from "@/lib/store-types";
+import type { AnimationMode, UiLanguage } from "@/lib/store-types";
 import {
   BUILD_COMMIT_SHA,
   checkForUpdates,
@@ -19,16 +20,19 @@ import { useThemeStore } from "@/stores/themeStore";
 import { createSettingsBackup, parseSettingsBackup } from "@/lib/settingsBackup";
 import { betaFeatureIdForSetting, recordBetaFeatureDecision } from "@/lib/betaConsent";
 import { resolveDiagnosticsMid } from "@/lib/diagnosticsMid";
+import { UI_LANGUAGES, changeUiLanguage, getIntlLocale } from "@/i18n";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
-  if (diff < 10_000) return "数秒前";
-  if (diff < 60_000) return `${Math.floor(diff / 1_000)}秒前`;
-  if (diff < 3_600_000) return `${Math.floor(diff / 60_000)}分前`;
-  if (diff < 86_400_000) return `${Math.floor(diff / 3_600_000)}時間前`;
-  if (diff < 31 * 86_400_000) return `${Math.floor(diff / 86_400_000)}日前`;
-  if (diff < 365 * 86_400_000) return `${Math.floor(diff / (31 * 86_400_000))}か月前`;
-  return `${Math.floor(diff / (365 * 86_400_000))}年前`;
+  const relative = new Intl.RelativeTimeFormat(getIntlLocale(), { numeric: "auto" });
+  if (diff < 10_000) return relative.format(0, "second");
+  if (diff < 60_000) return relative.format(-Math.floor(diff / 1_000), "second");
+  if (diff < 3_600_000) return relative.format(-Math.floor(diff / 60_000), "minute");
+  if (diff < 86_400_000) return relative.format(-Math.floor(diff / 3_600_000), "hour");
+  if (diff < 31 * 86_400_000) return relative.format(-Math.floor(diff / 86_400_000), "day");
+  if (diff < 365 * 86_400_000)
+    return relative.format(-Math.floor(diff / (31 * 86_400_000)), "month");
+  return relative.format(-Math.floor(diff / (365 * 86_400_000)), "year");
 }
 
 function formatBytes(bytes: number): string {
@@ -303,12 +307,12 @@ export function SettingsSections() {
         <button
           type="button"
           onClick={() => setScreen("chat")}
-          aria-label="チャットに戻る"
+          aria-label={uiText("チャットに戻る")}
           className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
         >
           <IconArrowLeft size={20} />
         </button>
-        <h1 className="text-lg font-semibold">設定</h1>
+        <h1 className="text-lg font-semibold">{uiText("設定")}</h1>
       </header>
 
       <div className="mx-auto flex w-full max-w-5xl flex-1 overflow-hidden">
@@ -316,8 +320,8 @@ export function SettingsSections() {
         <nav className="vy-scroll hidden w-56 shrink-0 overflow-y-auto border-r border-[var(--vy-border)] p-3 md:block">
           {NAV_GROUPS.map((group) => (
             <div key={group.title} className="mb-3">
-              <p className="px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--vy-text-dim)]">
-                {group.title}
+              <p className="break-words px-3 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--vy-text-dim)]">
+                {uiText(group.title)}
               </p>
               {group.items.map((n) => (
                 <button
@@ -325,7 +329,7 @@ export function SettingsSections() {
                   type="button"
                   onClick={() => setSection(n.key)}
                   className={cn(
-                    "mb-1 flex w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+                    "mb-1 flex min-w-0 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-left text-sm transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
                     section === n.key
                       ? "text-[var(--vy-accent-contrast)]"
                       : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
@@ -333,7 +337,7 @@ export function SettingsSections() {
                   style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
                 >
                   {n.icon}
-                  {n.label}
+                  <span className="min-w-0 break-words">{uiText(n.label)}</span>
                 </button>
               ))}
             </div>
@@ -364,7 +368,10 @@ export function SettingsSections() {
           <div className="vy-scroll flex-1 overflow-y-auto px-4 py-6 md:px-8">
             <div key={section} className="vy-section-enter mx-auto max-w-2xl">
               {section === "profile" && (
-                <Section title="プロフィール" desc="アイコン・背景・表示名・ステータスを編集">
+                <Section
+                  title={uiText("プロフィール")}
+                  desc={uiText("アイコン・背景・表示名・ステータスを編集")}
+                >
                   <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
                     <div
                       className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
@@ -379,7 +386,7 @@ export function SettingsSections() {
                       }
                     >
                       <label className="absolute right-3 bottom-3 cursor-pointer rounded-lg bg-black/45 px-2.5 py-1 text-[0.7rem] font-medium text-white backdrop-blur hover:bg-black/60">
-                        背景を変更
+                        {uiText("背景を変更")}{" "}
                         <input
                           type="file"
                           accept="image/*"
@@ -398,7 +405,7 @@ export function SettingsSections() {
                           imageUrl={self.avatarUrl}
                         />
                         <label className="absolute -right-1 -bottom-1 cursor-pointer rounded-full bg-[var(--vy-accent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent-contrast)] shadow">
-                          変更
+                          {uiText("変更")}{" "}
                           <input
                             type="file"
                             accept="image/*"
@@ -414,14 +421,14 @@ export function SettingsSections() {
                           {self.premium?.active && <PremiumBadge size={14} compact />}
                         </div>
                         <p className="text-xs text-[var(--vy-text-dim)]">
-                          下の欄で表示名・ステメを編集
+                          {uiText("下の欄で表示名・ステメを編集")}{" "}
                         </p>
                       </div>
                     </div>
                   </div>
                   <Card>
                     <div className="py-3">
-                      <label className="text-sm font-medium">表示名</label>
+                      <label className="text-sm font-medium">{uiText("表示名")}</label>
                       <input
                         value={nameDraft}
                         onChange={(e) => setNameDraft(e.target.value)}
@@ -429,7 +436,9 @@ export function SettingsSections() {
                       />
                     </div>
                     <div className="py-3">
-                      <label className="text-sm font-medium">ステータスメッセージ</label>
+                      <label className="text-sm font-medium">
+                        {uiText("ステータスメッセージ")}
+                      </label>
                       <input
                         value={statusDraft}
                         onChange={(e) => setStatusDraft(e.target.value)}
@@ -453,42 +462,78 @@ export function SettingsSections() {
               )}
 
               {section === "read" && (
-                <Section title="既読" desc="既読の送信と表示をコントロールします">
+                <Section
+                  title={uiText("既読")}
+                  desc={uiText("既読の送信と表示をコントロールします")}
+                >
                   <Card>
-                    <Row title="既読を送る" desc="OFF にすると相手に既読が表示されません">
+                    <Row
+                      title={uiText("既読を送る")}
+                      desc={uiText("OFF にすると相手に既読が表示されません")}
+                    >
                       <Toggle
                         checked={settings.readReceipts}
                         onChange={(v) => updateSetting("readReceipts", v)}
-                        label="既読を送る"
+                        label={uiText("既読を送る")}
                       />
                     </Row>
                     <Row
-                      title="既読者一覧を表示"
-                      desc="グループで、自分のメッセージを読んだ人を折りたたみで表示します"
+                      title={uiText("既読者一覧を表示")}
+                      desc={uiText(
+                        "グループで、自分のメッセージを読んだ人を折りたたみで表示します",
+                      )}
                     >
                       <Toggle
                         checked={settings.showReaderList}
                         onChange={(v) => updateSetting("showReaderList", v)}
-                        label="既読者一覧を表示"
+                        label={uiText("既読者一覧を表示")}
                       />
                     </Row>
                   </Card>
                   <ReadDisabledChatList />
                   <p className="mt-3 px-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                    DM
-                    では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは
-                    「既読 3」のように人数を表示します。
+                    {uiText(
+                      "DM では「既読」の文字のみを表示します（チェックマークは使いません）。グループでは 「既読 3」のように人数を表示します。",
+                    )}{" "}
                   </p>
                 </Section>
               )}
 
               {section === "display" && (
-                <Section title="表示" desc="レイアウトの密度や入力挙動を調整します">
+                <Section
+                  title={uiText("表示")}
+                  desc={uiText("レイアウトの密度や入力挙動を調整します")}
+                >
                   <Card>
+                    <Row
+                      title={uiText("言語")}
+                      desc={uiText(
+                        "アプリの表示言語を選びます。未翻訳の項目は日本語で表示します。",
+                      )}
+                    >
+                      <select
+                        aria-label={uiText("言語")}
+                        value={settings.uiLanguage ?? "system"}
+                        onChange={(event) => {
+                          const language = event.currentTarget.value as UiLanguage;
+                          updateSetting("uiLanguage", language);
+                          void changeUiLanguage(language);
+                        }}
+                        className="max-w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm text-[var(--vy-text)]"
+                      >
+                        {UI_LANGUAGES.map((language) => (
+                          <option key={language.code} value={language.code}>
+                            {language.name}
+                          </option>
+                        ))}
+                      </select>
+                    </Row>
                     <div className="py-3.5">
-                      <p className="text-sm font-medium">アニメーション</p>
+                      <p className="text-sm font-medium">{uiText("アニメーション")}</p>
                       <p className="mt-0.5 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                        画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。
+                        {uiText(
+                          "画面切替やプロフィール表示の動きを調整します。通信量や同期頻度は変わりません。",
+                        )}{" "}
                       </p>
                       <div className="mt-3 grid gap-2 sm:grid-cols-3">
                         {(
@@ -523,52 +568,58 @@ export function SettingsSections() {
                         ))}
                       </div>
                     </div>
-                    <Row title="コンパクト表示" desc="吹き出しの余白を狭くして情報量を増やします">
+                    <Row
+                      title={uiText("コンパクト表示")}
+                      desc={uiText("吹き出しの余白を狭くして情報量を増やします")}
+                    >
                       <Toggle
                         checked={settings.compactDensity}
                         onChange={(v) => updateSetting("compactDensity", v)}
-                        label="コンパクト表示"
+                        label={uiText("コンパクト表示")}
                       />
                     </Row>
                     <Row
-                      title="Enter で送信"
-                      desc="OFF の場合は Shift+Enter ではなく Enter で改行します"
+                      title={uiText("Enter で送信")}
+                      desc={uiText("OFF の場合は Shift+Enter ではなく Enter で改行します")}
                     >
                       <Toggle
                         checked={settings.enterToSend}
                         onChange={(v) => updateSetting("enterToSend", v)}
-                        label="Enter で送信"
+                        label={uiText("Enter で送信")}
                       />
                     </Row>
                     <Row
-                      title="ステータスメッセージ表示"
-                      desc="トークヘッダーに相手のステータスメッセージを表示します"
+                      title={uiText("ステータスメッセージ表示")}
+                      desc={uiText("トークヘッダーに相手のステータスメッセージを表示します")}
                     >
                       <Toggle
                         checked={settings.showStatusMessage}
                         onChange={(v) => updateSetting("showStatusMessage", v)}
-                        label="ステータスメッセージ表示"
-                      />
-                    </Row>
-                    <Row title="背景表示" desc="トーク背景に相手のプロフィール背景画像を表示します">
-                      <Toggle
-                        checked={settings.showBackground}
-                        onChange={(v) => updateSetting("showBackground", v)}
-                        label="背景表示"
+                        label={uiText("ステータスメッセージ表示")}
                       />
                     </Row>
                     <Row
-                      title="吹き出しのしっぽ"
-                      desc="メッセージの吹き出しに三角形のしっぽを付けます"
+                      title={uiText("背景表示")}
+                      desc={uiText("トーク背景に相手のプロフィール背景画像を表示します")}
+                    >
+                      <Toggle
+                        checked={settings.showBackground}
+                        onChange={(v) => updateSetting("showBackground", v)}
+                        label={uiText("背景表示")}
+                      />
+                    </Row>
+                    <Row
+                      title={uiText("吹き出しのしっぽ")}
+                      desc={uiText("メッセージの吹き出しに三角形のしっぽを付けます")}
                     >
                       <Toggle
                         checked={settings.bubbleTail}
                         onChange={(v) => updateSetting("bubbleTail", v)}
-                        label="吹き出しのしっぽ"
+                        label={uiText("吹き出しのしっぽ")}
                       />
                     </Row>
                     <div className="py-3.5">
-                      <p className="mb-2 text-sm font-medium">トークリストの並び順</p>
+                      <p className="mb-2 text-sm font-medium">{uiText("トークリストの並び順")}</p>
                       <div className="flex gap-2">
                         {(["recent", "unread", "custom"] as const).map((opt) => (
                           <button
@@ -596,14 +647,15 @@ export function SettingsSections() {
                         ))}
                       </div>
                       <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                        カスタム順ではトークをドラッグして並べ替えできます。
+                        {uiText("カスタム順ではトークをドラッグして並べ替えできます。")}{" "}
                       </p>
                     </div>
                     <div className="py-3.5">
                       <div className="flex items-center justify-between">
-                        <p className="text-sm font-medium">文字サイズ</p>
+                        <p className="text-sm font-medium">{uiText("文字サイズ")}</p>
                         <span className="text-xs text-[var(--vy-text-dim)]">
-                          {Math.round(settings.fontScale * 100)}%
+                          {Math.round(settings.fontScale * 100)}
+                          {uiText("%")}{" "}
                         </span>
                       </div>
                       <input
@@ -613,7 +665,7 @@ export function SettingsSections() {
                         step={0.05}
                         value={settings.fontScale}
                         onChange={(e) => updateSetting("fontScale", Number(e.target.value))}
-                        aria-label="文字サイズ"
+                        aria-label={uiText("文字サイズ")}
                         className="mt-2 w-full accent-[var(--vy-accent)]"
                       />
                     </div>
@@ -790,7 +842,8 @@ function HandoffSection() {
     input.onchange = async () => {
       const file = input.files?.[0];
       if (!file) return;
-      if (!window.confirm("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")) return;
+      if (!window.confirm(uiText("現在の設定をバックアップして、この引継ぎZIPで上書きしますか？")))
+        return;
       const data = btoa(String.fromCharCode(...new Uint8Array(await file.arrayBuffer())));
       try {
         const result = await api.handoff.import(diagnosticMid, data, "overwrite");
@@ -839,44 +892,58 @@ function HandoffSection() {
   return (
     <>
       <Section
-        title="引継ぎ"
-        desc="設定だけを安全に別のVylineへ移行します。認証情報やトークンは含みません。"
+        title={uiText("引継ぎ")}
+        desc={uiText("設定だけを安全に別のVylineへ移行します。認証情報やトークンは含みません。")}
       >
         <Card>
-          <Row title="引継ぎZIPを作成" desc="manifestと改ざん検知用ハッシュを含めます">
+          <Row
+            title={uiText("引継ぎZIPを作成")}
+            desc={uiText("manifestと改ざん検知用ハッシュを含めます")}
+          >
             <button
               type="button"
               onClick={() => void exportHandoff()}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
             >
-              エクスポート
+              {uiText("エクスポート")}{" "}
             </button>
           </Row>
-          <Row title="引継ぎZIPを適用" desc="適用前に既存設定をバックアップします">
+          <Row
+            title={uiText("引継ぎZIPを適用")}
+            desc={uiText("適用前に既存設定をバックアップします")}
+          >
             <button
               type="button"
               onClick={importHandoff}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
             >
-              インポート
+              {uiText("インポート")}{" "}
             </button>
           </Row>
         </Card>
       </Section>
-      <Section title="デバッグログ" desc="共有前にサニタイズされた診断情報だけを出力します">
+      <Section
+        title={uiText("デバッグログ")}
+        desc={uiText("共有前にサニタイズされた診断情報だけを出力します")}
+      >
         <Card>
           <Row
-            title="診断ログを記録"
-            desc="OFFにすると新しい診断ログを書きません。保存済みログは削除操作まで残ります"
+            title={uiText("診断ログを記録")}
+            desc={uiText(
+              "OFFにすると新しい診断ログを書きません。保存済みログは削除操作まで残ります",
+            )}
           >
             <Toggle
               checked={diagnosticStatus?.enabled ?? false}
               onChange={(enabled) => void updateDiagnostics({ enabled })}
-              label="診断ログを記録"
+              label={uiText("診断ログを記録")}
               disabled={!diagnosticMid || diagnosticLoading || diagnosticSaving}
             />
           </Row>
-          <Row title="ログレベル" desc="通常は info。調査時だけ debug を使ってください">
+          <Row
+            title={uiText("ログレベル")}
+            desc={uiText("通常は info。調査時だけ debug を使ってください")}
+          >
             <select
               value={diagnosticStatus?.level ?? "info"}
               disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
@@ -886,15 +953,15 @@ function HandoffSection() {
                 })
               }
               className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-2 py-1.5 text-xs"
-              aria-label="診断ログレベル"
+              aria-label={uiText("診断ログレベル")}
             >
-              <option value="error">error</option>
-              <option value="warn">warn</option>
-              <option value="info">info</option>
-              <option value="debug">debug</option>
+              <option value="error">{uiText("error")}</option>
+              <option value="warn">{uiText("warn")}</option>
+              <option value="info">{uiText("info")}</option>
+              <option value="debug">{uiText("debug")}</option>
             </select>
           </Row>
-          <Row title="保持期間" desc="期限を過ぎた診断ログは自動削除します">
+          <Row title={uiText("保持期間")} desc={uiText("期限を過ぎた診断ログは自動削除します")}>
             <select
               value={diagnosticStatus?.retentionDays ?? 14}
               disabled={!diagnosticMid || !diagnosticStatus || diagnosticSaving}
@@ -902,16 +969,16 @@ function HandoffSection() {
                 void updateDiagnostics({ retentionDays: Number(event.target.value) })
               }
               className="rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-2 py-1.5 text-xs"
-              aria-label="診断ログ保持期間"
+              aria-label={uiText("診断ログ保持期間")}
             >
-              <option value={1}>1日</option>
-              <option value={7}>7日</option>
-              <option value={14}>14日</option>
-              <option value={30}>30日</option>
+              <option value={1}>{uiText("1日")}</option>
+              <option value={7}>{uiText("7日")}</option>
+              <option value={14}>{uiText("14日")}</option>
+              <option value={30}>{uiText("30日")}</option>
             </select>
           </Row>
           <Row
-            title="ログをエクスポート"
+            title={uiText("ログをエクスポート")}
             desc={
               diagnosticStatus
                 ? `${diagnosticStatus.entryCount}件 · ${formatBytes(diagnosticStatus.sizeBytes)}。共有用にサニタイズ済みです`
@@ -923,36 +990,36 @@ function HandoffSection() {
               onClick={() => void exportLogs()}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
             >
-              出力
+              {uiText("出力")}{" "}
             </button>
           </Row>
-          <Row title="ログ一覧" desc="共有前にサニタイズ済みの内容を確認します">
+          <Row title={uiText("ログ一覧")} desc={uiText("共有前にサニタイズ済みの内容を確認します")}>
             <button
               type="button"
               onClick={() => void loadLogs()}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
             >
-              確認
+              {uiText("確認")}{" "}
             </button>
           </Row>
           <Row
-            title="GitHubで問題を報告"
-            desc="送信内容を先にプレビューしてからIssue作成画面を開きます"
+            title={uiText("GitHubで問題を報告")}
+            desc={uiText("送信内容を先にプレビューしてからIssue作成画面を開きます")}
           >
             <button
               type="button"
               onClick={() => void reportIssue()}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
             >
-              Issue作成
+              {uiText("Issue作成")}{" "}
             </button>
           </Row>
-          <Row title="ログを削除" desc="保存済みの診断ログを削除します">
+          <Row title={uiText("ログを削除")} desc={uiText("保存済みの診断ログを削除します")}>
             <button
               type="button"
               onClick={() =>
                 diagnosticMid &&
-                window.confirm("保存済みの診断ログをすべて削除しますか？") &&
+                window.confirm(uiText("保存済みの診断ログをすべて削除しますか？")) &&
                 void api.diagnostics
                   .clear(diagnosticMid)
                   .then(async () => {
@@ -967,7 +1034,7 @@ function HandoffSection() {
               }
               className="rounded-lg border border-red-400/50 px-3 py-1.5 text-xs text-red-300"
             >
-              削除
+              {uiText("削除")}{" "}
             </button>
           </Row>
         </Card>
@@ -1007,13 +1074,13 @@ function HandoffSection() {
         {issuePreview && (
           <div className="mt-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
             <div className="mb-2 flex items-center justify-between gap-3">
-              <p className="text-xs font-medium">GitHubへ送る内容のプレビュー</p>
+              <p className="text-xs font-medium">{uiText("GitHubへ送る内容のプレビュー")}</p>
               <button
                 type="button"
                 onClick={() => setIssuePreview(null)}
                 className="text-xs text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
               >
-                閉じる
+                {uiText("閉じる")}{" "}
               </button>
             </div>
             <pre className="max-h-72 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-[var(--vy-bg)] p-3 text-[0.65rem] text-[var(--vy-text-dim)]">
@@ -1030,7 +1097,7 @@ function HandoffSection() {
                 }
                 className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
               >
-                本文をコピー
+                {uiText("本文をコピー")}{" "}
               </button>
               {issuePreview.issueUrl && (
                 <button
@@ -1040,13 +1107,15 @@ function HandoffSection() {
                   }
                   className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-medium text-white"
                 >
-                  GitHubを開く
+                  {uiText("GitHubを開く")}{" "}
                 </button>
               )}
             </div>
             {issuePreview.delivery === "copy" && (
               <p className="mt-2 text-[0.65rem] text-[var(--vy-text-dim)]">
-                内容が長いためURLには埋め込まず、本文をコピーしてGitHubへ貼り付けます。
+                {uiText(
+                  "内容が長いためURLには埋め込まず、本文をコピーしてGitHubへ貼り付けます。",
+                )}{" "}
               </p>
             )}
           </div>
@@ -1132,10 +1201,11 @@ function SubdevicesSection() {
   };
 
   const action = async (id: string, kind: "remove" | "block" | "unblock") => {
-    if (kind === "remove" && !window.confirm("この端末を削除しますか？再認証は可能です。")) return;
+    if (kind === "remove" && !window.confirm(uiText("この端末を削除しますか？再認証は可能です。")))
+      return;
     if (
       kind === "block" &&
-      !window.confirm("この端末をブロックしますか？解除するまで再認証できません。")
+      !window.confirm(uiText("この端末をブロックしますか？解除するまで再認証できません。"))
     )
       return;
     if (demoMode) {
@@ -1162,16 +1232,22 @@ function SubdevicesSection() {
   };
 
   return (
-    <Section title="サブデバイス" desc="PCで認証したスマホ・タブレットからVylineを利用します">
+    <Section
+      title={uiText("サブデバイス")}
+      desc={uiText("PCで認証したスマホ・タブレットからVylineを利用します")}
+    >
       <div className="space-y-4">
         <Card>
-          <Row title="新しい端末を接続" desc="QRコードは一度だけ利用でき、2分で期限切れになります">
+          <Row
+            title={uiText("新しい端末を接続")}
+            desc={uiText("QRコードは一度だけ利用でき、2分で期限切れになります")}
+          >
             <button
               type="button"
               onClick={() => void startPairing()}
               className="rounded-lg bg-[var(--vy-accent)] px-3 py-1.5 text-xs font-semibold text-white"
             >
-              QRを表示
+              {uiText("QRを表示")}{" "}
             </button>
           </Row>
         </Card>
@@ -1184,7 +1260,7 @@ function SubdevicesSection() {
               onClick={() => setPairingUrl(null)}
               className="text-xs text-slate-500 underline"
             >
-              閉じる
+              {uiText("閉じる")}{" "}
             </button>
           </div>
         )}
@@ -1192,7 +1268,7 @@ function SubdevicesSection() {
         <Card>
           {(devices ?? []).length === 0 && (
             <p className="py-4 text-sm text-[var(--vy-text-dim)]">
-              接続中のサブデバイスはありません。
+              {uiText("接続中のサブデバイスはありません。")}{" "}
             </p>
           )}
           {(devices ?? []).map((device) => (
@@ -1203,7 +1279,7 @@ function SubdevicesSection() {
                   {device.blocked ? "（ブロック中）" : ""}
                 </p>
                 <p className="text-xs text-[var(--vy-text-dim)]">
-                  {device.platform} ·{" "}
+                  {device.platform} {uiText("·")}{" "}
                   {device.lastSeenAt
                     ? Date.now() - Date.parse(device.lastSeenAt) < 90_000
                       ? "オンライン"
@@ -1224,7 +1300,7 @@ function SubdevicesSection() {
                   onClick={() => void action(device.id, "remove")}
                   className="rounded-lg border border-[var(--vy-danger)] px-2 py-1 text-xs text-[var(--vy-danger)]"
                 >
-                  削除
+                  {uiText("削除")}{" "}
                 </button>
               </div>
             </div>
@@ -1260,14 +1336,16 @@ function ThemeSectionWithPreview() {
   return (
     <div className="vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
       <div>
-        <h2 className="text-xl font-bold tracking-tight">NezuTheme</h2>
+        <h2 className="text-xl font-bold tracking-tight">{uiText("NezuTheme")}</h2>
         <p className="mt-1 mb-5 text-sm text-[var(--vy-text-dim)]">
-          着せ替えを選ぶ・カスタムして自分だけの Vyline に
+          {uiText("着せ替えを選ぶ・カスタムして自分だけの Vyline に")}{" "}
         </p>
         <VyThemePanel />
       </div>
       <aside className="hidden lg:block">
-        <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">ライブプレビュー</p>
+        <p className="mb-2 text-xs font-medium text-[var(--vy-text-dim)]">
+          {uiText("ライブプレビュー")}
+        </p>
         <div
           className="sticky top-4 overflow-hidden border border-[var(--vy-border)] shadow-lg"
           style={{
@@ -1293,14 +1371,14 @@ function ThemeSectionWithPreview() {
               className="flex h-8 w-8 items-center justify-center rounded-full text-xs font-bold"
               style={{ background: theme.accent, color: theme.accentContrast }}
             >
-              V
+              {uiText("V")}{" "}
             </span>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold" style={{ color: theme.text }}>
                 {theme.name}
               </p>
               <p className="truncate text-[0.65rem]" style={{ color: theme.textDim }}>
-                オンライン · 角丸 {theme.radius.toFixed(2)}
+                {uiText("オンライン · 角丸")} {theme.radius.toFixed(2)}
               </p>
             </div>
           </div>
@@ -1322,7 +1400,7 @@ function ThemeSectionWithPreview() {
                 paddingBottom: compact ? "0.32rem" : "0.55rem",
               }}
             >
-              新しい着せ替え、どう？
+              {uiText("新しい着せ替え、どう？")}{" "}
             </div>
             <div
               className="ml-auto max-w-[88%] px-3 shadow-sm"
@@ -1334,23 +1412,23 @@ function ThemeSectionWithPreview() {
                 paddingBottom: compact ? "0.32rem" : "0.55rem",
               }}
             >
-              すごくいい感じ！
+              {uiText("すごくいい感じ！")}{" "}
             </div>
             <p className="text-right text-[0.7rem] font-medium" style={{ color: theme.accent }}>
-              既読
+              {uiText("既読")}{" "}
             </p>
             <div
               className="mt-1 flex items-center gap-2 rounded-full border px-3 py-1.5"
               style={{ background: theme.surface, borderColor: theme.border }}
             >
               <span className="flex-1 text-[0.7rem]" style={{ color: theme.textDim }}>
-                メッセージを入力
+                {uiText("メッセージを入力")}{" "}
               </span>
               <span
                 className="rounded-full px-2 py-0.5 text-[0.65rem] font-semibold"
                 style={{ background: theme.accent, color: theme.accentContrast }}
               >
-                送信
+                {uiText("送信")}{" "}
               </span>
             </div>
           </div>
@@ -1373,7 +1451,7 @@ const TOKEN_REFRESH_PRESETS = [
 
 function formatTokenSchedule(timestamp: number): string {
   const date = new Date(timestamp);
-  const absolute = date.toLocaleString("ja-JP", {
+  const absolute = date.toLocaleString(getIntlLocale(), {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -1438,16 +1516,16 @@ function SessionSection() {
 
   return (
     <Section
-      title="ログイン・セッション"
-      desc="LINE の access token を再ログインなしで安全に更新するタイミングを管理します"
+      title={uiText("ログイン・セッション")}
+      desc={uiText("LINE の access token を再ログインなしで安全に更新するタイミングを管理します")}
     >
       <Card>
         <div className="py-4">
-          <p className="text-sm font-medium">Access token の自動更新</p>
+          <p className="text-sm font-medium">{uiText("Access token の自動更新")}</p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            Vyline
-            を常時起動していなくても、起動時に期限を確認します。選んだ余裕幅に入っていれば、保存済み
-            refresh token で先に更新してからセッションを復元します。
+            {uiText(
+              "Vyline を常時起動していなくても、起動時に期限を確認します。選んだ余裕幅に入っていれば、保存済み refresh token で先に更新してからセッションを復元します。",
+            )}{" "}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
             {TOKEN_REFRESH_PRESETS.map((preset) => (
@@ -1469,14 +1547,17 @@ function SessionSection() {
           </div>
         </div>
         <Row
-          title="現在の設定"
+          title={uiText("現在の設定")}
           desc={`LINE の更新目安より ${TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? `${Math.round(leadSeconds / 3600)}時間前`} から更新を試します`}
         >
           <span className="text-xs font-medium text-[var(--vy-text)]">
             {TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? "カスタム"}
           </span>
         </Row>
-        <Row title="次回の更新目安" desc="LINE が返した更新時刻と現在の設定から算出した目安です">
+        <Row
+          title={uiText("次回の更新目安")}
+          desc={uiText("LINE が返した更新時刻と現在の設定から算出した目安です")}
+        >
           <span className="max-w-[260px] text-right text-xs text-[var(--vy-text-dim)]">
             {plannedRefreshAt
               ? formatTokenSchedule(plannedRefreshAt)
@@ -1484,8 +1565,8 @@ function SessionSection() {
           </span>
         </Row>
         <Row
-          title="自動更新の状態"
-          desc="端末認証が LINE 側で解除された場合のみ、再ログインが必要です"
+          title={uiText("自動更新の状態")}
+          desc={uiText("端末認証が LINE 側で解除された場合のみ、再ログインが必要です")}
         >
           <span className="text-xs font-medium">
             {session?.hasRefreshToken ? "自動更新できます" : "refresh token 未保存"}
@@ -1572,9 +1653,9 @@ function AdvancedSection() {
   };
 
   return (
-    <Section title="詳細・復元" desc="同期、Desktop データの復元やデバッグ導線">
+    <Section title={uiText("詳細・復元")} desc={uiText("同期、Desktop データの復元やデバッグ導線")}>
       <Card>
-        <Row title="最新を同期" desc="新着メッセージを差分で取得します（手動）">
+        <Row title={uiText("最新を同期")} desc={uiText("新着メッセージを差分で取得します（手動）")}>
           <div className="flex items-center gap-2">
             {lastSyncAt && (
               <span className="text-[0.65rem] text-[var(--vy-text-dim)]">
@@ -1596,7 +1677,10 @@ function AdvancedSection() {
             <p className="text-xs text-[var(--vy-text-dim)]">{syncMsg}</p>
           </div>
         )}
-        <Row title="Desktop データを復元" desc="以前の端末のトーク履歴・設定を読み込みます">
+        <Row
+          title={uiText("Desktop データを復元")}
+          desc={uiText("以前の端末のトーク履歴・設定を読み込みます")}
+        >
           <button
             type="button"
             onClick={handleRestore}
@@ -1607,8 +1691,10 @@ function AdvancedSection() {
           </button>
         </Row>
         <Row
-          title="設定をエクスポート"
-          desc="テーマ・表示・チャット整理設定をJSONファイルに書き出します（認証情報・履歴は含みません）"
+          title={uiText("設定をエクスポート")}
+          desc={uiText(
+            "テーマ・表示・チャット整理設定をJSONファイルに書き出します（認証情報・履歴は含みません）",
+          )}
         >
           <button
             type="button"
@@ -1640,10 +1726,13 @@ function AdvancedSection() {
             }}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
           >
-            エクスポート
+            {uiText("エクスポート")}{" "}
           </button>
         </Row>
-        <Row title="設定をインポート" desc="形式と適用内容を確認してから、画面設定だけを復元します">
+        <Row
+          title={uiText("設定をインポート")}
+          desc={uiText("形式と適用内容を確認してから、画面設定だけを復元します")}
+        >
           <button
             type="button"
             onClick={() => {
@@ -1664,7 +1753,9 @@ function AdvancedSection() {
                   });
                   if (
                     !window.confirm(
-                      "設定、テーマ、チャット一覧の表示状態をバックアップの内容に置き換えます。認証情報とトーク履歴は変更しません。",
+                      uiText(
+                        "設定、テーマ、チャット一覧の表示状態をバックアップの内容に置き換えます。認証情報とトーク履歴は変更しません。",
+                      ),
                     )
                   )
                     return;
@@ -1691,6 +1782,7 @@ function AdvancedSection() {
                     for (const [k, v] of Object.entries(data.settings)) {
                       state.updateSetting(k as never, v as never);
                     }
+                    await changeUiLanguage(data.settings.uiLanguage ?? "system");
                   }
                   // 非表示チャット
                   if (data.hiddenChats) {
@@ -1728,35 +1820,41 @@ function AdvancedSection() {
             }}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
           >
-            インポート
+            {uiText("インポート")}{" "}
           </button>
         </Row>
-        <Row title="デバッグログを表示" desc="接続状態や送受信ログを確認します（開発者向け）">
+        <Row
+          title={uiText("デバッグログを表示")}
+          desc={uiText("接続状態や送受信ログを確認します（開発者向け）")}
+        >
           <button
             type="button"
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)]"
           >
-            開く
+            {uiText("開く")}{" "}
           </button>
         </Row>
         <Row
-          title="設定を初期化"
-          desc="テーマ・設定・表示を初期値に戻します（ログイン状態・トーク履歴は保持）"
+          title={uiText("設定を初期化")}
+          desc={uiText("テーマ・設定・表示を初期値に戻します（ログイン状態・トーク履歴は保持）")}
         >
           <button
             type="button"
             onClick={() => {
               if (
                 !window.confirm(
-                  "テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
+                  uiText(
+                    "テーマ・設定・表示状態を初期値に戻します。\nログイン状態とトーク履歴はそのまま残ります。よろしいですか？",
+                  ),
                 )
               )
                 return;
               useStore.getState().resetSettings();
+              void changeUiLanguage("system");
             }}
             className="rounded-lg border border-[var(--vy-danger)] px-3 py-1.5 text-xs font-medium text-[var(--vy-danger)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-danger)_12%,transparent)]"
           >
-            初期化
+            {uiText("初期化")}{" "}
           </button>
         </Row>
       </Card>
@@ -1773,11 +1871,11 @@ function AdvancedSection() {
           {restoreResult.ok ? (
             <div className="space-y-1">
               <p className="font-medium" style={{ color: "var(--vy-accent)" }}>
-                Desktop データの復元が完了しました
+                {uiText("Desktop データの復元が完了しました")}{" "}
               </p>
               {restoreResult.imported != null && (
                 <p className="text-xs text-[var(--vy-text-dim)]">
-                  インポート: {restoreResult.imported} 件
+                  {uiText("インポート:")} {restoreResult.imported} {uiText("件")}{" "}
                   {restoreResult.skipped != null ? ` · スキップ: ${restoreResult.skipped} 件` : ""}
                   {restoreResult.keyIds?.length
                     ? ` · 鍵 ID: ${restoreResult.keyIds.join(", ")}`
@@ -1798,7 +1896,7 @@ function AdvancedSection() {
 
       {!accountId && !demoMode && (
         <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
-          復元には LINE ログインが必要です。
+          {uiText("復元には LINE ログインが必要です。")}{" "}
         </p>
       )}
       <div className="mt-4">
@@ -1840,7 +1938,10 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
     }
   };
   const restore = async (id: string, media: boolean) => {
-    if (!accountId || !window.confirm("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
+    if (
+      !accountId ||
+      !window.confirm(uiText("現在の履歴にバックアップ内容を統合します。よろしいですか？"))
+    )
       return;
     setBusy(true);
     setMessage(null);
@@ -1856,11 +1957,16 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   };
   return (
     <Section
-      title="VylineBackup"
-      desc="この端末のトーク履歴をスナップショットとして保存・復元します。認証情報は含みません。"
+      title={uiText("VylineBackup")}
+      desc={uiText(
+        "この端末のトーク履歴をスナップショットとして保存・復元します。認証情報は含みません。",
+      )}
     >
       <Card>
-        <Row title="新しいバックアップを作成" desc="履歴をいつでも戻せるよう、このPC内へ保存します">
+        <Row
+          title={uiText("新しいバックアップを作成")}
+          desc={uiText("履歴をいつでも戻せるよう、このPC内へ保存します")}
+        >
           <button
             type="button"
             disabled={busy || !accountId}
@@ -1871,7 +1977,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
           </button>
         </Row>
         <label className="flex items-center justify-between py-3 text-xs text-[var(--vy-text-dim)]">
-          <span>画像・動画などの保存済みメディアも含める</span>
+          <span>{uiText("画像・動画などの保存済みメディアも含める")}</span>
           <input
             type="checkbox"
             checked={includeMedia}
@@ -1879,7 +1985,9 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
           />
         </label>
         {backups.length === 0 ? (
-          <p className="py-3 text-sm text-[var(--vy-text-dim)]">まだバックアップはありません。</p>
+          <p className="py-3 text-sm text-[var(--vy-text-dim)]">
+            {uiText("まだバックアップはありません。")}
+          </p>
         ) : (
           backups.slice(0, 5).map((backup) => (
             <div
@@ -1887,10 +1995,13 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
               className="flex items-center justify-between gap-3 border-t border-[var(--vy-border)] py-3"
             >
               <div className="min-w-0">
-                <p className="text-xs font-medium">{new Date(backup.createdAt).toLocaleString()}</p>
+                <p className="text-xs font-medium">
+                  {new Date(backup.createdAt).toLocaleString(getIntlLocale())}
+                </p>
                 <p className="text-[0.65rem] text-[var(--vy-text-dim)]">
-                  {backup.chatCount}チャット · {backup.messageCount.toLocaleString()}件 ·{" "}
-                  {formatBytes(backup.sizeBytes)}
+                  {backup.chatCount}
+                  {uiText("チャット ·")} {backup.messageCount.toLocaleString(getIntlLocale())}
+                  {uiText("件 ·")} {formatBytes(backup.sizeBytes)}
                   {backup.includeMedia ? " · メディアあり" : ""}
                 </p>
               </div>
@@ -1900,7 +2011,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
                 onClick={() => void restore(backup.id, backup.includeMedia)}
                 className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
               >
-                復元
+                {uiText("復元")}{" "}
               </button>
             </div>
           ))
@@ -1921,13 +2032,13 @@ function ReadDisabledChatList() {
     <div className="mt-4">
       <Card>
         <div className="py-3.5">
-          <p className="text-sm font-medium">既読オフにしているチャット</p>
+          <p className="text-sm font-medium">{uiText("既読オフにしているチャット")}</p>
           <p className="mt-0.5 text-xs text-[var(--vy-text-dim)]">
-            個別に既読を無効化したチャットを確認できます。
+            {uiText("個別に既読を無効化したチャットを確認できます。")}{" "}
           </p>
           {disabledChats.length === 0 ? (
             <p className="mt-3 text-xs text-[var(--vy-text-dim)]">
-              設定されているチャットはありません
+              {uiText("設定されているチャットはありません")}{" "}
             </p>
           ) : (
             <ul className="mt-2 space-y-1">
@@ -1948,7 +2059,7 @@ function ReadDisabledChatList() {
                     onClick={() => toggleChatReadDisabled(chat.id)}
                     className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2 py-1 text-[0.65rem] text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
                   >
-                    既読を有効化
+                    {uiText("既読を有効化")}{" "}
                   </button>
                 </li>
               ))}
@@ -2019,7 +2130,12 @@ function StorageSection() {
     action: () => Promise<{ ok: boolean; removed?: number }>,
   ) => {
     if (!accountId && !demoMode) return;
-    if (!window.confirm(`${label}を削除します。この操作は取り消せません。よろしいですか？`)) return;
+    if (
+      !window.confirm(
+        uiText("{{label}}を削除します。この操作は取り消せません。よろしいですか？", { label }),
+      )
+    )
+      return;
     if (demoMode) {
       setMsg(`${label}を削除しました（デモ）`);
       return;
@@ -2061,38 +2177,42 @@ function StorageSection() {
   const diskUsedPct = diskTotal > 0 ? (diskUsed / diskTotal) * 100 : 0;
 
   return (
-    <Section title="ストレージ" desc="アプリが使用している容量を管理します">
+    <Section title={uiText("ストレージ")} desc={uiText("アプリが使用している容量を管理します")}>
       {storage && (
         <div className="mb-6 overflow-hidden rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
           <div className="p-5">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="text-xs text-[var(--vy-text-dim)]">
-                  ドライブ {storage.driveLetter ?? "---"}
+                  {uiText("ドライブ")} {storage.driveLetter ?? "---"}
                 </p>
                 <p className="mt-2 text-3xl font-semibold tracking-tight">
                   {formatBytes(storage.vylineTotal)}
                 </p>
                 <p className="mt-2 max-w-md text-sm text-[var(--vy-text-dim)]">
-                  CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。
+                  {uiText(
+                    "CDN キャッシュ、プロフィール画像、チャットメディアを保存しています。",
+                  )}{" "}
                 </p>
               </div>
 
               <div className="shrink-0 sm:text-right">
-                <p className="text-xs text-[var(--vy-text-dim)]">ドライブ使用率</p>
+                <p className="text-xs text-[var(--vy-text-dim)]">{uiText("ドライブ使用率")}</p>
                 <p className="mt-1 text-xl font-semibold tracking-tight">
                   {formatPercent(diskUsedPct)}
                 </p>
                 <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-                  空き {formatBytes(diskFree)}
+                  {uiText("空き")} {formatBytes(diskFree)}
                 </p>
               </div>
             </div>
 
             <div className="mt-5">
               <div className="mb-2 flex items-center justify-between text-xs text-[var(--vy-text-dim)]">
-                <span>保存データの内訳</span>
-                <span>{formatBytes(storage.vylineTotal)} 合計</span>
+                <span>{uiText("保存データの内訳")}</span>
+                <span>
+                  {formatBytes(storage.vylineTotal)} {uiText("合計")}
+                </span>
               </div>
               <div className="h-2.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]">
                 {segments.map((s) => {
@@ -2128,9 +2248,9 @@ function StorageSection() {
 
       <div className="mb-4 flex items-end justify-between gap-3">
         <div>
-          <p className="text-base font-semibold">保存データ</p>
+          <p className="text-base font-semibold">{uiText("保存データ")}</p>
           <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-            不要なデータを種類ごとに削除できます。
+            {uiText("不要なデータを種類ごとに削除できます。")}{" "}
           </p>
         </div>
         {storage && (
@@ -2142,8 +2262,8 @@ function StorageSection() {
 
       <div className="space-y-2">
         <TypeCard
-          title="CDN キャッシュ"
-          desc="スタンプ・LINE絵文字など"
+          title={uiText("CDN キャッシュ")}
+          desc={uiText("スタンプ・LINE絵文字など")}
           size={storage?.cache.cdn ?? 0}
           ratio={storage && storage.vylineTotal > 0 ? storage.cache.cdn / storage.vylineTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
@@ -2153,8 +2273,8 @@ function StorageSection() {
           accent="var(--vy-accent)"
         />
         <TypeCard
-          title="アイコンキャッシュ"
-          desc="プロフィール画像など"
+          title={uiText("アイコンキャッシュ")}
+          desc={uiText("プロフィール画像など")}
           size={storage?.cache.icons ?? 0}
           ratio={storage && storage.vylineTotal > 0 ? storage.cache.icons / storage.vylineTotal : 0}
           icon={<IconDownload size={20} className="text-[var(--vy-accent)]" />}
@@ -2166,8 +2286,8 @@ function StorageSection() {
           accent="var(--vy-accent)"
         />
         <TypeCard
-          title="画像"
-          desc="チャット画像"
+          title={uiText("画像")}
+          desc={uiText("チャット画像")}
           size={storage?.savedMedia.image ?? 0}
           ratio={
             storage && storage.vylineTotal > 0 ? storage.savedMedia.image / storage.vylineTotal : 0
@@ -2181,8 +2301,8 @@ function StorageSection() {
           accent="#3b82f6"
         />
         <TypeCard
-          title="動画"
-          desc="チャット動画"
+          title={uiText("動画")}
+          desc={uiText("チャット動画")}
           size={storage?.savedMedia.video ?? 0}
           ratio={
             storage && storage.vylineTotal > 0 ? storage.savedMedia.video / storage.vylineTotal : 0
@@ -2196,8 +2316,8 @@ function StorageSection() {
           accent="#a855f7"
         />
         <TypeCard
-          title="音声"
-          desc="ボイスメッセージなど"
+          title={uiText("音声")}
+          desc={uiText("ボイスメッセージなど")}
           size={storage?.savedMedia.audio ?? 0}
           ratio={
             storage && storage.vylineTotal > 0 ? storage.savedMedia.audio / storage.vylineTotal : 0
@@ -2211,8 +2331,8 @@ function StorageSection() {
           accent="#22c55e"
         />
         <TypeCard
-          title="ファイル"
-          desc="PDF など"
+          title={uiText("ファイル")}
+          desc={uiText("PDF など")}
           size={storage?.savedMedia.file ?? 0}
           ratio={
             storage && storage.vylineTotal > 0 ? storage.savedMedia.file / storage.vylineTotal : 0
@@ -2234,7 +2354,7 @@ function StorageSection() {
       )}
       {!accountId && (
         <p className="mt-3 px-1 text-xs text-[var(--vy-text-dim)]">
-          ストレージ情報を取得するにはログインが必要です。
+          {uiText("ストレージ情報を取得するにはログインが必要です。")}{" "}
         </p>
       )}
     </Section>
@@ -2337,23 +2457,23 @@ function InfoSection() {
   }, []);
 
   return (
-    <Section title="情報" desc="Vyline について">
+    <Section title={uiText("情報")} desc={uiText("Vyline について")}>
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         {/* Logo & version */}
         <div className="flex flex-col items-center px-6 py-8 text-center">
           <img
             src="/icon-512.png"
-            alt="Vyline ロゴ"
+            alt={uiText("Vyline ロゴ")}
             className="h-16 w-16 rounded-2xl object-contain shadow-lg"
           />
-          <h2 className="mt-4 text-xl font-bold">Vyline</h2>
+          <h2 className="mt-4 text-xl font-bold">{uiText("Vyline")}</h2>
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
             {BUILD_COMMIT_SHA !== "unknown" ? (
               <a
                 href={`https://github.com/nezumi0627/Vyline/commit/${BUILD_COMMIT_SHA}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                title="このビルドのGitHubコミットを開く"
+                title={uiText("このビルドのGitHubコミットを開く")}
                 className="hover:text-[var(--vy-text)]"
               >
                 {formatBuildVersion(UPDATE_NOTES.version, BUILD_COMMIT_SHA)}
@@ -2363,41 +2483,42 @@ function InfoSection() {
             )}
           </p>
           <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-            ロゴ制作:{" "}
+            {uiText("ロゴ制作:")}{" "}
             <a
               className="underline underline-offset-2 hover:text-[var(--vy-text)]"
               href="https://github.com/yuz-mc"
               target="_blank"
               rel="noopener noreferrer"
             >
-              yuz-mc
+              {uiText("yuz-mc")}{" "}
             </a>{" "}
-            · Copyright © 2026 y2mc ·{" "}
+            {uiText("· Copyright © 2026 y2mc ·")}{" "}
             <a
               className="underline underline-offset-2 hover:text-[var(--vy-text)]"
               href="https://creativecommons.org/licenses/by/4.0/"
               target="_blank"
               rel="noopener noreferrer"
             >
-              CC BY 4.0
+              {uiText("CC BY 4.0")}{" "}
             </a>{" "}
-            ·{" "}
+            {uiText("·")}{" "}
             <a
               className="underline underline-offset-2 hover:text-[var(--vy-text)]"
               href="/logo-license.txt"
               target="_blank"
               rel="noopener noreferrer"
             >
-              ライセンス表記
+              {uiText("ライセンス表記")}{" "}
             </a>
           </p>
           {updateInfo?.hasUpdate && (
             <div className="mt-3 w-full max-w-md rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-left">
               <div className="flex flex-wrap items-center justify-between gap-3">
                 <div>
-                  <p className="text-sm font-semibold">新しいバージョンがあります</p>
+                  <p className="text-sm font-semibold">{uiText("新しいバージョンがあります")}</p>
                   <p className="mt-1 font-mono text-xs text-[var(--vy-text-dim)]">
-                    V{updateInfo.latestVersion}
+                    {uiText("V")}
+                    {updateInfo.latestVersion}
                   </p>
                 </div>
                 {updateInfo.downloadUrl && (
@@ -2422,7 +2543,9 @@ function InfoSection() {
               )}
               {updateInfo.body && (
                 <details className="mt-3 border-t border-[var(--vy-border)] pt-3">
-                  <summary className="cursor-pointer text-xs font-medium">更新内容</summary>
+                  <summary className="cursor-pointer text-xs font-medium">
+                    {uiText("更新内容")}
+                  </summary>
                   <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-[var(--vy-text-dim)]">
                     {updateInfo.body}
                   </pre>
@@ -2430,7 +2553,7 @@ function InfoSection() {
               )}
               {updateInfo.downloadDigest && (
                 <p className="mt-3 break-all font-mono text-[0.65rem] text-[var(--vy-text-dim)]">
-                  SHA-256: {updateInfo.downloadDigest.slice("sha256:".length)}
+                  {uiText("SHA-256:")} {updateInfo.downloadDigest.slice("sha256:".length)}
                 </p>
               )}
               {updateInfo.url && (
@@ -2440,7 +2563,7 @@ function InfoSection() {
                   rel="noopener noreferrer"
                   className="mt-3 inline-block text-xs text-[var(--vy-text-dim)] underline underline-offset-2"
                 >
-                  GitHubのリリース詳細
+                  {uiText("GitHubのリリース詳細")}{" "}
                 </a>
               )}
               <p className="mt-2 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
@@ -2451,36 +2574,40 @@ function InfoSection() {
             </div>
           )}
           {updateInfo && !updateInfo.hasUpdate && !updateInfo.error && !checking && (
-            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">最新バージョンです</p>
+            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">{uiText("最新バージョンです")}</p>
           )}
           {updateInfo?.error && (
-            <p className="mt-3 text-xs text-[var(--vy-danger)]">更新確認に失敗しました</p>
+            <p className="mt-3 text-xs text-[var(--vy-danger)]">
+              {uiText("更新確認に失敗しました")}
+            </p>
           )}
           <div className="mt-3 flex items-center justify-center gap-2">
-            {checking && <p className="text-xs text-[var(--vy-text-dim)]">更新を確認中…</p>}
+            {checking && (
+              <p className="text-xs text-[var(--vy-text-dim)]">{uiText("更新を確認中…")}</p>
+            )}
             <button
               type="button"
               onClick={check}
               disabled={checking}
               className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              再確認
+              {uiText("再確認")}{" "}
             </button>
           </div>
           <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。
+            {uiText("LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。")}{" "}
           </p>
         </div>
 
         {/* author */}
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="text-xs font-medium text-[var(--vy-text-dim)]">作者</p>
-          <p className="mt-1 text-sm font-semibold">nezumi0627</p>
+          <p className="text-xs font-medium text-[var(--vy-text-dim)]">{uiText("作者")}</p>
+          <p className="mt-1 text-sm font-semibold">{uiText("nezumi0627")}</p>
         </div>
 
         {/* links */}
         <div className="border-t border-[var(--vy-border)] px-5 py-3">
-          <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">リンク</p>
+          <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">{uiText("リンク")}</p>
           <div className="space-y-2">
             <a
               href="https://github.com/nezumi0627"
@@ -2489,13 +2616,13 @@ function InfoSection() {
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#24292e] text-base text-white">
-                GH
+                {uiText("GH")}{" "}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-medium">GitHub</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
+                <p className="font-medium">{uiText("GitHub")}</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">{uiText("nezumi0627")}</p>
               </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+              <span className="text-xs text-[var(--vy-text-dim)]">{uiText("↗")}</span>
             </a>
             <a
               href="https://x.com/nezum1n1um"
@@ -2504,13 +2631,15 @@ function InfoSection() {
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#1d9bf0] text-base text-white">
-                𝕏
+                {uiText("𝕏")}{" "}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-medium">X (Twitter)</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">@nezum1n1um</p>
+                <p className="font-medium">{uiText("X (Twitter)")}</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">
+                  {uiText("@nezum1n1um")}
+                </p>
               </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+              <span className="text-xs text-[var(--vy-text-dim)]">{uiText("↗")}</span>
             </a>
             <a
               href="https://discord.com/users/879525928261255199"
@@ -2519,13 +2648,13 @@ function InfoSection() {
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#5865f2] text-base text-white">
-                DC
+                {uiText("DC")}{" "}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-medium">Discord</p>
-                <p className="truncate text-xs text-[var(--vy-text-dim)]">nezumi0627</p>
+                <p className="font-medium">{uiText("Discord")}</p>
+                <p className="truncate text-xs text-[var(--vy-text-dim)]">{uiText("nezumi0627")}</p>
               </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+              <span className="text-xs text-[var(--vy-text-dim)]">{uiText("↗")}</span>
             </a>
             <a
               href="https://opencode.ai/go?ref=ZE16GS43YJ"
@@ -2534,21 +2663,21 @@ function InfoSection() {
               className="flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors hover:bg-[var(--vy-surface-2)]"
             >
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-[#0a0a0a] text-[0.65rem] font-bold text-[#7ee787]">
-                OC
+                {uiText("OC")}{" "}
               </span>
               <div className="min-w-0 flex-1">
-                <p className="font-medium">OpenCode Go</p>
+                <p className="font-medium">{uiText("OpenCode Go")}</p>
                 <p className="truncate text-xs text-[var(--vy-text-dim)]">
-                  AI coding agent · opencode.ai/go
+                  {uiText("AI coding agent · opencode.ai/go")}{" "}
                 </p>
               </div>
-              <span className="text-xs text-[var(--vy-text-dim)]">↗</span>
+              <span className="text-xs text-[var(--vy-text-dim)]">{uiText("↗")}</span>
             </a>
           </div>
         </div>
       </div>
       <p className="mt-6 text-center text-[0.65rem] text-[var(--vy-text-dim)]">
-        Made with 💙 · MIT License
+        {uiText("Made with 💙 · MIT License")}{" "}
       </p>
     </Section>
   );
@@ -2594,13 +2723,16 @@ function NotificationsSection() {
   };
 
   return (
-    <Section title="通知" desc="モバイルプッシュ通知の有効/無効を切替します">
+    <Section title={uiText("通知")} desc={uiText("モバイルプッシュ通知の有効/無効を切替します")}>
       <Card>
-        <Row title="通知を有効にする" desc="OFF にすると LINE からのプッシュ通知を一時停止します">
+        <Row
+          title={uiText("通知を有効にする")}
+          desc={uiText("OFF にすると LINE からのプッシュ通知を一時停止します")}
+        >
           <Toggle
             checked={settings.notificationsEnabled}
             onChange={toggle}
-            label="通知を有効にする"
+            label={uiText("通知を有効にする")}
             disabled={saving || (!accountId && !demoMode)}
           />
         </Row>
@@ -2715,20 +2847,26 @@ function PrivacySection() {
   };
 
   return (
-    <Section title="プライバシー" desc="プロキシ・ブロック">
+    <Section title={uiText("プライバシー")} desc={uiText("プロキシ・ブロック")}>
       <Card>
-        <Row title="配信者モード" desc="一覧・ヘッダーの名前を「友だち／グループ」に伏せます">
+        <Row
+          title={uiText("配信者モード")}
+          desc={uiText("一覧・ヘッダーの名前を「友だち／グループ」に伏せます")}
+        >
           <Toggle
             checked={settings.streamerMode}
             onChange={(v) => updateSetting("streamerMode", v)}
-            label="配信者モード"
+            label={uiText("配信者モード")}
           />
         </Row>
-        <Row title="プロキシを使う" desc="HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）">
+        <Row
+          title={uiText("プロキシを使う")}
+          desc={uiText("HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）")}
+        >
           <Toggle
             checked={settings.proxyEnabled}
             onChange={(v) => updateSetting("proxyEnabled", v)}
-            label="プロキシを使う"
+            label={uiText("プロキシを使う")}
           />
         </Row>
       </Card>
@@ -2736,12 +2874,12 @@ function PrivacySection() {
       <div className="mt-4">
         <Card>
           <div className="py-3.5">
-            <p className="text-sm font-medium">プロキシ URL</p>
+            <p className="text-sm font-medium">{uiText("プロキシ URL")}</p>
             <div className="mt-2 flex gap-2">
               <input
                 value={proxyUrl}
                 onChange={(e) => setProxyUrl(e.target.value)}
-                placeholder="http://127.0.0.1:7890"
+                placeholder={uiText("http://127.0.0.1:7890")}
                 className="flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               />
               <button
@@ -2750,7 +2888,7 @@ function PrivacySection() {
                 className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)]"
                 style={{ background: "var(--vy-accent)" }}
               >
-                適用
+                {uiText("適用")}{" "}
               </button>
             </div>
             {proxyMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{proxyMsg}</p>}
@@ -2762,7 +2900,7 @@ function PrivacySection() {
         <Card>
           <div className="py-3.5">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">ブロックリスト</p>
+              <p className="text-sm font-medium">{uiText("ブロックリスト")}</p>
               <button
                 type="button"
                 disabled={(!accountId && !demoMode) || blockedLoading}
@@ -2773,7 +2911,9 @@ function PrivacySection() {
               </button>
             </div>
             {blocked.length === 0 ? (
-              <p className="mt-2 text-xs text-[var(--vy-text-dim)]">未取得、または 0 件</p>
+              <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+                {uiText("未取得、または 0 件")}
+              </p>
             ) : (
               <ul className="vy-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">
                 {blocked.map((b) => (

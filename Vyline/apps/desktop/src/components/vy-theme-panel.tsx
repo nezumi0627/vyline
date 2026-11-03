@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useState } from "react";
 import { Button, TextField } from "@/components/vy-ui";
 import { useStore, THEME_PRESETS, serializeTheme, type VyTheme } from "@/lib/store";
@@ -118,7 +119,7 @@ export function VyThemePanel() {
     <div className="space-y-6">
       {/* presets */}
       <div>
-        <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">プリセット</p>
+        <p className="mb-3 text-xs font-medium text-[var(--vy-text-dim)]">{uiText("プリセット")}</p>
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
           {THEME_PRESETS.map((preset) => {
             const active =
@@ -142,7 +143,7 @@ export function VyThemePanel() {
       <div className="flex flex-wrap gap-2">
         <Button size="sm" onClick={() => setTheme(randomTheme(theme))}>
           <IconDice size={16} />
-          ランダム生成
+          {uiText("ランダム生成")}{" "}
         </Button>
         <Button
           size="sm"
@@ -151,14 +152,14 @@ export function VyThemePanel() {
           aria-pressed={codeOpen}
         >
           <IconCopyCode size={16} />
-          コード
+          {uiText("コード")}{" "}
         </Button>
       </div>
 
       {codeOpen && (
         <div className="vy-scale-in space-y-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
           <div className="flex items-center justify-between">
-            <span className="text-sm font-medium">現在のテーマを書き出し</span>
+            <span className="text-sm font-medium">{uiText("現在のテーマを書き出し")}</span>
             <Button variant="primary" size="sm" onClick={copyCode}>
               <IconCheck
                 size={13}
@@ -170,64 +171,68 @@ export function VyThemePanel() {
           <textarea
             readOnly
             value={serializeTheme(theme)}
-            aria-label="テーマコード"
+            aria-label={uiText("テーマコード")}
             className="vy-scroll h-20 w-full resize-none rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2 font-mono text-[0.7rem] outline-none"
           />
           <div className="h-px bg-[var(--vy-border)]" />
-          <span className="text-sm font-medium">コードから読み込み</span>
+          <span className="text-sm font-medium">{uiText("コードから読み込み")}</span>
           <textarea
             value={importText}
             onChange={(e) => {
               setImportText(e.target.value);
               setImportError(false);
             }}
-            placeholder="ここにテーマコードを貼り付け"
-            aria-label="テーマコードを貼り付け"
+            placeholder={uiText("ここにテーマコードを貼り付け")}
+            aria-label={uiText("テーマコードを貼り付け")}
             aria-invalid={importError || undefined}
             aria-describedby={importError ? "theme-import-error" : undefined}
             className="vy-scroll h-16 w-full resize-none rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-2 font-mono text-[0.7rem] outline-none placeholder:text-[var(--vy-text-dim)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           />
           {importError && (
             <p id="theme-import-error" role="alert" className="text-xs text-[var(--vy-danger)]">
-              コードを読み込めませんでした
+              {uiText("コードを読み込めませんでした")}{" "}
             </p>
           )}
           <Button className="w-full" onClick={applyImport} disabled={!importText.trim()}>
-            適用
+            {uiText("適用")}{" "}
           </Button>
         </div>
       )}
 
       {/* custom */}
       <div>
-        <p className="mb-1 text-xs font-medium text-[var(--vy-text-dim)]">カスタム</p>
+        <p className="mb-1 text-xs font-medium text-[var(--vy-text-dim)]">{uiText("カスタム")}</p>
         <p className="mb-3 text-xs text-[var(--vy-text-dim)]">
-          値を変更すると自動で「カスタム」プリセットになります
+          {uiText("値を変更すると自動で「カスタム」プリセットになります")}{" "}
         </p>
         <div className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 divide-y divide-[var(--vy-border)]">
           <ColorField
-            label="アクセント"
+            label={uiText("アクセント")}
             value={theme.accent}
             onChange={(v) => updateThemeField("accent", v)}
           />
           <ColorField
-            label="アクセント文字色"
+            label={uiText("アクセント文字色")}
             value={theme.accentContrast}
             onChange={(v) => updateThemeField("accentContrast", v)}
           />
-          <ColorField label="背景" value={theme.bg} onChange={(v) => updateThemeField("bg", v)} />
           <ColorField
-            label="トーク背景"
+            label={uiText("背景")}
+            value={theme.bg}
+            onChange={(v) => updateThemeField("bg", v)}
+          />
+          <ColorField
+            label={uiText("トーク背景")}
             value={theme.chatBg}
             onChange={(v) => updateThemeField("chatBg", v)}
           />
           <ColorField
-            label="吹き出し（相手）"
+            label={uiText("吹き出し（相手）")}
             value={theme.msgIn}
             onChange={(v) => updateThemeField("msgIn", v)}
           />
           <ColorField
-            label="吹き出し（自分）"
+            label={uiText("吹き出し（自分）")}
             value={theme.msgOut}
             onChange={(v) => updateThemeField("msgOut", v)}
           />
@@ -235,37 +240,37 @@ export function VyThemePanel() {
           {expanded && (
             <>
               <ColorField
-                label="サーフェス"
+                label={uiText("サーフェス")}
                 value={theme.surface}
                 onChange={(v) => updateThemeField("surface", v)}
               />
               <ColorField
-                label="サーフェス2"
+                label={uiText("サーフェス2")}
                 value={theme.surface2}
                 onChange={(v) => updateThemeField("surface2", v)}
               />
               <ColorField
-                label="サイドバー"
+                label={uiText("サイドバー")}
                 value={theme.sidebar}
                 onChange={(v) => updateThemeField("sidebar", v)}
               />
               <ColorField
-                label="テキスト"
+                label={uiText("テキスト")}
                 value={theme.text}
                 onChange={(v) => updateThemeField("text", v)}
               />
               <ColorField
-                label="テキスト（薄）"
+                label={uiText("テキスト（薄）")}
                 value={theme.textDim}
                 onChange={(v) => updateThemeField("textDim", v)}
               />
               <ColorField
-                label="吹き出し文字（相手）"
+                label={uiText("吹き出し文字（相手）")}
                 value={theme.msgInText}
                 onChange={(v) => updateThemeField("msgInText", v)}
               />
               <ColorField
-                label="吹き出し文字（自分）"
+                label={uiText("吹き出し文字（自分）")}
                 value={theme.msgOutText}
                 onChange={(v) => updateThemeField("msgOutText", v)}
               />
@@ -282,9 +287,10 @@ export function VyThemePanel() {
 
           <div className="py-3">
             <div className="flex items-center justify-between">
-              <span className="text-sm">角丸</span>
+              <span className="text-sm">{uiText("角丸")}</span>
               <span className="text-xs text-[var(--vy-text-dim)]">
-                {theme.radius.toFixed(2)}rem
+                {theme.radius.toFixed(2)}
+                {uiText("rem")}{" "}
               </span>
             </div>
             <input
@@ -294,13 +300,13 @@ export function VyThemePanel() {
               step={0.05}
               value={theme.radius}
               onChange={(e) => updateThemeField("radius", Number(e.target.value))}
-              aria-label="角丸"
+              aria-label={uiText("角丸")}
               className="mt-2 w-full accent-[var(--vy-accent)]"
             />
           </div>
 
           <div className="flex items-center justify-between py-3">
-            <span className="text-sm">トーク背景パターン</span>
+            <span className="text-sm">{uiText("トーク背景パターン")}</span>
             <div className="flex gap-2">
               <button
                 type="button"
@@ -313,7 +319,7 @@ export function VyThemePanel() {
                 )}
                 style={theme.pattern === 1 ? { background: "var(--vy-accent)" } : undefined}
               >
-                ドット
+                {uiText("ドット")}{" "}
               </button>
               <button
                 type="button"
@@ -326,20 +332,20 @@ export function VyThemePanel() {
                 )}
                 style={theme.pattern === 0 ? { background: "var(--vy-accent)" } : undefined}
               >
-                なし
+                {uiText("なし")}{" "}
               </button>
             </div>
           </div>
 
           <div className="py-3">
             <label className="flex items-center justify-between">
-              <span className="text-sm">背景画像 URL</span>
+              <span className="text-sm">{uiText("背景画像 URL")}</span>
             </label>
             <TextField
               value={theme.chatImage ?? ""}
               onChange={(e) => updateThemeField("chatImage", e.target.value)}
-              placeholder="https://…（任意）"
-              aria-label="背景画像 URL"
+              placeholder={uiText("https://…（任意）")}
+              aria-label={uiText("背景画像 URL")}
               className="mt-2"
             />
           </div>

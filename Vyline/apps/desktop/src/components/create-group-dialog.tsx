@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api/client";
 import { useStore, displayName, shouldMaskStreamerAvatars } from "@/lib/store";
@@ -45,7 +46,9 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
     if (!accountId || unlocking) return;
     if (
       !window.confirm(
-        "グループ作成の禁止を解除しますか？\n（ABUSE_BLOCK のリスクがあるため自己責任でお願いします）",
+        uiText(
+          "グループ作成の禁止を解除しますか？\n（ABUSE_BLOCK のリスクがあるため自己責任でお願いします）",
+        ),
       )
     )
       return;
@@ -145,7 +148,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
       className="vy-fade-in fixed inset-0 z-[70] flex items-end justify-center bg-black/50 p-4 sm:items-center"
       role="dialog"
       aria-modal="true"
-      aria-label="グループを作成"
+      aria-label={uiText("グループを作成")}
       onClick={onClose}
     >
       <div
@@ -155,12 +158,12 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
         <div className="flex items-center justify-between border-b border-[var(--vy-border)] px-4 py-3">
           <div className="flex items-center gap-2">
             <IconUsers size={18} style={{ color: "var(--vy-accent)" }} />
-            <h2 className="text-sm font-semibold">グループを作成</h2>
+            <h2 className="text-sm font-semibold">{uiText("グループを作成")}</h2>
           </div>
           <button
             type="button"
             onClick={onClose}
-            aria-label="閉じる"
+            aria-label={uiText("閉じる")}
             className="flex h-8 w-8 items-center justify-center rounded-full text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
           >
             <IconClose size={16} />
@@ -170,11 +173,12 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
         {banned ? (
           <div className="space-y-2 p-5">
             <p className="text-sm font-medium text-[var(--vy-danger)]">
-              グループ作成は利用できません
+              {uiText("グループ作成は利用できません")}{" "}
             </p>
             <p className="text-xs leading-relaxed text-[var(--vy-text-dim)]">
-              LINE から ABUSE_BLOCK が返ったため、アカウント BAN
-              を避ける目的でグループ作成を無効化しています。
+              {uiText(
+                "LINE から ABUSE_BLOCK が返ったため、アカウント BAN を避ける目的でグループ作成を無効化しています。",
+              )}{" "}
             </p>
             <div className="flex gap-2 pt-2">
               <button
@@ -183,7 +187,7 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                 className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)]"
                 style={{ background: "var(--vy-accent)" }}
               >
-                閉じる
+                {uiText("閉じる")}{" "}
               </button>
               <button
                 type="button"
@@ -202,12 +206,12 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
               <input
                 value={name}
                 onChange={(e) => setName(e.target.value)}
-                placeholder="グループ名（任意）"
+                placeholder={uiText("グループ名（任意）")}
                 className="w-full rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               />
               <fieldset className="space-y-2">
                 <legend className="text-xs font-semibold text-[var(--vy-text-dim)]">
-                  参加方法
+                  {uiText("参加方法")}{" "}
                 </legend>
                 <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-3 text-sm">
                   <input
@@ -218,9 +222,9 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                     className="mt-0.5 accent-[var(--vy-accent)]"
                   />
                   <span>
-                    <span className="block font-medium">グループ招待</span>
+                    <span className="block font-medium">{uiText("グループ招待")}</span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                      招待を送り、相手が参加するとメンバーになります。
+                      {uiText("招待を送り、相手が参加するとメンバーになります。")}{" "}
                     </span>
                   </span>
                 </label>
@@ -233,9 +237,13 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
                     className="mt-0.5 accent-[var(--vy-accent)]"
                   />
                   <span>
-                    <span className="block font-medium">招待なしで追加（複数人トーク）</span>
+                    <span className="block font-medium">
+                      {uiText("招待なしで追加（複数人トーク）")}
+                    </span>
                     <span className="mt-0.5 block text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                      選んだ友だちを参加済みメンバーとして作成します。グループ招待とは別のトーク形式です。
+                      {uiText(
+                        "選んだ友だちを参加済みメンバーとして作成します。グループ招待とは別のトーク形式です。",
+                      )}{" "}
                     </span>
                   </span>
                 </label>
@@ -243,13 +251,17 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
               <label className="flex cursor-pointer items-center gap-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2.5 text-sm">
                 <span className="flex h-9 w-9 shrink-0 items-center justify-center overflow-hidden rounded-full bg-[var(--vy-surface)] text-lg">
                   {pictureFile ? (
-                    <img src={picturePreview} alt="" className="h-full w-full object-cover" />
+                    <img
+                      src={picturePreview}
+                      alt={uiText("")}
+                      className="h-full w-full object-cover"
+                    />
                   ) : (
                     "＋"
                   )}
                 </span>
                 <span className="min-w-0 flex-1">
-                  <span className="block font-medium">グループアイコン</span>
+                  <span className="block font-medium">{uiText("グループアイコン")}</span>
                   <span className="block truncate text-xs text-[var(--vy-text-dim)]">
                     {pictureFile?.name ?? "画像を選択（5MB以下）"}
                   </span>
@@ -272,16 +284,18 @@ export function CreateGroupDialog({ onClose }: { onClose: () => void }) {
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                placeholder="友だちを検索"
+                placeholder={uiText("友だちを検索")}
                 className="w-full rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
               />
-              <p className="text-[0.7rem] text-[var(--vy-text-dim)]">選択中 {selected.size} 人</p>
+              <p className="text-[0.7rem] text-[var(--vy-text-dim)]">
+                {uiText("選択中")} {selected.size} {uiText("人")}
+              </p>
             </div>
 
             <div className="vy-scroll min-h-0 flex-1 overflow-y-auto">
               {filtered.length === 0 ? (
                 <p className="px-4 py-8 text-center text-xs text-[var(--vy-text-dim)]">
-                  追加できる友だちがありません
+                  {uiText("追加できる友だちがありません")}{" "}
                 </p>
               ) : (
                 filtered.map((f) => {

@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useState } from "react";
 import { Avatar } from "@/components/vy-ui";
 import { IconPhone, IconVideo, IconMic, IconMicOff } from "@/components/icons";
@@ -119,7 +120,7 @@ export function CallOverlay({
         {kind === "video" && (
           <button
             type="button"
-            aria-label="カメラ切替"
+            aria-label={uiText("カメラ切替")}
             className="flex h-14 w-14 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text)] transition-transform hover:scale-105 active:scale-95"
           >
             <IconVideo size={22} />
@@ -128,7 +129,7 @@ export function CallOverlay({
         <button
           type="button"
           onClick={onClose}
-          aria-label="通話を終了"
+          aria-label={uiText("通話を終了")}
           className="flex h-16 w-16 rotate-[135deg] items-center justify-center rounded-full text-white transition-transform hover:scale-105 active:scale-95"
           style={{ background: "var(--vy-danger)" }}
         >

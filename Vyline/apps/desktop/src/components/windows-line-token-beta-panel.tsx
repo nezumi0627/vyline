@@ -1,3 +1,5 @@
+import { tr as uiText } from "@/i18n";
+import { getIntlLocale } from "@/i18n";
 import { useState } from "react";
 import { api } from "@/api/client";
 import { useAuthStore } from "@/stores/authStore";
@@ -54,15 +56,19 @@ function TokenRow({
           </span>
         </div>
         <p className="mt-1 text-[var(--vy-text-dim)]">
-          識別子 {token.fingerprint} · 残り {remainingLabel(token.remainingSeconds)}
+          {uiText("識別子")} {token.fingerprint} {uiText("· 残り")}{" "}
+          {remainingLabel(token.remainingSeconds)}
         </p>
         {token.expiresAt && (
           <p className="text-[var(--vy-text-dim)]">
-            期限 {new Date(token.expiresAt * 1000).toLocaleString()}
+            {uiText("期限")} {new Date(token.expiresAt * 1000).toLocaleString(getIntlLocale())}
           </p>
         )}
         {token.pairedIndex !== undefined && (
-          <p className="text-[var(--vy-text-dim)]">ペア: 候補 #{token.pairedIndex + 1}</p>
+          <p className="text-[var(--vy-text-dim)]">
+            {uiText("ペア: 候補 #")}
+            {token.pairedIndex + 1}
+          </p>
         )}
       </div>
       {token.kind === "access" && token.status === "usable" && (
@@ -73,7 +79,7 @@ function TokenRow({
           loading={importing === token.index}
           onClick={() => onImport(token.index)}
         >
-          取り込む
+          {uiText("取り込む")}{" "}
         </Button>
       )}
     </div>
@@ -132,9 +138,11 @@ export function WindowsLineTokenBetaPanel({ accountId }: { accountId: string | n
     <div className="mt-4 rounded-2xl border border-amber-500/40 bg-[var(--vy-surface)] p-4">
       <div className="flex items-start justify-between gap-3">
         <div>
-          <p className="text-sm font-semibold">Windows版LINEのトークン確認</p>
+          <p className="text-sm font-semibold">{uiText("Windows版LINEのトークン確認")}</p>
           <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            起動中のLINE.exeだけを読み取り、候補を期限で分類します。生トークンは画面・ログ・API応答に返しません。
+            {uiText(
+              "起動中のLINE.exeだけを読み取り、候補を期限で分類します。生トークンは画面・ログ・API応答に返しません。",
+            )}{" "}
           </p>
         </div>
         <Button size="sm" variant="primary" loading={loading} onClick={() => void scan()}>
@@ -150,7 +158,9 @@ export function WindowsLineTokenBetaPanel({ accountId }: { accountId: string | n
         <div className="mt-4 space-y-4">
           <div>
             <p className="mb-2 text-xs font-semibold text-emerald-400">
-              利用可能 ({usable.length})
+              {uiText("利用可能 (")}
+              {usable.length}
+              {uiText(")")}{" "}
             </p>
             <div className="space-y-2">
               {usable.map((token) => (
@@ -167,7 +177,9 @@ export function WindowsLineTokenBetaPanel({ accountId }: { accountId: string | n
           </div>
           <div>
             <p className="mb-2 text-xs font-semibold text-[var(--vy-text-dim)]">
-              利用不可 ({unusable.length})
+              {uiText("利用不可 (")}
+              {unusable.length}
+              {uiText(")")}{" "}
             </p>
             <div className="space-y-2">
               {unusable.map((token) => (
