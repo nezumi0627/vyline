@@ -2,7 +2,11 @@
 
 Last updated: 2026-11-03
 
-The current stable baseline is **v1.0.3**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+The current stable baseline is **v1.1.0**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+
+## v1.1.0 — macOS distribution, history restore, and multilingual UI
+
+Adds local macOS apps, in-app update guidance, multilingual UI settings, and Desktop SQLite/WAL history restoration. Fixes Linux package startup, Docker storage paths, account-scoped drafts, and retries for E2EE chat previews. See the [changelog](../../CHANGELOG.md) and [GitHub Release](https://github.com/nezumi0627/vyline/releases/tag/v1.1.0).
 
 ## v1.0.3 — Distribution and validation improvements
 

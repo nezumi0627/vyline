@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-03
 
-This guide brings together the user-facing feature summaries for stable **1.0.3**. See [Getting Started](./start-here.md) for installation. Implementation and live verification against LINE are different things; see the [Capability Matrix](./feature-capabilities.md) for evidence and limitations.
+This guide brings together the user-facing feature summaries for stable **1.1.0**. See [Getting Started](./start-here.md) for installation. Implementation and live verification against LINE are different things; see the [Capability Matrix](./feature-capabilities.md) for evidence and limitations.
 
 ## Accounts and devices
 

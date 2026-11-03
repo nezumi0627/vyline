@@ -42,7 +42,11 @@ if (["major", "minor", "patch"].includes(spec)) {
   const m = current.match(/^(\d+)\.(\d+)\.(\d+)(-.*)?$/);
   if (!m) throw new Error(`現在のバージョンが不正です: ${current}`);
   const [, maj, min, pat, suffix = ""] = m;
-  const bumped = { major: [+maj + 1, 0, 0], minor: [+maj, +min + 1, 0], patch: [+maj, +min, +pat + 1] }[spec as "major" | "minor" | "patch"];
+  const bumped = {
+    major: [+maj + 1, 0, 0],
+    minor: [+maj, +min + 1, 0],
+    patch: [+maj, +min, +pat + 1],
+  }[spec as "major" | "minor" | "patch"];
   next = `${bumped[0]}.${bumped[1]}.${bumped[2]}${suffix}`;
 } else {
   next = spec;
@@ -70,12 +74,21 @@ if (!storePattern.test(store)) {
 store = store.replace(storePattern, `$1${next}$2${next}`);
 write(storePath, store);
 
-// 3. README badge (shields.io は `-` を `--` にエスケープ)
-const readmePath = "README.src.md";
-write(
-  readmePath,
-  read(readmePath).replace(/badge\/version-[\w.-]+-a78bfa/, `badge/version-${next.replaceAll("-", "--")}-a78bfa`),
-);
+// 3. README versions, release links, and badges in both language sources.
+// Shields.io badge colors vary by source, so preserve the six-digit color suffix.
+for (const readmePath of ["README.src.md", "README.en.src.md"]) {
+  const content = read(readmePath);
+  const updated = content
+    .replaceAll(current, next)
+    .replace(
+      /badge\/version-[\w.-]+-([\da-f]{6})/i,
+      `badge/version-${next.replaceAll("-", "--")}-$1`,
+    );
+  if (updated === content) {
+    throw new Error(`${readmePath} のバージョン表記を更新できませんでした`);
+  }
+  write(readmePath, updated);
+}
 
 const readmeGenerator = Bun.spawnSync(["bun", "scripts/generate-readmes.ts"]);
 if (readmeGenerator.exitCode !== 0) throw new Error("README の再生成に失敗しました。");

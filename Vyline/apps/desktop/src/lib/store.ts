@@ -492,12 +492,13 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "1.0.3",
-  title: "Vyline 1.0.3 — Dockerマルチアーキテクチャ改善",
+  version: "1.1.0",
+  title: "Vyline 1.1.0 — macOS配布・履歴復元・多言語対応",
   items: [
-    "Dockerイメージをlinux/amd64とlinux/arm64のネイティブRunnerで並列ビルドし、配布を高速化",
-    "リリース時に両アーキテクチャのDocker manifestを検証",
-    "Windowsポータブル版を含む配布物のSHA-256チェックサムを提供",
+    "macOSローカル版、アプリ内アップデート案内、多言語設定、Desktop履歴復元に対応",
+    "Linux配布物に必要なprotocol profileを同梱し、起動スモークテストを追加",
+    "下書き・E2EEチャット一覧プレビュー・チャット日時表示を改善",
+    "Dockerの保存先、Desktop WAL復元、配布チェックサムを改善",
   ],
 };
 

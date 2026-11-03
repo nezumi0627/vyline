@@ -21,7 +21,7 @@
     <rect x="400" y="58" width="380" height="102" rx="12" fill="#151a22" stroke="#e6ebf2" stroke-width="1.5" />
     <text x="424" y="84" fill="#aab5c5" font-family="ui-monospace,Consolas,monospace" font-size="11" letter-spacing="1.5">APPLICATION</text>
     <text x="424" y="120" fill="#f4f6fa" font-size="28" font-weight="600">vyline</text>
-    <text x="424" y="143" fill="#bac4d3" font-size="14">LINE client · stable 1.0.3</text>
+    <text x="424" y="143" fill="#bac4d3" font-size="14">LINE client · stable 1.1.0</text>
 
     <g>
       <rect x="30" y="260" width="240" height="138" rx="10" fill="#111923" stroke="#7897c5" />

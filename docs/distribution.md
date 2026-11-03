@@ -1,6 +1,6 @@
 # Vyline 配布・更新ガイド（Windows / macOS / Linux / Docker）
 
-安定版は **1.0.3** です。初回導入はOS別ガイドへ進んでください。
+安定版は **1.1.0** です。初回導入はOS別ガイドへ進んでください。
 [Windows](./install/windows.md) / [Linux](./install/linux.md) / [macOS](./install/macos.md) / [Docker](./install/docker.md)
 このページでは配布の仕組みとローカルビルドを扱います。
 

@@ -1,4 +1,4 @@
-export const version = "1.0.3";
+export const version = "1.1.0";
 export const repository = "https://github.com/nezumi0627/vyline";
 export const release = `${repository}/releases/tag/v${version}`;
 export const download = (name) => `${repository}/releases/download/v${version}/${name}`;
@@ -8,7 +8,7 @@ export const documents = [
   ["docs/install/cli.md", "インストール", "Bunとvyl CLI", "全OS共通のコマンド起動と登録"],
   ["docs/install/windows.md", "インストール", "Windows", "Setupとポータブル版の導入"],
   ["docs/install/linux.md", "インストール", "Linux", "x64配布版の展開と起動"],
-  ["docs/install/macos.md", "インストール", "macOS", "ソース起動とブラウザからの利用"],
+  ["docs/install/macos.md", "インストール", "macOS", "Apple Silicon / Intel向けローカルアプリ"],
   ["docs/install/docker.md", "インストール", "Docker / Web", "サーバーを立ててブラウザで使う"],
   ["docs/features.md", "使い方", "機能を知る", "会話、外観、アカウント、データ管理"],
   ["docs/user-guide/themes.md", "使い方", "テーマを作る", "VyThemeと表示のカスタマイズ"],
@@ -54,12 +54,12 @@ export const platforms = {
     note: "arm64のLinuxでは、このx64配布物ではなくDockerまたはソースから起動します。",
   },
   macos: {
-    name: "macOS", detail: "ソース / ブラウザ", guide: "macos",
-    title: "Macでは、ブラウザが入口。",
-    description: "macOS専用のインストーラーはありません。GitとBun 1.4.0以降を用意し、安定版のソースから起動できます。",
-    file: null, label: "macOSの手順を読む",
-    command: `git clone --recurse-submodules --branch v${version} ${repository}.git\ncd vyline\nbun install\nbun run dev`,
-    note: "起動後は http://localhost:5173 を開きます。別のサーバーで動かし、Macから接続する方法も選べます。",
+    name: "macOS", detail: "Apple Silicon / Intel ZIP", guide: "macos",
+    title: "Mac用アプリをダウンロード。",
+    description: "Apple SiliconとIntel Mac向けのローカルアプリを用意しています。チップに合うZIPを選んでください。",
+    file: `Vyline-macos-arm64-${version}.zip`, label: "macOS版（Apple Silicon）をダウンロード",
+    command: null,
+    note: "Intel Mac用ZIPと初回起動時の注意はmacOSガイドを確認してください。macOS版は未署名・未公証です。",
   },
   docker: {
     name: "Docker / Web", detail: "amd64 / arm64", guide: "docker",
