@@ -47,12 +47,14 @@ flowchart LR
 | スレッド閲覧・返信 | 部分実装 | 親メッセージに記録された `threadInfo.chatThreadMid` のみ開く。`getSquareThread` で本人が `JOINED` の場合に限り `sendSquareThreadMessage` を許可。ルームごとの送信間隔と操作 UUID 重複防止を共有 |
 | メンバー・役職 | 読み取り実装 | `getSquareChatMembers` を100件ずつ取得し、SQLiteへアカウント・ルーム別に保存。`ADMIN`は青い王冠、`CO_ADMIN`は反転した王冠で表示。管理操作はなし |
 | 画像・動画・音声プレビュー | 部分実装 | `SquareMessage`の`isSquare` OBS経路を利用し、可視範囲へ近づいた時だけ取得。取得後8 MiB超を表示前に拒否するが、転送・メモリ確保前のサイズ上限ではない。URLメタデータはフェッチしない |
-| ファイル・スタンプ送信 | 未対応 | Square 用送信経路の検証が必要 |
-| 既読・リアクション | 未対応 | Square 専用 API はあるが、UI 操作・状態同期はまだ実装していない |
-| 役職・権限操作 | 部分実装 | メンバー一覧の`SquareMember.role`のみ表示。HARで取得APIを3回確認。権限変更・本人の管理者権限操作は未実装 |
-| ノート | 未対応 | HARで`getNoteStatus`を1回確認。これはノート状態取得の証拠で、本文取得・投稿の全フローは確認できていない。OpenNote系HTTP通信をSquare Note APIと同一視しない |
-| 参加・退出・管理 | 未対応 | 状態変更前の確認 UI、エラー復旧、権限条件を未確認 |
-| ライブトーク | 未対応 | 対応を示す protocol 型があっても画面フローは未検証 |
+| スタンプ | 送受信対応 | HARで受信`STICKER` 11件、送信スタンプ5件と5件すべての成功応答を確認。送信は既存所持スタンプ選択UIからSquare専用APIへ接続し、1.25秒間隔・operation UUID重複防止を共有。受信は固定CDN・数値ID検証で描画 |
+| ファイル・画像/動画/音声送信 | 未対応 | Protocolに画像/動画/音声の送信メソッドがあるが、HARでSquare由来のアップロードを特定できず、ファイル送信仕様も未確認。受信ファイルの安全な取得経路も未実装 |
+| 既読 | 手動送信を追加 | メッセージごとの明示ボタンから`markAsRead`を呼ぶ。スレッドでは`threadMid`も渡す。自動既読・未読数/位置との統合はしない。HARには`markAsRead`72件と`markThreadsAsRead`1件があるが、完全な既読位置同期は未確認 |
+| リアクション | 手動送信を追加 | メッセージごとに標準6種を選んで`reactToMessage`を呼ぶ。対象がキャッシュ内の同じルーム/スレッドに属することを確認する。件数・読者一覧の表示、解除操作、イベントとの状態統合は未実装。HARでは要求3件を確認したが全応答/状態遷移は未確認 |
+| 役職・権限操作 | 部分実装 | メンバー一覧の`SquareMember.role`のみ表示。HARで`updateSquareMember` 11件、`updateSquareChatMember` 6件を確認したが操作目的を確定できないため管理操作は未実装 |
+| ノート | 未対応 | HARで`getNoteStatus`を1回確認。Protocol型が示すのは状態情報までで、本文取得・投稿の全フローは未確認。OpenNote系HTTP通信をSquare Note APIと同一視しない |
+| 参加・退出・管理 | 未対応 | HARで`getJoinableSquareChats` 5件、`leaveSquareChat` 1件、`joinSquareChat` 0件、別操作`joinSquare` 1件を確認。参加条件、退出要求値、承認・失敗復旧を未検証 |
+| ライブトーク | 未対応 | HARに`/SQLV1`通信はなく、`/SQ1`でも関連RPCなし。Protocolに別サービスの型・呼び出し口があるだけではOpenChat向け通信契約や音声経路を確認できない |
 | LIFF | 未対応 | OpenChat 内で LIFF が公式サポートされる前提は置かない |
 | E2EE | 未確認 | Square メッセージクラスに Talk E2EE 復号経路が見つからない。暗号化状態を仮定して復号しない |
 
@@ -95,17 +97,22 @@ LINE が公開している Messaging API の rate limit は、非公開の `/SQ1
 
 これは LINE の許可値や制限値を意味せず、運用で制限を回避する設計でもありません。サービス側のエラー・制限応答では再試行を抑え、アカウントに問題が出る場合は機能を OFF にしてください。
 
-## 地域・公式資料・HAR
+## 対象地域・公式資料・HAR
 
-LINE の公式ヘルプでは OpenChat の利用地域は **日本・台湾・タイ** とされています。「日本のみ」とは記載しません。今回の HAR は日本の `uts-front.line-apps.com` で取得された単一セッション由来で、台湾・タイの Vyline 動作を示しません。台湾・タイのアカウントで未検証です。検証協力アカウントまたは protocol fixtures の PR を歓迎します。
+今回の調査・実装対象は日本向けの公開資料と提供HARに限定します。台湾・タイの仕様・動作・互換性は依頼により対象外であり、対応済みとは扱いません。
 
-HAR は約 98 MB のため、リポジトリには含めません。解析記録には endpoint family とキー名の集計のみを使い、Cookie、token、ユーザー ID、本文、URL query 値は記録しません。`LIFF1` の通信が見つかったことだけでは Square の設定フローである根拠になりません。LINE Developers は LIFF app を OpenChat 内で公式サポートしないと明記しています。
+公式資料上の通常サブルームとスレッドは別機能です。Vylineが扱うのは、親メッセージから見つけた`chatThreadMid`によるスレッドのみで、サブルーム階層は未分類です。公式ヘルプのスレッド作成・返信可能期間はUIで強制しておらず、送信可否はサーバー応答が最終判断になります。全スレッド一覧・お気に入りも未実装です。LINEはLIFFアプリをOpenChat内で正式サポートしていないため、OpenChat画面からLIFFを起動する機能は追加しません。
+
+HAR は約 98 MB のため、リポジトリには含めません。ローカル読み取り専用集計では合計5,303 request、`/SQ1` 1,088 requestを確認しました。RPC名の集計は`markAsRead` 72、`markThreadsAsRead` 1、`reactToMessage` 3、`getNoteStatus` 1、`getJoinableSquareChats` 5、`joinSquareChat` 0、`leaveSquareChat` 1、`sendSquareThreadMessage` 7でした。スタンプ送信5件は要求metadataに`STKPKGID`、`STKID`、`STKVER`、`STKOPT`があり、全応答で成功を確認しました。要求が記録された事実であり、他の操作の成功・完全な状態遷移・別アカウントでの再現性を示しません。値を出力せず、Cookie、token、ユーザーID、本文、URL query値を記録していません。`LIFF1`の通信が見つかったことだけではSquare設定フローである根拠になりません。LINE DevelopersはLIFF appをOpenChat内で公式サポートしないと明記しています。
 
 参照:
 
 - [LINE OpenChat ガイド](https://guide.line.me/ja/services/openchat.html)
 - [LINE ヘルプ: OpenChat の利用地域](https://help.line.me/line/smartphone?a8=.V&contentId=20014753&lang=en)
 - [LINE ヘルプ: OpenChat のサブトークと同期](https://help.line.me/line/?contentId=20024116&lang=ja)
+- [LINE ヘルプ: スレッド機能](https://help.line.me/line/smartphone?contentId=20027219&lang=ja)
+- [LINE ヘルプ: リアクション](https://help.line.me/line/?contentId=20020725&lang=ja)
+- [LINE ヘルプ: ライブトーク](https://help.line.me/line?contentId=20024812&lang=ja)
 - [LINE ヘルプ: OpenChat 管理者向けの権限](https://help.line.me/line/?contentId=20005393&lang=ja)
 - [LINE ヘルプ: トークのノート](https://help.line.me/line/?contentId=20000246&lang=ja)
 - [LINE Developers: LIFF 概要と OpenChat の制約](https://developers.line.biz/ja/docs/liff/overview/)

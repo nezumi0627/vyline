@@ -1,9 +1,14 @@
 import { tr as uiText } from "@/i18n";
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { Avatar } from "@/components/vy-ui";
-import { IconChevron } from "@/components/icons";
+import { IconChevron, IconSticker } from "@/components/icons";
+import { getSquareStickerUrl } from "@/lib/square-message";
+
+const StickerEmojiPanel = lazy(async () => ({
+  default: (await import("@/components/sticker-emoji-panel")).StickerEmojiPanel,
+}));
 
 type SquareMessage = {
   message?: {
@@ -12,6 +17,7 @@ type SquareMessage = {
     createdTime?: number | string;
     from?: string;
     contentType?: number | string;
+    contentMetadata?: Record<string, string> | null;
   };
   threadInfo?: { chatThreadMid?: string; threadRoot?: boolean };
   state?: unknown;
@@ -125,6 +131,8 @@ export function SquareChatPane({
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
+  const [messageActionId, setMessageActionId] = useState<string | null>(null);
+  const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [threadMid, setThreadMid] = useState<string | null>(null);
   const [threadMembershipState, setThreadMembershipState] = useState<number | string | null>(null);
@@ -135,6 +143,7 @@ export function SquareChatPane({
   const [membersLoading, setMembersLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const operationIdRef = useRef<string | null>(null);
+  const stickerOperationRef = useRef<{ key: string; id: string } | null>(null);
 
   const refresh = useCallback(
     async (initial = false) => {
@@ -292,6 +301,71 @@ export function SquareChatPane({
     }
   };
 
+  const sendSticker = async (packageId: string, stickerId: string, isPremium?: boolean) => {
+    if (!accountId || busy || threadMid) return;
+    setBusy(true);
+    setNotice("");
+    try {
+      const key = `${room.id}:${packageId}:${stickerId}:${Boolean(isPremium)}`;
+      if (stickerOperationRef.current?.key !== key) {
+        stickerOperationRef.current = { key, id: crypto.randomUUID() };
+      }
+      const result = await api.line.squareSendSticker(
+        accountId,
+        room.id,
+        stickerOperationRef.current.id,
+        packageId,
+        stickerId,
+        isPremium,
+      );
+      if (!result.ok) {
+        setNotice(
+          result.error === "SQUARE_SEND_ALREADY_ATTEMPTED"
+            ? uiText("同じ送信操作は再送しません。履歴を更新して送信結果を確認してください")
+            : uiText("送信間隔が短すぎます。少し待ってから再試行してください"),
+        );
+      } else {
+        stickerOperationRef.current = null;
+        setStickerPickerOpen(false);
+        void refresh();
+      }
+    } catch {
+      setNotice(uiText("送信結果を確認できませんでした。履歴を更新して確認してください"));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const markRead = async (messageId: string) => {
+    if (!accountId || messageActionId) return;
+    setMessageActionId(messageId);
+    try {
+      await api.line.squareMarkRead(accountId, room.id, messageId, threadMid ?? undefined);
+      setNotice(uiText("既読を送信しました"));
+    } catch {
+      setNotice(uiText("既読を送信できませんでした"));
+    } finally {
+      setMessageActionId(null);
+    }
+  };
+
+  const react = async (
+    messageId: string,
+    type: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
+  ) => {
+    if (!accountId || messageActionId) return;
+    setMessageActionId(messageId);
+    try {
+      await api.line.squareReact(accountId, room.id, messageId, type, threadMid ?? undefined);
+      setNotice(uiText("リアクションを送信しました"));
+      void refresh();
+    } catch {
+      setNotice(uiText("リアクションを送信できませんでした"));
+    } finally {
+      setMessageActionId(null);
+    }
+  };
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-[var(--vy-chat-bg)]">
       <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 pl-14">
@@ -422,6 +496,7 @@ export function SquareChatPane({
             const fromMe = message.from === "me";
             const timestamp = Number(message.createdTime ?? 0);
             const mediaKind = getSquareMediaKind(message.contentType);
+            const stickerUrl = getSquareStickerUrl(message);
             return (
               <article
                 key={`${room.id}:${message.id}`}
@@ -444,6 +519,14 @@ export function SquareChatPane({
                     ))}
                   {message.text ? (
                     <p className="whitespace-pre-wrap break-words text-sm">{message.text}</p>
+                  ) : stickerUrl ? (
+                    <img
+                      src={stickerUrl}
+                      alt={uiText("スタンプ")}
+                      loading="lazy"
+                      referrerPolicy="no-referrer"
+                      className="max-h-40 max-w-40 object-contain"
+                    />
                   ) : !mediaKind ? (
                     <p className="whitespace-pre-wrap break-words text-sm">
                       {uiText("テキスト以外のメッセージ（表示未対応）")}
@@ -462,6 +545,38 @@ export function SquareChatPane({
                       {new Date(timestamp).toLocaleTimeString()}
                     </time>
                   )}
+                  <div className="mt-1 flex items-center gap-1 border-t border-current/10 pt-1 opacity-80">
+                    <button
+                      type="button"
+                      disabled={messageActionId !== null}
+                      onClick={() => void markRead(message.id)}
+                      className="rounded px-1.5 py-0.5 text-[10px] hover:bg-black/10 disabled:opacity-40"
+                    >
+                      {messageActionId === message.id ? uiText("処理中…") : uiText("既読")}
+                    </button>
+                    {(
+                      [
+                        ["NICE", "👍", "いいね"],
+                        ["LOVE", "❤️", "大好き"],
+                        ["FUN", "😂", "面白い"],
+                        ["AMAZING", "😮", "すごい"],
+                        ["SAD", "😢", "悲しい"],
+                        ["OMG", "😱", "びっくり"],
+                      ] as const
+                    ).map(([type, glyph, label]) => (
+                      <button
+                        key={type}
+                        type="button"
+                        aria-label={uiText(label)}
+                        title={uiText(label)}
+                        disabled={messageActionId !== null}
+                        onClick={() => void react(message.id, type)}
+                        className="rounded px-1 py-0.5 text-sm hover:bg-black/10 disabled:opacity-40"
+                      >
+                        {glyph}
+                      </button>
+                    ))}
+                  </div>
                 </div>
               </article>
             );
@@ -476,12 +591,31 @@ export function SquareChatPane({
         </p>
       )}
       <form
-        className="border-t border-[var(--vy-border)] p-3"
+        className="relative border-t border-[var(--vy-border)] p-3"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
         }}
       >
+        {stickerPickerOpen && accountId && !threadMid && (
+          <Suspense
+            fallback={
+              <div role="status" className="absolute bottom-full right-4 p-3 text-xs">
+                {uiText("スタンプを読み込んでいます…")}
+              </div>
+            }
+          >
+            <StickerEmojiPanel
+              accountId={accountId}
+              stickerOnly
+              onPickSticker={(packageId, stickerId, isPremium) => {
+                void sendSticker(packageId, stickerId, isPremium);
+              }}
+              onPickEmoji={() => {}}
+              onSendCombinationSticker={async () => {}}
+            />
+          </Suspense>
+        )}
         <div className="mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2">
           <textarea
             value={text}
@@ -491,9 +625,22 @@ export function SquareChatPane({
             }}
             rows={1}
             maxLength={5000}
+            disabled={busy}
             placeholder={uiText("OpenChatにメッセージを送信")}
             className="max-h-32 min-h-10 flex-1 resize-y bg-transparent px-2 py-2 text-sm text-[var(--vy-text)] outline-none"
           />
+          {!threadMid && (
+            <button
+              type="button"
+              aria-label={uiText("スタンプ")}
+              title={uiText("スタンプ")}
+              disabled={busy}
+              onClick={() => setStickerPickerOpen((open) => !open)}
+              className="rounded-xl p-2 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
+            >
+              <IconSticker size={20} />
+            </button>
+          )}
           <button
             type="submit"
             disabled={busy || !text.trim() || (Boolean(threadMid) && !isThreadJoined)}

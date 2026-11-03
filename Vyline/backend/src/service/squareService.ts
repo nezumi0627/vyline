@@ -15,6 +15,20 @@ const MAX_EVENT_PAGES_PER_REQUEST = 5;
 const SQUARE_SEARCH_MIN_INTERVAL_MS = 1_000;
 const ROOM_SEND_COOLDOWN_MS = 1_250;
 
+export function buildSquareStickerContent(packageId: string, stickerId: string, premium = false) {
+  if (!/^\d{1,20}$/.test(packageId) || !/^\d{1,20}$/.test(stickerId))
+    throw new Error("invalid Square sticker identity");
+  return {
+    contentType: enums.ContentType.STICKER,
+    contentMetadata: {
+      STKPKGID: packageId,
+      STKID: stickerId,
+      STKVER: premium ? "100" : "1",
+      STKOPT: premium ? "A" : "",
+    },
+  };
+}
+
 export function buildSquareThreadTextRequest(
   reqSeq: number,
   roomId: string,
@@ -32,6 +46,33 @@ export function buildSquareThreadTextRequest(
         contentType: "NONE" as const,
         toType: "SQUARE_THREAD" as const,
       },
+    },
+  };
+}
+
+export function buildSquareReadRequest(roomId: string, messageId: string, threadMid?: string) {
+  return {
+    request: {
+      squareChatMid: roomId,
+      messageId,
+      ...(threadMid ? { threadMid } : {}),
+    },
+  };
+}
+
+export function buildSquareReactionRequest(
+  roomId: string,
+  messageId: string,
+  reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
+  threadMid?: string,
+) {
+  return {
+    request: {
+      reqSeq: 0,
+      squareChatMid: roomId,
+      messageId,
+      reactionType: enums.MessageReactionType[reaction],
+      ...(threadMid ? { threadMid } : {}),
     },
   };
 }
@@ -292,6 +333,57 @@ export async function listSquareMessages(
   });
 }
 
+export async function markSquareMessageAsRead(
+  accountId: string,
+  roomId: string,
+  messageId: string,
+  client: VylineClient,
+  threadMid?: string,
+) {
+  if (!roomId || roomId.length > 512 || !messageId || messageId.length > 512)
+    throw new Error("invalid Square message identity");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const stored = store.getMessage<{ threadInfo?: { chatThreadMid?: string } }>(roomId, messageId);
+    if (!stored) throw new Error("Square message is not cached in this room");
+    if (threadMid && stored.threadInfo?.chatThreadMid !== threadMid)
+      throw new Error("Square message does not belong to this thread");
+    const generation = store.getGeneration();
+    const result = await client.base.square.markAsRead(
+      buildSquareReadRequest(roomId, messageId, threadMid),
+    );
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    return { ok: true as const, result };
+  });
+}
+
+export async function reactToSquareMessage(
+  accountId: string,
+  roomId: string,
+  messageId: string,
+  reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
+  client: VylineClient,
+  threadMid?: string,
+) {
+  if (!roomId || roomId.length > 512 || !messageId || messageId.length > 512)
+    throw new Error("invalid Square message identity");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const stored = store.getMessage<{ threadInfo?: { chatThreadMid?: string } }>(roomId, messageId);
+    if (!stored) throw new Error("Square message is not cached in this room");
+    if (threadMid && stored.threadInfo?.chatThreadMid !== threadMid)
+      throw new Error("Square message does not belong to this thread");
+    const generation = store.getGeneration();
+    const result = await client.base.square.reactToMessage(
+      buildSquareReactionRequest(roomId, messageId, reaction, threadMid),
+    );
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    return { ok: true as const, result };
+  });
+}
+
 export async function sendSquareText(
   accountId: string,
   roomId: string,
@@ -329,6 +421,62 @@ export async function sendSquareText(
     // Keep the cooldown after uncertain failures to avoid a timeout causing duplicate sends.
     const result = await client.base.square.sendMessage({ squareChatMid: roomId, text });
     if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    return { ok: true as const, result };
+  });
+}
+
+export async function sendSquareSticker(
+  accountId: string,
+  roomId: string,
+  operationId: string,
+  packageId: string,
+  stickerId: string,
+  premium: boolean,
+  client: VylineClient,
+) {
+  if (!roomId || roomId.length > 512) throw new Error("invalid Square room id");
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(operationId)
+  ) {
+    throw new Error("invalid Square operation id");
+  }
+  const stickerContent = buildSquareStickerContent(packageId, stickerId, premium);
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const generation = store.getGeneration();
+    const reservation = store.reserveRoomSend(
+      roomId,
+      operationId,
+      Date.now(),
+      ROOM_SEND_COOLDOWN_MS,
+    );
+    if (reservation.status === "duplicate")
+      return { ok: false as const, error: "SQUARE_SEND_ALREADY_ATTEMPTED" };
+    if (reservation.status === "cooldown") {
+      return {
+        ok: false as const,
+        error: "SQUARE_SEND_RATE_LIMIT",
+        retryAfterMs: reservation.retryAfterMs,
+      };
+    }
+    const result = await client.base.square.sendMessage({
+      squareChatMid: roomId,
+      ...stickerContent,
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    const created = result.createdSquareMessage;
+    if (created?.message?.id) {
+      store.upsertMessages([
+        {
+          roomId,
+          id: created.message.id,
+          createdAt: asInt(created.message.createdTime),
+          revision: asInt(created.squareMessageRevision),
+          payload: { eventType: "sendMessage", state: created.state, message: created.message },
+        },
+      ]);
+    }
     return { ok: true as const, result };
   });
 }

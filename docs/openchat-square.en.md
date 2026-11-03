@@ -47,12 +47,14 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 | Thread read/reply | Partial | Opens only `threadInfo.chatThreadMid` discovered in a parent message. `getSquareThread` must confirm the user's membership is `JOINED` before `sendSquareThreadMessage`; shares per-room cooldown and operation deduplication |
 | Members / roles | Read-only | Fetches `getSquareChatMembers` in pages of 100 and caches members by account and room. `ADMIN` gets a blue crown and `CO_ADMIN` an inverted crown; no admin controls are exposed |
 | Image/video/audio previews | Partial | Uses the `SquareMessage` Square OBS path and loads lazily near the viewport. Rejects a result larger than 8 MiB after download, so this is not a transfer or pre-allocation limit. Does not fetch message metadata URLs |
-| File/sticker sending | Not supported | Square-specific send path needs verification |
-| Read / reactions | Not supported | Square APIs exist; UI actions and reconciliation are not implemented |
-| Role changes / authority | Partial | Displays only `SquareMember.role` from the member list. HAR showed three member-list calls. Role changes and self-admin operations are not implemented |
-| Notes | Not supported | HAR contains one `getNoteStatus`; this does not establish note-content read/post flows. Do not equate OpenNote HTTP traffic with Square Note APIs |
-| Join / leave / admin | Not supported | Confirmation UI, permissions, and recovery behavior remain unverified |
-| Live talk | Not supported | Protocol types do not establish a verified UI flow |
+| Stickers | Send and receive | HAR showed 11 received stickers and five sticker sends, all with successful responses. The owned-sticker picker now calls a Square-specific API using the existing 1.25-second cooldown and operation UUID dedupe. Rendering uses a fixed CDN origin and numeric ID validation |
+| File/image/video/audio sending | Not supported | Protocol has image/video/audio send methods, but the HAR does not establish a Square OBS upload and the file-send contract is unverified. Safe file receive is also absent |
+| Read | Explicit manual action | A per-message button calls `markAsRead`, including `threadMid` in a thread. No automatic read or unread-count/watermark integration. HAR recorded 72 `markAsRead` and one `markThreadsAsRead`; full read-position synchronization remains unverified |
+| Reactions | Explicit manual action | Per-message buttons send one of six standard types through `reactToMessage`, scoped to a cached room/thread message. Counts/readers, undo, and event reconciliation are absent. HAR recorded three requests, but not complete response/state transitions |
+| Role changes / authority | Partial | Displays only `SquareMember.role`. HAR recorded 11 `updateSquareMember` and six `updateSquareChatMember` calls, but their purpose is unknown; admin actions are not implemented |
+| Notes | Not supported | HAR contains one `getNoteStatus`; protocol types establish status data only, not note-content fetch/post. Do not equate OpenNote HTTP traffic with Square Note APIs |
+| Join / leave / admin | Not supported | HAR recorded five `getJoinableSquareChats`, zero `joinSquareChat`, one `leaveSquareChat`, and one separate `joinSquare`. Join conditions, leave arguments, approval and recovery remain unverified |
+| Live talk | Not supported | No `/SQLV1` requests or related `/SQ1` RPCs appeared in this HAR. Protocol types alone do not establish OpenChat wire behavior or audio transport |
 | LIFF | Not supported | No assumption that LIFF works inside OpenChat |
 | E2EE | Unverified | No Talk E2EE decrypt path was found in the Square message class; do not guess how to decrypt |
 
@@ -95,17 +97,22 @@ LINE's published Messaging API limits do not define the private `/SQ1` Square RP
 
 These are Vyline safeguards, not LINE-published thresholds or a way to bypass limits. On server errors or restriction responses, reduce retries and disable the feature if the account is affected.
 
-## Regions, official references, and HAR
+## Scope, official references, and HAR
 
-LINE's official Help Center lists **Japan, Taiwan, and Thailand** as OpenChat regions. Do not describe OpenChat as Japan-only. The supplied HAR was captured from a single Japanese `uts-front.line-apps.com` session and does not establish Vyline compatibility in Taiwan or Thailand. Those regions remain untested; accounts or fixture PRs for validation are welcome.
+This investigation and implementation scope is limited to Japanese public materials and the supplied HAR. Taiwan and Thailand are explicitly out of scope; no compatibility claim is made for them.
 
-The HAR is about 98 MB and is not committed. Analysis records only endpoint families and aggregate key names; it excludes cookies, tokens, user identifiers, message text, and URL query values. Finding `LIFF1` traffic does not prove that it belongs to OpenChat settings. LINE Developers says LIFF apps are not officially supported inside OpenChat.
+Official guidance treats normal subchats and message threads as distinct features. Vyline currently handles only threads discovered from a parent message's `chatThreadMid`; subchat hierarchy is not classified. The UI does not enforce the official thread creation/reply time windows, so the server remains authoritative. Thread directory and favorites are also absent. Since LINE does not officially support LIFF apps inside OpenChat, Vyline does not launch LIFF from the OpenChat UI.
+
+The HAR is about 98 MB and is not committed. A local read-only inventory found 5,303 total requests and 1,088 `/SQ1` requests. RPC-name counts: `markAsRead` 72, `markThreadsAsRead` 1, `reactToMessage` 3, `getNoteStatus` 1, `getJoinableSquareChats` 5, `joinSquareChat` 0, `leaveSquareChat` 1, and `sendSquareThreadMessage` 7. Five sticker sends had `STKPKGID`, `STKID`, `STKVER`, and `STKOPT` fields and all five responses succeeded. Other counts show recorded requests, not successful responses, complete state transitions, or reproducibility across accounts. No HAR values, cookies, tokens, user IDs, message text, or URL query values are documented. Finding `LIFF1` traffic does not prove that it belongs to OpenChat settings. LINE Developers says LIFF apps are not officially supported inside OpenChat.
 
 References:
 
 - [LINE OpenChat guide](https://guide.line.me/ja/services/openchat.html)
 - [LINE Help: OpenChat availability](https://help.line.me/line/smartphone?a8=.V&contentId=20014753&lang=en)
 - [LINE Help: OpenChat subchats and sync](https://help.line.me/line/?contentId=20024116&lang=ja)
+- [LINE Help: Threads](https://help.line.me/line/smartphone?contentId=20027219&lang=ja)
+- [LINE Help: Reactions](https://help.line.me/line/?contentId=20020725&lang=ja)
+- [LINE Help: Live Talk](https://help.line.me/line?contentId=20024812&lang=ja)
 - [LINE Help: OpenChat admin permissions](https://help.line.me/line/?contentId=20005393&lang=ja)
 - [LINE Help: Notes in chats](https://help.line.me/line/?contentId=20000246&lang=en)
 - [LINE Developers: LIFF overview and OpenChat limitation](https://developers.line.biz/ja/docs/liff/overview/)
