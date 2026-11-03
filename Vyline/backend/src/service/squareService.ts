@@ -269,8 +269,3 @@ export function readSquareCache(accountId: string, roomId?: string) {
         rooms: store.listRooms(),
       };
 }
-
-export function clearSquareCache(accountId: string) {
-  getSquareStore(accountId).clearCache();
-  return { ok: true as const };
-}

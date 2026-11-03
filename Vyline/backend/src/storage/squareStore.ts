@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { accountFile } from "./accountDirs.js";
 
-export type SquareEntityKind = "square" | "room" | "member" | "thread" | "note";
+export type SquareEntityKind = "square" | "room" | "member";
 export type SquareRoomRecord = { id: string; name?: string; parentSquareId?: string | null };
 export type SquareStoredMessage = {
   roomId: string;

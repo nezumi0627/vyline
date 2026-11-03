@@ -73,6 +73,14 @@ describe("SquareStore", () => {
     store.close();
   });
 
+  test("throttles catalog searches per account", () => {
+    const store = new SquareStore(":memory:");
+    expect(store.reserveSquareSearch(10_000, 1_000)).toBe(0);
+    expect(store.reserveSquareSearch(10_500, 1_000)).toBe(500);
+    expect(store.reserveSquareSearch(11_000, 1_000)).toBe(0);
+    store.close();
+  });
+
   test("invalidates an in-flight response when opt-in is withdrawn", () => {
     const store = new SquareStore(":memory:");
     store.setEnabled(true);

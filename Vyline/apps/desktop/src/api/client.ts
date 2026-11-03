@@ -526,9 +526,6 @@ export const api = {
         { operationId, text },
       ),
 
-    squareClearCache: (accountId: string) =>
-      request<{ ok: boolean }>("DELETE", `/line/${encodeURIComponent(accountId)}/square/cache`),
-
     getProfile: (accountId: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/getProfile`),
 

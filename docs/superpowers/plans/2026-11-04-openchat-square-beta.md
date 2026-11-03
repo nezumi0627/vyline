@@ -56,10 +56,10 @@
 
 - [ ] Test disabled-by-default and per-account isolation before implementation.
 - [ ] Add local enablement and schema version to `<accountDir>/square.sqlite`; opening a disabled account may initialize local tables but must not access `VylineClient`.
-- [ ] Add tables for joined squares, rooms/parent rooms, members/roles, messages, sync cursor, and feature settings using only evidence-confirmed fields.
+- [x] Add tables for joined squares, rooms/parent rooms, members, messages, sync cursor, and feature settings using only evidence-confirmed fields.
 - [ ] Add transactional event apply + cursor commit; test restart/replay and duplicate events.
 - [ ] Add disable behavior that aborts active poll loops and prevents new RPC dispatch.
-- [ ] Add explicit per-account local Square-data deletion and verify ordinary chat storage is untouched.
+- [x] Keep Square database separate from ordinary chat; omit deletion controls until a safe lifecycle is designed.
 
 ### Task 3: Square service and BFF routes
 

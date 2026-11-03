@@ -35,13 +35,13 @@ Add an explicitly opt-in, beta OpenChat experience to Vyline. Once enabled for a
 - Do not include HAR values or personal content in source, fixtures, logs, docs, screenshots, issue/PR comments, or generated artifacts.
 - No assumption that LIFF apps work inside OpenChat. Official docs state they are not supported there.
 - Do not claim Taiwan or Thailand live compatibility without a corresponding account/device verification.
-- Users can explicitly delete all cached Square data for the current account. This removes the separate Square database without affecting ordinary chat history. Existing backup/export paths do not include that database unless explicitly extended and tested.
+- Square cache deletion is not exposed as a UI or API action in this phase. The database remains account-scoped and separate from ordinary chat history; manual removal requires exiting Vyline and handling SQLite/WAL/SHM together. Existing backup/export paths do not include that database.
 
 ## Architecture decisions
 
 - Dedicated module boundary: `square` BFF routes → `squareService` → `SquareService` `/SQ1`; use `/g2` OBS for Square message media only where capture confirms it.
 - Feature gate: a small account-scoped local configuration record is read before any Square client method. Route guards reject while disabled. The toggle persists locally first; its first network action begins only after that state commits.
-- Persistence: `data/accounts/<safe-account-id>/square.sqlite`; tables are Square-prefixed and contain enablement/sync cursor, squares, rooms, members, messages, thread/note state, and timestamps. Use opaque `(account_id, square_mid, square_chat_mid)` keys and dedupe events by Square event/message IDs. Existing chat database is not migrated or rewritten.
+- Persistence: `data/accounts/<safe-account-id>/square.sqlite`; tables are Square-prefixed and contain enablement/sync cursor, squares, rooms, members, messages, and timestamps. Use opaque Square IDs and dedupe messages by `(room_id, message_id)`. Existing chat database is not migrated or rewritten.
 - Sync: persist `fetchMyEvents` cursor only after all returned events are durably applied. Fetch room history through the Square-specific history operation and reconcile by Square message ID/revision. Polling is enabled only after opt-in and uses bounded backoff. Disable stops scheduling polls; in-flight responses are discarded and cannot update DB/UI.
 - UI: expose a beta enable control; add an OpenChat filter and badge. Keep existing regular chat code paths intact. Square selection dispatches only to Square APIs. Use explicit main-room/subroom/thread relationships and render role badges only from verified Square role fields.
 - Rate safety: a Square-only per-account token bucket/concurrency bound plus per-room send cooldown. A stable client operation key prevents a transport retry from dispatching the same send twice; content equality is never deduplicated. No cross-room serialization. Values are Vyline policy, not LINE specifications.
@@ -49,7 +49,7 @@ Add an explicitly opt-in, beta OpenChat experience to Vyline. Once enabled for a
 
 ## Validation
 
-- Offline tests prove disabled-by-default and zero Square transport calls before opt-in, per-account isolation, independent rooms, bounded send pacing, operation-key idempotency, cursor crash safety, disable-generation response discard, explicit cache deletion, namespaced IDs, role-to-badge mapping, and note/thread relationships.
+- Offline tests currently prove disabled-by-default gate behavior, persistent enablement, opaque room IDs, separate room cursors, per-room send cooldown and operation-key deduplication, per-account search pacing, tombstone protection, and in-flight response invalidation after disable. Live protocol cursor semantics, account isolation across multiple active accounts, role mapping, and note/thread relationships still need dedicated fixtures/tests.
 - SQLite tests use temporary test databases only.
 - API tests use captured/sanitized structural fixtures or mocked Square service responses. Do not replay HAR requests against live LINE.
 - Desktop tests cover enable/disable, empty/loading/error states, locale overflow, regular-chat regression, and OpenChat filter behavior.
