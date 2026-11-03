@@ -1224,6 +1224,59 @@ export async function upsertMessages(
   });
 }
 
+/** Add only absent Desktop history rows; current/revoked/read state always wins on conflict. */
+export async function insertRestoredMessages(
+  accountId: string,
+  chatMid: string,
+  messages: StoredMessage[],
+): Promise<number> {
+  if (!dirty.has(accountId)) {
+    await ensureChatDbImported(accountId);
+    const db = memory.get(accountId);
+    const existing = new Map(
+      readStoredMessagesByIds(
+        accountId,
+        chatMid,
+        messages.map((message) => message.id),
+      ).map((message) => [message.id, message] as const),
+    );
+    let inserted = 0;
+    const stamp = new Date().toISOString();
+    sqlite
+      .transaction(() => {
+        for (const message of messages) {
+          if (message.chatMid !== chatMid || existing.has(message.id)) continue;
+          if (isStoredMessageDeleted(accountId, chatMid, message.id)) continue;
+          writeStoredMessage(accountId, chatMid, message);
+          if (db) (db.messages[chatMid] ??= {})[message.id] = message;
+          inserted++;
+        }
+        if (inserted) writeMessagesSyncedAt(accountId, chatMid, stamp);
+      })
+      .immediate();
+    if (inserted && db) {
+      db.meta.messagesSyncedAt = { ...db.meta.messagesSyncedAt, [chatMid]: stamp };
+    }
+    return inserted;
+  }
+
+  const db = await getDb(accountId);
+  const byChat = (db.messages[chatMid] ??= {});
+  const insertedIds: string[] = [];
+  for (const message of messages) {
+    if (message.chatMid !== chatMid || byChat[message.id]) continue;
+    if (isStoredMessageDeleted(accountId, chatMid, message.id)) continue;
+    byChat[message.id] = message;
+    insertedIds.push(message.id);
+  }
+  if (insertedIds.length) {
+    const stamp = new Date().toISOString();
+    db.meta.messagesSyncedAt = { ...db.meta.messagesSyncedAt, [chatMid]: stamp };
+    scheduleSave(accountId, { messages: [[chatMid, insertedIds]], meta: true });
+  }
+  return insertedIds.length;
+}
+
 /**
  * 自分が送った既読位置を、受信メッセージだけへ単調に反映する。
  * 相手が読んだ自分のメッセージの既読状態とは別の情報である。
