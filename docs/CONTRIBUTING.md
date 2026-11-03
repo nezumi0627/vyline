@@ -11,13 +11,13 @@
 <figure class="architecture-map" role="group" aria-labelledby="contribution-map-title">
 <figcaption id="contribution-map-title">画面からLINEサーバーまで</figcaption>
 <div class="architecture-flow">
-<div class="architecture-node"><small>FRONTEND</small><strong>apps/desktop</strong><span>React · Vite</span></div>
+<div class="architecture-node architecture-frontend"><small>FRONTEND</small><strong>apps/desktop</strong><span>React · Vite</span></div>
 <div class="architecture-connector"><span>HTTP</span><b aria-hidden="true">→</b></div>
-<div class="architecture-node"><small>BACKEND</small><strong>backend</strong><span>Hono · 入出力とサービス</span></div>
+<div class="architecture-node architecture-backend"><small>BACKEND</small><strong>backend</strong><span>Hono · 入出力とサービス</span></div>
 </div>
 <div class="architecture-down"><span>セッション処理</span><b aria-hidden="true">↓</b></div>
 <section class="architecture-protocol" aria-label="Vyline protocol の構成">
-<div class="architecture-node protocol-title"><small>PROTOCOL</small><strong>@vyline/protocol</strong></div>
+<div class="architecture-node protocol-title architecture-protocol-core"><small>PROTOCOL</small><strong>@vyline/protocol</strong></div>
 <div class="architecture-branches">
 <div><strong>domain/</strong><span>プロフィール・チャットの facade</span></div>
 <div><strong>dictionary/</strong><span>LINE.js 名と Desktop 証拠</span></div>
@@ -26,9 +26,9 @@
 </section>
 <div class="architecture-down"><span>RPC transport</span><b aria-hidden="true">↓</b></div>
 <div class="architecture-flow architecture-flow-bottom">
-<div class="architecture-node"><small>THRIFT RPC</small><strong>stack/</strong><span>Talk · /S4 · Login · OBS</span></div>
+<div class="architecture-node architecture-stack"><small>THRIFT RPC</small><strong>stack/</strong><span>Talk · /S4 · Login · OBS</span></div>
 <div class="architecture-connector"><b aria-hidden="true">→</b></div>
-<div class="architecture-node"><small>型定義</small><strong>@vyline/line-types</strong><span>vendored Thrift types</span></div>
+<div class="architecture-node architecture-types"><small>型定義</small><strong>@vyline/line-types</strong><span>vendored Thrift types</span></div>
 </div>
 </figure>
 

@@ -374,6 +374,33 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
 .architecture-branches span{overflow-wrap:anywhere;color:#aeb1b9;font-size:10px;line-height:1.7;}
 .architecture-protocol>.architecture-flow{grid-template-columns:minmax(0,1fr) auto minmax(0,1fr);}
 .document-results{grid-column:1/-1}
+.next-button:hover{color:#111;background:#fff;}
+.story-next:hover{color:#111;background:#fff;}
+.release-arrow{position:relative;display:inline-block;width:15px;height:15px;flex:none;color:#c7c9cd;transition:transform .16s;}
+.release-arrow::before{position:absolute;left:2px;bottom:3px;width:12px;border-top:1.5px solid currentColor;content:"";transform:rotate(-45deg);transform-origin:left center;}
+.release-arrow::after{position:absolute;top:1px;right:1px;width:5px;height:5px;border-top:1.5px solid currentColor;border-right:1.5px solid currentColor;content:"";}
+.architecture-frontend{border-color:#527f77;background:#111917;}
+.architecture-frontend small{color:#9bd8c9;}
+.architecture-backend{border-color:#977346;background:#19160f;}
+.architecture-backend small{color:#e3bd7c;}
+.architecture-protocol{border-color:#77648f;background:#15121a;}
+.architecture-protocol-core{border-color:#9f87be;background:#1b1622;}
+.architecture-protocol-core small{color:#d4b9f2;}
+.architecture-branches>div:nth-child(1){border-color:#527f77;background:#111917;}
+.architecture-branches>div:nth-child(1) strong{color:#9bd8c9;}
+.architecture-branches>div:nth-child(2){border-color:#977346;background:#19160f;}
+.architecture-branches>div:nth-child(2) strong{color:#e3bd7c;}
+.architecture-branches>div:nth-child(3){border-color:#77648f;background:#15121a;}
+.architecture-branches>div:nth-child(3) strong{color:#d4b9f2;}
+.architecture-stack{border-color:#a76e5d;background:#1b1412;}
+.architecture-stack small{color:#e7a690;}
+.architecture-types{border-color:#687f66;background:#141812;}
+.architecture-types small{color:#b7d19d;}
+.architecture-map .architecture-down>b,.architecture-flow-bottom .architecture-connector>b{color:#d8b478;}
+.world-background::before{position:absolute;inset:-14vh -2vw;z-index:0;background:url("./hero-stars.png") center top/cover no-repeat;content:"";opacity:.12;pointer-events:none;animation:crayon-sky-drift 72s ease-in-out infinite alternate;}
+.world-background::after{position:absolute;inset:-95vh -10vw 0;z-index:1;background-image:linear-gradient(154deg,transparent 47%,rgba(246,244,233,.7) 49%,rgba(246,244,233,.3) 50%,transparent 53%),linear-gradient(154deg,transparent 47%,rgba(246,244,233,.62) 49%,rgba(246,244,233,.22) 50%,transparent 53%),linear-gradient(154deg,transparent 47%,rgba(246,244,233,.6) 49%,rgba(246,244,233,.18) 50%,transparent 53%);background-repeat:no-repeat;background-size:2px 72px,2px 58px,2px 84px;background-position:19% 0,58% 44vh,84% 12vh;content:"";opacity:.2;pointer-events:none;animation:crayon-stars-fall 34s linear infinite;}
+@keyframes crayon-sky-drift{from{transform:translate3d(0,-12px,0)}to{transform:translate3d(0,12px,0)}}
+@keyframes crayon-stars-fall{from{transform:translate3d(0,-8vh,0)}to{transform:translate3d(-3vw,120vh,0)}}
 @media(max-width:760px){
  .article-content .architecture-map{margin:20px 0;padding:14px;}
  .architecture-map figcaption{font-size:13px;}
@@ -385,3 +412,4 @@ body{min-height:100svh;background:#08090a;color:#f0f0f2}
  .architecture-branches>div{padding:10px 12px;}
  .architecture-node{padding:12px 14px;}
 }
+@media(prefers-reduced-motion:reduce){.world-background::before,.world-background::after{animation:none!important}.release-arrow{transition:none!important;}}
