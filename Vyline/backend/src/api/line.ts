@@ -35,6 +35,9 @@ import {
   loadSquareOverview,
   readSquareCacheForGeneration,
   sendSquareText,
+  sendSquareSticker,
+  markSquareMessageAsRead,
+  reactToSquareMessage,
   searchSquareCatalog,
   sendSquareThreadText,
   setSquareFeatureEnabled,
@@ -319,6 +322,114 @@ lineRouter.post("/:accountId/square/rooms/:roomId/messages", async (c) => {
     );
     if (result.ok) return c.json(result);
     return result.error === "SQUARE_SEND_RATE_LIMIT" ? c.json(result, 429) : c.json(result, 409);
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/stickers", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req
+    .json<{
+      operationId?: unknown;
+      packageId?: unknown;
+      stickerId?: unknown;
+      isPremium?: unknown;
+    }>()
+    .catch(
+      (): {
+        operationId?: unknown;
+        packageId?: unknown;
+        stickerId?: unknown;
+        isPremium?: unknown;
+      } => ({}),
+    );
+  if (
+    typeof body.operationId !== "string" ||
+    typeof body.packageId !== "string" ||
+    typeof body.stickerId !== "string" ||
+    (body.isPremium !== undefined && typeof body.isPremium !== "boolean")
+  ) {
+    return c.json({ ok: false, error: "operationId, packageId and stickerId are required" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const result = await sendSquareSticker(
+      accountId,
+      c.req.param("roomId"),
+      body.operationId,
+      body.packageId,
+      body.stickerId,
+      body.isPremium === true,
+      client,
+    );
+    if (!result.ok)
+      return result.error === "SQUARE_SEND_RATE_LIMIT" ? c.json(result, 429) : c.json(result, 409);
+    return c.json(result);
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/messages/:messageId/read", async (c) => {
+  const accountId = c.req.param("accountId");
+  const roomId = c.req.param("roomId");
+  const messageId = c.req.param("messageId");
+  const body = await c.req
+    .json<{ threadMid?: unknown }>()
+    .catch((): { threadMid?: unknown } => ({}));
+  if (
+    body.threadMid !== undefined &&
+    (typeof body.threadMid !== "string" || body.threadMid.length > 512)
+  )
+    return c.json({ ok: false, error: "invalid threadMid" }, 400);
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await markSquareMessageAsRead(
+        accountId,
+        roomId,
+        messageId,
+        client,
+        body.threadMid as string | undefined,
+      ),
+    );
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/messages/:messageId/reactions", async (c) => {
+  const accountId = c.req.param("accountId");
+  const roomId = c.req.param("roomId");
+  const messageId = c.req.param("messageId");
+  const body = await c.req
+    .json<{ reaction?: unknown; threadMid?: unknown }>()
+    .catch((): { reaction?: unknown; threadMid?: unknown } => ({}));
+  const reactions = ["NICE", "LOVE", "FUN", "AMAZING", "SAD", "OMG"] as const;
+  if (
+    typeof body.reaction !== "string" ||
+    !reactions.includes(body.reaction as (typeof reactions)[number]) ||
+    (body.threadMid !== undefined &&
+      (typeof body.threadMid !== "string" || body.threadMid.length > 512))
+  ) {
+    return c.json({ ok: false, error: "invalid reaction or threadMid" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await reactToSquareMessage(
+        accountId,
+        roomId,
+        messageId,
+        body.reaction as (typeof reactions)[number],
+        client,
+        body.threadMid as string | undefined,
+      ),
+    );
   } catch (error) {
     return handleError(error, c);
   }

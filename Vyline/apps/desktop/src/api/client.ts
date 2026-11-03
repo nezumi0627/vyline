@@ -582,6 +582,40 @@ export const api = {
         { operationId, text },
       ),
 
+    squareSendSticker: (
+      accountId: string,
+      roomId: string,
+      operationId: string,
+      packageId: string,
+      stickerId: string,
+      isPremium = false,
+    ) =>
+      request<{ ok: boolean; error?: string; retryAfterMs?: number }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/stickers`,
+        { operationId, packageId, stickerId, isPremium },
+      ),
+
+    squareMarkRead: (accountId: string, roomId: string, messageId: string, threadMid?: string) =>
+      request<{ ok: boolean }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/read`,
+        threadMid ? { threadMid } : {},
+      ),
+
+    squareReact: (
+      accountId: string,
+      roomId: string,
+      messageId: string,
+      reaction: "NICE" | "LOVE" | "FUN" | "AMAZING" | "SAD" | "OMG",
+      threadMid?: string,
+    ) =>
+      request<{ ok: boolean }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/messages/${encodeURIComponent(messageId)}/reactions`,
+        { reaction, ...(threadMid ? { threadMid } : {}) },
+      ),
+
     getProfile: (accountId: string) =>
       request<ProfileResponse>("GET", `/line/${accountId}/getProfile`),
 

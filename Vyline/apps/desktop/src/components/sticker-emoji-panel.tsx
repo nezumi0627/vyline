@@ -105,8 +105,10 @@ export function StickerEmojiPanel({
   onPickSticker,
   onPickEmoji,
   onSendCombinationSticker,
+  stickerOnly = false,
 }: {
   accountId: string | null;
+  stickerOnly?: boolean;
   onPickSticker: (packageId: string, stickerId: string, isPremium?: boolean) => void;
   onPickEmoji: (packageId: string, sticonId: string) => void;
   onSendCombinationSticker: (
@@ -391,6 +393,7 @@ export function StickerEmojiPanel({
   }
 
   function startLongPress(payload: DragPayload): void {
+    if (stickerOnly) return;
     if (!canDragSticker(payload.type, payload.packageId)) return;
     stopLongPress();
     longPressTriggeredRef.current = false;
@@ -485,16 +488,18 @@ export function StickerEmojiPanel({
     );
   }
 
+  const tabs: ReadonlyArray<readonly [Tab, string]> = stickerOnly
+    ? [["sticker", "スタンプ"]]
+    : [
+        ["sticker", "スタンプ"],
+        ["emoji", "絵文字"],
+        ["favorite", "★"],
+      ];
+
   return (
     <div className="vy-scale-in absolute bottom-full left-3 mb-2 flex h-[min(500px,72vh)] w-[min(460px,90vw)] flex-col overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-2xl md:left-5">
       <div className="flex items-center gap-1 border-b border-[var(--vy-border)] px-1.5 pt-1.5">
-        {(
-          [
-            ["sticker", "スタンプ"],
-            ["emoji", "絵文字"],
-            ["favorite", "★"],
-          ] as const
-        ).map(([id, label]) => (
+        {tabs.map(([id, label]) => (
           <button
             key={id}
             type="button"
