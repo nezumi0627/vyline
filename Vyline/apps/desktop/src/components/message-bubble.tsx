@@ -679,10 +679,10 @@ const REACTION_EMOJI: Record<number, string> = {
 const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
   2: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "143" }, // NICE 👍
   3: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "165" }, // LOVE ❤️
-  4: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "002" }, // FUN 😆
+  4: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "079" }, // FUN 😆
   5: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "172" }, // AMAZING 🎉
   6: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "092" }, // SAD 😢
-  7: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "029" }, // OMG 😲
+  7: { productId: "670e0cce840a8236ddd4ee4c", sticonId: "094" }, // OMG 😲
 };
 
 /** リアクション公式 sticon のプロキシ URL（未定義は空文字） */
