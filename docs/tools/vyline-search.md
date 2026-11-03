@@ -46,11 +46,15 @@ Windows の LINE Desktop が起動中の場合に限り、利用条件を確認�
 ```powershell
 # 利用条件を表示し、明示同意して対象 LINE.exe の PID を指定
 bun run vyline:decrypt-edb -- --pid 1234 --accept-risk --edb C:\path\to\database.edb --out-dir C:\path\to\private-output
+
+# WALも適用し、平文DBを作らず件数・日時・整合性だけ確認
+bun run vyline:decrypt-edb -- --pid 1234 --accept-risk --edb C:\path\to\database.edb --include-wal --summary-only
 ```
 
 `--accept-risk` は利用条件を表示したうえで同意を指定するフラグです。鍵候補はログやメタデータへ保存せず、通信もしません。
 復号された SQLite にはトーク本文が含まれるため、出力先の保護・削除・共有は利用者が管理してください。
-実 LINE プロセスと実データの互換性は、利用する LINE の版ごとに別途検証が必要です。
+`--include-wal` は確定済みフレームのみ適用し、EDB/WALが読み取り中に変化した場合は停止します。
+実機データでの検証は特定のローカル環境に限られるため、LINEの版ごとの互換性は別途確認が必要です。
 
 ### 0. バージョン確認 / 更新 (`check` / `latest` / `update` / `versions`)
 
