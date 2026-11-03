@@ -8,6 +8,7 @@ import type { Chat } from "@vyline/types";
 import { getClient } from "../line/clientManager.js";
 import {
   getStoredChats,
+  flushAccountChatDb,
   insertRestoredMessages,
   type StoredMessage,
   upsertChats,
@@ -195,6 +196,10 @@ export async function restoreDesktopMessages(
         importedMessages += await insertRestoredMessages(accountId, mid, batch);
       }
     }
+
+    // A concurrent chat sync may already have deferred writes in the account cache.
+    // Do not report restoration complete until imported rows and chat summaries are durable.
+    await flushAccountChatDb(accountId);
 
     return {
       ok: true as const,
