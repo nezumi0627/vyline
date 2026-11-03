@@ -2,7 +2,7 @@
 
 最終更新: 2026-11-03
 
-**安定版: 1.0.3** — [リリース一覧と各 OS の配布物](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3)
+**安定版: 1.1.0** — [リリース一覧と各 OS の配布物](https://github.com/nezumi0627/vyline/releases/tag/v1.1.0)
 
 ## ソースから実行している場合
 
@@ -26,12 +26,12 @@ bun run update
 > `git pull` で競合が出た場合はローカル変更がないか確認してください。
 > 設定・データ（`Vyline/backend/data/`）は git 管理外なので更新で失われません。
 
-ソースから安定版 1.0.3 を使う場合は、最初に `git checkout v1.0.3` でタグを選びます。タグ上では `bun run update` を使わず、次の安定版へ移るときに新しいタグへ切り替えてください。
+ソースから安定版 1.1.0 を使う場合は、最初に `git checkout v1.1.0` でタグを選びます。タグ上では `bun run update` を使わず、次の安定版へ移るときに新しいタグへ切り替えてください。
 
 ## Docker の場合
 
 ```bash
-export VYLINE_IMAGE=ghcr.io/nezumi0627/vyline:v1.0.3
+export VYLINE_IMAGE=ghcr.io/nezumi0627/vyline:v1.1.0
 docker compose pull
 docker compose up -d
 ```

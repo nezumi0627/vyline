@@ -5,7 +5,7 @@ Windows・macOS・Linuxで同じコマンドを使う方法です。GitとBun 1.
 ## 1. Vylineを取得する
 
 ```sh
-git clone --recurse-submodules --branch v1.0.3 https://github.com/nezumi0627/vyline.git
+git clone --recurse-submodules --branch v1.1.0 https://github.com/nezumi0627/vyline.git
 cd vyline
 bun install
 ```

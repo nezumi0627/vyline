@@ -14,7 +14,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3"><img alt="安定版 1.0.3" src="https://img.shields.io/badge/version-1.0.3-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
+  <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.1.0"><img alt="安定版 1.1.0" src="https://img.shields.io/badge/version-1.1.0-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
   <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-eeeeee?style=flat-square&amp;labelColor=181818" />
   <img alt="runtime Bun" src="https://img.shields.io/badge/runtime-Bun-000000?style=flat-square" />
   <img alt="frontend React" src="https://img.shields.io/badge/frontend-React-61DAFB?style=flat-square" />
@@ -30,7 +30,7 @@
 > VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用規約やアカウント、データに関するリスクを理解したうえで使用してください。[プライバシーとデータ](docs/user-guide/privacy-and-data.md)
 
 > [!NOTE]
-> **v1.0.3を現在の安定版・開発の基準点とします。** Dockerのamd64/arm64配布をネイティブ並列ビルドに変更し、リリース検証と配布物チェックサムを強化しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3) · [変更履歴](CHANGELOG.md)
+> **v1.1.0を現在の安定版・開発の基準点とします。** macOSローカル配布、アプリ内アップデート案内、多言語UI設定、Desktop履歴復元を追加し、Linux配布の起動問題を修正しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.1.0) · [変更履歴](CHANGELOG.md)
 
 ## Vylineについて
 
@@ -49,19 +49,19 @@ VylineはLINEのトークを送受信・管理するオープンソースクラ�
 
 ## はじめる
 
-**安定版は1.0.3です。** 環境に合った手順を選んでください。
+**安定版は1.1.0です。** 環境に合った手順を選んでください。
 
 | 環境 | 入手方法 | インストール手順 |
 | --- | --- | --- |
-| Windows x64 | [Setup.exe](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/VylineSetup-1.0.3.exe) / [ポータブルZIP](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/Vyline-portable-1.0.3.zip)。Bun不要 | [Windows](docs/install/windows.md) |
-| Linux x64 | [tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/Vyline-linux-x64-1.0.3.tar.gz)。Bun不要 | [Linux](docs/install/linux.md) |
-| macOS | ソース起動またはブラウザ利用。専用インストーラーなし | [macOS](docs/install/macos.md) |
+| Windows x64 | [Setup.exe](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/VylineSetup-1.1.0.exe) / [ポータブルZIP](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-portable-1.1.0.zip)。Bun不要 | [Windows](docs/install/windows.md) |
+| Linux x64 | [tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-linux-x64-1.1.0.tar.gz)。Bun不要 | [Linux](docs/install/linux.md) |
+| macOS | [Apple Silicon ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-macos-arm64-1.1.0.zip) / [Intel ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-macos-x64-1.1.0.zip) | [macOS](docs/install/macos.md) |
 | Docker / Web | amd64 / arm64のサーバーで動かす | [Docker](docs/install/docker.md) |
 
 コマンドから始めるなら、Windows・macOS・Linuxで共通の **Bun + vyl CLI** が使えます。[vylを登録して起動する](docs/install/cli.md)
 
 導入後は[ログインと初回設定](docs/start-here.md#ログインと初回設定)へ。更新前は[アップデートガイド](docs/user-guide/update.md)を確認してください。
-配布物の整合性は[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/SHA256SUMS.txt)で確認できます。
+配布物の整合性は[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/SHA256SUMS.txt)で確認できます。
 
 ## 利用前の注意
 

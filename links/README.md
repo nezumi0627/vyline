@@ -11,7 +11,7 @@ Vyline本体と、プロトコル、テーマ、プラグイン、調査ツー�
 
 | リポジトリ | 役割 | Vyline本体との関係 |
 | --- | --- | --- |
-| [vyline](https://github.com/nezumi0627/vyline) | Web、Windows、macOS、Linuxで動くLINEクライアント | アプリ本体。安定版は1.0.3 |
+| [vyline](https://github.com/nezumi0627/vyline) | Web、Windows、macOS、Linuxで動くLINEクライアント | アプリ本体。安定版は1.1.0 |
 | [vyline-api](https://github.com/nezumi0627/vyline-api) | LINEの認証、プロトコル、暗号化通信を担う `@vyline/protocol` | `Vyline/packages/protocol` のsubmodule |
 | [vyline-plugin](https://github.com/nezumi0627/vyline-plugin) | `@vyline/plugin-sdk` とサンプルプラグイン | `Vyline/packages/plugin` のsubmodule |
 | [vyline-theme](https://github.com/nezumi0627/vyline-theme) | `@vyline/themes` とVyThemeプリセット | `Vyline/packages/themes` のsubmodule |
