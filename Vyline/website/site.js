@@ -9,7 +9,7 @@ const normalizeSearch = (text) => String(text).normalize("NFKC").toLocaleLowerCa
 let toastTimer;
 
 // Each chalk-like star has its own path, fall speed, and starting point.
-const sky = $(".world-background");
+const sky = $(".article-layout") ? $(".world-background") : null;
 if (sky) {
   const moon = document.createElement("span");
   moon.className = "sky-moon";
