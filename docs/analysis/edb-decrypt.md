@@ -1,6 +1,6 @@
 # LINE Desktop .edb 解析 — 全履歴 dump
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 ## 目的
 
@@ -23,6 +23,37 @@ bun --cwd Vyline/packages/protocol run src/tools/dumpDesktopHistory.ts --seconds
 - `--navigate`: LINE の UI をカーソルキーで自動巡回して各チャットを開かせる
 - **制限**: Desktop 自身が読み込んだ（＝画面に表示した）ページしか捕捉できない。
   完全な過去履歴を得るにはアプリ内でチャットを開いてスクロールする必要がある
+
+## メモリ内 baseKey 方式（2026-11-03）
+
+GitHub Issue [#355](https://github.com/nezumi0627/vyline/issues/355) の調査報告を受け、
+`decryptDesktopEdb.ts` に Windows の LINE Desktop プロセスから `_Codec` の候補を読み取り、
+EDB の先頭ページで検証してから復号する経路を追加した。候補の構造条件は Issue の報告に基づくもので、
+2026-11-03 に起動中のローカル LINE Desktop とローカル EDB/WAL で読み取り検証した。
+鍵候補は出力せず、復号した会話本文も表示していない。対象 LINE バージョン以外での互換性は未確認。
+
+- メモリ走査前に利用条件を表示し、対話実行では明示確認を求める。非対話時は `--accept-risk` が必要。
+- 自動選択は LINE が1プロセスの場合だけ。複数起動時は `--pid` で指定する。PIDの実行ファイルが
+  `%LOCALAPPDATA%\LINE\bin\...\LINE.exe` 配下であることも確認する。
+- 鍵候補を画面・ログ・ファイルへ出力しない。メタデータファイルも作らず、候補はEDBの先頭ページ検証に通った場合だけ使う。
+- 出力先が元EDBと同じ、または既存ファイルの場合は上書きを拒否する。
+- 成功時は会話本文を含む平文SQLiteを指定先に作成する。共有・バックアップ・出力先の保護は利用者が行う。
+- メモリ走査を使わない既存の `--passphrase` 経路も残す。
+- `--include-wal` は EDB と `-wal` を読み取り、読み取り中にサイズ/更新時刻が変わっていないことを確認する。
+  WAL のヘッダー・各フレームのsalt/checksumを検証し、確定済みトランザクションだけをメモリ上のDBへ適用する。
+  WAL が更新中なら失敗するため、LINE が落ち着いてから再実行する。
+- `--summary-only` は出力ファイルを作らず、SQLite integrity check・メッセージ件数・最古/最新時刻のみを表示する。
+- 実機検証では、WAL適用後の `PRAGMA integrity_check` が `ok` となり、WAL反映でメッセージ件数と最新時刻が更新された。
+  これは当該端末のローカルDBスナップショットの検証であり、LINEアカウント上の全履歴が揃っている証明ではない。
+
+利用条件は権限を持つアカウントと端末に限った自己責任の利用を求める。免責文は適用法令上の権利や
+免責できない責任を無効にするものではない。
+
+WALを含めた内容を出力せず検証する場合:
+
+```powershell
+bun run vyline:decrypt-edb -- --pid <LINE.exe PID> --accept-risk --edb <database.edb> --include-wal --summary-only
+```
 
 ## 技術メモ
 

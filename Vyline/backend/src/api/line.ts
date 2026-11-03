@@ -2181,6 +2181,53 @@ lineRouter.get("/:accountId/restore/status", async (c) => {
     return handleError(err, c);
   }
 });
+
+lineRouter.get("/:accountId/restore/desktop/history", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!getClient(accountId)) return c.json({ ok: false, error: "not logged in" }, 401);
+  if (process.platform !== "win32") {
+    return c.json({ ok: true, supported: false, databases: [] });
+  }
+  try {
+    const { getDesktopHistoryDatabaseOptions } = await import(
+      "../service/desktopMessagesRestore.js"
+    );
+    return c.json({ ok: true, ...getDesktopHistoryDatabaseOptions() });
+  } catch (err) {
+    return handleError(err, c);
+  }
+});
+
+lineRouter.post("/:accountId/restore/desktop/history", async (c) => {
+  const accountId = c.req.param("accountId");
+  if (!getClient(accountId)) return c.json({ ok: false, error: "not logged in" }, 401);
+  const body = await c.req.json<{ databaseId?: unknown; acceptedMemoryScan?: unknown }>();
+  if (typeof body.databaseId !== "string" || !/^[0-9a-f]{16}$/.test(body.databaseId)) {
+    return c.json({ ok: false, error: "databaseId is invalid" }, 400);
+  }
+  if (body.acceptedMemoryScan !== true) {
+    return c.json({ ok: false, error: "メモリ走査への明示同意が必要です" }, 400);
+  }
+  try {
+    const { restoreDesktopMessages } = await import("../service/desktopMessagesRestore.js");
+    return c.json(await restoreDesktopMessages(accountId, body.databaseId, true));
+  } catch (err) {
+    // Decryption/SQLite exceptions may include local paths or implementation details.
+    // Keep them out of the API response; the user can retry after checking the guidance.
+    log.warn("Desktop history restore failed");
+    const detail = err instanceof Error ? err.message : "";
+    const error = detail.includes("no-process")
+      ? "公式LINE Desktopを1つ起動し、ログインした状態で再試行してください。"
+      : detail.includes("multiple-processes")
+        ? "公式LINE Desktopを1つだけ起動して再試行してください。"
+        : detail.includes("wrong-process")
+          ? "公式LINE Desktopのプロセスを確認できません。公式アプリを起動して再試行してください。"
+          : detail.includes("changed during the read")
+            ? "LINE Desktopのデータが更新中です。しばらく待ってから再試行してください。"
+            : "Desktop履歴を確認できませんでした。LINE Desktopを起動した状態で再試行してください。";
+    return c.json({ ok: false, error }, 422);
+  }
+});
 // kind=route のみ route 返却。start/end/status は /call/start 等。
 
 lineRouter.post("/:accountId/call/start", async (c) => {

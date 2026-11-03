@@ -1191,6 +1191,36 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/restore/status`),
 
+    /** Windows LINE Desktop の EDB/WAL 履歴をメモリ上で確認・復元 */
+    getDesktopHistoryOptions: (accountId: string) =>
+      request<{
+        ok: boolean;
+        supported?: boolean;
+        databases?: Array<{
+          id: string;
+          sizeBytes: number;
+          modifiedAt: string;
+          walSizeBytes: number;
+        }>;
+        error?: string;
+      }>("GET", `/line/${accountId}/restore/desktop/history`),
+    restoreDesktopHistory: (accountId: string, databaseId: string, acceptedMemoryScan: boolean) =>
+      request<{
+        ok: boolean;
+        importedChats?: number;
+        importedMessages?: number;
+        oldestCreatedTimeMs?: number | null;
+        newestCreatedTimeMs?: number | null;
+        wal?: {
+          validFrames: number;
+          committedFrames: number;
+          transactions: number;
+          updatedPages: number;
+        };
+        hint?: string;
+        error?: string;
+      }>("POST", `/line/${accountId}/restore/desktop/history`, { databaseId, acceptedMemoryScan }),
+
     /** iOS 暗号化バックアップのデバイス一覧を取得 */
     listIosBackups: (accountId: string) =>
       request<{

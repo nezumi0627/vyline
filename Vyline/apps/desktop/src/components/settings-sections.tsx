@@ -1439,6 +1439,8 @@ function ThemeSectionWithPreview() {
 }
 
 type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
+type DesktopHistoryOptions = Awaited<ReturnType<typeof api.line.getDesktopHistoryOptions>>;
+type DesktopHistoryResult = Awaited<ReturnType<typeof api.line.restoreDesktopHistory>>;
 
 const TOKEN_REFRESH_PRESETS = [
   { seconds: 30 * 24 * 60 * 60, label: "30日前" },
@@ -1587,9 +1589,64 @@ function AdvancedSection() {
   const refreshChatsSilently = useStore((s) => s.refreshChatsSilently);
   const [restoring, setRestoring] = useState(false);
   const [restoreResult, setRestoreResult] = useState<RestoreResult | null>(null);
+  const [desktopHistory, setDesktopHistory] = useState<DesktopHistoryOptions | null>(null);
+  const [desktopHistoryId, setDesktopHistoryId] = useState("");
+  const [desktopMemoryConsent, setDesktopMemoryConsent] = useState(false);
+  const [desktopHistoryBusy, setDesktopHistoryBusy] = useState(false);
+  const [desktopHistoryResult, setDesktopHistoryResult] = useState<DesktopHistoryResult | null>(
+    null,
+  );
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
+
+  const loadDesktopHistoryOptions = useCallback(async () => {
+    if (!accountId || demoMode) {
+      setDesktopHistory(null);
+      setDesktopHistoryId("");
+      return;
+    }
+    try {
+      const result = await api.line.getDesktopHistoryOptions(accountId);
+      setDesktopHistory(result);
+      setDesktopHistoryId((current) =>
+        result.databases?.some((database) => database.id === current)
+          ? current
+          : (result.databases?.[0]?.id ?? ""),
+      );
+    } catch {
+      setDesktopHistory({
+        ok: false,
+        supported: false,
+        databases: [],
+        error: "状態を取得できません",
+      });
+    }
+  }, [accountId, demoMode]);
+
+  useEffect(() => {
+    void loadDesktopHistoryOptions();
+  }, [loadDesktopHistoryOptions]);
+
+  const handleDesktopHistoryRestore = async () => {
+    if (!accountId || !desktopHistoryId || !desktopMemoryConsent || desktopHistoryBusy) return;
+    setDesktopHistoryBusy(true);
+    setDesktopHistoryResult(null);
+    try {
+      const result = await api.line.restoreDesktopHistory(accountId, desktopHistoryId, true);
+      setDesktopHistoryResult(result);
+      if (result.ok) await refreshChatsSilently();
+    } catch (error) {
+      setDesktopHistoryResult({
+        ok: false,
+        error: error instanceof Error ? error.message : "Desktop履歴を復元できませんでした",
+      });
+    } finally {
+      setDesktopHistoryBusy(false);
+      setDesktopMemoryConsent(false);
+      await loadDesktopHistoryOptions();
+    }
+  };
 
   const handleRestore = async () => {
     if (demoMode) {
@@ -1690,6 +1747,124 @@ function AdvancedSection() {
             {restoring ? "復元中…" : "復元"}
           </button>
         </Row>
+        <div className="border-b border-[var(--vy-border)] py-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <p className="text-sm font-medium">{uiText("LINE Desktopのトーク履歴を取り込む")}</p>
+              <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                {uiText(
+                  "このPCのLINE DesktopデータベースとWALを読み、ログイン中のアカウントへ不足分だけ追加します。既存の既読・取消し状態は上書きしません。",
+                )}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadDesktopHistoryOptions()}
+              disabled={!accountId || desktopHistoryBusy}
+              className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
+            >
+              {uiText("再読み込み")}
+            </button>
+          </div>
+          {desktopHistory?.supported === false ? (
+            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">
+              {uiText("この機能はWindowsで利用できます。")}
+            </p>
+          ) : desktopHistory?.databases?.length ? (
+            <div className="mt-3 space-y-3">
+              <label className="block text-xs font-medium">
+                {uiText("取り込むLINE Desktopデータ")}
+                <select
+                  value={desktopHistoryId}
+                  onChange={(event) => setDesktopHistoryId(event.target.value)}
+                  disabled={desktopHistoryBusy}
+                  className="mt-1.5 block w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 text-xs"
+                >
+                  {desktopHistory.databases.map((database, index) => (
+                    <option key={database.id} value={database.id}>
+                      {uiText("データ")}
+                      {index + 1} · {formatBytes(database.sizeBytes)} · {uiText("更新")}{" "}
+                      {new Date(database.modifiedAt).toLocaleString(getIntlLocale())} · WAL{" "}
+                      {formatBytes(database.walSizeBytes)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed">
+                <p className="font-semibold">{uiText("プライバシーと実行内容")}</p>
+                <p className="mt-1 text-[var(--vy-text-dim)]">
+                  {uiText(
+                    "選択したEDB/WALを復号するため、LINE DesktopのプロセスメモリをこのPC内で一時的に走査します。復号データはファイルに保存せず、LINEや外部サーバーへ送信しません。復元先は現在ログイン中のVylineアカウントです。自分が利用権限を持つアカウントのデータだけを選んでください。",
+                  )}
+                </p>
+              </div>
+              <label className="flex items-start gap-2 text-xs leading-relaxed">
+                <input
+                  type="checkbox"
+                  checked={desktopMemoryConsent}
+                  onChange={(event) => setDesktopMemoryConsent(event.target.checked)}
+                  disabled={desktopHistoryBusy}
+                  className="mt-0.5 accent-[var(--vy-accent)]"
+                />
+                <span>
+                  {uiText(
+                    "内容を理解し、このPCでのプロセスメモリ走査とトーク履歴の差分取り込みに同意します。",
+                  )}
+                </span>
+              </label>
+              <button
+                type="button"
+                onClick={() => void handleDesktopHistoryRestore()}
+                disabled={
+                  !accountId || !desktopHistoryId || !desktopMemoryConsent || desktopHistoryBusy
+                }
+                className="rounded-lg bg-[var(--vy-accent)] px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {desktopHistoryBusy
+                  ? uiText("履歴を確認・取り込み中…")
+                  : uiText("トーク履歴を取り込む")}
+              </button>
+            </div>
+          ) : (
+            <p className="mt-3 text-xs text-[var(--vy-text-dim)]">
+              {desktopHistory
+                ? uiText(
+                    "LINE Desktopのデータベースが見つかりません。LINE Desktopを一度起動してから再読み込みしてください。",
+                  )
+                : uiText("読み込み中…")}
+            </p>
+          )}
+          {desktopHistoryResult && (
+            <div
+              className="mt-3 rounded-lg border border-[var(--vy-border)] p-3 text-xs leading-relaxed"
+              role="status"
+            >
+              {desktopHistoryResult.ok ? (
+                <>
+                  <p className="font-medium">
+                    {uiText("取り込み完了")}: {desktopHistoryResult.importedMessages ?? 0}{" "}
+                    {uiText("件のメッセージ")}, {desktopHistoryResult.importedChats ?? 0}{" "}
+                    {uiText("件のトーク")}
+                  </p>
+                  <p className="mt-1 text-[var(--vy-text-dim)]">
+                    {desktopHistoryResult.oldestCreatedTimeMs &&
+                    desktopHistoryResult.newestCreatedTimeMs
+                      ? `${new Date(desktopHistoryResult.oldestCreatedTimeMs).toLocaleString(getIntlLocale())} – ${new Date(desktopHistoryResult.newestCreatedTimeMs).toLocaleString(getIntlLocale())}`
+                      : uiText("日付範囲を確認できませんでした")}
+                    {desktopHistoryResult.wal
+                      ? ` · WAL ${desktopHistoryResult.wal.validFrames} ${uiText("フレームを確認")}`
+                      : ""}
+                  </p>
+                  <p className="mt-1 text-[var(--vy-text-dim)]">
+                    {uiText("トーク一覧を更新しました。表示中のトークは開き直すと反映されます。")}
+                  </p>
+                </>
+              ) : (
+                <p>{desktopHistoryResult.error ?? uiText("Desktop履歴を復元できませんでした")}</p>
+              )}
+            </div>
+          )}
+        </div>
         <Row
           title={uiText("設定をエクスポート")}
           desc={uiText(

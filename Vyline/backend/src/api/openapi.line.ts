@@ -2144,6 +2144,32 @@ const routes: Array<[string, Method, OpSpec]> = [
     },
   ],
   [
+    "/line/{accountId}/restore/desktop/history",
+    "get",
+    {
+      op: "getDesktopHistoryOptions",
+      summary: "LINE Desktop の履歴データ候補を取得",
+      tags: ["misc"],
+      params: [acc],
+      responses: { "200": jsonRes("Desktop EDB/WAL のメタデータ候補") },
+    },
+  ],
+  [
+    "/line/{accountId}/restore/desktop/history",
+    "post",
+    {
+      op: "restoreDesktopHistory",
+      summary: "LINE Desktop の履歴を差分復元",
+      tags: ["misc"],
+      params: [acc],
+      requestBody: body(["databaseId", "acceptedMemoryScan"], {
+        databaseId: { type: "string" },
+        acceptedMemoryScan: { type: "boolean" },
+      }),
+      responses: { "200": jsonRes("差分復元結果") },
+    },
+  ],
+  [
     "/line/{accountId}/ladder/members/{chatMid}",
     "get",
     {

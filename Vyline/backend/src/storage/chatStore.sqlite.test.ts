@@ -421,6 +421,59 @@ test("message paging merges only pending writes while SQLite remains dirty", asy
   await chatStore.flushAccountChatDb(pendingAccount);
 });
 
+test("Desktop history restoration inserts only missing messages and preserves local state", async () => {
+  const restoreAccount = "desktop-restore-merge";
+  await chatStore.upsertMessages(restoreAccount, "c-restore", [
+    {
+      id: "10",
+      chatMid: "c-restore",
+      from: "me",
+      to: "c-restore",
+      text: "current edited text",
+      contentType: "TEXT",
+      createdTime: 10,
+      isMyMessage: true,
+      seen: true,
+      readBy: ["u-reader"],
+      savedAt: "2026-11-03T00:00:00.000Z",
+    },
+  ]);
+
+  const inserted = await chatStore.insertRestoredMessages(restoreAccount, "c-restore", [
+    {
+      id: "10",
+      chatMid: "c-restore",
+      from: "me",
+      to: "c-restore",
+      text: "stale Desktop text",
+      contentType: "TEXT",
+      createdTime: 10,
+      isMyMessage: true,
+      savedAt: "2026-11-03T00:00:00.000Z",
+    },
+    {
+      id: "9",
+      chatMid: "c-restore",
+      from: "u-peer",
+      to: "me",
+      text: "restored older message",
+      contentType: "TEXT",
+      createdTime: 9,
+      isMyMessage: false,
+      savedAt: "2026-11-03T00:00:00.000Z",
+    },
+  ]);
+
+  expect(inserted).toBe(1);
+  const messages = await chatStore.getMessages(restoreAccount, "c-restore", 10);
+  expect(messages.find((message) => message.id === "10")).toMatchObject({
+    text: "current edited text",
+    seen: true,
+    readBy: ["u-reader"],
+  });
+  expect(messages.find((message) => message.id === "9")?.text).toBe("restored older message");
+});
+
 test("incremental message, read-through, revoke and restore updates persist in SQLite", async () => {
   await chatStore.upsertMessages(accountId, "c1", [
     {

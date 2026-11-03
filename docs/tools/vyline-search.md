@@ -21,7 +21,7 @@
 | `bun run vyline:focus-recovered` | `Vyline/tools/src/focusRecoveredSource.ts`                     | 大量 decompile 済みソースをキーワード別に分類              |
 | `bun run vyline:delta`           | `Vyline/packages/protocol/src/tools/reportDesktopDelta.ts`     | Desktop LINE 更新 vs キャッシュプロファイルの差分レポート  |
 | `bun run vyline:extract-e2ee`    | `Vyline/packages/protocol/src/tools/extractDesktopE2EEKeys.ts` | Desktop LINE プロセスから E2EE 鍵を抽出                    |
-| `bun run vyline:decrypt-edb`     | `Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts`      | ローカル EDB データベースの復号                            |
+| `bun run vyline:decrypt-edb`     | `Vyline/packages/protocol/src/tools/decryptDesktopEdb.ts`      | 同意後にメモリ内の鍵候補を検証し、ローカル EDB を復号     |
 
 > ツール本体は `Vyline/tools/` に同梱（src: [Vyline-Search](https://github.com/nezumi0627/vyline-search)）。
 > `VYLINE_SEARCH_DATA` でデータルートを切り替え可（既定 `tools/data/`）。
@@ -36,6 +36,25 @@
 4. bun run vyline:focus-recovered      → 結果を分類整理
 5. bun run vyline:delta                → Desktop 更新差分レポート
 ```
+
+### ローカル EDB の復号
+
+Windows の LINE Desktop が起動中の場合に限り、利用条件を確認してからメモリ内の `_Codec` 鍵候補を読み取り、
+対象 EDB の先頭ページで検証した鍵だけを使って復号します。自動選択は LINE プロセスが1つの場合に限られます。
+複数起動時は対象 PID を指定してください。
+
+```powershell
+# 利用条件を表示し、明示同意して対象 LINE.exe の PID を指定
+bun run vyline:decrypt-edb -- --pid 1234 --accept-risk --edb C:\path\to\database.edb --out-dir C:\path\to\private-output
+
+# WALも適用し、平文DBを作らず件数・日時・整合性だけ確認
+bun run vyline:decrypt-edb -- --pid 1234 --accept-risk --edb C:\path\to\database.edb --include-wal --summary-only
+```
+
+`--accept-risk` は利用条件を表示したうえで同意を指定するフラグです。鍵候補はログやメタデータへ保存せず、通信もしません。
+復号された SQLite にはトーク本文が含まれるため、出力先の保護・削除・共有は利用者が管理してください。
+`--include-wal` は確定済みフレームのみ適用し、EDB/WALが読み取り中に変化した場合は停止します。
+実機データでの検証は特定のローカル環境に限られるため、LINEの版ごとの互換性は別途確認が必要です。
 
 ### 0. バージョン確認 / 更新 (`check` / `latest` / `update` / `versions`)
 

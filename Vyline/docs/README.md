@@ -6,6 +6,7 @@
 - [MCP Server](mcp.md) — ローカルMCPクライアントから読み取り専用で接続
 - [Public API](public-api.md) — アカウント固定のAPIトークンとHTTPS運用
 - [iOSバックアップ復元](guides/ios-backup-restore.md) — Apple Devices / iTunes の暗号化バックアップ
+- [Windows LINE Desktop履歴の取り込み](guides/desktop-history-restore.md) — EDB/WALの扱い、同意、SQLiteへの差分統合
 - [アニメーション設定](animation-modes.md) — モーションの表示モード
 
 ## 運用・開発
