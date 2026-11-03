@@ -3,12 +3,14 @@ import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
 import { cn } from "@/lib/utils";
 import { IconPanelLeft } from "@/components/icons";
+import { UpdaterPage } from "@/components/updater-page";
 
 const ChatArea = lazy(() =>
   import("@/components/chat-area").then((module) => ({ default: module.ChatArea })),
 );
 
 function ChatShellBase() {
+  const screen = useStore((s) => s.screen);
   const activeChatId = useStore((s) => s.activeChatId);
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
@@ -96,7 +98,9 @@ function ChatShellBase() {
         >
           <IconPanelLeft size={17} />
         </button>
-        {activeChatId ? (
+        {screen === "updater" ? (
+          <UpdaterPage />
+        ) : activeChatId ? (
           <Suspense fallback={null}>
             <ChatArea />
           </Suspense>

@@ -108,7 +108,7 @@ export function VylineApp() {
           </Suspense>
         </div>
       )}
-      {(screen === "chat" || (screen === "home" && !showUpdateNote)) && (
+      {(screen === "chat" || screen === "updater" || (screen === "home" && !showUpdateNote)) && (
         <div className="vy-screen-enter h-full">
           <ChatShell />
         </div>

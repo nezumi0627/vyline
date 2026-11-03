@@ -274,6 +274,14 @@ async function requestBlob<T>(method: string, path: string, blob: Blob): Promise
 // ─── api ──────────────────────────────────────
 
 export const api = {
+  updater: {
+    capability: () =>
+      request<{ ok: boolean; canLaunchInstaller: boolean }>("GET", "/updater/capability"),
+    launchInstaller: (version: string) =>
+      request<{ ok: boolean; launched?: boolean; error?: string }>("POST", "/updater/launch", {
+        version,
+      }),
+  },
   subdevices: {
     createPairing: (accountId: string, origin?: string) =>
       request<{

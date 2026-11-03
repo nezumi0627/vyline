@@ -30,7 +30,7 @@ QRコードの期限が切れた場合は、VylineでQRコードを再発行し�
 
 - できることの一覧は[機能ガイド](./features.md)にあります。
 - 「実装がある」と「今回の監査で実 LINE 環境まで確認済み」は同じ意味ではありません。検証状態は [Feature Capability Matrix](./feature-capabilities.md) を正本にします。
-- Windows / Linuxの配布物、ソース起動、Dockerなどの導入方法は[配布ガイド](./distribution.md)と[セルフホストガイド](./selfhosting.md)を参照してください。
+- Windows / macOS / Linuxの配布物、ソース起動、Dockerなどの導入方法は[配布ガイド](./distribution.md)と[セルフホストガイド](./selfhosting.md)を参照してください。
 
 ## 使い始めたら
 

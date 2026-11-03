@@ -3,13 +3,17 @@
 
 [日本語](README.md)
 
+<p align="center">
+  <img src="logo/assets/color/128.png" alt="Vyline logo" width="88" height="88" />
+</p>
+
 <h1 align="center">Vyline</h1>
 
 <p align="center"><img src="logo/assets/color/128.png" alt="Vyline logo" width="72" height="72" /></p>
 
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
-  An unofficial LINE client for the web, Windows, and Linux.
+  An unofficial LINE client for the web, Windows, macOS, and Linux.
 </p>
 
 <p align="center">
@@ -66,7 +70,7 @@ Vyline is not an official LINE app. When using an external server, verify where 
 | --- | --- |
 | Features | [Feature Guide](docs/features.en.md) |
 | Setup and FAQ | [Getting Started](docs/start-here.md) |
-| Windows, Linux, and Docker | [Distribution Guide](docs/distribution.md) |
+| Windows, macOS, Linux, and Docker | [Distribution Guide](docs/distribution.md) |
 | Register and launch with Bun and vyl | [CLI installation guide](docs/install/cli.md) |
 | API | [OpenAPI and Public API](docs/api/openapi.md) |
 | Contributions and maintainers | [Contribution Guide](docs/CONTRIBUTING.md) · [Maintainers](docs/maintainers.en.md) |
@@ -77,8 +81,10 @@ Vyline is not an official LINE app. When using an external server, verify where 
 
 Bug reports, feature proposals, and help with code, research, or translation are welcome. See the [Contribution Guide](docs/CONTRIBUTING.md).
 
+## Acknowledgements
+
+Thank you to [@yuz-mc](https://github.com/yuz-mc) for creating Vyline's logo and app icon ([PR #294](https://github.com/nezumi0627/vyline/pull/294)). The logo assets are licensed under CC BY 4.0. App-size PNGs, the Windows ICO, and macOS ICNS are derived formats generated from the original logo. See [`logo/LICENCE`](logo/LICENCE) for the attribution and license terms.
+
 ## License
 
-MIT. See [LICENSE](LICENSE).
-
-The logo has a separate license: Copyright © 2026 y2mc / Project Vyline, [CC BY 4.0](logo/LICENCE).
+The software is MIT licensed ([LICENSE](LICENSE)); logo and icon assets are separately licensed under CC BY 4.0 ([`logo/LICENCE`](logo/LICENCE)).

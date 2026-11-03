@@ -42,7 +42,7 @@
 - Snapshotの作成・一覧・復元、iOSバックアップからの履歴取り込み。
 - CLIによるセットアップ、環境診断、修復。
 - Dockerセルフホスト、ブラウザからの利用、Bearer token付き公開API。
-- Windows・Linuxの配布版があります。macOS専用インストーラーはありません。
+- Windows・Linuxの配布版と、Apple Silicon / Intel向けのmacOSアプリZIPがあります。macOS版は未署名・未公証のため、初回起動時にGatekeeperの確認が必要です。
 
 ## 保存と移行を使い分ける
 

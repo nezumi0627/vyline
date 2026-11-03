@@ -2,7 +2,12 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/api/client";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode } from "@/lib/store-types";
-import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
+import {
+  BUILD_COMMIT_SHA,
+  checkForUpdates,
+  formatBuildVersion,
+  type UpdateInfo,
+} from "@/lib/updater";
 import { cn } from "@/lib/utils";
 import { BetaSection } from "@/components/beta-consent";
 import { SupportSection } from "@/components/support-section";
@@ -2311,7 +2316,7 @@ function InfoSection() {
 
   const check = () => {
     setChecking(true);
-    void checkForUpdates().then((info) => {
+    void checkForUpdates({ force: true }).then((info) => {
       setUpdateInfo(info);
       setChecking(false);
     });
@@ -2336,26 +2341,114 @@ function InfoSection() {
       <div className="overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
         {/* Logo & version */}
         <div className="flex flex-col items-center px-6 py-8 text-center">
-          <div
-            className="flex h-16 w-16 items-center justify-center rounded-2xl text-2xl font-bold text-[var(--vy-accent-contrast)] shadow-lg"
-            style={{ background: "var(--vy-accent)" }}
-          >
-            V
-          </div>
+          <img
+            src="/icon-512.png"
+            alt="Vyline ロゴ"
+            className="h-16 w-16 rounded-2xl object-contain shadow-lg"
+          />
           <h2 className="mt-4 text-xl font-bold">Vyline</h2>
           <p className="mt-1 font-mono text-sm text-[var(--vy-text-dim)]">
-            v{UPDATE_NOTES.version}
+            {BUILD_COMMIT_SHA !== "unknown" ? (
+              <a
+                href={`https://github.com/nezumi0627/Vyline/commit/${BUILD_COMMIT_SHA}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                title="このビルドのGitHubコミットを開く"
+                className="hover:text-[var(--vy-text)]"
+              >
+                {formatBuildVersion(UPDATE_NOTES.version, BUILD_COMMIT_SHA)}
+              </a>
+            ) : (
+              formatBuildVersion(UPDATE_NOTES.version, BUILD_COMMIT_SHA)
+            )}
           </p>
-          {updateInfo?.hasUpdate && (
+          <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+            ロゴ制作:{" "}
             <a
-              href={updateInfo.downloadUrl ?? updateInfo.url ?? "#"}
+              className="underline underline-offset-2 hover:text-[var(--vy-text)]"
+              href="https://github.com/yuz-mc"
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-3 inline-flex items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-3 py-1 text-xs font-semibold text-[var(--vy-accent)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-accent)_26%,transparent)]"
             >
-              更新あり: v{updateInfo.latestVersion}
-              {updateInfo.downloadUrl ? "（インストーラー）" : "（リリースページ）"}
+              yuz-mc
+            </a>{" "}
+            · Copyright © 2026 y2mc ·{" "}
+            <a
+              className="underline underline-offset-2 hover:text-[var(--vy-text)]"
+              href="https://creativecommons.org/licenses/by/4.0/"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              CC BY 4.0
+            </a>{" "}
+            ·{" "}
+            <a
+              className="underline underline-offset-2 hover:text-[var(--vy-text)]"
+              href="/logo-license.txt"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              ライセンス表記
             </a>
+          </p>
+          {updateInfo?.hasUpdate && (
+            <div className="mt-3 w-full max-w-md rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-left">
+              <div className="flex flex-wrap items-center justify-between gap-3">
+                <div>
+                  <p className="text-sm font-semibold">新しいバージョンがあります</p>
+                  <p className="mt-1 font-mono text-xs text-[var(--vy-text-dim)]">
+                    V{updateInfo.latestVersion}
+                  </p>
+                </div>
+                {updateInfo.downloadUrl && (
+                  <a
+                    href={updateInfo.downloadUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="rounded-lg bg-[var(--vy-accent)] px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] hover:opacity-90"
+                  >
+                    {updateInfo.platform === "windows"
+                      ? "更新インストーラーを取得"
+                      : "Linux更新ファイルを取得"}
+                  </a>
+                )}
+              </div>
+              {!updateInfo.downloadUrl && (
+                <p className="mt-3 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                  {updateInfo.isLocalInstall
+                    ? "この端末向けの公式配布ファイルはありません。リリースページで対応状況を確認してください。"
+                    : "リモートサーバーで実行中です。この画面からサーバーを更新しません。サーバー管理者がリリースページの手順で更新してください。"}
+                </p>
+              )}
+              {updateInfo.body && (
+                <details className="mt-3 border-t border-[var(--vy-border)] pt-3">
+                  <summary className="cursor-pointer text-xs font-medium">更新内容</summary>
+                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                    {updateInfo.body}
+                  </pre>
+                </details>
+              )}
+              {updateInfo.downloadDigest && (
+                <p className="mt-3 break-all font-mono text-[0.65rem] text-[var(--vy-text-dim)]">
+                  SHA-256: {updateInfo.downloadDigest.slice("sha256:".length)}
+                </p>
+              )}
+              {updateInfo.url && (
+                <a
+                  href={updateInfo.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-3 inline-block text-xs text-[var(--vy-text-dim)] underline underline-offset-2"
+                >
+                  GitHubのリリース詳細
+                </a>
+              )}
+              <p className="mt-2 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
+                {updateInfo.platform === "linux"
+                  ? "展開後に install.sh を実行してください。失敗時は旧パッケージに戻し、データ領域は維持します。"
+                  : "ダウンロード後にインストーラーをOS上で確認して実行してください。データ領域は更新対象に含まれません。"}
+              </p>
+            </div>
           )}
           {updateInfo && !updateInfo.hasUpdate && !updateInfo.error && !checking && (
             <p className="mt-3 text-xs text-[var(--vy-text-dim)]">最新バージョンです</p>

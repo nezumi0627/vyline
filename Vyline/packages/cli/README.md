@@ -28,7 +28,7 @@ bun run vyl:snapshot -- create manual
 | Command | Purpose |
 | --- | --- |
 | `vyl init` | Interactive setup |
-| `vyl install` | Archive-first install or developer shallow clone |
+| `vyl install` | Shallow clone with required submodules |
 | `vyl register [--project <path>]` | Register `vyl` globally and remember the default checkout |
 | `vyl unregister` | Remove the global command and saved checkout |
 | `vyl doctor` | Lightweight local health check |
@@ -37,6 +37,10 @@ bun run vyl:snapshot -- create manual
 | `vyl start` | Start backend server |
 | `vyl snapshot create/list/restore/schedule` | Manage local data snapshots |
 | `vyl plugin create <name>` | Create a plugin scaffold |
+
+`vyl install` requires Git and a destination directory that does not already exist. GitHub source archives omit Vyline's required submodules, so the CLI installs through a shallow recursive clone.
+
+Snapshots include `VYLINE_DATA_DIR` only. Saved media under `VYLINE_STORAGE_DIR` is not included. Stop Vyline before creating or restoring a snapshot.
 
 ## What is intentionally not here
 

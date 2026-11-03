@@ -23,6 +23,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with: { bun-version: "1.4.0" }
       - run: bun install --frozen-lockfile
+      - name: Test Linux installer upgrade and rollback in temporary directories
+        run: bash installer/install-linux.test.sh
       - run: bun run typecheck
       - run: bun run lint
       - run: bun run test
@@ -64,6 +66,29 @@ jobs:
         with:
           name: linux-archive
           path: dist/linux/Vyline-linux-x64-*.tar.gz
+
+  macos:
+    needs: quality
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-15
+            artifact: macos-arm64
+          - runner: macos-15-intel
+            artifact: macos-x64
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v4
+        with: { submodules: recursive }
+      - uses: oven-sh/setup-bun@v2
+        with: { bun-version: "1.4.0" }
+      - run: bun install --frozen-lockfile
+      - run: bun run package:mac
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/macos/Vyline-macos-*.zip
 
   docker:
     needs: quality
@@ -170,23 +195,26 @@ jobs:
             jq -e '[.manifests[].platform | select(.os == "linux") | .architecture] | sort == ["amd64", "arm64"]'
 
   publish:
-    needs: [windows, linux, docker-manifest]
+    needs: [windows, linux, macos, docker-manifest]
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with:
-          pattern: "{windows-installer,linux-archive}"
+          pattern: "{windows-installer,linux-archive,macos-arm64,macos-x64}"
           path: dist
           merge-multiple: true
       - name: Generate SHA-256 checksums
         run: |
           cd dist
-          sha256sum VylineSetup-*.exe Vyline-portable-*.zip Vyline-linux-x64-*.tar.gz > SHA256SUMS.txt
+          sha256sum VylineSetup-*.exe Vyline-portable-*.zip Vyline-linux-x64-*.tar.gz Vyline-macos-*.zip > SHA256SUMS.txt
       - uses: softprops/action-gh-release@v2
         with:
+          body_path: .github/release-body.md
           generate_release_notes: true
           files: |
             dist/VylineSetup-*.exe
             dist/Vyline-portable-*.zip
             dist/Vyline-linux-x64-*.tar.gz
+            dist/Vyline-macos-*.zip
             dist/SHA256SUMS.txt
