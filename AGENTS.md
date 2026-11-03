@@ -34,6 +34,8 @@ README はユーザー向け入口。実装判断の正本にしない。
 
 - `Vyline/packages/protocol`、`Vyline/packages/plugin`、`Vyline/packages/themes`、`tools` は submodule/workspace の境界が見えにくい。まず `bun run vyl:doctor` で状態を確認する。
 - docs整理では既存docsをテンプレートへ機械的に当て直さない。新規docsや大改修だけ `docs/templates/` を使い、既存docsは必要箇所だけ直す。
+- ドキュメントサイトは `docs/` と `Vyline/docs/` の Markdown を `Vyline/website/site-data.js` の `documents` に登録して生成する。掲載済みページの本文は元の Markdown から毎回生成されるため、サイト用に本文を複製しない。掲載ページを追加・削除・改名したときは `documents` の登録も同じ変更に含め、タイトル・カテゴリ・概要を更新する。
+- ドキュメントを変更したら `bun run docs:site` で生成できることを確認する。生成物 `dist-landing/` はコミットせず、`main` への反映後は `.github/workflows/pages.yml` がサイトを自動ビルド・デプロイする。サイトのビルド・デプロイ設定を変える場合は、同workflowのPRチェックも通す。
 - README の正本は日本語が `README.src.md`、英語が `README.en.src.md`。`README.md` / `README.en.md` は生成物なので、原則として直接編集しない。README変更は両方の source に同じ内容を反映し、`bun run docs:readme` で生成して差分を確認する。
 - README は元の構成を守る。新導線を入れる場合も、該当セクションへの追記に留める。
 - 日本語と英語の README は情報量を揃える。機能、注意事項、パートナー、References、導入手順などを片方だけに追加しない。生成後は `README.md` と `README.en.md` の見出し・主要項目に欠落がないか確認する。
