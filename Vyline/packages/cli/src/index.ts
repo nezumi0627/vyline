@@ -15,7 +15,8 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { homedir, platform, tmpdir } from "node:os";
-import { dirname, join, resolve } from "node:path";
+import { delimiter, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   MAX_SNAPSHOT_ARCHIVE_BYTES,
   MAX_SNAPSHOT_EXTRACTED_BYTES,
@@ -35,6 +36,8 @@ const commandSet = new Set([
   "dev",
   "start",
   "install",
+  "register",
+  "unregister",
   "snapshot",
   "plugin",
 ]);
@@ -83,6 +86,10 @@ async function dispatch(commandName: string, commandArgs: string[]) {
     await runRepoScript("server");
   } else if (commandName === "install") {
     await install(commandArgs);
+  } else if (commandName === "register") {
+    await register(commandArgs);
+  } else if (commandName === "unregister") {
+    await unregister();
   } else if (commandName === "snapshot") {
     await snapshot(commandArgs);
   } else if (commandName === "plugin") {
@@ -96,6 +103,8 @@ function printHelp() {
 Usage:
   vyl init                         Interactive setup
   vyl install                      Shallow clone Vyline with required submodules
+  vyl register [--project <path>]  Register vyl globally and remember this checkout
+  vyl unregister                   Remove the global vyl command
   vyl doctor                       Check local Vyline health
   vyl fix [--build]                Repair common setup issues
   vyl dev                          Start backend + frontend
@@ -252,6 +261,69 @@ async function install(installArgs: string[]) {
 
   console.log(`Installed to ${target}`);
   console.log(`Next: cd "${target}" && bun install && bun run vyl doctor`);
+}
+
+async function register(registerArgs: string[]) {
+  const requestedRoot = option(registerArgs, "--project");
+  const root = requestedRoot
+    ? resolve(requestedRoot)
+    : ((await findRepoRootFrom(process.cwd())) ?? (await registeredRepoRoot()));
+  if (!root || !(await isVylinePackage(join(root, "package.json"), root))) {
+    throw new Error("Run this command inside a Vyline checkout or pass --project <path>.");
+  }
+
+  const cliDirectory = join(root, "Vyline", "packages", "cli");
+  if (!existsSync(join(cliDirectory, "package.json"))) {
+    throw new Error("The Vyline CLI package is missing. Restore the repository files first.");
+  }
+
+  runChecked("bun", ["link"], cliDirectory, true);
+  await saveRegisteredRoot(root);
+  console.log(`Registered vyl and vyline for this user.\nDefault project: ${root}`);
+
+  const binResult = run("bun", ["pm", "bin", "-g"], cliDirectory);
+  const binDirectory = binResult.ok
+    ? binResult.stdout.trim()
+    : (process.env.BUN_INSTALL_BIN ??
+      join(process.env.BUN_INSTALL ?? join(homedir(), ".bun"), "bin"));
+  if (binDirectory) {
+    console.log(`Bun command directory: ${binDirectory}`);
+    if (!pathContains(binDirectory)) {
+      console.log("Add that directory to your user PATH, then open a new terminal.");
+    }
+  }
+  console.log("Start Vyline from any folder with: vyl dev");
+  console.log(
+    "Open http://localhost:5173 in your browser. Use `vyl unregister` to remove the link.",
+  );
+}
+
+async function unregister() {
+  const root = (await registeredRepoRoot()) ?? (await findRepoRootFrom(process.cwd()));
+  const cliDirectory = root
+    ? join(root, "Vyline", "packages", "cli")
+    : dirname(dirname(fileURLToPath(import.meta.url)));
+  const result = run("bun", ["unlink"], cliDirectory);
+  if (!result.ok) {
+    throw new Error(result.stderr.trim() || "Could not remove the Bun global link.");
+  }
+  await rm(cliConfigPath(), { force: true });
+  console.log("Removed the global vyl/vyline links and the saved default project.");
+}
+
+function pathContains(directory: string) {
+  const target = resolve(directory);
+  const normalizedTarget = process.platform === "win32" ? target.toLocaleLowerCase() : target;
+  return (process.env.PATH ?? "")
+    .split(delimiter)
+    .filter(Boolean)
+    .some((entry) => {
+      const normalizedEntry = resolve(entry);
+      return (
+        (process.platform === "win32" ? normalizedEntry.toLocaleLowerCase() : normalizedEntry) ===
+        normalizedTarget
+      );
+    });
 }
 
 async function snapshot(snapshotArgs: string[]) {
@@ -483,7 +555,12 @@ async function plugin(pluginArgs: string[]) {
 }
 
 async function findRepoRoot() {
-  let current = process.cwd();
+  const currentRoot = await findRepoRootFrom(process.cwd());
+  return currentRoot ?? (await registeredRepoRoot());
+}
+
+async function findRepoRootFrom(directory: string) {
+  let current = resolve(directory);
   while (true) {
     const packagePath = join(current, "package.json");
     if (existsSync(packagePath) && (await isVylinePackage(packagePath, current))) {
@@ -496,6 +573,33 @@ async function findRepoRoot() {
     }
     current = parent;
   }
+}
+
+function cliConfigPath() {
+  const configHome =
+    platform() === "win32"
+      ? (process.env.APPDATA ?? join(homedir(), "AppData", "Roaming"))
+      : (process.env.XDG_CONFIG_HOME ?? join(homedir(), ".config"));
+  return join(configHome, "Vyline", "cli.json");
+}
+
+async function registeredRepoRoot() {
+  try {
+    const config = JSON.parse(await readFile(cliConfigPath(), "utf8")) as { projectRoot?: unknown };
+    if (typeof config.projectRoot !== "string") return null;
+    const root = resolve(config.projectRoot);
+    return (await isVylinePackage(join(root, "package.json"), root)) ? root : null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveRegisteredRoot(root: string) {
+  const destination = cliConfigPath();
+  const temporary = `${destination}.${randomUUID()}.tmp`;
+  await mkdir(dirname(destination), { recursive: true });
+  await writeFile(temporary, json({ projectRoot: resolve(root) }), "utf8");
+  await rename(temporary, destination);
 }
 
 async function isVylinePackage(packagePath: string, directory: string) {

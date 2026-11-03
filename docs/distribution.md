@@ -1,5 +1,9 @@
 # Vyline 配布・更新ガイド（Windows / macOS / Linux / Docker）
 
+安定版は **1.0.3** です。初回導入はOS別ガイドへ進んでください。
+[Windows](./install/windows.md) / [Linux](./install/linux.md) / [macOS](./install/macos.md) / [Docker](./install/docker.md)
+このページでは配布の仕組みとローカルビルドを扱います。
+
 `v<version>` タグを push すると GitHub Actions が品質チェック後に Windows Setup.exe、Windows portable ZIP、macOS（Apple Silicon / Intel）ZIP、Linux x64 tar.gz、SHA-256チェックサム、GHCR Docker imageを作成します。Dockerはlinux/amd64とlinux/arm64を各ネイティブRunnerでビルドし、単一のマルチアーキテクチャmanifestとして公開します。
 
 アプリの情報画面はGitHub Releasesを確認し、対応する公式配布物・SHA-256・更新内容を表示します。確認後に利用者がファイルをダウンロードし、WindowsはSetup.exe、Linuxは展開先の `install.sh` を手動で実行して更新します。ダウンロードしたファイルをアプリが無確認で実行することはありません。

@@ -1,6 +1,6 @@
 # Vyline 開発者ガイド（読む順序）
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 このページは**人間の開発者向けの入口**です。AI エージェント向けは
 [for-ai.md](./for-ai.md) を参照してください。
@@ -44,11 +44,9 @@ bun examples/api/basic-operations.ts
 bun run test:api   # 全エンドポイント smoke test
 ```
 
-## Step 3: プラグインを作る（30分）
+## Step 3: 拡張資料を確認する
 
-1. [plugin-system.md](./plugin-system.md) — ユーザーガイド
-2. `examples/plugins/message-logger` をコピーして書き換える
-3. 有効化: `POST /line/{accountId}/plugins/<id>/enable`
+プラグインの実行基盤と SDK の開発資料は残っていますが、現行版には管理 API と設定 UI がありません。利用者向けの導入手順としては実行できません。背景は[旧プラグイン資料](./plugin-system.md)に記載しています。
 
 ## Step 4: プロトコルに触れる（必要になったら）
 

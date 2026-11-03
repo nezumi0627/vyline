@@ -1,6 +1,6 @@
 # Onboarding — 新規参入チェックリスト
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 所要目安: 半日（環境構築 + コード地図 + Desktop ツール 1 回実行）
 
@@ -48,7 +48,7 @@
 
 | パス                                  | 理由                                                |
 | ------------------------------------- | --------------------------------------------------- |
-| `Vyline/apps/desktop/src/components/` | UI（別タスク）                                      |
+| `Vyline/apps/desktop/src/components/` | Desktop UI（対象タスクに含まれる場合は編集可）      |
 | `archive/`                            | 旧実装・参考のみ                                    |
 | `Vyline/backend/data/`                | 秘密・gitignore                                     |
 | `source/desktop/`                     | 巨大アーティファクト（読むのは OK、コミットしない） |

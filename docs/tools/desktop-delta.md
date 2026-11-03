@@ -1,6 +1,6 @@
 # desktop-delta — Desktop LINE 更新差分調査
 
-最終更新: 2026-08-24
+最終更新: 2026-11-03
 
 `bun run vyline:delta` は、インストール済み LINE Desktop の最新バージョンと、キャッシュされたプロファイルの差分をレポートします。
 

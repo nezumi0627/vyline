@@ -1,32 +1,40 @@
 # CONTRIBUTING — Vyline への貢献ガイド
 
-最終更新: 2026-08-30
+最終更新: 2026-11-03
 
-新規参入者向け。**UI/UX を触らずにプロトコル・backend・protocol を伸ばす**ときの道筋です。
+新規参入者向け。プロトコル・backend の変更を、Desktop の UI と混同せずに実装するための道筋です。UI の変更が必要なタスクでは `apps/desktop` の既存コンポーネントと設計資料も確認してください。
 
 ---
 
 ## 5 分で掴む全体像
 
-```
-apps/desktop (React)  ──HTTP──►  backend (Hono)
-                                    │
-                                    ▼
-                              @vyline/protocol
-                         ┌──────────┴──────────┐
-                         │  domain/  (facade)  │  ← プロフィール・チャット管理など
-                         │  dictionary/        │  ← LINE.js 名 → Desktop 証拠
-                         │  login/ e2ee/ obs/  │  ← Desktop パッチ
-                         └──────────┬──────────┘
-                                    │
-                              stack/  (Talk /S4 等)
-                                    │
-                         @vyline/line-types (Thrift 型のみ)
-```
+<figure class="architecture-map" role="group" aria-labelledby="contribution-map-title">
+<figcaption id="contribution-map-title">画面からLINEサーバーまで</figcaption>
+<div class="architecture-flow">
+<div class="architecture-node architecture-frontend"><small>FRONTEND</small><strong>apps/desktop</strong><span>React · Vite</span></div>
+<div class="architecture-connector"><span>HTTP</span><b aria-hidden="true">→</b></div>
+<div class="architecture-node architecture-backend"><small>BACKEND</small><strong>backend</strong><span>Hono · 入出力とサービス</span></div>
+</div>
+<div class="architecture-down"><span>セッション処理</span><b aria-hidden="true">↓</b></div>
+<section class="architecture-protocol" aria-label="Vyline protocol の構成">
+<div class="architecture-node protocol-title architecture-protocol-core"><small>PROTOCOL</small><strong>@vyline/protocol</strong></div>
+<div class="architecture-branches">
+<div><strong>domain/</strong><span>プロフィール・チャットの facade</span></div>
+<div><strong>dictionary/</strong><span>LINE.js 名と Desktop 証拠</span></div>
+<div><strong>login/ · e2ee/ · obs/</strong><span>Desktop 準拠の通信処理</span></div>
+</div>
+</section>
+<div class="architecture-down"><span>RPC transport</span><b aria-hidden="true">↓</b></div>
+<div class="architecture-flow architecture-flow-bottom">
+<div class="architecture-node architecture-stack"><small>THRIFT RPC</small><strong>stack/</strong><span>Talk · /S4 · Login · OBS</span></div>
+<div class="architecture-connector"><b aria-hidden="true">→</b></div>
+<div class="architecture-node architecture-types"><small>型定義</small><strong>@vyline/line-types</strong><span>vendored Thrift types</span></div>
+</div>
+</figure>
 
 - **外部 `@evex/linejs` 依存はゼロ**。stack は内部 RPC 実装。
 - **Desktop LINE が仕様の正**。LINE.js / stack のメソッド名は「辞書」として使う。
-- **UI は触らない**（この CONTRIBUTING の範囲外。design は別ドキュメント）。
+- **このガイドは UI の実装手順を扱わない**。UI を変更する場合も、backend / protocol の責務はこの境界に従う。
 
 ---
 

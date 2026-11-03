@@ -1,6 +1,6 @@
 # Vyline — AI Entry / Docs Router
 
-最終更新: 2026-08-31
+最終更新: 2026-11-03
 
 > このページは巨大な docs 全体を毎回読む代わりに、作業種別ごとの正本へ案内する router です。
 > 必須ルールそのものは [AGENTS.md](../../AGENTS.md) が正本です。人間は [index.md](./index.md) を読んでください。
@@ -62,7 +62,7 @@ Vyline/
     themes/         → GIT SUBMODULE (= github.com/nezumi0627/vyline-theme) — VyTheme プリセット
     line-types/     Thrift 型定義（生成物に準拠）
 examples/
-  plugins/          プラグインサンプル（コピーして使う）
+  plugins/          plugin SDK の開発サンプル（現行版の導入手順ではない）
   api/              BFF API サンプルスクリプト
 docs/
   developers/       このガイド群

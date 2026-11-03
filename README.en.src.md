@@ -6,15 +6,19 @@
 
 <h1 align="center">Vyline</h1>
 
+<p align="center"><img src="logo/assets/color/128.png" alt="Vyline logo" width="72" height="72" /></p>
+
 <p align="center">
   <strong>Vision Beyond Limits.</strong><br/>
   An unofficial LINE client for the web, Windows, macOS, and Linux.
 </p>
 
 <p align="center">
-  <img alt="version" src="https://img.shields.io/badge/version-1.0.3-a78bfa?style=flat-square" />
-  <img alt="license" src="https://img.shields.io/badge/license-MIT-22c55e?style=flat-square" />
+  <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.0.3"><img alt="Stable 1.0.3" src="https://img.shields.io/badge/version-1.0.3-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
+  <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-eeeeee?style=flat-square&amp;labelColor=181818" />
 </p>
+
+<p align="center"><a href="https://nezumi0627.github.io/Vyline/#start">Installation tour</a> · <a href="docs/features.en.md">Explore features</a> · <a href="https://nezumi0627.github.io/Vyline/#docs">Find documentation by task</a></p>
 
 > [!CAUTION]
 > Vyline is an unofficial client and is not affiliated with LINE Corporation or LY Corporation. Understand the risks to your account and data, as well as LINE's terms, before using it. See [Privacy and Data](docs/user-guide/privacy-and-data.en.md).
@@ -31,7 +35,7 @@ Vyline is an open-source client for sending, receiving, and managing LINE chats.
 - **Chats**: DMs and groups, messaging, read state, search, mentions, and URL previews
 - **Media and rendering**: Images, video, audio, files, stickers, emoji, Flex/Rich messages, and reactions
 - **Profiles and groups**: Profiles, friend and block management, group creation and settings
-- **Personalisation**: NezuTheme, typography, notification and privacy settings, streamer mode
+- **Personalisation**: VyTheme, typography, notification and privacy settings, streamer mode
 - **Data and support**: VylineBackup, Snapshots, history import, diagnostic logs, Agent I support
 - **Operations and extensions**: Multiple accounts, subdevices, public API, CLI, and Docker self-hosting
 
@@ -39,11 +43,19 @@ See the [Feature Guide](docs/features.en.md) for descriptions and limitations an
 
 ## Get started
 
-- **Windows**: Download the [v1.0.3 Setup or portable build](https://github.com/nezumi0627/vyline/releases/tag/v1.0.3).
-- **Linux**: The same release includes a Linux x64 build. Docker supports linux/amd64 and linux/arm64.
-- **Web / self-hosting**: See the [Self-hosting Guide](docs/selfhosting.md).
-- **macOS**: Download the `Vyline.app` ZIP for Apple Silicon (arm64) or Intel (x64) from Releases. See the [distribution guide](docs/distribution.md) for the first-launch Gatekeeper prompt for the unsigned app.
-- **Updating**: [Update Guide](docs/user-guide/update.md).
+**The stable release is 1.0.3.** Choose the instructions for your environment.
+
+| Environment | Download or method | Installation guide |
+| --- | --- | --- |
+| Windows x64 | [Setup.exe](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/VylineSetup-1.0.3.exe) / [Portable ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/Vyline-portable-1.0.3.zip). No Bun installation required | [Windows](docs/install/windows.md) |
+| Linux x64 | [tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/Vyline-linux-x64-1.0.3.tar.gz). No Bun installation required | [Linux](docs/install/linux.md) |
+| macOS | Run from source or use a browser. No dedicated installer | [macOS](docs/install/macos.md) |
+| Docker / Web | Run on an amd64 or arm64 server | [Docker](docs/install/docker.md) |
+
+For a command-first setup, the **Bun + vyl CLI** works the same on Windows, macOS, and Linux. [Register and start vyl](docs/install/cli.md)
+
+Continue with [Login and initial setup](docs/start-here.md#ログインと初回設定). Read the [Update Guide](docs/user-guide/update.md) before updating.
+Verify downloads against [SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.0.3/SHA256SUMS.txt).
 
 ## Before you use Vyline
 
@@ -56,6 +68,7 @@ Vyline is not an official LINE app. When using an external server, verify where 
 | Features | [Feature Guide](docs/features.en.md) |
 | Setup and FAQ | [Getting Started](docs/start-here.md) |
 | Windows, macOS, Linux, and Docker | [Distribution Guide](docs/distribution.md) |
+| Register and launch with Bun and vyl | [CLI installation guide](docs/install/cli.md) |
 | API | [OpenAPI and Public API](docs/api/openapi.md) |
 | Contributions and maintainers | [Contribution Guide](docs/CONTRIBUTING.md) · [Maintainers](docs/maintainers.en.md) |
 | Historical behavior such as v0.5.0 | [Release History](docs/history/releases.en.md) |

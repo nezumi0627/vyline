@@ -2,21 +2,20 @@
 
 `@vyline/cli` provides the `vyl` command for Vyline setup, diagnostics, snapshots, and plugin scaffolding.
 
-## Usage
+## Register the cross-platform command
+
+From a Vyline checkout with Bun 1.4.0 or newer:
 
 ```bash
-bunx @vyline/cli init
-bunx @vyline/cli install
-bunx @vyline/cli doctor
+bun install
+bun run vyl register
 ```
 
-After the short-name package is published, the intended public entrypoint is:
+`vyl register` uses Bun's global link on Windows, macOS, and Linux, then remembers this checkout as the default project. Once Bun's global bin directory is on `PATH`, open a new terminal and run `vyl dev` or `vyl doctor` from any folder. Register another checkout from inside it or use `vyl register --project <path>`.
 
-```bash
-bunx vyl init
-```
+Remove the global command with `vyl unregister`. This leaves Bun installed.
 
-Inside a Vyline repository checkout, use the root scripts instead:
+When you do not want a global command, the root scripts remain available inside a checkout:
 
 ```bash
 bun run vyl init
@@ -30,6 +29,8 @@ bun run vyl:snapshot -- create manual
 | --- | --- |
 | `vyl init` | Interactive setup |
 | `vyl install` | Shallow clone with required submodules |
+| `vyl register [--project <path>]` | Register `vyl` globally and remember the default checkout |
+| `vyl unregister` | Remove the global command and saved checkout |
 | `vyl doctor` | Lightweight local health check |
 | `vyl fix` | Repair common local setup issues |
 | `vyl dev` | Start backend and frontend |
