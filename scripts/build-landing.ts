@@ -6,7 +6,7 @@ import { documents, version } from "../Vyline/website/site-data.js";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const source = join(root, "Vyline/website");
 const output = resolve(process.argv[2] ?? join(root, "dist-landing"));
-const base = "/Vyline/";
+const base = "/vyline/";
 const github = "https://github.com/nezumi0627/vyline/blob/main/";
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const forward = (path: string) => path.split(sep).join("/");
