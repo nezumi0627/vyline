@@ -64,7 +64,7 @@
   "GitHubへ送る内容のプレビュー": "Pratinjau apa yang harus dikirim ke GitHub",
   "GitHubを開く": "Buka GitHub",
   "GitHubリリースの詳細": "Detail rilis GitHub",
-  "HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）": "HTTP/HTTPS/SOCKS (misalnya http://127.0.0.1:7890）",
+  "HTTP/HTTPS/SOCKS（例: http://127.0.0.1:7890）": "HTTP/HTTPS/SOCKS (misalnya http://127.0.0.1:7890)",
   "Issue作成": "Buat masalah",
   "LINE authToken を貼り付け（JWT または key:secret 形式）": "Tempel LINE authToken (JWT atau kunci: format rahasia)",
   "LINE から ABUSE_BLOCK が返ったため、アカウント BAN を避ける目的でグループ作成を無効化しています。": "Sejak LINE mengembalikan ABUSE_BLOCK, kami telah menonaktifkan pembuatan grup untuk menghindari pemblokiran akun.",
