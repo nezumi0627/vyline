@@ -18,6 +18,7 @@ import type {
 import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
+import { recordPreviewDecryptFailure, shouldSkipPreviewDecrypt } from "./previewDecryptBackoff.js";
 import { processOperationBatch } from "../line/operationBatch.js";
 import { pruneTimedCache } from "./pruneTimedCache.js";
 import { isTrustedLineMediaDownloadUrl } from "./lineMediaDownloadUrl.js";
@@ -378,8 +379,8 @@ export function normalizeContentMetadata(meta: unknown): MessageContentMeta | nu
 const groupKeyWarm = new Set<string>();
 /** 一覧のプレビュー復号を走らせているアカウント（定期の再取得で重ねない） */
 const previewEnrichInflight = new Set<string>();
-/** プレビュー復号で読めなかった最終メッセージ（鍵が無いものを毎回試さない） */
-const previewDecryptFailed = new Set<string>();
+/** プレビュー復号失敗は短時間だけ抑止し、記録数も上限を設ける */
+const previewDecryptFailed = new Map<string, number>();
 /** warm 失敗済み（秘密鍵欠落など）。毎回 API 連打しない */
 const groupKeyWarmFailed = new Set<string>();
 /** warm 進行中。同時呼び出しの重複を防ぐ */
@@ -3206,7 +3207,10 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     const toEnrich = result
       .filter((c) => {
         if (!isUnresolvedLastMessagePreview(c.lastMessagePreview)) return false;
-        if (c.lastMessageId && previewDecryptFailed.has(`${accountId}:${c.lastMessageId}`)) {
+        if (
+          c.lastMessageId &&
+          shouldSkipPreviewDecrypt(previewDecryptFailed, `${accountId}:${c.lastMessageId}`)
+        ) {
           return false;
         }
         const box = boxById.get(c.mid) as { lastMessages?: unknown[] } | undefined;
@@ -3240,14 +3244,20 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
               const preview = previewFromBoxMessage(dec);
               if (isUnresolvedLastMessagePreview(preview)) {
                 if (chat.lastMessageId) {
-                  previewDecryptFailed.add(`${accountId}:${chat.lastMessageId}`);
+                  recordPreviewDecryptFailure(
+                    previewDecryptFailed,
+                    `${accountId}:${chat.lastMessageId}`,
+                  );
                 }
                 return;
               }
               chat.lastMessagePreview = preview;
             } catch {
               if (chat.lastMessageId) {
-                previewDecryptFailed.add(`${accountId}:${chat.lastMessageId}`);
+                recordPreviewDecryptFailure(
+                  previewDecryptFailed,
+                  `${accountId}:${chat.lastMessageId}`,
+                );
               }
             }
           }),
