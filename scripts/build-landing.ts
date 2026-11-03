@@ -8,9 +8,10 @@ const source = join(root, "Vyline/website");
 const output = resolve(process.argv[2] ?? join(root, "dist-landing"));
 const base = "/vyline/";
 const github = "https://github.com/nezumi0627/vyline/blob/main/";
+const repositoryMapSource = "links/README.md";
 const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[char]!);
 const forward = (path: string) => path.split(sep).join("/");
-const docUrl = (path: string) => `${base}guide/${path.replace(/\.md$/, ".html")}`;
+const docUrl = (path: string) => path === repositoryMapSource ? `${base}links/` : `${base}guide/${path.replace(/\.md$/, ".html")}`;
 const published = new Set(documents.map(([path]) => path));
 
 // Never clear a destination. Refuse existing source/unmanaged directories,
@@ -44,7 +45,8 @@ await writeFile(join(output, ".nojekyll"), "");
 await writeFile(join(output, "search.json"), JSON.stringify(metadata.map(({ markdown, ...doc }) => doc)));
 
 function row(doc: typeof metadata[number]) {
-  const terms = `${doc.title} ${doc.summary} ${doc.category} ${doc.markdown.replace(/[`#*|<>]/g, " ")}`.toLocaleLowerCase();
+  const searchableMarkdown = doc.markdown.replace(/!\[([^\]]*)\]\([^)]*\)/g, "$1");
+  const terms = `${doc.title} ${doc.summary} ${doc.category} ${searchableMarkdown.replace(/[`#*|<>]/g, " ")}`.toLocaleLowerCase();
   const prefixLength = `${doc.title} ${doc.summary} ${doc.category} `.length;
   return `<a class="document-row" href="${doc.url}" data-category="${escapeHtml(doc.category)}" data-title="${escapeHtml(doc.title)}" data-summary="${escapeHtml(doc.summary)}" data-content-offset="${prefixLength}" data-search="${escapeHtml(terms)}"><span class="doc-category">${escapeHtml(doc.category)}</span><span><strong>${escapeHtml(doc.title)}</strong><small>${escapeHtml(doc.summary)}</small><small class="search-match"></small></span><span aria-hidden="true">↗</span></a>`;
 }
@@ -84,7 +86,7 @@ for (let index = 0; index < metadata.length; index++) {
   const sidebar = metadata.map((item, i) => `${i === 0 || metadata[i - 1].category !== item.category ? `<p class="sidebar-category">${escapeHtml(item.category)}</p>` : ""}<a href="${item.url}"${item.path === doc.path ? ' aria-current="page"' : ""}>${escapeHtml(item.title)}</a>`).join("");
   const next = metadata[(index + 1) % metadata.length];
   const article = `<!doctype html><html lang="${doc.path.includes(".en.") ? "en" : "ja"}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#08090a"><meta name="description" content="${escapeHtml(doc.summary)}"><title>${escapeHtml(doc.title)} | Vyline</title><link rel="icon" href="${base}assets/logo.svg"><link rel="stylesheet" href="${base}assets/site.css"><script type="module" src="${base}assets/site.js"></script></head><body><div class="world-background" aria-hidden="true"></div><a class="skip-link" href="#main">本文へ移動</a><header class="site-header wrap"><a class="brand" href="${base}" aria-label="Vyline ホーム"><img src="${base}assets/logo.svg" width="36" height="36" alt=""><span>Vyline</span></a><button class="menu-button" aria-expanded="false" aria-controls="navigation">メニュー <span aria-hidden="true">＋</span></button><nav id="navigation" aria-label="メインナビゲーション"><a href="${base}#start">導入ツアー</a><a href="${base}#docs">目的から探す</a><a href="${github + doc.path}">Markdown原文 ↗</a></nav></header><div class="article-layout wrap"><aside class="article-sidebar" aria-label="ドキュメント一覧"><h2>Docs / v${version}</h2>${sidebar}</aside><main id="main" class="article-content"><nav class="breadcrumbs" aria-label="パンくず"><a href="${base}">ホーム</a><span>/</span><a href="${base}#docs">ドキュメント</a><span>/</span><span>${escapeHtml(doc.category)}</span></nav>${html}<div class="article-source"><a href="${github + doc.path}">Markdown原文を読む ↗</a><a href="${base}#docs">目的から探す</a></div><a class="article-next" href="${next.url}"><small>続けて読む</small>${escapeHtml(next.title)} →</a></main><aside class="article-toc" aria-label="このページの目次"><h2>このページで</h2>${headings.map((heading) => `<a href="#${escapeHtml(heading.id)}">${heading.title}</a>`).join("")}</aside></div><footer class="site-footer wrap"><p>Software © Project Vyline / MIT · Logo © 2026 y2mc / <a href="${base}assets/LOGO-LICENCE.txt">CC BY 4.0</a></p></footer></body></html>`;
-  const destination = join(output, "guide", doc.path.replace(/\.md$/, ".html"));
+  const destination = doc.path === repositoryMapSource ? join(output, "links", "index.html") : join(output, "guide", doc.path.replace(/\.md$/, ".html"));
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, article);
 }

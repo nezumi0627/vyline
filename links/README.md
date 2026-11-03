@@ -5,25 +5,7 @@ Vyline本体と、プロトコル、テーマ、プラグイン、調査ツー�
 
 ## 関係図
 
-```mermaid
-flowchart LR
-  app["vyline<br/>LINEクライアント"]
-  api["vyline-api<br/>@vyline/protocol"]
-  plugin["vyline-plugin<br/>SDKとサンプル"]
-  theme["vyline-theme<br/>VyThemeプリセット"]
-  search["vyline-search<br/>Desktop調査ツール"]
-  cli["vyline-cli<br/>独立したターミナル版"]
-  desktop["Vyline-Desktop<br/>Windows向けBeta"]
-  vylinejs["Vylinejs<br/>別系統のSelfBot fork"]
-
-  app -->|packages/protocol| api
-  app -->|packages/plugin| plugin
-  app -->|packages/themes| theme
-  app -->|tools submodule| search
-  cli -->|protocol submodule| api
-  desktop -->|指定したVyline refから組み立て| app
-  vylinejs -.->|名前が似た別系統のfork| app
-```
+![Vyline本体と関連repoの依存関係図](relationship.svg)
 
 ## リポジトリ
 

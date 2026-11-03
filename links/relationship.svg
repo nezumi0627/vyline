@@ -1,0 +1,70 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 620" role="img" aria-labelledby="title desc">
+  <title id="title">Vyline関連リポジトリの関係図</title>
+  <desc id="desc">Vyline本体がprotocol、plugin、theme、searchの各repoをsubmoduleとして参照します。vyline-cliはprotocolを参照する独立repoです。Vyline-DesktopはVylineのrefからWindows向けBetaを組み立て、Vylinejsは別系統のforkです。</desc>
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#b9c6dc" />
+    </marker>
+  </defs>
+  <rect width="1180" height="620" rx="18" fill="#090b0f" />
+  <text x="40" y="38" fill="#9ba7ba" font-family="ui-monospace,Consolas,monospace" font-size="12" letter-spacing="2">VYLINE / REPOSITORY MAP</text>
+
+  <g fill="none" stroke="#8292aa" stroke-width="1.5" opacity=".85" marker-end="url(#arrow)">
+    <path d="M450 160 C390 202 150 210 150 260" />
+    <path d="M520 160 C485 208 430 213 430 260" />
+    <path d="M660 160 C695 208 710 213 710 260" />
+    <path d="M730 160 C790 202 990 210 990 260" />
+    <path d="M150 472 V398" />
+  </g>
+
+  <g font-family="Segoe UI,Meiryo,sans-serif">
+    <rect x="400" y="58" width="380" height="102" rx="12" fill="#151a22" stroke="#e6ebf2" stroke-width="1.5" />
+    <text x="424" y="84" fill="#aab5c5" font-family="ui-monospace,Consolas,monospace" font-size="11" letter-spacing="1.5">APPLICATION</text>
+    <text x="424" y="120" fill="#f4f6fa" font-size="28" font-weight="600">vyline</text>
+    <text x="424" y="143" fill="#bac4d3" font-size="14">LINE client · stable 1.0.3</text>
+
+    <g>
+      <rect x="30" y="260" width="240" height="138" rx="10" fill="#111923" stroke="#7897c5" />
+      <text x="50" y="285" fill="#9ab9ec" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">SUBMODULE / PROTOCOL</text>
+      <text x="50" y="322" fill="#f1f4f8" font-size="21" font-weight="600">vyline-api</text>
+      <text x="50" y="349" fill="#c0cad8" font-size="14">@vyline/protocol</text>
+      <text x="50" y="378" fill="#909db0" font-size="12">Vyline/packages/protocol</text>
+    </g>
+    <g>
+      <rect x="310" y="260" width="240" height="138" rx="10" fill="#111923" stroke="#7897c5" />
+      <text x="330" y="285" fill="#9ab9ec" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">SUBMODULE / PLUGINS</text>
+      <text x="330" y="322" fill="#f1f4f8" font-size="21" font-weight="600">vyline-plugin</text>
+      <text x="330" y="349" fill="#c0cad8" font-size="14">SDK and examples</text>
+      <text x="330" y="378" fill="#909db0" font-size="12">Vyline/packages/plugin</text>
+    </g>
+    <g>
+      <rect x="590" y="260" width="240" height="138" rx="10" fill="#111923" stroke="#7897c5" />
+      <text x="610" y="285" fill="#9ab9ec" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">SUBMODULE / THEMES</text>
+      <text x="610" y="322" fill="#f1f4f8" font-size="21" font-weight="600">vyline-theme</text>
+      <text x="610" y="349" fill="#c0cad8" font-size="14">VyTheme presets</text>
+      <text x="610" y="378" fill="#909db0" font-size="12">Vyline/packages/themes</text>
+    </g>
+    <g>
+      <rect x="870" y="260" width="280" height="138" rx="10" fill="#111923" stroke="#7897c5" />
+      <text x="890" y="285" fill="#9ab9ec" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">SUBMODULE / RESEARCH</text>
+      <text x="890" y="322" fill="#f1f4f8" font-size="21" font-weight="600">vyline-search</text>
+      <text x="890" y="349" fill="#c0cad8" font-size="14">LINE Desktop analysis tools</text>
+      <text x="890" y="378" fill="#909db0" font-size="12">tools/ · not a runtime dependency</text>
+    </g>
+
+    <rect x="30" y="472" width="240" height="112" rx="10" fill="#12151a" stroke="#b9c6dc" />
+    <text x="50" y="497" fill="#aab5c5" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">STANDALONE CLI</text>
+    <text x="50" y="532" fill="#f1f4f8" font-size="20" font-weight="600">vyline-cli</text>
+    <text x="50" y="559" fill="#c0cad8" font-size="13">uses vyline-api as a submodule</text>
+
+    <rect x="310" y="472" width="250" height="112" rx="10" fill="#12151a" stroke="#b9c6dc" />
+    <text x="330" y="497" fill="#aab5c5" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">WINDOWS BETA</text>
+    <text x="330" y="532" fill="#f1f4f8" font-size="19" font-weight="600">Vyline-Desktop</text>
+    <text x="330" y="559" fill="#c0cad8" font-size="13">WebView2 wrapper, built from Vyline refs</text>
+
+    <rect x="600" y="472" width="250" height="112" rx="10" fill="#12151a" stroke="#6e7785" stroke-dasharray="5 4" />
+    <text x="620" y="497" fill="#9ca5b2" font-family="ui-monospace,Consolas,monospace" font-size="10" letter-spacing="1.2">SEPARATE FORK</text>
+    <text x="620" y="532" fill="#f1f4f8" font-size="20" font-weight="600">Vylinejs</text>
+    <text x="620" y="559" fill="#c0cad8" font-size="13">LINE SelfBot library, not a Vyline dependency</text>
+  </g>
+</svg>
