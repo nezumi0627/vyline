@@ -55,7 +55,13 @@
         <aside class="tour-rail" aria-label="導入の選択">
           <div class="environment-picker">
             <p>動かす環境 <span>01 — SELECT</span></p>
-            <div class="platform-picker" role="group" aria-label="利用環境"><button class="platform-recommended" data-os="bun" aria-pressed="true"><span>Bun + vyl<small>全OS共通・コマンド起動</small></span><span class="platform-choice">推奨</span></button><button data-os="windows" aria-pressed="false"><span>Windows<small>Setup / x64</small></span></button><button data-os="linux" aria-pressed="false"><span>Linux<small>tar.gz / x64</small></span></button><button data-os="macos" aria-pressed="false"><span>macOS<small>ソース / ブラウザ</small></span></button><button data-os="docker" aria-pressed="false"><span>Docker / Web<small>amd64 / arm64</small></span></button></div>
+            <div class="platform-picker" role="group" aria-label="利用環境">
+              <button class="platform-recommended" data-os="bun" aria-pressed="true"><span class="platform-ident"><span class="platform-icon-slot" data-platform-icon></span><span>Bun + vyl<small>全OS共通・コマンド起動</small></span></span><span class="platform-choice">推奨</span></button>
+              <button data-os="windows" aria-pressed="false"><span class="platform-ident"><span class="platform-icon-slot" data-platform-icon></span><span>Windows<small>Setup / x64</small></span></span></button>
+              <button data-os="linux" aria-pressed="false"><span class="platform-ident"><span class="platform-icon-slot" data-platform-icon></span><span>Linux<small>tar.gz / x64</small></span></span></button>
+              <button data-os="macos" aria-pressed="false"><span class="platform-ident"><span class="platform-icon-slot" data-platform-icon></span><span>macOS<small>ソース / ブラウザ</small></span></span></button>
+              <button data-os="docker" aria-pressed="false"><span class="platform-ident"><span class="platform-icon-slot" data-platform-icon></span><span>Docker / Web<small>amd64 / arm64</small></span></span></button>
+            </div>
           </div>
           <nav class="tour-steps" aria-label="導入手順"><p>導入の流れ <span>02 — FOLLOW</span></p><button data-step="0" aria-current="step"><span>01</span> 起動する</button><button data-step="1"><span>02</span> ログインする</button><button data-step="2"><span>03</span> 使い方を整える</button></nav>
         </aside>
