@@ -18,6 +18,7 @@ import type {
 import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
+import { recordPreviewDecryptFailure, shouldSkipPreviewDecrypt } from "./previewDecryptBackoff.js";
 import { processOperationBatch } from "../line/operationBatch.js";
 import { pruneTimedCache } from "./pruneTimedCache.js";
 import { isTrustedLineMediaDownloadUrl } from "./lineMediaDownloadUrl.js";
@@ -107,6 +108,7 @@ import {
   warmAccountCache,
   saveBoxOrder,
   shouldPreserveResolvedLastMessagePreview,
+  isUnresolvedLastMessagePreview,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
@@ -375,6 +377,10 @@ export function normalizeContentMetadata(meta: unknown): MessageContentMeta | nu
 // ─── E2EE: グループ鍵（Desktop/Android 準拠 by-id）──────────
 
 const groupKeyWarm = new Set<string>();
+/** 一覧のプレビュー復号を走らせているアカウント（定期の再取得で重ねない） */
+const previewEnrichInflight = new Set<string>();
+/** プレビュー復号失敗は短時間だけ抑止し、記録数も上限を設ける */
+const previewDecryptFailed = new Map<string, number>();
 /** warm 失敗済み（秘密鍵欠落など）。毎回 API 連打しない */
 const groupKeyWarmFailed = new Set<string>();
 /** warm 進行中。同時呼び出しの重複を防ぐ */
@@ -3194,15 +3200,19 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     }
   }
 
-  // E2EE の最終メッセージは text が空なので、上位チャットだけ復号してプレビューを埋める
-  if (!opts?.light) {
-    try {
-      await ensureE2EEIdentityCached(client, accountId);
-    } catch {
-      /* ignore */
-    }
+  // E2EE の最終メッセージは text が空なので、上位チャットだけ復号してプレビューを埋める。
+  // フロントは常に light で取るので、light でも裏で復号して保存し、次の取得で返す。
+  // 保存済みの復号済みプレビューがあるもの・前に読めなかったものは試さない。
+  if (!previewEnrichInflight.has(accountId)) {
     const toEnrich = result
       .filter((c) => {
+        if (!isUnresolvedLastMessagePreview(c.lastMessagePreview)) return false;
+        if (
+          c.lastMessageId &&
+          shouldSkipPreviewDecrypt(previewDecryptFailed, `${accountId}:${c.lastMessageId}`)
+        ) {
+          return false;
+        }
         const box = boxById.get(c.mid) as { lastMessages?: unknown[] } | undefined;
         const last = box?.lastMessages?.[0] as { chunks?: unknown[]; text?: string } | undefined;
         return (
@@ -3214,8 +3224,15 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       .slice(0, 30);
 
     // プレビュー復号は応答を待たせず非同期で（switch 時の「暗号化メッセージ」化を防ぐ）
+    if (toEnrich.length > 0) previewEnrichInflight.add(accountId);
     void (async () => {
+      if (toEnrich.length === 0) return;
       try {
+        try {
+          await ensureE2EEIdentityCached(client, accountId);
+        } catch {
+          /* ignore */
+        }
         await Promise.all(
           toEnrich.map(async (chat) => {
             const box = boxById.get(chat.mid) as { lastMessages?: unknown[] } | undefined;
@@ -3224,9 +3241,24 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
             try {
               await ensureGroupE2EEKey(client, accountId, chat.mid);
               const dec = await decryptE2EEMessageSafe(client, accountId, chat.mid, last);
-              chat.lastMessagePreview = previewFromBoxMessage(dec);
+              const preview = previewFromBoxMessage(dec);
+              if (isUnresolvedLastMessagePreview(preview)) {
+                if (chat.lastMessageId) {
+                  recordPreviewDecryptFailure(
+                    previewDecryptFailed,
+                    `${accountId}:${chat.lastMessageId}`,
+                  );
+                }
+                return;
+              }
+              chat.lastMessagePreview = preview;
             } catch {
-              /* keep fallback preview */
+              if (chat.lastMessageId) {
+                recordPreviewDecryptFailure(
+                  previewDecryptFailed,
+                  `${accountId}:${chat.lastMessageId}`,
+                );
+              }
             }
           }),
         );
@@ -3251,6 +3283,8 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
         );
       } catch {
         /* プレビュー復号はベストエフォート */
+      } finally {
+        previewEnrichInflight.delete(accountId);
       }
     })();
   }
