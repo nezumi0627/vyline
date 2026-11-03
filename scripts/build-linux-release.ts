@@ -26,6 +26,19 @@ function run(command: string, args: string[]) {
   if (result.exitCode !== 0) throw new Error(`${command} failed with exit code ${result.exitCode}`);
 }
 
+function capture(command: string, args: string[]): string {
+  const result = Bun.spawnSync([command, ...args], {
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  });
+  if (result.exitCode !== 0)
+    throw new Error(
+      `${command} failed with exit code ${result.exitCode}: ${result.stderr?.toString() ?? ""}`,
+    );
+  return result.stdout.toString();
+}
+
 try {
   await mkdir(webDir, { recursive: true });
   run("bun", ["run", "build"]);
@@ -45,6 +58,9 @@ try {
     throw new Error(`Required protocol data is missing: ${fallbackProfile}`);
   await mkdir(join(packageDir, "data"), { recursive: true });
   await cp(fallbackProfile, join(packageDir, "data", "desktop-profile.fallback.json"));
+  const packagedFallback = join(packageDir, "data", "desktop-profile.fallback.json");
+  if (!existsSync(packagedFallback) || Bun.file(packagedFallback).size === 0)
+    throw new Error("Linux package is missing the required desktop profile fallback file");
 
   const args = ["build", "--compile", "--minify", "--target=bun-linux-x64", "--outfile"];
   run("bun", [
@@ -57,7 +73,11 @@ try {
   await chmod(join(packageDir, "install.sh"), 0o755);
   await chmod(join(packageDir, "Vyline"), 0o755);
   await chmod(join(packageDir, "VylineBackend"), 0o755);
-  run("tar", ["-czf", join(stagingDir, `${packageName}.tar.gz`), "-C", stagingDir, packageName]);
+  const archivePath = join(stagingDir, `${packageName}.tar.gz`);
+  run("tar", ["-czf", archivePath, "-C", stagingDir, packageName]);
+  const archiveEntries = capture("tar", ["-tzf", archivePath]).split(/\r?\n/);
+  if (!archiveEntries.includes(`${packageName}/data/desktop-profile.fallback.json`))
+    throw new Error("Linux release archive is missing data/desktop-profile.fallback.json");
 
   await rm(previousDir, { recursive: true, force: true });
   if (existsSync(releaseDir)) {
