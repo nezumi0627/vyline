@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
@@ -61,7 +62,7 @@ export function VylineApp() {
             <span className="h-4 w-4 rounded-full bg-[var(--vy-accent)] animate-pulse" />
           </div>
           <div>
-            <p className="text-sm font-medium">バックエンドを起動中…</p>
+            <p className="text-sm font-medium">{uiText("バックエンドを起動中…")}</p>
             <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
               {error ? error : "接続できるまで待機しています"}
             </p>

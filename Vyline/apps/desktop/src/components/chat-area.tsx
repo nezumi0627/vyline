@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import {
   lazy,
   memo,
@@ -638,10 +639,10 @@ function ChatAreaBase() {
           <IconChat size={32} className="text-[var(--vy-text-dim)]" />
           <div>
             <p className="text-base font-medium text-[var(--vy-text)]">
-              チャットを選択してください
+              {uiText("チャットを選択してください")}{" "}
             </p>
             <p className="mt-2 text-sm text-[var(--vy-text-dim)]">
-              左のリストからトークを開くか、新しい会話を始めましょう
+              {uiText("左のリストからトークを開くか、新しい会話を始めましょう")}{" "}
             </p>
           </div>
         </div>
@@ -699,7 +700,7 @@ function ChatAreaBase() {
           <button
             type="button"
             onClick={() => closeChat()}
-            aria-label="チャット一覧に戻る"
+            aria-label={uiText("チャット一覧に戻る")}
             className="vy-mobile-back flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:hidden"
           >
             <IconArrowLeft size={20} />
@@ -727,7 +728,7 @@ function ChatAreaBase() {
                 {groupCallOnline && (
                   <span className="flex shrink-0 items-center gap-1 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] px-2 py-0.5 text-[0.65rem] font-semibold text-[var(--vy-accent)]">
                     <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[var(--vy-accent)]" />
-                    通話中
+                    {uiText("通話中")}{" "}
                   </span>
                 )}
               </span>
@@ -752,13 +753,13 @@ function ChatAreaBase() {
             <IconVideo size={19} />
           </HeaderButton>
           <HeaderButton
-            label="検索"
+            label={uiText("検索")}
             active={search.open}
             onClick={() => setSearch((s) => ({ ...s, open: !s.open, q: s.open ? "" : s.q }))}
           >
             <IconSearch size={19} />
           </HeaderButton>
-          <HeaderButton label="メニュー" onClick={() => setProfileDrawer(!profileOpen)}>
+          <HeaderButton label={uiText("メニュー")} onClick={() => setProfileDrawer(!profileOpen)}>
             <IconMore size={19} />
           </HeaderButton>
         </header>
@@ -773,7 +774,7 @@ function ChatAreaBase() {
                 value={search.q}
                 onChange={(e) => setSearch((s) => ({ ...s, q: e.target.value, index: 0 }))}
                 placeholder={regexSearch ? "正規表現で検索" : "このトーク内を検索"}
-                aria-label="トーク内を検索"
+                aria-label={uiText("トーク内を検索")}
                 className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--vy-text-dim)]"
               />
               <span className="shrink-0 text-xs tabular-nums text-[var(--vy-text-dim)]">
@@ -786,7 +787,7 @@ function ChatAreaBase() {
               type="button"
               onClick={() => setRegexSearch((enabled) => !enabled)}
               aria-pressed={regexSearch}
-              aria-label="正規表現検索を切り替え"
+              aria-label={uiText("正規表現検索を切り替え")}
               title={regexSearch ? "正規表現 ON" : "正規表現 OFF"}
               className={cn(
                 "h-9 rounded-lg border px-2 font-mono text-xs",
@@ -795,7 +796,7 @@ function ChatAreaBase() {
                   : "border-[var(--vy-border)] text-[var(--vy-text-dim)]",
               )}
             >
-              .*
+              {uiText(".*")}{" "}
             </button>
             <button
               type="button"
@@ -803,7 +804,7 @@ function ChatAreaBase() {
               onClick={() =>
                 setSearch((s) => ({ ...s, index: (s.index - 1 + matches.length) % matches.length }))
               }
-              aria-label="前の一致"
+              aria-label={uiText("前の一致")}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
               <IconChevron size={16} className="-rotate-90" />
@@ -812,7 +813,7 @@ function ChatAreaBase() {
               type="button"
               disabled={!matches.length}
               onClick={() => setSearch((s) => ({ ...s, index: (s.index + 1) % matches.length }))}
-              aria-label="次の一致"
+              aria-label={uiText("次の一致")}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] disabled:opacity-30"
             >
               <IconChevron size={16} className="rotate-90" />
@@ -820,7 +821,7 @@ function ChatAreaBase() {
             <button
               type="button"
               onClick={() => setSearch({ open: false, q: "", index: 0 })}
-              aria-label="検索を閉じる"
+              aria-label={uiText("検索を閉じる")}
               className="flex h-9 w-9 items-center justify-center rounded-lg text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
             >
               <IconClose size={16} />
@@ -845,8 +846,12 @@ function ChatAreaBase() {
               >
                 <div className="flex items-center gap-2 px-3 py-2">
                   <IconPin size={14} className="shrink-0 text-[var(--vy-accent)]" />
-                  <span className="font-semibold">アナウンス</span>
-                  <span className="text-[var(--vy-text-dim)]">({list.length}件)</span>
+                  <span className="font-semibold">{uiText("アナウンス")}</span>
+                  <span className="text-[var(--vy-text-dim)]">
+                    {uiText("(")}
+                    {list.length}
+                    {uiText("件)")}
+                  </span>
                 </div>
                 <div className="max-h-40 overflow-y-auto border-t border-[var(--vy-border)]">
                   {list.map((a) => (
@@ -882,7 +887,7 @@ function ChatAreaBase() {
                           }
                         }}
                         className="shrink-0 rounded-lg p-1 transition-colors hover:bg-[var(--vy-surface)]"
-                        aria-label="アナウンスを解除"
+                        aria-label={uiText("アナウンスを解除")}
                       >
                         <IconClose size={14} />
                       </button>
@@ -941,11 +946,11 @@ function ChatAreaBase() {
                   key={key}
                   ref={rowRef(key)}
                   role="separator"
-                  aria-label="ここから未読"
+                  aria-label={uiText("ここから未読")}
                   className="my-2 flex items-center gap-3 px-1 py-1 text-xs font-semibold text-[var(--vy-accent)]"
                 >
                   <span className="h-px flex-1 bg-[color-mix(in_oklab,var(--vy-accent)_55%,transparent)]" />
-                  <span>ここから未読</span>
+                  <span>{uiText("ここから未読")}</span>
                   <span className="h-px flex-1 bg-[color-mix(in_oklab,var(--vy-accent)_55%,transparent)]" />
                 </div>
               ) : (
@@ -1002,7 +1007,7 @@ function ChatAreaBase() {
       )}
       {agentPrompt && (
         <AgentIActionDialog
-          title="今日の会話の要約"
+          title={uiText("今日の会話の要約")}
           prompt={agentPrompt}
           onClose={() => setAgentPrompt(null)}
         />

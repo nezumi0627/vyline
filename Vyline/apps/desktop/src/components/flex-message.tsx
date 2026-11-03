@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { Fragment } from "react";
 import type { CSSProperties, ReactNode } from "react";
 import { useEffect, useRef, useState } from "react";
@@ -491,7 +492,7 @@ function FlexBubbleView({ bubble }: { bubble: FlexBubble }) {
           {bubbleBlock("body", bubble.body, bubble.styles, hasFooter)}
           {bubbleBlock("footer", bubble.footer, bubble.styles, hasFooter)}
           {!bubble.header && !bubble.hero && !bubble.body && !bubble.footer && (
-            <div className="px-3 py-2 text-sm text-neutral-500">（空の Flex）</div>
+            <div className="px-3 py-2 text-sm text-neutral-500">{uiText("（空の Flex）")}</div>
           )}
         </div>
       </div>

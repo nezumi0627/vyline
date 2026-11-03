@@ -95,10 +95,30 @@ export function parseSettingsBackup(
         continue;
       if (key === "animationMode" && !["vyline", "feather", "none"].includes(String(value)))
         continue;
+      if (
+        key === "uiLanguage" &&
+        ![
+          "system",
+          "ja",
+          "en",
+          "zh-TW",
+          "zh-CN",
+          "id",
+          "ko",
+          "es",
+          "fr",
+          "de",
+          "pt-BR",
+          "vi",
+          "th",
+        ].includes(String(value))
+      )
+        continue;
       if (key === "chatSort" && !["recent", "unread", "custom"].includes(String(value))) continue;
       if (typeof value === "string" && value.length > 4096) continue;
       settings[key] = value;
     }
+    if (!("uiLanguage" in raw.settings)) settings.uiLanguage = "system";
     // Beta flags are consented per installation and are never re-enabled by import.
     for (const key of Object.keys(settings)) {
       if (/^beta[A-Z]/.test(key)) settings[key] = false;

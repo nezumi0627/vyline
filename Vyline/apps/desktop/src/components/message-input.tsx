@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { lazy, Suspense, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -388,7 +389,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
       );
       const res = await api.line.sendMediaBatch(accountId, chatId, items);
       if (!res.ok) {
-        window.alert(res.error ?? "まとめて送信に失敗しました");
+        window.alert(res.error ?? uiText("まとめて送信に失敗しました"));
         return;
       }
       clearPendingMedia();
@@ -596,7 +597,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         <Suspense
           fallback={
             <div role="status" className="px-3 py-2 text-xs text-[var(--vy-text-dim)]">
-              スタンプを読み込んでいます…
+              {uiText("スタンプを読み込んでいます…")}{" "}
             </div>
           }
         >
@@ -636,7 +637,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
             className="min-w-0 flex-1 rounded-l-xl px-3 py-2 text-left transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
           >
             <p className="text-xs font-semibold" style={{ color: "var(--vy-accent)" }}>
-              {replyAuthor} への返信
+              {replyAuthor} {uiText("への返信")}{" "}
             </p>
             <p className="truncate text-sm text-[var(--vy-text-dim)]">
               {replyPreviewText(replyMsg)}
@@ -645,7 +646,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
           <button
             type="button"
             onClick={() => setReplyTo(null)}
-            aria-label="返信をキャンセル"
+            aria-label={uiText("返信をキャンセル")}
             className="flex h-auto w-10 shrink-0 items-center justify-center rounded-r-xl text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]"
           >
             <IconClose size={16} />
@@ -660,9 +661,10 @@ export function MessageInput({ chatId }: { chatId: string }) {
             style={{ background: "var(--vy-danger)" }}
             aria-hidden
           />
-          <span className="text-sm font-medium">録音中</span>
+          <span className="text-sm font-medium">{uiText("録音中")}</span>
           <span className="font-mono text-sm tabular-nums text-[var(--vy-text-dim)]">
-            0:{recSeconds.toString().padStart(2, "0")}
+            {uiText("0:")}
+            {recSeconds.toString().padStart(2, "0")}
           </span>
           <div className="flex flex-1 items-end gap-0.5" aria-hidden>
             {Array.from({ length: 28 }).map((_, i) => (
@@ -673,13 +675,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
               />
             ))}
           </div>
-          <IconButton label="録音をキャンセル" onClick={() => stopRecording(false)}>
+          <IconButton label={uiText("録音をキャンセル")} onClick={() => stopRecording(false)}>
             <IconClose size={20} />
           </IconButton>
           <button
             type="button"
             onClick={() => stopRecording(true)}
-            aria-label="音声を送信"
+            aria-label={uiText("音声を送信")}
             className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
             style={{ background: "var(--vy-accent)" }}
           >
@@ -688,7 +690,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
         </div>
       ) : blocked ? (
         <div className="flex items-center justify-center gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-4 py-3 text-sm text-[var(--vy-text-dim)]">
-          ブロック中のため送信できません
+          {uiText("ブロック中のため送信できません")}{" "}
         </div>
       ) : (
         <>
@@ -696,14 +698,14 @@ export function MessageInput({ chatId }: { chatId: string }) {
             <div className="vy-fade-in mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2 shadow-sm">
               <div className="mb-2 flex items-center justify-between gap-2 px-1">
                 <div className="text-xs font-medium text-[var(--vy-text-dim)]">
-                  {pendingMedia.length} 件のメディアを待機中
+                  {pendingMedia.length} {uiText("件のメディアを待機中")}{" "}
                 </div>
                 <button
                   type="button"
                   onClick={clearPendingMedia}
                   className="text-xs text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)]"
                 >
-                  クリア
+                  {uiText("クリア")}{" "}
                 </button>
               </div>
               <div className="grid max-h-56 grid-cols-3 gap-2 overflow-y-auto sm:grid-cols-4 md:grid-cols-5">
@@ -715,13 +717,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
                     {item.kind === "video" ? (
                       <video src={item.url} className="h-24 w-full object-cover" muted />
                     ) : (
-                      <img src={item.url} alt="" className="h-24 w-full object-cover" />
+                      <img src={item.url} alt={uiText("")} className="h-24 w-full object-cover" />
                     )}
                     <button
                       type="button"
                       onClick={() => removePendingMedia(item.id)}
                       className="absolute right-1 top-1 rounded-full bg-black/55 p-1 text-white opacity-90 transition hover:bg-black/75"
-                      aria-label="添付を削除"
+                      aria-label={uiText("添付を削除")}
                     >
                       <IconClose size={12} />
                     </button>
@@ -734,7 +736,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                   onClick={clearPendingMedia}
                   className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)]"
                 >
-                  キャンセル
+                  {uiText("キャンセル")}{" "}
                 </button>
                 <button
                   type="button"
@@ -750,7 +752,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
           {mentionPicker && mentionOptions.length > 0 && (
             <div className="mb-1.5 max-h-52 overflow-y-auto rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] py-1 shadow-lg">
               <p className="px-3 py-1.5 text-[0.65rem] font-medium text-[var(--vy-text-dim)]">
-                @でメンション
+                {uiText("@でメンション")}{" "}
               </p>
               {mentionOptions.map((o, i) => (
                 <button
@@ -782,14 +784,14 @@ export function MessageInput({ chatId }: { chatId: string }) {
               ))}
             </div>
           )}
-          {sendingImage && <FloatNotice>アップロード中…</FloatNotice>}
+          {sendingImage && <FloatNotice>{uiText("アップロード中…")}</FloatNotice>}
           <div className="vy-input-row flex items-end gap-1 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
             <PlusMenu chatId={chatId} />
-            <IconButton label="写真を添付" onClick={() => fileRef.current?.click()}>
+            <IconButton label={uiText("写真を添付")} onClick={() => fileRef.current?.click()}>
               <IconPaperclip size={20} />
             </IconButton>
             <IconButton
-              label="スタンプ・絵文字"
+              label={uiText("スタンプ・絵文字")}
               active={picker}
               onClick={() => setPicker((p) => !p)}
             >
@@ -808,7 +810,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
             </IconButton>
             {agentEnabled && draft.trim() && (
               <IconButton
-                label="AIで文章を整える"
+                label={uiText("AIで文章を整える")}
                 active={agentOpen}
                 onClick={() => setAgentOpen(true)}
               >
@@ -828,7 +830,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                       <img
                         key={i}
                         src={seg.url}
-                        alt=""
+                        alt={uiText("")}
                         className="inline-block"
                         style={{ width: `${sticonEm}em`, height: `${sticonEm}em` }}
                         draggable={false}
@@ -856,7 +858,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                       ? "メッセージを入力（ミュート送信: 通知なし）"
                       : "メッセージを入力"
                 }
-                aria-label="メッセージを入力"
+                aria-label={uiText("メッセージを入力")}
                 className={cn(
                   "vy-scroll vy-input-text max-h-40 w-full resize-none bg-transparent py-1.5 leading-relaxed outline-none placeholder:text-[var(--vy-text-dim)]",
                   overlaySegments
@@ -884,12 +886,12 @@ export function MessageInput({ chatId }: { chatId: string }) {
                 <IconSend size={18} />
                 {muteNext && (
                   <span className="absolute -top-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full bg-indigo-600 text-[9px] text-white shadow">
-                    ✕
+                    {uiText("✕")}{" "}
                   </span>
                 )}
               </button>
             ) : (
-              <IconButton label="音声メッセージを録音" onClick={() => setRecording(true)}>
+              <IconButton label={uiText("音声メッセージを録音")} onClick={() => setRecording(true)}>
                 <IconMic size={20} />
               </IconButton>
             )}
@@ -898,7 +900,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
       )}
       {agentOpen && (
         <AgentIActionDialog
-          title="AIで文章の構成・表現を整える"
+          title={uiText("AIで文章の構成・表現を整える")}
           prompt=""
           sourceText={draft}
           onClose={() => setAgentOpen(false)}
@@ -909,10 +911,14 @@ export function MessageInput({ chatId }: { chatId: string }) {
         {muteNext && (
           <span className="flex items-center gap-1 rounded-md bg-[color-mix(in_oklab,var(--vy-accent)_15%,transparent)] px-1.5 py-0.5 font-medium text-[var(--vy-accent)]">
             <IconBellOff size={12} />
-            ミュート送信中（相手にプッシュ通知されません）
+            {uiText("ミュート送信中（相手にプッシュ通知されません）")}{" "}
           </span>
         )}
-        {draftSticons.length > 0 && <span>LINE絵文字 {draftSticons.length} 個を文中に挿入中</span>}
+        {draftSticons.length > 0 && (
+          <span>
+            {uiText("LINE絵文字")} {draftSticons.length} {uiText("個を文中に挿入中")}
+          </span>
+        )}
       </div>
     </div>
   );

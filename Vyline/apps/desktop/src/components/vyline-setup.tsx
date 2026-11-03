@@ -1,3 +1,5 @@
+import { tr as uiText } from "@/i18n";
+import { getIntlLocale } from "@/i18n";
 import { useCallback, useEffect, useState } from "react";
 import type { AccountSettings } from "@vyline/types";
 import { api } from "../api/client.js";
@@ -97,7 +99,7 @@ export function VylineSetup({
           throw new Error("この引継ぎZIPは別のLINEアカウント向けです");
         if (
           !window.confirm(
-            `${preview.manifest.source.platform}版・${new Date(preview.manifest.createdAt).toLocaleString()}の設定を統合します。\n対象: ${preview.files?.join(", ") ?? "設定"}`,
+            `${preview.manifest.source.platform}版・${new Date(preview.manifest.createdAt).toLocaleString(getIntlLocale())}の設定を統合します。\n対象: ${preview.files?.join(uiText(", ")) ?? uiText("設定")}`,
           )
         )
           return;
@@ -116,13 +118,13 @@ export function VylineSetup({
     return (
       <main className="flex min-h-dvh items-center justify-center bg-[var(--vy-bg)] text-[var(--vy-text)]">
         <section className="w-full max-w-md space-y-4 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-8 text-center shadow-xl">
-          <h1 className="text-lg font-semibold">Vyline Setup を準備しています</h1>
+          <h1 className="text-lg font-semibold">{uiText("Vyline Setup を準備しています")}</h1>
           <p className="text-sm text-[var(--vy-text-dim)]">
             {loading ? "アカウント設定を読み込んでいます…" : error}
           </p>
           {!loading && (
             <Button variant="primary" onClick={() => void load()}>
-              再試行
+              {uiText("再試行")}{" "}
             </Button>
           )}
         </section>
@@ -139,7 +141,9 @@ export function VylineSetup({
     <main className="flex min-h-dvh items-center justify-center bg-[var(--vy-bg)] px-6 py-8 text-[var(--vy-text)]">
       <section className="w-full max-w-2xl rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-6 shadow-xl sm:p-8">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--vy-accent)]">
-          Vyline Setup · {step + 1}/{TOTAL_STEPS}
+          {uiText("Vyline Setup ·")} {step + 1}
+          {uiText("/")}
+          {TOTAL_STEPS}
         </p>
         <div className="mt-5 flex gap-2">
           {Array.from({ length: TOTAL_STEPS }, (_, index) => (
@@ -152,21 +156,28 @@ export function VylineSetup({
         <div className="mt-8 space-y-4">
           {step === 0 && (
             <>
-              <h1 className="text-2xl font-semibold">おかえりなさい、{displayName} さん</h1>
+              <h1 className="text-2xl font-semibold">
+                {uiText("おかえりなさい、")}
+                {displayName} {uiText("さん")}
+              </h1>
               <p className="text-sm text-[var(--vy-text-dim)]">
-                LINEへのログインを確認しました。以前のVylineを引き継ぐか、新しい環境を整えて始めましょう。
+                {uiText(
+                  "LINEへのログインを確認しました。以前のVylineを引き継ぐか、新しい環境を整えて始めましょう。",
+                )}{" "}
               </p>
             </>
           )}
           {step === 1 && (
             <>
-              <h1 className="text-2xl font-semibold">以前のVylineを復元</h1>
+              <h1 className="text-2xl font-semibold">{uiText("以前のVylineを復元")}</h1>
               <p className="text-sm text-[var(--vy-text-dim)]">
-                端末内の履歴バックアップか、設定引継ぎZIPを選べます。認証情報は復元されません。
+                {uiText(
+                  "端末内の履歴バックアップか、設定引継ぎZIPを選べます。認証情報は復元されません。",
+                )}{" "}
               </p>
               {backups.length === 0 ? (
                 <p className="rounded-lg bg-[var(--vy-bg)] p-4 text-sm">
-                  この端末に復元できるVylineBackupはありません。
+                  {uiText("この端末に復元できるVylineBackupはありません。")}{" "}
                 </p>
               ) : (
                 backups.slice(0, 3).map((backup) => (
@@ -175,25 +186,26 @@ export function VylineSetup({
                     className="flex items-center justify-between gap-3 rounded-lg border border-[var(--vy-border)] p-3"
                   >
                     <span className="text-xs">
-                      {new Date(backup.createdAt).toLocaleString()} ·{" "}
-                      {backup.messageCount.toLocaleString()}件
+                      {new Date(backup.createdAt).toLocaleString(getIntlLocale())} {uiText("·")}{" "}
+                      {backup.messageCount.toLocaleString(getIntlLocale())}
+                      {uiText("件")}{" "}
                     </span>
                     <Button size="sm" disabled={busy} onClick={() => void restore(backup)}>
-                      復元
+                      {uiText("復元")}{" "}
                     </Button>
                   </div>
                 ))
               )}
-              <Button onClick={chooseHandoff}>設定引継ぎZIPを選択</Button>
+              <Button onClick={chooseHandoff}>{uiText("設定引継ぎZIPを選択")}</Button>
             </>
           )}
           {step === 2 && (
             <>
-              <h1 className="text-2xl font-semibold">使い心地を選ぶ</h1>
+              <h1 className="text-2xl font-semibold">{uiText("使い心地を選ぶ")}</h1>
               <div className="divide-y divide-[var(--vy-border)] rounded-xl border border-[var(--vy-border)] px-4">
-                <SettingsRow title="メディアを自動ダウンロード">
+                <SettingsRow title={uiText("メディアを自動ダウンロード")}>
                   <Toggle
-                    label="メディアを自動ダウンロード"
+                    label={uiText("メディアを自動ダウンロード")}
                     checked={settings.storage.autoDownload}
                     onChange={(value) =>
                       setSettings({
@@ -203,9 +215,9 @@ export function VylineSetup({
                     }
                   />
                 </SettingsRow>
-                <SettingsRow title="動きを減らす">
+                <SettingsRow title={uiText("動きを減らす")}>
                   <Toggle
-                    label="動きを減らす"
+                    label={uiText("動きを減らす")}
                     checked={settings.performance.reducedMotion}
                     onChange={(value) =>
                       setSettings({
@@ -215,9 +227,9 @@ export function VylineSetup({
                     }
                   />
                 </SettingsRow>
-                <SettingsRow title="コンパクト表示">
+                <SettingsRow title={uiText("コンパクト表示")}>
                   <Toggle
-                    label="コンパクト表示"
+                    label={uiText("コンパクト表示")}
                     checked={settings.layout.compact}
                     onChange={(value) =>
                       setSettings({ ...settings, layout: { ...settings.layout, compact: value } })
@@ -229,11 +241,11 @@ export function VylineSetup({
           )}
           {step === 3 && (
             <>
-              <h1 className="text-2xl font-semibold">通知とプライバシー</h1>
+              <h1 className="text-2xl font-semibold">{uiText("通知とプライバシー")}</h1>
               <div className="divide-y divide-[var(--vy-border)] rounded-xl border border-[var(--vy-border)] px-4">
-                <SettingsRow title="通知を有効にする">
+                <SettingsRow title={uiText("通知を有効にする")}>
                   <Toggle
-                    label="通知を有効にする"
+                    label={uiText("通知を有効にする")}
                     checked={settings.notifications.enabled}
                     onChange={(value) =>
                       setSettings({
@@ -243,9 +255,9 @@ export function VylineSetup({
                     }
                   />
                 </SettingsRow>
-                <SettingsRow title="通知音を鳴らす">
+                <SettingsRow title={uiText("通知音を鳴らす")}>
                   <Toggle
-                    label="通知音を鳴らす"
+                    label={uiText("通知音を鳴らす")}
                     checked={settings.notifications.sounds}
                     onChange={(value) =>
                       setSettings({
@@ -255,9 +267,9 @@ export function VylineSetup({
                     }
                   />
                 </SettingsRow>
-                <SettingsRow title="既読を送る">
+                <SettingsRow title={uiText("既読を送る")}>
                   <Toggle
-                    label="既読を送る"
+                    label={uiText("既読を送る")}
                     checked={settings.privacy.showReadReceipts}
                     onChange={(value) =>
                       setSettings({
@@ -267,9 +279,9 @@ export function VylineSetup({
                     }
                   />
                 </SettingsRow>
-                <SettingsRow title="サニタイズ済み診断ログを収集">
+                <SettingsRow title={uiText("サニタイズ済み診断ログを収集")}>
                   <Toggle
-                    label="サニタイズ済み診断ログを収集"
+                    label={uiText("サニタイズ済み診断ログを収集")}
                     checked={settings.debug.enabled}
                     onChange={(value) =>
                       setSettings({ ...settings, debug: { ...settings.debug, enabled: value } })
@@ -281,11 +293,12 @@ export function VylineSetup({
           )}
           {step === 4 && (
             <>
-              <h1 className="text-2xl font-semibold">準備完了です</h1>
+              <h1 className="text-2xl font-semibold">{uiText("準備完了です")}</h1>
               <p className="text-sm text-[var(--vy-text-dim)]">
                 {displayName}{" "}
-                さんのVylineを開始します。引継ぎ・VylineBackup・Desktopデータ復元は、あとから「設定
-                ＞ 詳細・復元」でも利用できます。
+                {uiText(
+                  "さんのVylineを開始します。引継ぎ・VylineBackup・Desktopデータ復元は、あとから「設定 ＞ 詳細・復元」でも利用できます。",
+                )}{" "}
               </p>
             </>
           )}
@@ -299,7 +312,7 @@ export function VylineSetup({
             disabled={step === 0 || busy}
             onClick={() => void save(step - 1)}
           >
-            戻る
+            {uiText("戻る")}{" "}
           </Button>
           <Button variant="primary" size="lg" disabled={busy} loading={busy} onClick={next}>
             {busy ? "処理中…" : step === TOTAL_STEPS - 1 ? "Vylineをはじめる" : "次へ"}

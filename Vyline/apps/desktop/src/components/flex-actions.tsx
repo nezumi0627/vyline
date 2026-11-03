@@ -1,3 +1,5 @@
+import { tr as uiText } from "@/i18n";
+import { getIntlLocale } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -140,7 +142,7 @@ function ModalShell({
           onClick={onClose}
           className="rounded p-1 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
         >
-          ✕
+          {uiText("✕")}{" "}
         </button>
       </div>
       <div className="overflow-y-auto px-4 py-3 text-sm text-[var(--vy-text)]">{children}</div>
@@ -218,7 +220,9 @@ function ScheduleAnswer({
     <ModalShell title={`回答: ${event?.name ?? "イベント"}`} onClose={onClose}>
       <ErrorText error={error} />
       {!event ? (
-        <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">読み込み中…</p>
+        <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">
+          {uiText("読み込み中…")}
+        </p>
       ) : (
         <>
           <div className="mb-3 space-y-2">
@@ -227,7 +231,7 @@ function ScheduleAnswer({
                 key={i}
                 className="flex items-center justify-between rounded-lg bg-[var(--vy-surface-2)] px-3 py-2"
               >
-                <span>{new Date(c * 1000).toLocaleString("ja-JP")}</span>
+                <span>{new Date(c * 1000).toLocaleString(getIntlLocale())}</span>
                 <select
                   value={status[c] ?? "NO"}
                   onChange={(e) => setStatus((p) => ({ ...p, [c]: e.target.value }))}
@@ -244,7 +248,7 @@ function ScheduleAnswer({
           </div>
           <input
             className="mb-3 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-1.5 text-sm"
-            placeholder="コメント（任意）"
+            placeholder={uiText("コメント（任意）")}
             value={comment}
             onChange={(e) => setComment(e.target.value)}
           />
@@ -316,7 +320,9 @@ function PollVote({
     <ModalShell title={`投票: ${poll?.title ?? "アンケート"}`} onClose={onClose}>
       <ErrorText error={error} />
       {!poll ? (
-        <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">読み込み中…</p>
+        <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">
+          {uiText("読み込み中…")}
+        </p>
       ) : (
         <>
           <div className="mb-3 space-y-1">
@@ -410,10 +416,12 @@ function LadderResult({
   };
 
   return (
-    <ModalShell title="あみだくじの結果" onClose={onClose}>
+    <ModalShell title={uiText("あみだくじの結果")} onClose={onClose}>
       <ErrorText error={error} />
       {!result ? (
-        <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">読み込み中…</p>
+        <p className="py-4 text-center text-xs text-[var(--vy-text-dim)]">
+          {uiText("読み込み中…")}
+        </p>
       ) : (
         <>
           <div className="mb-3 space-y-1">
@@ -433,7 +441,7 @@ function LadderResult({
                     {p.pictureUrl ? (
                       <img
                         src={p.pictureUrl}
-                        alt=""
+                        alt={uiText("")}
                         onError={hideBrokenMedia}
                         className="h-6 w-6 rounded-full object-cover"
                       />
@@ -441,7 +449,7 @@ function LadderResult({
                     <span className="font-medium">{p.displayName || nameOf(p.start)}</span>
                     {isMe && (
                       <span className="rounded bg-[var(--vy-accent)]/20 px-1.5 py-0.5 text-xs font-semibold text-[var(--vy-accent-contrast)]">
-                        自分
+                        {uiText("自分")}{" "}
                       </span>
                     )}
                   </div>

@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { Component, type ErrorInfo, type ReactNode } from "react";
 import { createRoot as createReactRoot, type Root } from "react-dom/client";
 import "./index.css";
@@ -11,6 +12,7 @@ import { hydrateDismissedChatState } from "./utils/dismissedChats.js";
 import { hydrateHiddenChats } from "./hooks/useHiddenChats.js";
 import { hydrateTosConsent } from "./lib/tosConsent.js";
 import { hydrateBetaConsent } from "./lib/betaConsent.js";
+import { initializeI18n } from "./i18n/index.js";
 
 const root = document.getElementById("root");
 if (!root) throw new Error("no #root element");
@@ -33,16 +35,16 @@ class RootErrorBoundary extends Component<{ children: ReactNode }, { error: Erro
           role="alert"
           className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-foreground"
         >
-          <h1 className="text-lg font-semibold">Vylineの画面を表示できません</h1>
+          <h1 className="text-lg font-semibold">{uiText("Vylineの画面を表示できません")}</h1>
           <p className="text-sm text-muted-foreground">
-            再読み込みしても解決しない場合は、ログを確認してください。
+            {uiText("再読み込みしても解決しない場合は、ログを確認してください。")}{" "}
           </p>
           <button
             type="button"
             className="rounded-md bg-primary px-4 py-2 text-primary-foreground"
             onClick={() => window.location.reload()}
           >
-            再読み込み
+            {uiText("再読み込み")}{" "}
           </button>
         </main>
       );
@@ -60,7 +62,7 @@ appRoot.render(
     aria-live="polite"
     className="flex min-h-screen items-center justify-center bg-background text-foreground"
   >
-    Vyline を準備しています…
+    {uiText("Vyline を準備しています…")}{" "}
   </div>,
 );
 
@@ -70,6 +72,7 @@ import.meta.hot?.dispose(() => {
 });
 void Promise.all(stores.map((store) => Promise.resolve(store.persist.rehydrate())))
   .then(async () => {
+    await initializeI18n(useStore.getState().settings.uiLanguage);
     await Promise.all([hydrateTosConsent(), hydrateBetaConsent()]);
     await Promise.all([hydrateDismissedChatState(), hydrateHiddenChats()]);
   })

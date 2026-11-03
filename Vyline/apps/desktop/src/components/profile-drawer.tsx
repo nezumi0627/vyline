@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useMemo, useState } from "react";
 import { useStore, displayName, commonGroupsWith, type Chat } from "@/lib/store";
 import { api } from "@/api/client";
@@ -300,7 +301,7 @@ export function ProfileDrawer({
     if (!accountId || busy) return;
     // ブロック解除
     if (chat.type === "friend" && isBlocked) {
-      if (!window.confirm(`「${name}」のブロックを解除しますか？`)) return;
+      if (!window.confirm(uiText("「{{name}}」のブロックを解除しますか？", { name }))) return;
       setBusy(true);
       setActionMsg(null);
       try {
@@ -338,7 +339,7 @@ export function ProfileDrawer({
         }));
         return;
       }
-      if (!window.confirm(`「${name}」から退出しますか？`)) return;
+      if (!window.confirm(uiText("「{{name}}」から退出しますか？", { name }))) return;
       setBusy(true);
       setActionMsg(null);
       try {
@@ -395,7 +396,7 @@ export function ProfileDrawer({
       return;
     }
 
-    if (!window.confirm(`「${name}」をブロックしますか？`)) return;
+    if (!window.confirm(uiText("「{{name}}」をブロックしますか？", { name }))) return;
     setBusy(true);
     setActionMsg(null);
     try {
@@ -439,7 +440,7 @@ export function ProfileDrawer({
               <button
                 type="button"
                 onClick={() => setSection("profile")}
-                aria-label="プロフィールに戻る"
+                aria-label={uiText("プロフィールに戻る")}
                 className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
               >
                 <IconArrowLeft size={18} />
@@ -452,7 +453,7 @@ export function ProfileDrawer({
           <button
             type="button"
             onClick={() => setProfileDrawer(false)}
-            aria-label="閉じる"
+            aria-label={uiText("閉じる")}
             className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
           >
             <IconClose size={18} />
@@ -520,7 +521,7 @@ export function ProfileDrawer({
                         type="button"
                         disabled={busy}
                         onClick={() => void saveName()}
-                        aria-label="保存"
+                        aria-label={uiText("保存")}
                         className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-[var(--vy-accent-contrast)] disabled:opacity-50"
                         style={{ background: "var(--vy-accent)" }}
                       >
@@ -536,7 +537,7 @@ export function ProfileDrawer({
                         <button
                           type="button"
                           onClick={() => setEditing(true)}
-                          aria-label="表示名を変更"
+                          aria-label={uiText("表示名を変更")}
                           className="text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-accent)]"
                         >
                           <IconEdit size={16} />
@@ -551,7 +552,7 @@ export function ProfileDrawer({
                   )}
                   {isBlocked && (
                     <span className="mt-2 rounded-full bg-[color-mix(in_oklab,var(--vy-danger)_18%,transparent)] px-2.5 py-0.5 text-xs font-medium text-[var(--vy-danger)]">
-                      ブロック中
+                      {uiText("ブロック中")}{" "}
                     </span>
                   )}
                   {!streamerMode && (
@@ -573,27 +574,35 @@ export function ProfileDrawer({
                 <div className="mt-4">
                   <span className="inline-flex w-fit items-center gap-1.5 rounded-full bg-[color-mix(in_oklab,var(--vy-accent)_16%,transparent)] px-2.5 py-1 text-xs font-medium text-[var(--vy-accent)]">
                     <OfficialBadge className="ml-0" />
-                    公式アカウント
+                    {uiText("公式アカウント")}{" "}
                   </span>
                 </div>
               )}
 
               {!streamerMode && (chat.left || isBlocked) && (
                 <div className="mt-4 space-y-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm">
-                  {chat.left && <p className="text-[var(--vy-danger)]">アカウントは削除済みです</p>}
+                  {chat.left && (
+                    <p className="text-[var(--vy-danger)]">{uiText("アカウントは削除済みです")}</p>
+                  )}
                   {isBlocked && (
-                    <p className="text-[var(--vy-danger)]">アカウントをブロックしています</p>
+                    <p className="text-[var(--vy-danger)]">
+                      {uiText("アカウントをブロックしています")}
+                    </p>
                   )}
                 </div>
               )}
 
               <div className="mt-6 grid grid-cols-3 gap-2">
-                <Action icon={<IconChat size={20} />} label="トーク" onClick={handleTalk} />
-                <Action icon={<IconPhone size={20} />} label="音声通話" disabled />
-                <Action icon={<IconVideo size={20} />} label="ビデオ通話" disabled />
+                <Action
+                  icon={<IconChat size={20} />}
+                  label={uiText("トーク")}
+                  onClick={handleTalk}
+                />
+                <Action icon={<IconPhone size={20} />} label={uiText("音声通話")} disabled />
+                <Action icon={<IconVideo size={20} />} label={uiText("ビデオ通話")} disabled />
                 <Action
                   icon={<IconDownload size={20} />}
-                  label="トーク保存"
+                  label={uiText("トーク保存")}
                   onClick={() => {
                     const { accountId } = useStore.getState();
                     if (!accountId) return;
@@ -608,12 +617,12 @@ export function ProfileDrawer({
                 />
                 <Action
                   icon={<IconMemo size={20} />}
-                  label="ノート"
+                  label={uiText("ノート")}
                   onClick={() => setSection("note")}
                 />
                 <Action
-                  icon={<span className="text-lg leading-none">🖼️</span>}
-                  label="アルバム"
+                  icon={<span className="text-lg leading-none">{uiText("🖼️")}</span>}
+                  label={uiText("アルバム")}
                   onClick={() => setSection("album")}
                 />
               </div>
@@ -629,7 +638,7 @@ export function ProfileDrawer({
                   }
                   className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--vy-border)] px-3 py-2.5 text-sm disabled:opacity-50"
                 >
-                  AIでこの人との会話を要約
+                  {uiText("AIでこの人との会話を要約")}{" "}
                 </button>
               )}
 
@@ -676,7 +685,9 @@ export function ProfileDrawer({
                   <div className="mt-6">
                     <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                       <IconUsers size={15} />
-                      共通のグループ ({commonGroups.length})
+                      {uiText("共通のグループ (")}
+                      {commonGroups.length}
+                      {uiText(")")}{" "}
                     </div>
                     <div className="overflow-hidden rounded-xl border border-[var(--vy-border)]">
                       {commonGroups.map((g, i) => (
@@ -709,7 +720,8 @@ export function ProfileDrawer({
                 <div className="mt-6">
                   <div className="mb-2 flex items-center gap-2 text-xs font-medium text-[var(--vy-text-dim)]">
                     <IconUsers size={15} />
-                    メンバー {chat.members.length}人
+                    {uiText("メンバー")} {chat.members.length}
+                    {uiText("人")}{" "}
                   </div>
                   <div className="overflow-hidden rounded-xl border border-[var(--vy-border)]">
                     {chat.members.map((m, i) => (
@@ -866,7 +878,7 @@ function InviteToGroupRow({
           <textarea
             value={mids}
             onChange={(e) => setMids(e.target.value)}
-            placeholder="招待する mid（改行またはカンマ区切り）"
+            placeholder={uiText("招待する mid（改行またはカンマ区切り）")}
             rows={3}
             className="w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-xs outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           />

@@ -713,6 +713,7 @@ export const useStore = create<State>()(
       activeChatId: null,
       theme: THEME_PRESETS[0]!,
       settings: {
+        uiLanguage: "system",
         animationMode: "vyline",
         readReceipts: true,
         showReaderList: true,
@@ -1043,6 +1044,7 @@ export const useStore = create<State>()(
         set({
           theme: THEME_PRESETS[0]!,
           settings: {
+            uiLanguage: "system",
             animationMode: "vyline",
             readReceipts: true,
             showReaderList: true,
@@ -3422,6 +3424,25 @@ export const useStore = create<State>()(
         state.initialChatScrollPending = false;
         state.initialChatScrollMode = null;
         state.settings.animationMode ??= "vyline";
+        if (
+          ![
+            "system",
+            "ja",
+            "en",
+            "zh-TW",
+            "zh-CN",
+            "id",
+            "ko",
+            "es",
+            "fr",
+            "de",
+            "pt-BR",
+            "vi",
+            "th",
+          ].includes(state.settings.uiLanguage)
+        ) {
+          state.settings.uiLanguage = "system";
+        }
         const unseen = state.seenUpdateVersion !== UPDATE_NOTES.version;
         state.showUpdateNote = unseen;
         if (state.theme) {

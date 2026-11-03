@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useMemo, useState } from "react";
 import { api } from "@/api/client";
 import { IconArrowLeft, IconDownload, IconSpark, IconUsers } from "@/components/icons";
@@ -158,9 +159,9 @@ export function SupportSection() {
   return (
     <section className="vy-fade-in">
       <div className="border-b border-[var(--vy-border)] pb-4">
-        <h2 className="text-xl font-bold tracking-tight">サポート</h2>
+        <h2 className="text-xl font-bold tracking-tight">{uiText("サポート")}</h2>
         <p className="mt-1 text-sm text-[var(--vy-text-dim)]">
-          症状を整理して、解決方法を探すか開発者へ共有できます。
+          {uiText("症状を整理して、解決方法を探すか開発者へ共有できます。")}{" "}
         </p>
       </div>
 
@@ -174,30 +175,34 @@ export function SupportSection() {
             >
               <span className="flex items-center gap-2 text-base font-semibold">
                 <IconSpark size={18} />
-                AIで原因を切り分ける
+                {uiText("AIで原因を切り分ける")}{" "}
               </span>
               <span className="mt-2 block text-sm leading-relaxed text-[var(--vy-text-dim)]">
-                困っていることや再現手順を入力すると、確認する順番をAgent Iが案内します。
+                {uiText(
+                  "困っていることや再現手順を入力すると、確認する順番をAgent Iが案内します。",
+                )}{" "}
               </span>
               <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[var(--vy-accent)]">
-                Botサポートを開く <span aria-hidden>→</span>
+                {uiText("Botサポートを開く")} <span aria-hidden>{uiText("→")}</span>
               </span>
             </button>
           )}
           <button type="button" onClick={() => setMode("human")} className="group text-left">
             <span className="flex items-center gap-2 text-base font-semibold">
               <IconUsers size={18} />
-              開発者に相談する
+              {uiText("開発者に相談する")}{" "}
             </span>
             <span className="mt-2 block text-sm leading-relaxed text-[var(--vy-text-dim)]">
-              再現情報を整えてGitHub Issueを作成するか、Discordで連絡できます。
+              {uiText("再現情報を整えてGitHub Issueを作成するか、Discordで連絡できます。")}{" "}
             </span>
             <span className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-[var(--vy-accent)]">
-              問い合わせ内容を作る <span aria-hidden>→</span>
+              {uiText("問い合わせ内容を作る")} <span aria-hidden>{uiText("→")}</span>
             </span>
           </button>
           <p className="border-t border-[var(--vy-border)] pt-3 text-xs leading-relaxed text-[var(--vy-text-dim)] lg:col-span-2">
-            診断ZIPや画像は自動送信されません。共有前に内容を確認し、必要な窓口へご自身で添付してください。
+            {uiText(
+              "診断ZIPや画像は自動送信されません。共有前に内容を確認し、必要な窓口へご自身で添付してください。",
+            )}{" "}
           </p>
         </div>
       ) : (
@@ -208,26 +213,30 @@ export function SupportSection() {
             className="mb-5 inline-flex items-center gap-2 text-xs text-[var(--vy-text-dim)] hover:text-[var(--vy-text)]"
           >
             <IconArrowLeft size={15} />
-            問い合わせ方法を選び直す
+            {uiText("問い合わせ方法を選び直す")}{" "}
           </button>
           {mode === "bot" && aiEnabled ? (
             <SupportBot />
           ) : mode === "bot" ? (
             <p className="rounded-xl border border-[var(--vy-border)] p-4 text-sm text-[var(--vy-text-dim)]">
-              AI機能は設定で無効になっています。利用する場合は「表示」設定から有効にしてください。
+              {uiText(
+                "AI機能は設定で無効になっています。利用する場合は「表示」設定から有効にしてください。",
+              )}{" "}
             </p>
           ) : (
             <>
               <div className="mb-5">
-                <h3 className="text-lg font-semibold">開発者に伝える内容を整理</h3>
+                <h3 className="text-lg font-semibold">{uiText("開発者に伝える内容を整理")}</h3>
                 <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                  入力した内容はIssueの下書きとサポートZIPに入ります。パスワード、Cookie、tokenは記入しないでください。
+                  {uiText(
+                    "入力した内容はIssueの下書きとサポートZIPに入ります。パスワード、Cookie、tokenは記入しないでください。",
+                  )}{" "}
                 </p>
               </div>
               <div className="grid gap-6 lg:grid-cols-[minmax(0,7fr)_minmax(240px,5fr)]">
                 <div className="space-y-3">
                   <label className="block text-xs font-semibold">
-                    相談カテゴリ
+                    {uiText("相談カテゴリ")}{" "}
                     <select
                       value={category}
                       onChange={(event) => setCategory(event.target.value as SupportCategory)}
@@ -241,45 +250,45 @@ export function SupportSection() {
                     </select>
                   </label>
                   <label className="block text-xs font-semibold">
-                    症状
+                    {uiText("症状")}{" "}
                     <input
                       value={title}
                       onChange={(event) => setTitle(event.target.value)}
                       maxLength={160}
-                      placeholder="例：起動するたびにログインを求められる"
+                      placeholder={uiText("例：起動するたびにログインを求められる")}
                       className={fieldClass}
                     />
                   </label>
                   <label className="block text-xs font-semibold">
-                    詳しい状況
+                    {uiText("詳しい状況")}{" "}
                     <textarea
                       value={details}
                       onChange={(event) => setDetails(event.target.value)}
                       maxLength={3000}
                       rows={4}
-                      placeholder="いつから、どの画面で、何をすると起きるか"
+                      placeholder={uiText("いつから、どの画面で、何をすると起きるか")}
                       className={`${fieldClass} resize-y`}
                     />
                   </label>
                   <label className="block text-xs font-semibold">
-                    再現手順
+                    {uiText("再現手順")}{" "}
                     <textarea
                       value={steps}
                       onChange={(event) => setSteps(event.target.value)}
                       maxLength={1500}
                       rows={3}
-                      placeholder="1. Vylineを起動\n2. …"
+                      placeholder={uiText("1. Vylineを起動\\n2. …")}
                       className={`${fieldClass} resize-y`}
                     />
                   </label>
                   <label className="block text-xs font-semibold">
-                    期待する動作（任意）
+                    {uiText("期待する動作（任意）")}{" "}
                     <textarea
                       value={expected}
                       onChange={(event) => setExpected(event.target.value)}
                       maxLength={1000}
                       rows={2}
-                      placeholder="本来どうなる想定か"
+                      placeholder={uiText("本来どうなる想定か")}
                       className={`${fieldClass} resize-y`}
                     />
                   </label>
@@ -287,7 +296,7 @@ export function SupportSection() {
 
                 <aside className="space-y-5 border-t border-[var(--vy-border)] pt-5 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0">
                   <div>
-                    <h4 className="text-sm font-semibold">問い合わせ先</h4>
+                    <h4 className="text-sm font-semibold">{uiText("問い合わせ先")}</h4>
                     <a
                       href={githubIssueUrl}
                       target="_blank"
@@ -300,10 +309,10 @@ export function SupportSection() {
                       className={`mt-3 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] ${title.trim() ? "" : "pointer-events-none opacity-45"}`}
                       style={{ background: "var(--vy-accent)" }}
                     >
-                      GitHub Issueを作成
+                      {uiText("GitHub Issueを作成")}{" "}
                     </a>
                     <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                      入力内容とVylineのバージョンを下書きに反映します。
+                      {uiText("入力内容とVylineのバージョンを下書きに反映します。")}{" "}
                     </p>
                     <a
                       href="https://discord.com/users/1528045413796413461"
@@ -311,14 +320,14 @@ export function SupportSection() {
                       rel="noopener noreferrer"
                       className="mt-3 inline-flex text-sm font-medium underline underline-offset-4"
                     >
-                      Discordで開発者に連絡
+                      {uiText("Discordで開発者に連絡")}{" "}
                     </a>
                   </div>
 
                   <div className="border-t border-[var(--vy-border)] pt-4">
-                    <h4 className="text-sm font-semibold">画像・診断情報</h4>
+                    <h4 className="text-sm font-semibold">{uiText("画像・診断情報")}</h4>
                     <label className="mt-3 block text-xs leading-relaxed">
-                      画像を追加（最大5枚、合計25MB）
+                      {uiText("画像を追加（最大5枚、合計25MB）")}{" "}
                       <input
                         type="file"
                         accept="image/*"
@@ -344,14 +353,16 @@ export function SupportSection() {
                               }
                               className="shrink-0 text-[var(--vy-danger)]"
                             >
-                              削除
+                              {uiText("削除")}{" "}
                             </button>
                           </li>
                         ))}
                       </ul>
                     )}
                     <p className="mt-3 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                      ZIPにはバージョン、端末・LINE接続情報、設定、テーマ、入力した相談内容が入ります。認証情報は伏せ、ZIPはこの端末に保存します。
+                      {uiText(
+                        "ZIPにはバージョン、端末・LINE接続情報、設定、テーマ、入力した相談内容が入ります。認証情報は伏せ、ZIPはこの端末に保存します。",
+                      )}{" "}
                     </p>
                     <label className="mt-3 flex items-start gap-2 text-xs">
                       <input
@@ -359,7 +370,7 @@ export function SupportSection() {
                         checked={includeLogs}
                         onChange={(event) => setIncludeLogs(event.target.checked)}
                       />
-                      <span>最近のログを含める（本文は含めない）</span>
+                      <span>{uiText("最近のログを含める（本文は含めない）")}</span>
                     </label>
                     {includeLogs && (
                       <label className="mt-2 flex items-start gap-2 text-xs text-[var(--vy-text-dim)]">
@@ -368,7 +379,9 @@ export function SupportSection() {
                           checked={includeMessageText}
                           onChange={(event) => setIncludeMessageText(event.target.checked)}
                         />
-                        <span>メッセージ本文も含める。個人情報が含まれる可能性があります。</span>
+                        <span>
+                          {uiText("メッセージ本文も含める。個人情報が含まれる可能性があります。")}
+                        </span>
                       </label>
                     )}
                     <button

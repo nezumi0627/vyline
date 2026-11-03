@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect } from "react";
 import { IconClose } from "@/components/icons";
 import { hideBrokenMedia } from "@/utils/lineMedia";
@@ -42,7 +43,7 @@ export function MediaLightbox({
       <button
         type="button"
         onClick={onClose}
-        aria-label="閉じる"
+        aria-label={uiText("閉じる")}
         className="absolute right-4 top-4 flex h-10 w-10 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
       >
         <IconClose size={20} />

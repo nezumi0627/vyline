@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect } from "react";
 import { Avatar } from "@/components/vy-ui";
 import { IconChat, IconClose, IconPlus } from "@/components/icons";
@@ -47,11 +48,11 @@ export function MidSearchProfileDrawer({
         className="vy-drawer-in fixed inset-y-0 right-0 z-[61] flex w-[min(360px,90vw)] flex-col border-l border-[var(--vy-border)] bg-[var(--vy-surface)] text-[var(--vy-text)] shadow-2xl"
       >
         <div className="flex h-14 shrink-0 items-center justify-between border-b border-[var(--vy-border)] px-4">
-          <span className="text-sm font-semibold">プロフィール</span>
+          <span className="text-sm font-semibold">{uiText("プロフィール")}</span>
           <button
             type="button"
             onClick={onClose}
-            aria-label="閉じる"
+            aria-label={uiText("閉じる")}
             className="flex h-9 w-9 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           >
             <IconClose size={18} />
@@ -104,7 +105,7 @@ export function MidSearchProfileDrawer({
               title={isFriend ? undefined : "友だち追加後に利用できます"}
             >
               <IconChat size={17} />
-              トーク
+              {uiText("トーク")}{" "}
             </button>
             <button
               type="button"

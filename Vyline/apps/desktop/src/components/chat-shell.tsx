@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
@@ -70,7 +71,7 @@ function ChatShellBase() {
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label="サイドバーの幅を調整（ダブルクリックでリセット）"
+          aria-label={uiText("サイドバーの幅を調整（ダブルクリックでリセット）")}
           onMouseDown={() => setDragging(true)}
           onTouchStart={() => setDragging(true)}
           onDoubleClick={() => setSidebarWidth(360)}
@@ -111,14 +112,14 @@ function ChatShellBase() {
           >
             <div className="flex flex-col items-center gap-3 text-center">
               <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-3xl opacity-60">
-                💬
+                {uiText("💬")}{" "}
               </span>
               <div>
                 <p className="text-sm font-medium text-[var(--vy-text-dim)]">
-                  チャットを選択してください
+                  {uiText("チャットを選択してください")}{" "}
                 </p>
                 <p className="mt-1 text-xs text-[var(--vy-text-dim)] opacity-60">
-                  左のリストからトークを開くか、新しい会話を始めましょう
+                  {uiText("左のリストからトークを開くか、新しい会話を始めましょう")}{" "}
                 </p>
               </div>
             </div>

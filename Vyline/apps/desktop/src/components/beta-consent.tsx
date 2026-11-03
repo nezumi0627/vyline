@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useState } from "react";
 import { useStore, UPDATE_NOTES } from "@/lib/store";
 import { Button, SettingsRow, Toggle } from "@/components/vy-ui";
@@ -42,20 +43,27 @@ export function BetaSection() {
   };
 
   return (
-    <Section title="ベータ機能" desc="試験中の機能です。挙動や仕様は変更される場合があります。">
+    <Section
+      title={uiText("ベータ機能")}
+      desc={uiText("試験中の機能です。挙動や仕様は変更される場合があります。")}
+    >
       <div className="mb-4 rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-xs leading-relaxed">
-        機能ごとの同意・撤回履歴はこの端末に保存します。メッセージ本文や確認結果をVylineの外部サービスへ送信しません。
+        {uiText(
+          "機能ごとの同意・撤回履歴はこの端末に保存します。メッセージ本文や確認結果をVylineの外部サービスへ送信しません。",
+        )}{" "}
       </div>
 
       <Card>
         <SettingsRow
-          title="Windows版LINEのトークン確認（Beta）"
-          description="起動中のLINE.exeから認証候補を読み取り、期限とペア関係だけを表示します。"
+          title={uiText("Windows版LINEのトークン確認（Beta）")}
+          description={uiText(
+            "起動中のLINE.exeから認証候補を読み取り、期限とペア関係だけを表示します。",
+          )}
         >
           <Toggle
             checked={settings.betaWindowsLineTokens}
             onChange={(value) => (value ? requestEnable() : void disableBetaFeature())}
-            label="Windowsトークン確認"
+            label={uiText("Windowsトークン確認")}
           />
         </SettingsRow>
       </Card>
@@ -63,16 +71,18 @@ export function BetaSection() {
       {settings.betaWindowsLineTokens && <WindowsLineTokenBetaPanel accountId={accountId} />}
       {consentPending && (
         <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] p-4 text-sm">
-          <p className="font-semibold">ベータ機能の個別同意</p>
+          <p className="font-semibold">{uiText("ベータ機能の個別同意")}</p>
           <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            この端末上で実行中のWindows版LINEから認証候補を読み取り、種類・期限・ペア関係を確認します。トーク本文や認証情報そのものは画面・ログに表示しません。同意記録は端末内に保存します。
+            {uiText(
+              "この端末上で実行中のWindows版LINEから認証候補を読み取り、種類・期限・ペア関係を確認します。トーク本文や認証情報そのものは画面・ログに表示しません。同意記録は端末内に保存します。",
+            )}{" "}
           </p>
           <div className="mt-3 flex gap-2">
             <Button variant="primary" size="sm" onClick={() => void agree()}>
-              同意して有効化
+              {uiText("同意して有効化")}{" "}
             </Button>
             <Button variant="secondary" size="sm" onClick={() => setConsentPending(false)}>
-              キャンセル
+              {uiText("キャンセル")}{" "}
             </Button>
           </div>
         </div>
@@ -97,7 +107,9 @@ function SqliteBlockedListConsent() {
     try {
       if (next) {
         const accepted = window.confirm(
-          "ブロック一覧をアカウント別のVyline SQLiteに保存し、取得失敗時に最後の一覧を表示します。保存するのはブロック対象MIDです。同意して有効にしますか？",
+          uiText(
+            "ブロック一覧をアカウント別のVyline SQLiteに保存し、取得失敗時に最後の一覧を表示します。保存するのはブロック対象MIDです。同意して有効にしますか？",
+          ),
         );
         const recorded = await recordBetaFeatureDecision(
           betaFeatureIdForSetting("betaBlockedListSqliteSync"),
@@ -139,15 +151,17 @@ function SqliteBlockedListConsent() {
 
   return (
     <SettingsRow
-      title="ブロックリスト差分同期（SQLite / Beta）"
-      description="同意するとブロック対象MIDをアカウント別SQLiteへ保存し、取得失敗時の表示に利用します。"
+      title={uiText("ブロックリスト差分同期（SQLite / Beta）")}
+      description={uiText(
+        "同意するとブロック対象MIDをアカウント別SQLiteへ保存し、取得失敗時の表示に利用します。",
+      )}
     >
       <div className="flex flex-col items-end gap-1">
         <Toggle
           checked={Boolean(enabled)}
           onChange={(value) => void setEnabled(value)}
           disabled={busy}
-          label="ブロックリスト差分同期"
+          label={uiText("ブロックリスト差分同期")}
         />
         {message && (
           <span role="status" className="text-[11px] text-[var(--vy-text-dim)]">

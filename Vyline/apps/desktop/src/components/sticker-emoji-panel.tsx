@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { memo, useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/api/client";
@@ -537,7 +538,7 @@ export function StickerEmojiPanel({
             >
               <img
                 src={assetUrl(p.tabUrl)}
-                alt=""
+                alt={uiText("")}
                 className="h-6 w-6 object-contain"
                 loading="lazy"
                 draggable={false}
@@ -554,21 +555,21 @@ export function StickerEmojiPanel({
             <div className="flex items-center gap-2">
               <div className="min-w-0 flex-1">
                 <p className="text-[0.72rem] font-semibold text-[var(--vy-text)]">
-                  ドラッグで組み合わせ
+                  {uiText("ドラッグで組み合わせ")}{" "}
                 </p>
                 <p className="mt-0.5 text-[0.62rem] text-[var(--vy-text-dim)]">
-                  長押しで開き、ここにスタンプを落として自由に配置できます。
+                  {uiText("長押しで開き、ここにスタンプを落として自由に配置できます。")}{" "}
                 </p>
               </div>
               <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-2 py-0.5 text-[0.6rem] text-[var(--vy-text-dim)]">
-                {comboItems.length} 枚
+                {comboItems.length} {uiText("枚")}{" "}
               </span>
               <button
                 type="button"
                 onClick={clearCombo}
                 className="rounded-full border border-[var(--vy-border)] px-2.5 py-1 text-[0.68rem] text-[var(--vy-text-dim)] transition-colors hover:bg-[var(--vy-surface)]"
               >
-                クリア
+                {uiText("クリア")}{" "}
               </button>
               <button
                 type="button"
@@ -594,10 +595,12 @@ export function StickerEmojiPanel({
               {comboItems.length === 0 ? (
                 <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-center">
                   <div className="rounded-full border border-dashed border-[var(--vy-border)] px-3 py-1.5 text-[0.68rem] text-[var(--vy-text-dim)]">
-                    スタンプをここへドラッグ
+                    {uiText("スタンプをここへドラッグ")}{" "}
                   </div>
                   <p className="max-w-[16rem] text-[0.62rem] text-[var(--vy-text-dim)]">
-                    対応しているスタンプだけが入ります。置いたあとも掴んで動かせます。
+                    {uiText(
+                      "対応しているスタンプだけが入ります。置いたあとも掴んで動かせます。",
+                    )}{" "}
                   </p>
                 </div>
               ) : null}
@@ -630,8 +633,8 @@ export function StickerEmojiPanel({
                     </button>
                     <button
                       type="button"
-                      aria-label="サイズを変更"
-                      title="ドラッグでサイズ変更"
+                      aria-label={uiText("サイズを変更")}
+                      title={uiText("ドラッグでサイズ変更")}
                       className="absolute -bottom-1.5 -right-1.5 h-4 w-4 cursor-nwse-resize rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface)] opacity-80 shadow-md transition-opacity hover:opacity-100"
                       onPointerDown={(ev) => handleComboResizeDown(item.uid, ev)}
                     >
@@ -644,9 +647,9 @@ export function StickerEmojiPanel({
                         setComboItems((prev) => prev.filter((x) => x.uid !== item.uid));
                         if (comboItems.length <= 1) setComboMode(false);
                       }}
-                      aria-label="組み合わせから削除"
+                      aria-label={uiText("組み合わせから削除")}
                     >
-                      ×
+                      {uiText("×")}{" "}
                     </button>
                   </div>
                 );
@@ -657,7 +660,9 @@ export function StickerEmojiPanel({
         )}
 
         {loading && !catalog && (
-          <p className="px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">読み込み中…</p>
+          <p className="px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
+            {uiText("読み込み中…")}
+          </p>
         )}
         {error && !loading && !catalog && (
           <p className="px-2 py-6 text-center text-xs text-[var(--vy-danger)]">{error}</p>
@@ -667,7 +672,7 @@ export function StickerEmojiPanel({
           <div className="grid grid-cols-4 gap-1">
             {favorites.length === 0 && (
               <p className="col-span-4 px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
-                右クリックでスタンプ / 絵文字をお気に入りに追加できます
+                {uiText("右クリックでスタンプ / 絵文字をお気に入りに追加できます")}{" "}
               </p>
             )}
             {favorites.map((f) => {
@@ -744,7 +749,7 @@ export function StickerEmojiPanel({
                       {renderGridItem(item, activePack)}
                       {isFav && (
                         <span className="pointer-events-none absolute right-0.5 top-0.5 text-[0.6rem] text-[var(--vy-accent)]">
-                          ★
+                          {uiText("★")}{" "}
                         </span>
                       )}
                     </div>
@@ -753,7 +758,7 @@ export function StickerEmojiPanel({
               </div>
             ) : (
               <p className="px-2 py-6 text-center text-xs text-[var(--vy-text-dim)]">
-                パックがありません
+                {uiText("パックがありません")}{" "}
               </p>
             )}
           </>
@@ -797,7 +802,7 @@ export function StickerEmojiPanel({
                 setMenu(null);
               }}
             >
-              Store URL をコピー
+              {uiText("Store URL をコピー")}{" "}
             </button>
             <button
               type="button"
@@ -807,7 +812,7 @@ export function StickerEmojiPanel({
                 setMenu(null);
               }}
             >
-              Store で開く
+              {uiText("Store で開く")}{" "}
             </button>
           </div>
         </>

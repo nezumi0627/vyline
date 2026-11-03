@@ -22,6 +22,7 @@ OS別手順：[Windows](./install/windows.md) / [Linux](./install/linux.md) / [m
 | [maintainers.md](./maintainers.md) / [maintainers.en.md](./maintainers.en.md) | メンテナー募集、協力、支援 |
 | [user-guide/privacy-and-data.en.md](./user-guide/privacy-and-data.en.md) | Privacy and data (English) |
 | [user-guide/privacy-and-data.md](./user-guide/privacy-and-data.md) | データ保存、AI、サポートログの注意 |
+| [i18n.md](./i18n.md) / [i18n.en.md](./i18n.en.md) | Desktop UI localization, supported languages, Japanese fallback, and contribution workflow |
 
 ### ベータ機能
 

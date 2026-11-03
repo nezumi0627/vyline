@@ -1,3 +1,5 @@
+import { getIntlLocale } from "@/i18n";
+import { tr as uiText } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
 import { IconBlock, IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
@@ -132,18 +134,18 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       <div className="flex items-start gap-3">
         <IconHardDrive size={20} className="mt-0.5 shrink-0 text-[var(--vy-accent)]" />
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold">iTunes / Apple Devices の復元</h3>
+          <h3 className="font-semibold">{uiText("iTunes / Apple Devices の復元")}</h3>
           <p className="mt-1 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-            暗号化された iPhone ローカルバックアップを復号し、トーク・チャット情報と
-            復元できるメディアを Vyline
-            のアカウントDBへ自動で追加します。既存データは上書きせず、元のバックアップも変更しません。
+            {uiText(
+              "暗号化された iPhone ローカルバックアップを復号し、トーク・チャット情報と 復元できるメディアを Vyline のアカウントDBへ自動で追加します。既存データは上書きせず、元のバックアップも変更しません。",
+            )}{" "}
           </p>
         </div>
         <button
           type="button"
           onClick={() => void load()}
           disabled={loading || !accountId}
-          aria-label="再検索"
+          aria-label={uiText("再検索")}
           className="rounded-lg p-2 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
         >
           <IconSpark size={16} className={loading ? "animate-spin" : undefined} />
@@ -153,8 +155,9 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       <div className="mt-4 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
         {devices.length === 0 ? (
           <p className="text-xs text-[var(--vy-text-dim)]">
-            バックアップが見つかりません。iTunes / Apple Devices
-            で「ローカルバックアップを暗号化」を有効にして作成してください。
+            {uiText(
+              "バックアップが見つかりません。iTunes / Apple Devices で「ローカルバックアップを暗号化」を有効にして作成してください。",
+            )}{" "}
           </p>
         ) : (
           <div className="space-y-3">
@@ -183,7 +186,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
                       month: "2-digit",
                       day: "2-digit",
                     }).format(new Date(session.result.restoredAt))}
-                    にデータを復元済み
+                    {uiText("にデータを復元済み")}{" "}
                   </span>
                 )}
               </button>
@@ -195,11 +198,11 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
                   className="absolute left-3 top-1/2 -translate-y-1/2 text-[var(--vy-text-dim)]"
                 />
                 <input
-                  aria-label="バックアップの暗号化パスワード"
+                  aria-label={uiText("バックアップの暗号化パスワード")}
                   type="password"
                   value={password}
                   onChange={(event) => setPassword(event.target.value)}
-                  placeholder="暗号化パスワード"
+                  placeholder={uiText("暗号化パスワード")}
                   className="w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-2 pl-9 pr-3 text-sm"
                 />
               </div>
@@ -210,7 +213,7 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
                 className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
                 style={{ background: "var(--vy-accent)" }}
               >
-                復元開始
+                {uiText("復元開始")}{" "}
               </button>
             </div>
           </div>
@@ -222,13 +225,15 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
           <div className="flex items-center justify-between gap-3 text-xs text-[var(--vy-text-dim)]">
             <span>{session.progress.message}</span>
             <span className="shrink-0 font-mono">
-              {session.progress.current}/{session.progress.total}
+              {session.progress.current}
+              {uiText("/")}
+              {session.progress.total}
             </span>
           </div>
           <div
             className="h-1.5 overflow-hidden rounded-full bg-[var(--vy-surface-2)]"
             role="progressbar"
-            aria-label="iOSバックアップ復元の進捗"
+            aria-label={uiText("iOSバックアップ復元の進捗")}
             aria-valuemin={0}
             aria-valuemax={session.progress.total}
             aria-valuenow={session.progress.current}
@@ -245,9 +250,12 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
       {session?.status === "completed" && session.result && (
         <p className="mt-3 flex items-center gap-2 text-xs text-emerald-400" role="status">
           <IconCheck size={14} />
-          復元完了：{session.result.parsed.chats} チャット /{" "}
-          {session.result.parsed.totalMessages.toLocaleString()} メッセージ
-          {" · "}メディア {session.result.media.restored.toLocaleString()} 件
+          {uiText("復元完了：")}
+          {session.result.parsed.chats} {uiText("チャット /")}{" "}
+          {session.result.parsed.totalMessages.toLocaleString(getIntlLocale())}{" "}
+          {uiText("メッセージ")} {" · "}
+          {uiText("メディア")} {session.result.media.restored.toLocaleString(getIntlLocale())}{" "}
+          {uiText("件")}{" "}
         </p>
       )}
       {session?.status === "failed" && (
@@ -262,7 +270,9 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
         </p>
       )}
       <p className="mt-3 text-[0.65rem] text-[var(--vy-text-dim)]">
-        Beta：復元処理は既存のiOSバックアップAPIを使用します。元のバックアップは変更しません。
+        {uiText(
+          "Beta：復元処理は既存のiOSバックアップAPIを使用します。元のバックアップは変更しません。",
+        )}{" "}
       </p>
     </section>
   );

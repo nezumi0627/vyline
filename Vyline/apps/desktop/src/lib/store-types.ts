@@ -1,5 +1,20 @@
 export type Screen = "lock" | "home" | "chat" | "settings" | "updater" | "login";
 
+export type UiLanguage =
+  | "system"
+  | "ja"
+  | "en"
+  | "zh-TW"
+  | "zh-CN"
+  | "id"
+  | "ko"
+  | "es"
+  | "fr"
+  | "de"
+  | "pt-BR"
+  | "vi"
+  | "th";
+
 export type { VyTheme } from "@vyline/themes";
 
 export type MessageReaction = {
@@ -213,6 +228,8 @@ export type ChatSort = "recent" | "unread" | "custom";
 export type AnimationMode = "vyline" | "feather" | "none";
 
 export type Settings = {
+  /** UI language preference; system uses the browser/OS preferred locale. */
+  uiLanguage: UiLanguage;
   /** UIモーションの強さ（通信・同期設定とは独立） */
   animationMode: AnimationMode;
   readReceipts: boolean;

@@ -1,3 +1,4 @@
+import { tr as uiText } from "@/i18n";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -80,7 +81,7 @@ export function MessageContextMenu({
       <div
         ref={ref}
         role="menu"
-        aria-label="操作メニュー"
+        aria-label={uiText("操作メニュー")}
         className="vy-scale-in absolute min-w-52 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
         style={{ left: pos.x, top: pos.y, transformOrigin: "top left" }}
         onContextMenu={(e) => e.preventDefault()}
@@ -96,8 +97,8 @@ export function MessageContextMenu({
             }}
             className="flex w-full items-center gap-3 px-4 py-2 text-left text-xs text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
           >
-            <span>←</span>
-            戻る
+            <span>{uiText("←")}</span>
+            {uiText("戻る")}{" "}
           </button>
         )}
         {current.map((it, i) => (
@@ -124,7 +125,7 @@ export function MessageContextMenu({
             </span>
             {it.label}
             {it.children?.length ? (
-              <span className="ml-auto text-[var(--vy-text-dim)]">›</span>
+              <span className="ml-auto text-[var(--vy-text-dim)]">{uiText("›")}</span>
             ) : null}
           </button>
         ))}
