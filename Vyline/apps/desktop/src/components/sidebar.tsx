@@ -40,7 +40,7 @@ import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { MidSearchProfileDrawer, type MidSearchProfile } from "@/components/mid-search-profile";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
 
-type Tab = "all" | "friend" | "group" | "hidden" | "official";
+type Tab = "all" | "friend" | "group" | "hidden" | "official" | "openchat";
 
 /** ブロックしてはいけない MID（公式 LINE アカウント等） */
 const BLOCK_PROTECTED_MIDS = new Set(["u085311ecd9e3e3d74ae4c9f5437cbcb5"]);
@@ -51,6 +51,7 @@ const TABS: { key: Tab; label: string }[] = [
   { key: "group", label: "グループ" },
   { key: "official", label: "公式" },
   { key: "hidden", label: "非表示" },
+  { key: "openchat", label: "OpenChat" },
 ];
 
 const SORTS: ChatSort[] = ["recent", "unread", "custom"];
@@ -159,6 +160,15 @@ function SidebarBase() {
   const accountId = useStore((s) => s.accountId);
   const refreshChats = useStore((s) => s.refreshChats);
   const [tab, setTab] = useState<Tab>("all");
+  const [squareEnabled, setSquareEnabled] = useState(false);
+  const [squareRooms, setSquareRooms] = useState<
+    Array<{ id: string; name?: string; parentSquareId?: string | null }>
+  >([]);
+  const [squareNames, setSquareNames] = useState<Record<string, string>>({});
+  const [squareSearchResults, setSquareSearchResults] = useState<
+    Array<{ mid: string; name: string; desc?: string }>
+  >([]);
+  const [squareNotice, setSquareNotice] = useState("");
   const [query, setQuery] = useState("");
   const midQuery = /^u[0-9a-f]{32}$/i.test(query.trim()) ? query.trim() : "";
   const [midProfile, setMidProfile] = useState<MidSearchProfile | null>(null);
@@ -239,7 +249,8 @@ function SidebarBase() {
         (c) => !c.hidden && (!c.left || (c.members != null && c.members.length > 0)),
       );
 
-    if (query.trim()) {
+    if (tab === "openchat") list = [];
+    if (query.trim() && tab !== "openchat") {
       const q = query.toLowerCase();
       list = list.filter(
         (c) => displayName(c, false).toLowerCase().includes(q) || c.id.toLowerCase().includes(q),
@@ -251,6 +262,98 @@ function SidebarBase() {
     }
     return sortChats(list, sort, messages, customOrder);
   }, [chats, tab, query, messages, sort, customOrder, liveOrder]);
+
+  const refreshSquareRooms = useCallback(async () => {
+    if (!accountId) return;
+    try {
+      const result = await api.line.squareOverview(accountId);
+      setSquareRooms(result.rooms);
+      setSquareNames(Object.fromEntries(result.squares.map((square) => [square.mid, square.name])));
+      setSquareNotice(result.stale ? uiText("接続できないため保存済み一覧を表示しています") : "");
+    } catch {
+      setSquareNotice(uiText("OpenChat一覧を取得できません。接続状態を確認してください"));
+    }
+  }, [accountId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSquareEnabled(false);
+    setSquareRooms([]);
+    setSquareNames({});
+    setSquareNotice("");
+    if (!accountId)
+      return () => {
+        cancelled = true;
+      };
+    const syncStatus = async () => {
+      try {
+        const status = await api.line.squareStatus(accountId);
+        if (!cancelled) setSquareEnabled(status.enabled);
+        if (status.enabled && !cancelled) await refreshSquareRooms();
+      } catch {
+        if (!cancelled) setSquareNotice(uiText("OpenChat設定を読み込めません"));
+      }
+    };
+    void syncStatus();
+    const timer = window.setInterval(() => {
+      if (!cancelled && document.visibilityState === "visible") void syncStatus();
+    }, 5 * 60_000);
+    const changed = () => {
+      if (!cancelled) void syncStatus();
+    };
+    const visibilityChanged = () => {
+      if (!cancelled && document.visibilityState === "visible") void syncStatus();
+    };
+    window.addEventListener("vyline:square-changed", changed);
+    document.addEventListener("visibilitychange", visibilityChanged);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+      window.removeEventListener("vyline:square-changed", changed);
+      document.removeEventListener("visibilitychange", visibilityChanged);
+    };
+  }, [accountId, refreshSquareRooms]);
+
+  useEffect(() => {
+    if (!squareEnabled && tab === "openchat") setTab("all");
+  }, [squareEnabled, tab]);
+
+  const visibleSquareRooms = useMemo(() => {
+    const normalized = query.trim().toLocaleLowerCase();
+    return normalized
+      ? squareRooms.filter((room) =>
+          `${room.name ?? ""} ${room.id} ${squareNames[room.parentSquareId ?? ""] ?? ""}`
+            .toLocaleLowerCase()
+            .includes(normalized),
+        )
+      : squareRooms;
+  }, [query, squareRooms, squareNames]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setSquareSearchResults([]);
+    if (!accountId || !squareEnabled || tab !== "openchat" || query.trim().length < 2)
+      return () => {
+        cancelled = true;
+      };
+    const timer = window.setTimeout(() => {
+      void api.line
+        .squareSearch(accountId, query.trim())
+        .then((result) => {
+          if (!cancelled) setSquareSearchResults(result.squares ?? []);
+        })
+        .catch(() => {
+          if (!cancelled)
+            setSquareNotice(
+              uiText("OpenChat検索を実行できませんでした。少し待ってから再試行してください"),
+            );
+        });
+    }, 1_100);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [accountId, query, squareEnabled, tab]);
 
   // --- チャット一覧の固定高ウィンドウリング（全件描画による DOM/listener 膨張を防ぐ） ---
   const listRef = useRef<HTMLDivElement>(null);
@@ -630,8 +733,8 @@ function SidebarBase() {
         </div>
       )}
 
-      <div className="vy-sidebar-tabs flex gap-1 px-3 pb-2" role="tablist">
-        {TABS.map((t) => (
+      <div className="vy-sidebar-tabs flex gap-1 overflow-x-auto px-3 pb-2" role="tablist">
+        {TABS.filter((item) => item.key !== "openchat" || squareEnabled).map((t) => (
           <button
             key={t.key}
             type="button"
@@ -639,7 +742,7 @@ function SidebarBase() {
             aria-selected={tab === t.key}
             onClick={() => setTab(t.key)}
             className={cn(
-              "flex-1 rounded-lg px-2 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+              "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
               tab === t.key
                 ? "text-[var(--vy-accent-contrast)]"
                 : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
@@ -675,7 +778,88 @@ function SidebarBase() {
         onScroll={recomputeWin}
         className="vy-scroll flex-1 overflow-y-auto px-2 pb-3"
       >
-        {filtered.length === 0 ? (
+        {tab === "openchat" ? (
+          <>
+            {squareSearchResults.length > 0 && (
+              <section className="mb-3 border-b border-[var(--vy-border)] pb-2">
+                <p className="px-2 py-1.5 text-[11px] font-semibold text-[var(--vy-text-dim)]">
+                  {uiText("OpenChat検索結果")}
+                </p>
+                {squareSearchResults.map((square) => (
+                  <div
+                    key={square.mid}
+                    className="mb-1 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5"
+                  >
+                    <p className="truncate text-sm font-semibold">{square.name}</p>
+                    <p className="mt-1 line-clamp-2 text-xs text-[var(--vy-text-dim)]">
+                      {square.desc || uiText("説明はありません")}
+                    </p>
+                    <p className="mt-1 text-[10px] text-[var(--vy-text-dim)]">
+                      {squareNames[square.mid]
+                        ? uiText("参加中")
+                        : uiText("検索結果。参加操作は未対応です")}
+                    </p>
+                  </div>
+                ))}
+              </section>
+            )}
+            {visibleSquareRooms.length === 0 ? (
+              <div className="flex flex-col items-center gap-2 px-6 py-12 text-center">
+                <span className="flex h-12 w-12 items-center justify-center rounded-full bg-indigo-500/10 text-indigo-300">
+                  ◈
+                </span>
+                <p className="text-sm text-[var(--vy-text-dim)]">
+                  {squareNotice ||
+                    (query
+                      ? uiText("一致するOpenChatがありません")
+                      : uiText("参加中のOpenChatがありません"))}
+                </p>
+                <button
+                  type="button"
+                  className="text-xs text-[var(--vy-accent)]"
+                  onClick={() => void refreshSquareRooms()}
+                >
+                  {uiText("再読み込み")}
+                </button>
+              </div>
+            ) : (
+              visibleSquareRooms.map((room) => (
+                <button
+                  key={room.id}
+                  type="button"
+                  data-vy-chat-row
+                  onClick={() =>
+                    window.dispatchEvent(
+                      new CustomEvent("vyline:square-room", {
+                        detail: {
+                          id: room.id,
+                          name: room.name,
+                          squareName: squareNames[room.parentSquareId ?? ""],
+                        },
+                      }),
+                    )
+                  }
+                  className="vy-sidebar-row relative mb-1 flex w-full items-center gap-3 rounded-xl px-2.5 py-2.5 text-left transition-colors hover:bg-[var(--vy-surface-2)]"
+                >
+                  <Avatar glyph={(room.name || "O").slice(0, 1)} color="#635bff" size={48} />
+                  <span className="min-w-0 flex-1">
+                    <span className="flex items-center gap-1.5">
+                      <span className="truncate text-sm font-semibold">
+                        {room.name || uiText("名前未設定のルーム")}
+                      </span>
+                      <span className="shrink-0 rounded bg-indigo-500/15 px-1 py-0.5 text-[9px] font-bold text-indigo-300">
+                        OC
+                      </span>
+                    </span>
+                    <span className="block truncate text-xs text-[var(--vy-text-dim)]">
+                      {squareNames[room.parentSquareId ?? ""] || uiText("オープンチャット")}
+                    </span>
+                  </span>
+                </button>
+              ))
+            )}
+          </>
+        ) : filtered.length === 0 ? (
           <div className="flex flex-col items-center gap-2 px-6 py-16 text-center">
             <span className="flex h-12 w-12 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]">
               <IconSearch size={22} />
@@ -695,7 +879,10 @@ function SidebarBase() {
                 draggable={sort === "custom"}
                 dragging={dragId === chat.id}
                 blocked={blockedSet.has(chat.id)}
-                onClick={() => openChat(chat.id)}
+                onClick={() => {
+                  window.dispatchEvent(new Event("vyline:square-close"));
+                  openChat(chat.id);
+                }}
                 onContextMenu={(e) => openRowMenu(e, chat)}
                 onDragStart={() => onDragStart(chat.id)}
                 onDragEnd={finishDrag}

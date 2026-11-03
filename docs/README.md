@@ -23,6 +23,7 @@ OS別手順：[Windows](./install/windows.md) / [Linux](./install/linux.md) / [m
 | [user-guide/privacy-and-data.en.md](./user-guide/privacy-and-data.en.md) | Privacy and data (English) |
 | [user-guide/privacy-and-data.md](./user-guide/privacy-and-data.md) | データ保存、AI、サポートログの注意 |
 | [i18n.md](./i18n.md) / [i18n.en.md](./i18n.en.md) | Desktop UI localization, supported languages, Japanese fallback, and contribution workflow |
+| [openchat-square.md](./openchat-square.md) / [openchat-square.en.md](./openchat-square.en.md) | OpenChat / Square Beta opt-in, separate API and SQLite, current support, and unverified capabilities |
 
 ### ベータ機能
 

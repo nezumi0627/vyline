@@ -25,6 +25,26 @@ import { Hono } from "hono";
 import type { Context } from "hono";
 import { recordingRouter } from "./recordings.js";
 import {
+  getSquareFeatureStatus,
+  getSquareFeatureStore,
+  loadSquareThreadContext,
+  joinSquareThreadForAccount,
+  listSquareMembers,
+  loadSquareMediaPreview,
+  listSquareMessages,
+  loadSquareOverview,
+  readSquareCacheForGeneration,
+  sendSquareText,
+  searchSquareCatalog,
+  sendSquareThreadText,
+  setSquareFeatureEnabled,
+} from "../service/squareService.js";
+import {
+  SquareDisabledError,
+  SquareRoomUnavailableError,
+  SquareThreadNotJoinedError,
+} from "../service/squareFeatureGate.js";
+import {
   MAX_MEDIA_BASE64_CHARS,
   MAX_MEDIA_BATCH_BASE64_CHARS,
   MAX_MEDIA_BATCH_ITEMS,
@@ -182,6 +202,232 @@ import {
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
 lineRouter.route("/:accountId/recordings", recordingRouter);
+
+// OpenChat / Square is an explicitly opted-in, separate transport and database.
+// The status/enable endpoints are local-only; no Square RPC occurs until a caller
+// uses overview/messages/send after enabling the feature.
+lineRouter.get("/:accountId/square/status", (c) =>
+  c.json(getSquareFeatureStatus(c.req.param("accountId"))),
+);
+lineRouter.post("/:accountId/square/enable", async (c) => {
+  const body = await c.req.json<{ enabled?: unknown }>().catch((): { enabled?: unknown } => ({}));
+  if (body.enabled !== true) return c.json({ ok: false, error: "enabled must be true" }, 400);
+  return c.json(await setSquareFeatureEnabled(c.req.param("accountId"), true));
+});
+lineRouter.post("/:accountId/square/disable", (c) =>
+  c.json(setSquareFeatureEnabled(c.req.param("accountId"), false)),
+);
+lineRouter.get("/:accountId/square/overview", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const store = getSquareFeatureStore(accountId);
+    const generation = store.getGeneration();
+    try {
+      return c.json(await loadSquareOverview(accountId, client));
+    } catch (error) {
+      const cached = readSquareCacheForGeneration(store, generation);
+      if ((cached.rooms?.length ?? 0) > 0 || (cached.squares?.length ?? 0) > 0) {
+        return c.json({
+          ...cached,
+          stale: true,
+          warning: "Square refresh failed; showing cached data",
+        });
+      }
+      throw error;
+    }
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/search", async (c) => {
+  const accountId = c.req.param("accountId");
+  const query = c.req.query("q") ?? "";
+  if (query.trim().length < 2 || query.length > 100) {
+    return c.json({ ok: false, error: "q must contain 2 to 100 characters" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const result = await searchSquareCatalog(accountId, query, client);
+    return result.ok ? c.json(result) : c.json(result, 429);
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/rooms/:roomId/messages", async (c) => {
+  const accountId = c.req.param("accountId");
+  const limit = Number(c.req.query("limit") ?? 50);
+  const threadMid = c.req.query("threadMid") || undefined;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    return c.json({ ok: false, error: "limit must be between 1 and 100" }, 400);
+  }
+  if (threadMid && threadMid.length > 512) {
+    return c.json({ ok: false, error: "threadMid is too long" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const store = getSquareFeatureStore(accountId);
+    const generation = store.getGeneration();
+    try {
+      return c.json(
+        await listSquareMessages(accountId, c.req.param("roomId"), client, limit, threadMid),
+      );
+    } catch (error) {
+      const cached = readSquareCacheForGeneration(
+        store,
+        generation,
+        c.req.param("roomId"),
+        threadMid,
+      );
+      if ((cached.messages?.length ?? 0) > 0)
+        return c.json({ ...cached, roomId: c.req.param("roomId"), stale: true });
+      throw error;
+    }
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/messages", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req
+    .json<{ text?: unknown; operationId?: unknown }>()
+    .catch((): { text?: unknown; operationId?: unknown } => ({}));
+  if (
+    typeof body.text !== "string" ||
+    !body.text.trim() ||
+    body.text.length > 5000 ||
+    typeof body.operationId !== "string"
+  ) {
+    return c.json({ ok: false, error: "text and operationId are required" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const result = await sendSquareText(
+      accountId,
+      c.req.param("roomId"),
+      body.operationId,
+      body.text,
+      client,
+    );
+    if (result.ok) return c.json(result);
+    return result.error === "SQUARE_SEND_RATE_LIMIT" ? c.json(result, 429) : c.json(result, 409);
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/threads/:threadMid/messages", async (c) => {
+  const accountId = c.req.param("accountId");
+  const roomId = c.req.param("roomId");
+  const threadMid = c.req.param("threadMid");
+  const body = await c.req
+    .json<{ text?: unknown; operationId?: unknown }>()
+    .catch((): { text?: unknown; operationId?: unknown } => ({}));
+  if (
+    typeof body.text !== "string" ||
+    !body.text.trim() ||
+    body.text.length > 5000 ||
+    typeof body.operationId !== "string"
+  ) {
+    return c.json({ ok: false, error: "text and operationId are required" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const result = await sendSquareThreadText(
+      accountId,
+      roomId,
+      threadMid,
+      body.operationId,
+      body.text,
+      client,
+    );
+    if (result.ok) return c.json(result);
+    return result.error === "SQUARE_SEND_RATE_LIMIT" ? c.json(result, 429) : c.json(result, 409);
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/rooms/:roomId/threads/:threadMid", async (c) => {
+  const accountId = c.req.param("accountId");
+  const roomId = c.req.param("roomId");
+  const threadMid = c.req.param("threadMid");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await loadSquareThreadContext(accountId, roomId, threadMid, client));
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/rooms/:roomId/members", async (c) => {
+  const accountId = c.req.param("accountId");
+  const limit = Number(c.req.query("limit") ?? 100);
+  const continuationToken = c.req.query("cursor") || undefined;
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+    return c.json({ ok: false, error: "limit must be between 1 and 100" }, 400);
+  }
+  if (continuationToken && continuationToken.length > 4096) {
+    return c.json({ ok: false, error: "cursor is too long" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await listSquareMembers(accountId, c.req.param("roomId"), client, continuationToken, limit),
+    );
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/rooms/:roomId/messages/:messageId/media-preview", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    const preview = await loadSquareMediaPreview(
+      accountId,
+      c.req.param("roomId"),
+      c.req.param("messageId"),
+      client,
+    );
+    return new Response(preview.bytes, {
+      status: 200,
+      headers: {
+        "Content-Type": preview.mediaType,
+        "Cache-Control": "private, no-store",
+        "X-Content-Type-Options": "nosniff",
+        "Content-Security-Policy": "default-src 'none'; sandbox",
+      },
+    });
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/threads/:threadMid/join", async (c) => {
+  const accountId = c.req.param("accountId");
+  const roomId = c.req.param("roomId");
+  const threadMid = c.req.param("threadMid");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await joinSquareThreadForAccount(accountId, roomId, threadMid, client));
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
 
 lineRouter.post("/:accountId/link-preview", async (c) => {
   const accountId = c.req.param("accountId");
@@ -791,6 +1037,15 @@ function isLiffError(res: unknown): { statusCode: number; statusMessage: string 
 // ─── error helper ─────────────────────────────
 
 function handleError(err: unknown, c: Context<any, any, any>) {
+  if (err instanceof SquareDisabledError) {
+    return c.json({ ok: false, error: "OpenChat Beta is disabled", code: err.code }, 403);
+  }
+  if (err instanceof SquareRoomUnavailableError) {
+    return c.json({ ok: false, error: "OpenChat room is not joined", code: err.code }, 404);
+  }
+  if (err instanceof SquareThreadNotJoinedError) {
+    return c.json({ ok: false, error: "Join the thread before sending", code: err.code }, 409);
+  }
   if (err && typeof err === "object" && "code" in err) {
     const code = String((err as { code?: unknown }).code ?? "");
     if (code === "PROTECTED_CONTACT_DELETE") {

@@ -18,6 +18,8 @@ export function betaFeatureIdForSetting(key: string): string {
       return "windows-line-token-inspection";
     case "betaBlockedListSqliteSync":
       return "blocked-list-sqlite-sync";
+    case "betaOpenChatSquare":
+      return "openchat-square";
     default:
       return key;
   }

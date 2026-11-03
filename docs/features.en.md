@@ -19,6 +19,7 @@ This guide brings together the user-facing feature summaries for stable **1.1.0*
 - In-chat search, regular expressions, Ctrl+F, URL recognition, copying, and previews.
 - Named mentions, group invitations, group creation, and group settings.
 - Calls are experimental and may depend on LINE-side availability and device limitations.
+- OpenChat / Square is a separately consented Beta. No Square requests are sent before it is enabled. See [OpenChat / Square Beta](./openchat-square.en.md) for current support and unsupported threads, notes, roles, and other features.
 
 ## Media and appearance
 

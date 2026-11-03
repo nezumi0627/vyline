@@ -220,6 +220,15 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 └─ LINE Servers ─────────────────────────────────────────┘
 ```
 
+### OpenChat / Square 境界 (Beta)
+
+- Square は通常 Talk `/S4` や `Chat` / `Message` モデルへ混ぜず、SquareService `/SQ1` と専用 BFF/service/`square.sqlite` で扱う。
+- アカウント別の明示 Beta opt-in が ON になるまで、Square RPC・検索・OBS・ポーリングを一切開始しない。ON/OFF と同意履歴はアカウント単位で維持し、無効化時は今後のリクエストを停止して処理中応答を破棄する。
+- OpenChat の ID は `squareMid` / `squareChatMid` 等のフィールドとして不透明に扱い、LINE MID として Talk API へ渡さない。
+- LINE の Messaging API 公称 rate limit を非公開 Square `/SQ1` の制限値として記載しない。Square の送信 pacing は独立してサーバー側で適用する。
+- OpenChat の地域は公式ヘルプ上、日本・台湾・タイ。地域ごとの Vyline 対応を個別検証し、LIFF / E2EE / 役職 / threads / notes は型や HAR の存在のみで実装済みと判断しない。
+- 実装範囲と検証状態は [docs/openchat-square.md](docs/openchat-square.md) を参照。
+
 ### 主要ファイル一覧
 
 | ファイル                                     | 役割                                                                         |
