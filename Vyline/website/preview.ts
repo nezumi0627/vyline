@@ -13,7 +13,7 @@ const server = Bun.serve({
     const target = resolve(root, path || "index.html");
     const within = relative(root, target);
     if (within === ".." || within.startsWith(`..${sep}`) || isAbsolute(within)) return new Response("Not found", { status: 404 });
-    const file = Bun.file(target.endsWith(sep) ? join(target, "index.html") : target);
+    const file = Bun.file(url.pathname.endsWith("/") && path ? join(target, "index.html") : target);
     return await file.exists() ? new Response(file) : new Response("Not found", { status: 404 });
   },
 });
