@@ -4,12 +4,12 @@ import {
   useStore,
   displayName,
   shouldMaskStreamerAvatars,
-  formatTime,
   sortChats,
   CHAT_SORT_LABELS,
   type Chat,
   type ChatSort,
 } from "@/lib/store";
+import { formatChatListTime } from "../lib/chatDayLabels.js";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/vy-ui";
 import { OfficialBadge } from "@/components/official-badge";
@@ -926,7 +926,7 @@ const ChatRow = memo(function ChatRow({
                   active ? "opacity-80" : "text-[var(--vy-text-dim)]",
                 )}
               >
-                {formatTime(preview.time)}
+                {formatChatListTime(preview.time)}
               </span>
             )}
           </span>
