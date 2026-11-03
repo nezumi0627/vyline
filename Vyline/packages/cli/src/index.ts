@@ -263,18 +263,6 @@ async function install(installArgs: string[]) {
   console.log(`Next: cd "${target}" && bun install && bun run vyl doctor`);
 }
 
-async function installArchive(target: string) {
-  const tempFile = join(tmpdir(), `vyline-${randomUUID()}.tar.gz`);
-  console.log("Downloading Vyline archive...");
-  await download(archiveUrl, tempFile);
-  await mkdir(target, { recursive: true });
-  runChecked("tar", ["-xzf", tempFile, "--strip-components", "1", "-C", target]);
-  await rm(tempFile, { force: true });
-  console.log(
-    "Archive install completed. Some source submodules are not included in archive mode.",
-  );
-}
-
 async function register(registerArgs: string[]) {
   const requestedRoot = option(registerArgs, "--project");
   const root = requestedRoot
