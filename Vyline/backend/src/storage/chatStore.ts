@@ -176,9 +176,12 @@ export function compareMessagesOldestFirst(left: MessageCursor, right: MessageCu
   return byTime || compareMessageIdsAscending(left.id, right.id);
 }
 
-function previewForMessage(message: StoredMessage): string {
+export function previewForMessage(message: StoredMessage): string {
   const text = message.text?.trim();
   if (text) return text.slice(0, 120);
+  // RICH / FLEX は本文が空で、表示用の代替テキストを contentMetadata.ALT_TEXT に持つ
+  const alt = message.contentMetadata?.ALT_TEXT?.trim();
+  if (alt) return alt.slice(0, 120);
   switch (message.contentType.toUpperCase()) {
     case "IMAGE":
       return "画像";
@@ -190,7 +193,20 @@ function previewForMessage(message: StoredMessage): string {
       return "ファイル";
     case "STICKER":
       return "スタンプ";
+    case "RICH":
+      return "リッチメッセージ";
+    case "FLEX":
+      return "Flexメッセージ";
+    case "LOCATION":
+      return "位置情報";
+    case "CONTACT":
+      return "連絡先";
+    case "CALL":
+      return "通話";
+    case "POSTNOTIFICATION":
+      return "投稿のお知らせ";
     default:
+      // NONE / CHATEVENT 等は isUnresolvedLastMessagePreview で未解決扱いにするため、そのまま返す
       return message.contentType || "メッセージ";
   }
 }
@@ -244,6 +260,28 @@ type DeferredWrites = {
 };
 const deferredWrites = new Map<string, DeferredWrites>();
 const chatMigrationChecked = new Set<string>();
+
+/** 以前の previewForMessage が保存した内部の種類名（RICH など） */
+const LEGACY_TYPE_PREVIEWS = new Set([
+  "RICH",
+  "FLEX",
+  "POSTNOTIFICATION",
+  "LOCATION",
+  "CONTACT",
+  "CALL",
+]);
+
+/** 保存済みのプレビューが内部の種類名なら、最新の保存メッセージから作り直す（読み出し時のみ） */
+function withReadableTypePreview(accountId: string, chat: StoredChat): StoredChat {
+  if (!chat.lastMessageId || !LEGACY_TYPE_PREVIEWS.has(chat.lastMessagePreview ?? "")) return chat;
+  const db = memory.get(accountId);
+  const latest =
+    dirty.has(accountId) && db
+      ? db.messages[chat.mid]?.[chat.lastMessageId]
+      : readLatestStoredMessage(accountId, chat.mid);
+  if (!latest || latest.id !== chat.lastMessageId) return chat;
+  return { ...chat, lastMessagePreview: previewForMessage(latest) };
+}
 
 /**
  * 一覧の最終メッセージが取れていない（プレビューが空・未解決）トークは、保存済みの履歴の
@@ -1894,7 +1932,9 @@ export async function getStoredChats(accountId: string): Promise<Chat[]> {
   for (const mid of order) {
     const c = byMid.get(mid);
     if (!c) continue;
-    result.push(storedChatToChat(withLatestStoredPreview(accountId, c)));
+    result.push(
+      storedChatToChat(withLatestStoredPreview(accountId, withReadableTypePreview(accountId, c))),
+    );
     seen.add(mid);
   }
 
@@ -1903,7 +1943,9 @@ export async function getStoredChats(accountId: string): Promise<Chat[]> {
     .sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
 
   for (const c of tail) {
-    result.push(storedChatToChat(withLatestStoredPreview(accountId, c)));
+    result.push(
+      storedChatToChat(withLatestStoredPreview(accountId, withReadableTypePreview(accountId, c))),
+    );
   }
   return result;
 }
