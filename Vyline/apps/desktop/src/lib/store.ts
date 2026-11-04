@@ -67,6 +67,20 @@ export type {
 const BOX_AHEAD_TOLERANCE_MS = 60_000;
 /** chatId → 送信済み lastMessageId（一覧の方が新しいときは box:<時刻>。既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
+const markReadInflight = new Map<string, { messageId: string; promise: Promise<void> }>();
+
+function isMessageIdAtOrAfter(candidate: string, target: string): boolean {
+  try {
+    return BigInt(candidate) >= BigInt(target);
+  } catch {
+    return candidate === target;
+  }
+}
+
+function isReceiptMarkerAtOrAfter(candidate: string, target: string): boolean {
+  if (candidate.startsWith("box:") || target.startsWith("box:")) return candidate === target;
+  return isMessageIdAtOrAfter(candidate, target);
+}
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
@@ -820,6 +834,7 @@ export const useStore = create<State>()(
           readReceiptGeneration += 1;
           contactFetched.clear();
           readReceiptSent.clear();
+          markReadInflight.clear();
           readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
@@ -874,6 +889,7 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          markReadInflight.clear();
           readReceiptCheckedChats.clear();
           contactFetched.clear();
           readReceiptInflight.clear();
@@ -2357,22 +2373,40 @@ export const useStore = create<State>()(
         const sentMarker = lastId ?? (boxIsAhead ? `box:${boxTime}` : undefined);
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (!force && sentMarker && prev === sentMarker) return;
-        if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
-        try {
-          const result = await api.line.sendChatChecked(accountId, id, lastId);
-          if (!result.ok || !result.lastMessageId?.trim()) {
-            throw new Error("既読の送信に失敗しました");
+        if (!force && sentMarker && prev && isReceiptMarkerAtOrAfter(prev, sentMarker)) return;
+        const pending = markReadInflight.get(receiptKey);
+        if (pending) {
+          if (!lastId || isMessageIdAtOrAfter(pending.messageId, lastId)) {
+            return pending.promise;
           }
-        } catch {
-          if (sentMarker) rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
-          if (localKey) recentlyReadAt.delete(localKey);
-          if (force) {
-            get().showNotice(
-              "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
-            );
-          }
+          await pending.promise;
+          if (get().accountId !== accountId) return;
+          return get().markChatRead(id, target);
         }
+        if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
+        let request!: Promise<void>;
+        request = (async () => {
+          try {
+            const result = await api.line.sendChatChecked(accountId, id, lastId);
+            if (!result.ok || !result.lastMessageId?.trim()) {
+              throw new Error("既読の送信に失敗しました");
+            }
+          } catch {
+            if (sentMarker) rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
+            if (localKey) recentlyReadAt.delete(localKey);
+            if (force) {
+              get().showNotice(
+                "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
+              );
+            }
+          } finally {
+            if (markReadInflight.get(receiptKey)?.promise === request) {
+              markReadInflight.delete(receiptKey);
+            }
+          }
+        })();
+        markReadInflight.set(receiptKey, { messageId: lastId ?? "", promise: request });
+        return request;
       },
 
       markAllChatsRead: async () => {

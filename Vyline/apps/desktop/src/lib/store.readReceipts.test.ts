@@ -122,6 +122,58 @@ test("uses the message ID when the chat summary advances within the same millise
   expect(requestedIds).toEqual(["100", "101"]);
 });
 
+test("serializes newer read receipts behind an in-flight older receipt", async () => {
+  const requestedIds: string[] = [];
+  let releaseFirst!: (response: Response) => void;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string };
+    requestedIds.push(body.lastMessageId ?? "");
+    if (requestedIds.length === 1) {
+      return await new Promise<Response>((resolve) => {
+        releaseFirst = resolve;
+      });
+    }
+    return Response.json({ ok: true, lastMessageId: body.lastMessageId });
+  }) as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-overlap",
+    settings: { ...state.settings, readReceipts: true },
+    chats: [
+      {
+        id: "c-overlap",
+        name: "DM",
+        type: "friend",
+        avatar: "D",
+        color: "#000",
+        status: "",
+        unread: 1,
+        lastMessageTime: 2,
+      },
+    ],
+    messages: ["100", "101"].map((id, index) => ({
+      id,
+      chatId: "c-overlap",
+      authorId: "u-sender",
+      text: "message",
+      kind: "text" as const,
+      createdAt: index + 1,
+      read: false,
+      status: "sent" as const,
+      messageState: "normal" as const,
+    })),
+  }));
+
+  const olderRequest = useStore.getState().markChatRead("c-overlap", "100");
+  await Promise.resolve();
+  const newerRequest = useStore.getState().markChatRead("c-overlap", "101");
+  await Promise.resolve();
+  expect(requestedIds).toEqual(["100"]);
+
+  releaseFirst(Response.json({ ok: true, lastMessageId: "100" }));
+  await Promise.all([olderRequest, newerRequest]);
+  expect(requestedIds).toEqual(["100", "101"]);
+});
+
 function captureReadRequests() {
   const bodies: Array<{ chatMid?: string; lastMessageId?: string }> = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
