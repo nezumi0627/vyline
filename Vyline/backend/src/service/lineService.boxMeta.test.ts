@@ -10,7 +10,7 @@ globalThis.fetch = (async () => {
   throw new Error("No network in boxMeta regressions");
 }) as unknown as typeof fetch;
 
-const { boxMeta } = await import("./lineService.js");
+const { boxMeta, incomingIdFromRawMessages } = await import("./lineService.js");
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -82,5 +82,17 @@ describe("chat list box meta", () => {
 
     expect(meta.lastMessageId).toBe("300");
     expect(meta.lastIncomingMessageId).toBe("280");
+  });
+
+  test("finds the latest incoming ID from history beyond the MessageBox window", () => {
+    const messages = Array.from({ length: 240 }, (_, index) => ({
+      id: String(500 - index),
+      from: "u-self",
+      contentType: "NONE",
+    }));
+    messages[239] = { id: "260", from: "u-peer", contentType: "NONE" };
+    messages[238] = { id: "261", from: "u-self", contentType: "NONE" };
+
+    expect(incomingIdFromRawMessages(messages, "u-self")).toBe("260");
   });
 });

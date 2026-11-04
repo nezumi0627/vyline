@@ -818,6 +818,8 @@ type MessageBoxesCacheEntry = {
 };
 const messageBoxesCache = new Map<string, MessageBoxesCacheEntry>();
 const MESSAGE_BOXES_CACHE_MS = Number(process.env.VYLINE_MESSAGE_BOXES_CACHE_MS ?? 20_000);
+const incomingWatermarkCache = new Map<string, { at: number; id: string | null }>();
+const INCOMING_WATERMARK_CACHE_MS = 5 * 60_000;
 /** getMessageBoxes がハング/遅延してもメッセージ表示をブロックしないよう打ち切る */
 const MESSAGE_BOXES_TIMEOUT_MS = Number(process.env.VYLINE_MESSAGE_BOXES_TIMEOUT_MS ?? 5_000);
 /** 全ボックス取得（ページングあり）は /S4 RPC を最大 10 本消費するため長めにキャッシュ
@@ -920,6 +922,60 @@ async function fetchPreviousMessagesRpc(
     timeoutMs,
     "getPreviousMessagesV2WithRequest",
   );
+}
+
+const INCOMING_WATERMARK_PAGE_SIZE = 100;
+const INCOMING_WATERMARK_MAX_PAGES = 2;
+
+export function incomingIdFromRawMessages(
+  messages: unknown[],
+  selfMid: string,
+): string | undefined {
+  let latest: string | undefined;
+  for (const value of messages) {
+    if (!value || typeof value !== "object") continue;
+    const message = value as { id?: unknown; from?: unknown; contentType?: unknown };
+    if (message.from == null || String(message.from) === selfMid || message.id == null) continue;
+    if (String(message.contentType) === "CHATEVENT" || String(message.contentType) === "18")
+      continue;
+    const id = String(message.id);
+    try {
+      if (!latest || BigInt(id) > BigInt(latest)) latest = id;
+    } catch {
+      if (!latest) latest = id;
+    }
+  }
+  return latest;
+}
+
+async function fetchIncomingWatermarkFromHistory(
+  client: NonNullable<ReturnType<typeof getClient>>,
+  box: any,
+  selfMid: string,
+): Promise<string | undefined> {
+  let endMessageId = box.lastDeliveredMessageId;
+  if (!endMessageId) return undefined;
+  for (let page = 0; page < INCOMING_WATERMARK_MAX_PAGES; page++) {
+    const messages = await fetchPreviousMessagesRpc(
+      client,
+      String(box.id),
+      endMessageId,
+      INCOMING_WATERMARK_PAGE_SIZE,
+      5_000,
+    );
+    const incomingId = incomingIdFromRawMessages(messages, selfMid);
+    if (incomingId) return incomingId;
+    if (messages.length < INCOMING_WATERMARK_PAGE_SIZE) return undefined;
+    const oldest = messages.at(-1) as
+      | { id?: unknown; deliveredTime?: unknown; createdTime?: unknown }
+      | undefined;
+    if (oldest?.id == null) return undefined;
+    endMessageId = {
+      messageId: BigInt(String(oldest.id)),
+      deliveredTime: BigInt(String(oldest.deliveredTime ?? oldest.createdTime ?? 0)),
+    };
+  }
+  return undefined;
 }
 
 /** チャット一覧の送信連投より前にある受信IDも取得できるよう、直近10件を要求する。 */
@@ -3045,6 +3101,43 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       getCacheMeta(accountId),
       getLatestIncomingMessageIds(accountId).catch((): Record<string, string> => ({})),
     ]);
+  const selfMid = client.base.profile?.mid;
+  const historyIncomingIds = new Map<string, string>();
+  if (selfMid) {
+    const unresolved = messageBoxes.filter((box: any) => {
+      const mid = String(box.id);
+      const cached = incomingWatermarkCache.get(`${accountId}:${mid}`);
+      if (cached && Date.now() - cached.at < INCOMING_WATERMARK_CACHE_MS) {
+        if (cached.id) historyIncomingIds.set(mid, cached.id);
+        return false;
+      }
+      return (
+        Number(box.unreadCount ?? 0) > 0 &&
+        !storedIncomingIds[mid] &&
+        !boxMeta(box, selfMid).lastIncomingMessageId &&
+        Boolean(box.lastDeliveredMessageId)
+      );
+    });
+    // Only chats with unread messages and no incoming ID in either local storage or MessageBox
+    // need this bounded history fallback. Four concurrent lookups avoid blocking /S4 sync work.
+    for (let offset = 0; offset < unresolved.length; offset += 4) {
+      await Promise.all(
+        unresolved.slice(offset, offset + 4).map(async (box: any) => {
+          try {
+            const id = await fetchIncomingWatermarkFromHistory(client, box, selfMid);
+            const mid = String(box.id);
+            incomingWatermarkCache.set(`${accountId}:${mid}`, { at: Date.now(), id: id ?? null });
+            if (id) historyIncomingIds.set(mid, id);
+          } catch (err) {
+            log.debug(
+              { accountId, chatMid: String(box.id), err },
+              "incoming watermark lookup failed",
+            );
+          }
+        }),
+      );
+    }
+  }
   const joinedMids = new Set(joinedChats.map((chat) => chat.mid));
   if (
     !messageBoxesFetchFailed &&
@@ -3168,13 +3261,12 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       !joinedChatsFetchFailed,
       client.base.profile?.mid,
     );
-    const storedIncomingId = storedIncomingIds[chat.mid];
+    const incomingId = storedIncomingIds[chat.mid] ?? historyIncomingIds.get(chat.mid);
     if (
-      storedIncomingId &&
-      (!chat.lastIncomingMessageId ||
-        isNewerMessageId(storedIncomingId, chat.lastIncomingMessageId))
+      incomingId &&
+      (!chat.lastIncomingMessageId || isNewerMessageId(incomingId, chat.lastIncomingMessageId))
     ) {
-      chat.lastIncomingMessageId = storedIncomingId;
+      chat.lastIncomingMessageId = incomingId;
     }
     const reconciled = reconcileChatUnreadWithLocalRead(
       chat,
