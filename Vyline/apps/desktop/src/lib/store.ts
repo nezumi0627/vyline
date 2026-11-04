@@ -1176,8 +1176,20 @@ export const useStore = create<State>()(
 
         const chatId =
           activeChatId && mappedChats.some((c) => c.id === activeChatId) ? activeChatId : null;
-        // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
-        const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
+        // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める。
+        // Keep メモ（自分の mid のトーク）では、自分宛ての 1on1 受信メッセージが全部 to=chatId に
+        // 当てはまってしまうので、自分から自分へのメッセージだけに絞る。
+        // 読み直し直後は self.mid がまだ空なので、profile と一覧の isSelf も見る
+        const selfMid = profile?.mid || get().self.mid;
+        const isSelfChat = Boolean(
+          chatId && (chatId === selfMid || chats.some((c) => c.mid === chatId && c.isSelf)),
+        );
+        // Keep メモでは宛先・送信者の欠けたものを許さない（欠けていると別の人のメッセージも残る）。
+        // 通常のトークだけ、宛先の無いものを残す従来の扱いにする。
+        const chatMessageFilter = (m: LineMessage) => {
+          if (isSelfChat) return m.to === chatId && m.from === chatId;
+          return !m.to || m.to === chatId || m.from === chatId;
+        };
         const mappedMessages =
           chatId && accountId
             ? messages
@@ -1271,7 +1283,13 @@ export const useStore = create<State>()(
             }),
           messages: (() => {
             if (!chatId) return st.messages;
-            const existingChat = st.messages.filter((m) => m.chatId === chatId);
+            // Keep メモでは、直す前に入り込んだ他の人のメッセージがストアに残っていることがあるので、
+            // 既存のメッセージも自分のものだけに絞り直す
+            const existingChat = st.messages.filter(
+              (m) =>
+                m.chatId === chatId &&
+                (!isSelfChat || m.authorId === "me" || m.authorId === chatId),
+            );
             const pending = existingChat.filter(
               (m) =>
                 m.id.startsWith("pending_") ||
