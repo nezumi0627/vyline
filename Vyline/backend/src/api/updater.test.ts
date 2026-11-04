@@ -1,5 +1,10 @@
 import { describe, expect, test } from "bun:test";
-import { isAllowedLoopbackRequest, isLocalInstallerRuntime, isLoopbackHost } from "./updater.js";
+import {
+  isAllowedLoopbackRequest,
+  isLocalInstallerRuntime,
+  isLoopbackHost,
+  releaseMatchesChannel,
+} from "./updater.js";
 
 describe("local installer updater host checks", () => {
   test("accepts loopback hostnames with ports and origins", () => {
@@ -29,4 +34,11 @@ describe("local installer updater host checks", () => {
     expect(isLocalInstallerRuntime("production", "0.0.0.0", "true")).toBe(false);
     expect(isLocalInstallerRuntime("production", "192.168.1.5", undefined)).toBe(false);
   });
+});
+
+test("installer release validation keeps Stable and Beta channels separate", () => {
+  expect(releaseMatchesChannel(false, "stable")).toBe(true);
+  expect(releaseMatchesChannel(true, "stable")).toBe(false);
+  expect(releaseMatchesChannel(true, "beta")).toBe(true);
+  expect(releaseMatchesChannel(false, "beta")).toBe(false);
 });
