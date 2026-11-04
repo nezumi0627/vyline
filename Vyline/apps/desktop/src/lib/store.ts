@@ -617,12 +617,13 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: PRODUCT_VERSION,
-  title: `Vyline ${PRODUCT_VERSION} — macOS配布・履歴復元・多言語対応`,
+  title: `Vyline ${PRODUCT_VERSION} — OpenChat対応・チャット同期改善`,
   items: [
-    "macOSローカル版、アプリ内アップデート案内、多言語設定、Desktop履歴復元に対応",
-    "Linux配布物に必要なprotocol profileを同梱し、起動スモークテストを追加",
-    "下書き・E2EEチャット一覧プレビュー・チャット日時表示を改善",
-    "Dockerの保存先、Desktop WAL復元、配布チェックサムを改善",
+    "OpenChat（Square）ベータのオプトイン基盤と、スタンプ送信・既読・リアクション操作を追加",
+    "Stable/Beta更新チャンネルを分離し、インストール可能なPWAと機能状況ページを追加",
+    "チャットの未読位置・既読表示・再読み込み後の同期を改善",
+    "チャット一覧の履歴プレビュー、通話表示、固定チャットのスクロールを改善",
+    "プロフィール移動、アカウント切替、Keepメモ、リアクション表示を修正",
   ],
 };
 
