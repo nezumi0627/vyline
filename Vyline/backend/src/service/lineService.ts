@@ -1207,7 +1207,9 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       musicProfile: String(raw.musicProfile ?? ""),
       videoProfile: String(raw.videoProfile ?? ""),
       profileId: String(raw.profileId ?? ""),
-      backgroundUrl: raw.backgroundUrl || extractBackgroundUrl(raw) || undefined,
+      // getProfile の Profile には背景が無い。extractBackgroundUrl は mid などの英数字を
+      // 背景の objectId と取り違えて存在しない URL を作るので、ここでは使わない（背景は下で home から取る）
+      backgroundUrl: raw.backgroundUrl || undefined,
       birthday,
       ...(premium ? { premium } : {}),
     };
@@ -1259,6 +1261,19 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     return out;
   };
 
+  // 自分の背景は getProfile に無く、home から取るまで空になる。再起動・読み直しの直後も
+  // 前回の背景を返せるよう、手元（メモリ → ディスク）の背景を引き継ぐ
+  const withKnownBackground = async (profile: LineProfile): Promise<LineProfile> => {
+    if (profile.backgroundUrl || !profile.mid) return profile;
+    let bg = mem?.profile.backgroundUrl;
+    if (!bg) {
+      bg = (await vylineGetProfile(accountId, profile.mid).catch(() => null))?.backgroundUrl;
+    }
+    // 以前の誤った URL（myhome/h/<mid>）は使わない
+    if (!bg || bg.endsWith(`/${profile.mid}`)) return profile;
+    return { ...profile, backgroundUrl: bg };
+  };
+
   // 裏で新鮮な getProfile を走らせつつ、手元があれば先に返す
   const refreshInBg = () => {
     void runTalkRpcImmediate(accountId, async () => {
@@ -1288,7 +1303,12 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
         } catch {
           /* optional */
         }
-        persistAndReturn(mapRaw(profile as never, birthday, premium));
+        const mapped = mapRaw(profile as never, birthday, premium);
+        if (mapped.mid && !mapped.backgroundUrl) {
+          const bg = await fetchHomeProfileBackgroundUrl(accountId, mapped.mid).catch(() => null);
+          if (bg) mapped.backgroundUrl = bg;
+        }
+        persistAndReturn(await withKnownBackground(mapped));
       } catch (err) {
         log.debug({ accountId, err }, "fetchProfile background refresh failed");
       }
@@ -1301,7 +1321,9 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
   }
 
   if (baseProf?.mid && baseProf.displayName) {
-    const quick = mapRaw(baseProf, mem?.profile.birthday ?? null, mem?.profile.premium ?? null);
+    const quick = await withKnownBackground(
+      mapRaw(baseProf, mem?.profile.birthday ?? null, mem?.profile.premium ?? null),
+    );
     persistAndReturn(quick);
     refreshInBg();
     return quick;
@@ -1348,7 +1370,9 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
       log.debug({ accountId, err }, "getExtendedProfile skipped");
     }
 
-    const out = persistAndReturn(mapRaw(profile as never, birthday, premium));
+    const out = persistAndReturn(
+      await withKnownBackground(mapRaw(profile as never, birthday, premium)),
+    );
     log.debug({ accountId, mid: out.mid, hasThumb: Boolean(out.thumbnailUrl) }, "profile fetched");
     return out;
   } catch (err) {
@@ -1356,7 +1380,7 @@ export async function fetchProfile(accountId: string): Promise<LineProfile> {
     if (mem) return mem.profile;
     if (baseProf?.mid) {
       const premium = await fetchPremiumStatus(accountId).catch(() => null);
-      return persistAndReturn(mapRaw(baseProf, null, premium));
+      return persistAndReturn(await withKnownBackground(mapRaw(baseProf, null, premium)));
     }
     throw err;
   }
@@ -2769,20 +2793,24 @@ function previewFromBoxMessage(msg: any | undefined): string {
   }
 }
 
-function boxMeta(box: any | undefined): {
+export function boxMeta(box: any | undefined): {
   lastMessageTime: number;
   lastMessagePreview: string;
   lastMessageId?: string;
   unreadCount?: number;
 } {
   if (!box) return { lastMessageTime: 0, lastMessagePreview: "" };
-  const last =
-    Array.isArray(box.lastMessages) && box.lastMessages.length > 0
-      ? box.lastMessages[0]
-      : undefined;
-  const fromMsg = last?.deliveredTime != null ? Number(last.deliveredTime) : 0;
-  const fromBox = Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
-  const boxId = box.lastDeliveredMessageId?.messageId;
+  const lastMessages: any[] = Array.isArray(box.lastMessages) ? box.lastMessages : [];
+  // Desktop LINE は退出・参加などのイベント（CHATEVENT）を一覧の最終メッセージに使わない。
+  // その前の通常メッセージを使い、通常メッセージが無ければプレビューも時刻も出さない。
+  const isChatEvent = (m: any) =>
+    String(m?.contentType) === "CHATEVENT" || String(m?.contentType) === "18";
+  const last = lastMessages.find((m) => !isChatEvent(m));
+  const skippedEvent = lastMessages.length > 0 && isChatEvent(lastMessages[0]);
+  const msgTime = last?.deliveredTime ?? last?.createdTime;
+  const fromMsg = msgTime != null ? Number(msgTime) : 0;
+  const fromBox = skippedEvent ? 0 : Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
+  const boxId = skippedEvent ? last?.id : box.lastDeliveredMessageId?.messageId;
   const meta: {
     lastMessageTime: number;
     lastMessagePreview: string;

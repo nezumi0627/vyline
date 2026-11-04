@@ -88,6 +88,22 @@ const contactFetched = new Set<string>();
 const sessionOpenedChats = new Set<string>();
 /** 最近既読にした chat の時刻（サーバ反映前の未読上書き抑止） */
 const recentlyReadAt = new Map<string, number>();
+/**
+ * 読み直し直後は accountId が null から始まり、setAccountId で一覧が空になる。
+ * そのとき端末内に保存していたピン留め・ローカル名を退避し、一覧の再取得時に戻す。
+ */
+let restoredChatPrefs = new Map<string, { pinned?: boolean; localName?: string }>();
+function withRestoredPrefs<T extends { id: string; pinned?: boolean; localName?: string }>(
+  chat: T,
+): T {
+  const prefs = restoredChatPrefs.get(chat.id);
+  if (!prefs) return chat;
+  return {
+    ...chat,
+    pinned: prefs.pinned ?? chat.pinned,
+    localName: prefs.localName ?? chat.localName,
+  };
+}
 const RECENTLY_READ_WINDOW_MS = 60_000;
 
 const accountChatKey = (accountId: string, chatId: string) => `${accountId}:${chatId}`;
@@ -782,6 +798,14 @@ export const useStore = create<State>()(
         const currentAccountId = get().accountId;
         const accountChanged = id !== currentAccountId;
         if (accountChanged) {
+          restoredChatPrefs =
+            currentAccountId === null
+              ? new Map(
+                  get().chats.map((c) => [c.id, { pinned: c.pinned, localName: c.localName }]),
+                )
+              : new Map();
+        }
+        if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptInflight.clear();
@@ -1233,7 +1257,7 @@ export const useStore = create<State>()(
                     localName: prev.localName,
                     members: c.members ?? prev.members,
                   }
-                : c;
+                : withRestoredPrefs(c);
             }),
           messages: (() => {
             if (!chatId) return st.messages;
@@ -2516,7 +2540,7 @@ export const useStore = create<State>()(
                             : prev.lastMessagePreview,
                         lastMessageTime: c.lastMessageTime ?? prev.lastMessageTime,
                       }
-                    : base;
+                    : withRestoredPrefs(base);
                 });
               const activeChatId =
                 st.activeChatId && chats.some((chat) => chat.id === st.activeChatId)
