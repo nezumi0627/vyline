@@ -19,6 +19,7 @@ import type {
   Screen,
   SelfProfile,
 } from "./store-types.js";
+import { callPreviewLabel } from "./callPreview.js";
 import {
   buildMembersFromMessages,
   looksLikeMid,
@@ -490,11 +491,8 @@ function messagePreview(m: Message): string {
     case "flex":
     case "rich":
       return m.altText || m.text || (m.kind === "flex" ? "Flexメッセージ" : "リッチメッセージ");
-    case "call": {
-      const cm = m.callMeta;
-      if (!cm) return "通話";
-      return cm.video ? "ビデオ通話" : "音声通話";
-    }
+    case "call":
+      return callPreviewLabel(m.callMeta);
     case "emoji":
       return "絵文字";
     case "system":

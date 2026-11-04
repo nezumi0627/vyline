@@ -74,3 +74,26 @@ test("does not expose the raw CHATEVENT marker when localized event data is abse
   expect(mapped.kind).toBe("system");
   expect(mapped.text).toBe("チャットイベント");
 });
+
+test("parses TYPE V call events as video calls", () => {
+  const mapped = mapMessage(
+    lineMessage({ contentType: "CALL", contentMetadata: { TYPE: "V" } }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.callMeta?.video).toBe(true);
+});
+
+test("parses GC_DURATION zero as a group call marker", () => {
+  const mapped = mapMessage(
+    lineMessage({
+      contentType: "CALL",
+      contentMetadata: { GC_DURATION: 0 } as unknown as LineMessage["contentMetadata"],
+    }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.callMeta?.group).toBe(true);
+});

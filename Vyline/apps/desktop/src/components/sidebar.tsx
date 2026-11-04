@@ -9,6 +9,7 @@ import {
   type Chat,
   type ChatSort,
 } from "@/lib/store";
+import { callPreviewLabel } from "../lib/callPreview.js";
 import { formatChatListTime } from "../lib/chatDayLabels.js";
 import { cn } from "@/lib/utils";
 import { Avatar } from "@/components/vy-ui";
@@ -82,7 +83,7 @@ function buildPreviewMap(
     if (m.kind === "file") return `[${m.file?.name || "ファイル"}]`;
     if (m.kind === "flex" || m.kind === "rich")
       return m.altText || m.text || (m.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
-    if (m.kind === "call") return "[通話]";
+    if (m.kind === "call") return callPreviewLabel(m.callMeta);
     if (m.kind === "emoji") return "[絵文字]";
     if (m.kind === "location") return "[位置情報]";
     if (m.kind === "contact") return "[連絡先]";
