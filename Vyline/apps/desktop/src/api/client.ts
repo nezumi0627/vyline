@@ -1280,10 +1280,14 @@ export const api = {
         },
       ),
     sendChatChecked: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean; lastMessageId?: string }>("POST", `/line/${accountId}/sendChatChecked`, {
-        chatMid,
-        lastMessageId,
-      }),
+      request<{ ok: boolean; lastMessageId?: string }>(
+        "POST",
+        `/line/${accountId}/sendChatChecked`,
+        {
+          chatMid,
+          lastMessageId,
+        },
+      ),
 
     markAllAsRead: (accountId: string, chatMids?: string[]) =>
       request<{ ok: boolean; count?: number }>("POST", `/line/${accountId}/read-all`, {
