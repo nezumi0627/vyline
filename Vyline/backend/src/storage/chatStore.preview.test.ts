@@ -90,6 +90,16 @@ describe("stored message preview", () => {
     ).toBe("不在着信 · ビデオ通話");
   });
 
+  test("treats GC_DURATION zero as a group call marker", () => {
+    expect(
+      previewForMessage({
+        ...base,
+        contentType: "CALL",
+        contentMetadata: { TYPE: "V", GC_DURATION: 0 },
+      } as never),
+    ).toBe("グループビデオ通話");
+  });
+
   test("detects the raw call history text saved by older versions", () => {
     expect(isRawCallHistoryPreview("Call History : 0 millisecs, Result: 77")).toBe(true);
     expect(isRawCallHistoryPreview("音声通話")).toBe(false);
