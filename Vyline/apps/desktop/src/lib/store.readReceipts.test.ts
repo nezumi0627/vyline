@@ -238,6 +238,7 @@ test("discards an in-flight receipt response after resetting the same account", 
 });
 
 test("discards a stale reader-profile response after resetting the same account", async () => {
+  let warmCalls = 0;
   let releaseWarmCache!: (response: Response) => void;
   let announceWarmCache!: () => void;
   const warmCacheStarted = new Promise<void>((resolve) => {
@@ -245,9 +246,16 @@ test("discards a stale reader-profile response after resetting the same account"
   });
   globalThis.fetch = (async (input: RequestInfo | URL) => {
     if (String(input).includes("/vyline/warm")) {
-      announceWarmCache();
-      return await new Promise<Response>((resolve) => {
-        releaseWarmCache = resolve;
+      warmCalls += 1;
+      if (warmCalls === 1) {
+        announceWarmCache();
+        return await new Promise<Response>((resolve) => {
+          releaseWarmCache = resolve;
+        });
+      }
+      return Response.json({
+        ok: true,
+        profiles: { "u-stale-reader": { displayName: "Fresh profile" } },
       });
     }
     return Response.json({
@@ -280,7 +288,23 @@ test("discards a stale reader-profile response after resetting the same account"
   await useStore.getState().refreshReadReceipts(chatId);
   await warmCacheStarted;
   useStore.getState().resetAccountData();
-  useStore.setState({ accountId, chats: [{ id: chatId, members: [] } as never] });
+  useStore.setState({
+    accountId,
+    chats: [{ id: chatId, members: [] } as never],
+    messages: [
+      {
+        id: "old-own-message",
+        chatId,
+        authorId: "me",
+        text: "sent",
+        kind: "text",
+        createdAt: 1,
+        read: true,
+        status: "read",
+        messageState: "normal",
+      },
+    ],
+  });
   releaseWarmCache(
     Response.json({
       ok: true,
@@ -290,4 +314,8 @@ test("discards a stale reader-profile response after resetting the same account"
   await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(useStore.getState().chats[0]?.members).toEqual([]);
+  await useStore.getState().refreshReadReceipts(chatId);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  expect(useStore.getState().chats[0]?.members?.[0]?.name).toBe("Fresh profile");
+  expect(warmCalls).toBe(2);
 });

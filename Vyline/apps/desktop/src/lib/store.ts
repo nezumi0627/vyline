@@ -868,6 +868,7 @@ export const useStore = create<State>()(
           recentlyReadAt.clear();
           readReceiptSent.clear();
           readReceiptCheckedChats.clear();
+          contactFetched.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
