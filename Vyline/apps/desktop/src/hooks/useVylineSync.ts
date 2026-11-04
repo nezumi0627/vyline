@@ -185,7 +185,22 @@ export function useVylineSync(enabled = true) {
 
     const t = setInterval(tick, 5_000);
 
-    return () => clearInterval(t);
+    // 開いた直後（再読み込みの後など）はまだ履歴が無く、最初の tick では確認しない。
+    // 自分のメッセージが入った時点で一度確認し、次の tick（最大 5 秒）まで「送信済み」のまま待たせない。
+    // 期限を過ぎた古い発言も、開いて最初の一回は store 側（refreshReadReceipts）で取得する。
+    let primed = false;
+    const unsubscribe = useStore.subscribe((state) => {
+      if (primed) return;
+      if (!state.messages.some((m) => m.chatId === activeChatId && m.authorId === "me")) return;
+      primed = true;
+      // tick() は追跡の期限（グループは 15 分）で止まるので、最初の一回は直接取りに行く。
+      if (document.visibilityState !== "hidden") void refreshReadReceipts(activeChatId);
+    });
+
+    return () => {
+      clearInterval(t);
+      unsubscribe();
+    };
   }, [enabled, accountId, activeChatId, refreshReadReceipts]);
 
   useEffect(() => {
