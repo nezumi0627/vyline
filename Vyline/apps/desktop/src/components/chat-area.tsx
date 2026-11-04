@@ -72,6 +72,9 @@ type MsgRow =
       highlightRegex?: boolean;
     };
 
+/** この距離（px）以内で最下部を見ていれば、新着に追従する。 */
+const NEAR_BOTTOM_PX = 120;
+
 function canGroupImageMessage(message: Message): boolean {
   return message.kind === "image" && Boolean(message.imageSrc) && !message.replyToId;
 }
@@ -389,9 +392,13 @@ function ChatAreaBase() {
     return () => window.removeEventListener("vyline:older-messages-loaded", onOlderLoaded);
   }, [activeChatId, containerRef]);
 
+  // 新着を受けたときに最下部へ追従するかどうか（受信前の位置で判定する）。
+  const nearBottomRef = useRef(true);
   const handleMessageScroll = useCallback(
     (event: UIEvent<HTMLDivElement>) => {
       onScroll(event);
+      const el = event.currentTarget;
+      nearBottomRef.current = el.scrollHeight - el.clientHeight - el.scrollTop < NEAR_BOTTOM_PX;
       if (event.currentTarget.scrollTop <= 160 && activeChatId) {
         window.dispatchEvent(
           new CustomEvent("vyline:load-older-messages", { detail: { chatMid: activeChatId } }),
@@ -587,6 +594,22 @@ function ChatAreaBase() {
     scrollToBottom,
     scrollToKey,
   ]);
+
+  // 開いた後に末尾へ新着が増えたとき、最下部付近を見ていれば追従する。
+  // 自分の送信（送信中の仮メッセージ）は位置に関係なく末尾へ移す。古い履歴の追加では末尾が変わらないので動かない。
+  const lastMessage = chatMessages[chatMessages.length - 1];
+  const lastMessageId = lastMessage?.id;
+  const lastMessageIsOwnPending =
+    lastMessage?.authorId === "me" && Boolean(lastMessage.id.startsWith("pending_"));
+  const followRef = useRef<{ chatId: string | null; lastId?: string }>({ chatId: null });
+  useEffect(() => {
+    const prev = followRef.current;
+    followRef.current = { chatId: activeChatId, lastId: lastMessageId };
+    if (!activeChatId || prev.chatId !== activeChatId) return;
+    if (!prev.lastId || !lastMessageId || prev.lastId === lastMessageId) return;
+    if (openedChatRef.current !== activeChatId) return;
+    if (lastMessageIsOwnPending || nearBottomRef.current) scrollToBottom("auto");
+  }, [activeChatId, lastMessageId, lastMessageIsOwnPending, scrollToBottom]);
 
   // 返信ジャンプ（store.scrollToMessage → highlightMessageId）
   useEffect(() => {
