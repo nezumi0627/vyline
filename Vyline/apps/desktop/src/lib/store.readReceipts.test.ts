@@ -73,6 +73,189 @@ test("manual mark-all sends receipts even when automatic receipts are disabled",
   expect(useStore.getState().chats.every((chat) => chat.unread === 0)).toBe(true);
 });
 
+test("uses the message ID when the chat summary advances within the same millisecond", async () => {
+  const requestedIds: string[] = [];
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string };
+    requestedIds.push(body.lastMessageId ?? "");
+    return Response.json({ ok: true, lastMessageId: body.lastMessageId });
+  }) as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-same-millisecond",
+    settings: { ...state.settings, readReceipts: true },
+    chats: [
+      {
+        id: "c-same-millisecond",
+        name: "DM",
+        type: "friend",
+        avatar: "D",
+        color: "#000",
+        status: "",
+        unread: 1,
+        lastMessageTime: 1,
+        lastMessageId: "100",
+      },
+    ],
+    messages: [
+      {
+        id: "90",
+        chatId: "c-same-millisecond",
+        authorId: "u-sender",
+        text: "older",
+        kind: "text",
+        createdAt: 1,
+        read: false,
+        status: "sent",
+        messageState: "normal",
+      },
+    ],
+  }));
+
+  await useStore.getState().markChatRead("c-same-millisecond");
+  useStore.setState((state) => ({
+    chats: state.chats.map((chat) =>
+      chat.id === "c-same-millisecond" ? { ...chat, lastMessageId: "101" } : chat,
+    ),
+  }));
+  await useStore.getState().markChatRead("c-same-millisecond");
+
+  expect(requestedIds).toEqual(["100", "101"]);
+});
+
+test("serializes newer read receipts behind an in-flight older receipt", async () => {
+  const requestedIds: string[] = [];
+  let releaseFirst!: (response: Response) => void;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string };
+    requestedIds.push(body.lastMessageId ?? "");
+    if (requestedIds.length === 1) {
+      return await new Promise<Response>((resolve) => {
+        releaseFirst = resolve;
+      });
+    }
+    return Response.json({ ok: true, lastMessageId: body.lastMessageId });
+  }) as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-overlap",
+    settings: { ...state.settings, readReceipts: true },
+    chats: [
+      {
+        id: "c-overlap",
+        name: "DM",
+        type: "friend",
+        avatar: "D",
+        color: "#000",
+        status: "",
+        unread: 1,
+        lastMessageTime: 2,
+      },
+    ],
+    messages: ["100", "101"].map((id, index) => ({
+      id,
+      chatId: "c-overlap",
+      authorId: "u-sender",
+      text: "message",
+      kind: "text" as const,
+      createdAt: index + 1,
+      read: false,
+      status: "sent" as const,
+      messageState: "normal" as const,
+    })),
+  }));
+
+  const olderRequest = useStore.getState().markChatRead("c-overlap", "100");
+  await Promise.resolve();
+  const newerRequest = useStore.getState().markChatRead("c-overlap", "101");
+  await Promise.resolve();
+  expect(requestedIds).toEqual(["100"]);
+
+  releaseFirst(Response.json({ ok: true, lastMessageId: "100" }));
+  await Promise.all([olderRequest, newerRequest]);
+  expect(requestedIds).toEqual(["100", "101"]);
+});
+
+function captureReadRequests() {
+  const bodies: Array<{ chatMid?: string; lastMessageId?: string }> = [];
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    if (String(input).includes("/sendChatChecked")) {
+      bodies.push(JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string });
+    }
+    return Response.json({ ok: true, lastMessageId: "1000" });
+  }) as typeof fetch;
+  return bodies;
+}
+
+function setChatWithHistory(chatId: string, lastMessageTime: number) {
+  useStore.setState((state) => ({
+    accountId: `box-ahead-${chatId}`,
+    settings: { ...state.settings, readReceipts: true },
+    chats: [
+      {
+        id: chatId,
+        name: "Official",
+        type: "friend",
+        avatar: "O",
+        color: "#000",
+        status: "",
+        // 開いた時点で一覧の未読は 0 にされている
+        unread: 0,
+        lastMessagePreview: "",
+        lastMessageTime,
+      },
+    ],
+    messages: [
+      {
+        id: "1000",
+        chatId,
+        authorId: chatId,
+        kind: "text",
+        text: "",
+        createdAt: 1_000,
+        messageState: "normal",
+        read: true,
+      } as never,
+    ],
+  }));
+}
+
+test("reads through the message box when the list is ahead of the history", async () => {
+  const bodies = captureReadRequests();
+  setChatWithHistory("u-box-ahead", 1_000 + 2 * 60_000);
+
+  await useStore.getState().markChatRead("u-box-ahead");
+
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]?.lastMessageId).toBeUndefined();
+
+  // 同じ一覧の時刻へは送り直さない
+  await useStore.getState().markChatRead("u-box-ahead");
+  expect(bodies).toHaveLength(1);
+});
+
+test("retries read-through when the backend could not resolve a message id", async () => {
+  let attempts = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (String(input).includes("/sendChatChecked")) attempts++;
+    return Response.json({ ok: true });
+  }) as typeof fetch;
+  setChatWithHistory("u-box-id-unavailable", 1_000 + 2 * 60_000);
+
+  await useStore.getState().markChatRead("u-box-id-unavailable");
+  await useStore.getState().markChatRead("u-box-id-unavailable");
+
+  expect(attempts).toBe(2);
+});
+
+test("reads through the latest received message when the list time is only slightly later", async () => {
+  const bodies = captureReadRequests();
+  setChatWithHistory("u-up-to-date", 1_000 + 5_000);
+
+  await useStore.getState().markChatRead("u-up-to-date");
+
+  expect(bodies).toHaveLength(1);
+  expect(bodies[0]?.lastMessageId).toBe("1000");
+});
+
 test("retries the initial receipt fetch after a failed or incomplete response", async () => {
   for (const [chatId, response] of [
     ["c-receipts-failed", { ok: false }],
