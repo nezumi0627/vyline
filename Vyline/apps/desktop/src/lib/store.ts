@@ -63,8 +63,24 @@ export type {
   MessageState,
 } from "./store-types.js";
 
-/** chatId → 送信済み lastMessageId（既読 API の重複抑止） */
+/** 一覧の最後の時刻が履歴の最新よりこれ以上新しければ、履歴に出てこないメッセージがあるとみなす。 */
+const BOX_AHEAD_TOLERANCE_MS = 60_000;
+/** chatId → 送信済み lastMessageId（一覧の方が新しいときは box:<時刻>。既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
+const markReadInflight = new Map<string, { messageId: string; promise: Promise<void> }>();
+
+function isMessageIdAtOrAfter(candidate: string, target: string): boolean {
+  try {
+    return BigInt(candidate) >= BigInt(target);
+  } catch {
+    return candidate === target;
+  }
+}
+
+function isReceiptMarkerAtOrAfter(candidate: string, target: string): boolean {
+  if (candidate.startsWith("box:") || target.startsWith("box:")) return candidate === target;
+  return isMessageIdAtOrAfter(candidate, target);
+}
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
@@ -818,6 +834,7 @@ export const useStore = create<State>()(
           readReceiptGeneration += 1;
           contactFetched.clear();
           readReceiptSent.clear();
+          markReadInflight.clear();
           readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
@@ -872,6 +889,7 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          markReadInflight.clear();
           readReceiptCheckedChats.clear();
           contactFetched.clear();
           readReceiptInflight.clear();
@@ -2298,6 +2316,41 @@ export const useStore = create<State>()(
                   !message.id.startsWith("pending_"),
               )
             : undefined) ?? latest;
+        // 一覧（MessageBox）の最後のメッセージが履歴のどれよりも新しいときは、履歴の最新受信まで
+        // 既読にしても未読が消えない（LINE の通知メッセージなど、履歴の取得に出てこないメッセージが
+        // ある）。id を付けずに送り、バックエンドに MessageBox の lastDeliveredMessageId まで既読に
+        // させる。開いた時点で一覧の未読は 0 にされるので、未読の数では判定しない。
+        // 一覧の時刻は配信時刻のこともあり、作成時刻より少し後になるので余裕を持たせる。
+        const boxTime = get().chats.find((c) => c.id === id)?.lastMessageTime ?? 0;
+        const boxMessageId = get().chats.find((c) => c.id === id)?.lastMessageId;
+        let newestInHistory = 0;
+        let newestHistoryMessageId: string | undefined;
+        for (const message of messages) {
+          if (message.chatId !== id || message.id.startsWith("pending_")) continue;
+          if (message.createdAt > newestInHistory) {
+            newestInHistory = message.createdAt;
+            newestHistoryMessageId = message.id;
+          } else if (message.createdAt === newestInHistory && newestHistoryMessageId) {
+            try {
+              if (BigInt(message.id) > BigInt(newestHistoryMessageId)) {
+                newestHistoryMessageId = message.id;
+              }
+            } catch {
+              /* same-time opaque IDs keep the existing history head */
+            }
+          }
+        }
+        let boxIdIsAhead = false;
+        if (boxMessageId && newestHistoryMessageId) {
+          try {
+            boxIdIsAhead = BigInt(boxMessageId) > BigInt(newestHistoryMessageId);
+          } catch {
+            /* Fall back to the delivery-time comparison below. */
+          }
+        }
+        const boxIsAhead =
+          !requestedMessageId &&
+          (boxIdIsAhead || boxTime > newestInHistory + BOX_AHEAD_TOLERANCE_MS);
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => {
@@ -2315,24 +2368,45 @@ export const useStore = create<State>()(
         });
         if (demoMode) return;
         if (!accountId || (!force && (!settings.readReceipts || readDisabledMids[id]))) return;
-        const lastId = last?.id;
-        // 同じ最終メッセージへの既読は再送しない
+        const lastId = boxIsAhead ? boxMessageId : last?.id;
+        // 同じ最終メッセージへの既読は再送しない。ID が無い場合のみ一覧時刻へフォールバックする。
+        const sentMarker = lastId ?? (boxIsAhead ? `box:${boxTime}` : undefined);
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (!force && lastId && prev === lastId) return;
-        if (lastId) readReceiptSent.set(receiptKey, lastId);
-        try {
-          const result = await api.line.sendChatChecked(accountId, id, lastId);
-          if (!result.ok) throw new Error("既読の送信に失敗しました");
-        } catch {
-          if (lastId) rollbackReceiptAttempt(readReceiptSent, receiptKey, lastId);
-          if (localKey) recentlyReadAt.delete(localKey);
-          if (force) {
-            get().showNotice(
-              "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
-            );
+        if (!force && sentMarker && prev && isReceiptMarkerAtOrAfter(prev, sentMarker)) return;
+        const pending = markReadInflight.get(receiptKey);
+        if (pending) {
+          if (!lastId || isMessageIdAtOrAfter(pending.messageId, lastId)) {
+            return pending.promise;
           }
+          await pending.promise;
+          if (get().accountId !== accountId) return;
+          return get().markChatRead(id, target);
         }
+        if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
+        let request!: Promise<void>;
+        request = (async () => {
+          try {
+            const result = await api.line.sendChatChecked(accountId, id, lastId);
+            if (!result.ok || !result.lastMessageId?.trim()) {
+              throw new Error("既読の送信に失敗しました");
+            }
+          } catch {
+            if (sentMarker) rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
+            if (localKey) recentlyReadAt.delete(localKey);
+            if (force) {
+              get().showNotice(
+                "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
+              );
+            }
+          } finally {
+            if (markReadInflight.get(receiptKey)?.promise === request) {
+              markReadInflight.delete(receiptKey);
+            }
+          }
+        })();
+        markReadInflight.set(receiptKey, { messageId: lastId ?? "", promise: request });
+        return request;
       },
 
       markAllChatsRead: async () => {

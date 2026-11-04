@@ -1933,8 +1933,8 @@ lineRouter.post("/:accountId/sendChatChecked", async (c) => {
   }
 
   try {
-    await markAsRead(accountId, body.chatMid, body.lastMessageId);
-    return c.json({ ok: true });
+    const lastMessageId = await markAsRead(accountId, body.chatMid, body.lastMessageId);
+    return c.json({ ok: true, lastMessageId });
   } catch (err) {
     return handleError(err, c);
   }
