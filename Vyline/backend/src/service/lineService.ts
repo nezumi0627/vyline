@@ -3126,7 +3126,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       const mid = String(box.id);
       const key = `${accountId}:${mid}`;
       let cached = incomingWatermarkCache.get(key);
-      if (cached && cached.complete && cached.head !== incomingWatermarkHead(box)) {
+      if (cached?.complete && cached.head !== incomingWatermarkHead(box)) {
         incomingWatermarkCache.delete(key);
         cached = undefined;
       }
