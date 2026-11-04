@@ -783,10 +783,13 @@ function SidebarBase() {
         </p>
       )}
 
+      {/* ブラウザのスクロール固定を切る。ピン留めで行が先頭へ移ると、固定の基準に選ばれた行を
+          追って一覧ごと上へスクロールしてしまう（メッセージ一覧も同じ理由で切っている） */}
       <div
         ref={listRef}
         onScroll={recomputeWin}
-        className="vy-scroll flex-1 overflow-y-auto px-2 pb-3"
+        className="vy-scroll [overflow-anchor:none] flex-1 overflow-y-auto px-2 pb-3"
+        style={{ overflowAnchor: "none" }}
       >
         {tab === "openchat" ? (
           <>
