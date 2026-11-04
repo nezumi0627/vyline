@@ -194,7 +194,14 @@ test("hydrating Keep Memo accepts only messages sent from self to self", () => {
     hiddenMids: new Set(),
     contactCache: new Map(),
     chats: [
-      { mid: selfMid, name: "Keep", kind: "direct", hasMessages: true, lastMessageTime: 1, isSelf: true },
+      {
+        mid: selfMid,
+        name: "Keep",
+        kind: "direct",
+        hasMessages: true,
+        lastMessageTime: 1,
+        isSelf: true,
+      },
     ],
   });
 
