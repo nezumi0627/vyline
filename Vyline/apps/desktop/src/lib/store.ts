@@ -63,6 +63,13 @@ export type {
 /** chatId → 送信済み lastMessageId（既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
 const markReadInflight = new Map<string, { messageId: string; promise: Promise<boolean> }>();
+function isMessageIdAtOrAfter(candidate: string, target: string): boolean {
+  try {
+    return BigInt(candidate) >= BigInt(target);
+  } catch {
+    return candidate === target;
+  }
+}
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
@@ -2284,9 +2291,14 @@ export const useStore = create<State>()(
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (!force && lastId && prev === lastId) return true;
+        if (!force && lastId && prev && isMessageIdAtOrAfter(prev, lastId)) return true;
         const pending = markReadInflight.get(receiptKey);
-        if (!force && lastId && pending?.messageId === lastId) return pending.promise;
+        if (pending) {
+          if (!lastId || isMessageIdAtOrAfter(pending.messageId, lastId)) return pending.promise;
+          await pending.promise;
+          if (get().accountId !== accountId) return false;
+          return get().markChatRead(id, target);
+        }
         let request!: Promise<boolean>;
         request = (async () => {
           try {
