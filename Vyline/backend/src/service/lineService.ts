@@ -818,8 +818,11 @@ type MessageBoxesCacheEntry = {
 };
 const messageBoxesCache = new Map<string, MessageBoxesCacheEntry>();
 const MESSAGE_BOXES_CACHE_MS = Number(process.env.VYLINE_MESSAGE_BOXES_CACHE_MS ?? 20_000);
-const incomingWatermarkCache = new Map<string, { at: number; id: string | null }>();
-const INCOMING_WATERMARK_CACHE_MS = 5 * 60_000;
+const incomingWatermarkCache = new Map<
+  string,
+  { at: number; id: string | null; cursor: any; complete: boolean }
+>();
+let incomingWatermarkLookupOffset = 0;
 /** getMessageBoxes がハング/遅延してもメッセージ表示をブロックしないよう打ち切る */
 const MESSAGE_BOXES_TIMEOUT_MS = Number(process.env.VYLINE_MESSAGE_BOXES_TIMEOUT_MS ?? 5_000);
 /** 全ボックス取得（ページングあり）は /S4 RPC を最大 10 本消費するため長めにキャッシュ
@@ -925,7 +928,6 @@ async function fetchPreviousMessagesRpc(
 }
 
 const INCOMING_WATERMARK_PAGE_SIZE = 100;
-const INCOMING_WATERMARK_MAX_PAGES = 1;
 const INCOMING_WATERMARK_MAX_LOOKUPS_PER_REFRESH = 8;
 
 export function incomingIdFromRawMessages(
@@ -949,34 +951,41 @@ export function incomingIdFromRawMessages(
   return latest;
 }
 
+export function incomingWatermarkPageResult(
+  messages: unknown[],
+  selfMid: string,
+): { id?: string; cursor?: any; complete: boolean } {
+  const id = incomingIdFromRawMessages(messages, selfMid);
+  if (id) return { id, complete: true };
+  if (messages.length < INCOMING_WATERMARK_PAGE_SIZE) return { complete: true };
+  const oldest = messages.at(-1) as
+    | { id?: unknown; deliveredTime?: unknown; createdTime?: unknown }
+    | undefined;
+  if (oldest?.id == null) return { complete: true };
+  return {
+    cursor: {
+      messageId: BigInt(String(oldest.id)),
+      deliveredTime: BigInt(String(oldest.deliveredTime ?? oldest.createdTime ?? 0)),
+    },
+    complete: false,
+  };
+}
+
 async function fetchIncomingWatermarkFromHistory(
   client: NonNullable<ReturnType<typeof getClient>>,
   box: any,
   selfMid: string,
-): Promise<string | undefined> {
-  let endMessageId = box.lastDeliveredMessageId;
-  if (!endMessageId) return undefined;
-  for (let page = 0; page < INCOMING_WATERMARK_MAX_PAGES; page++) {
-    const messages = await fetchPreviousMessagesRpc(
-      client,
-      String(box.id),
-      endMessageId,
-      INCOMING_WATERMARK_PAGE_SIZE,
-      3_000,
-    );
-    const incomingId = incomingIdFromRawMessages(messages, selfMid);
-    if (incomingId) return incomingId;
-    if (messages.length < INCOMING_WATERMARK_PAGE_SIZE) return undefined;
-    const oldest = messages.at(-1) as
-      | { id?: unknown; deliveredTime?: unknown; createdTime?: unknown }
-      | undefined;
-    if (oldest?.id == null) return undefined;
-    endMessageId = {
-      messageId: BigInt(String(oldest.id)),
-      deliveredTime: BigInt(String(oldest.deliveredTime ?? oldest.createdTime ?? 0)),
-    };
-  }
-  return undefined;
+  cursor: any,
+): Promise<{ id?: string; cursor?: any; complete: boolean }> {
+  if (!cursor) return { complete: true };
+  const messages = await fetchPreviousMessagesRpc(
+    client,
+    String(box.id),
+    cursor,
+    INCOMING_WATERMARK_PAGE_SIZE,
+    3_000,
+  );
+  return incomingWatermarkPageResult(messages, selfMid);
 }
 
 /** チャット一覧の送信連投より前にある受信IDも取得できるよう、直近10件を要求する。 */
@@ -3105,32 +3114,49 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const selfMid = client.base.profile?.mid;
   const historyIncomingIds = new Map<string, string>();
   if (selfMid) {
-    const unresolved = messageBoxes
-      .filter((box: any) => {
-        const mid = String(box.id);
-        const cached = incomingWatermarkCache.get(`${accountId}:${mid}`);
-        if (cached && Date.now() - cached.at < INCOMING_WATERMARK_CACHE_MS) {
-          if (cached.id) historyIncomingIds.set(mid, cached.id);
-          return false;
-        }
-        return (
-          Number(box.unreadCount ?? 0) > 0 &&
-          !storedIncomingIds[mid] &&
-          !boxMeta(box, selfMid).lastIncomingMessageId &&
-          Boolean(box.lastDeliveredMessageId)
-        );
-      })
-      .slice(0, INCOMING_WATERMARK_MAX_LOOKUPS_PER_REFRESH);
-    // Only eight chats per refresh get one short history lookup. Cached results spread work
-    // across subsequent refreshes without delaying the entire roster for a large unread backlog.
+    const candidates = messageBoxes.filter((box: any) => {
+      const mid = String(box.id);
+      const cached = incomingWatermarkCache.get(`${accountId}:${mid}`);
+      if (cached?.id) {
+        historyIncomingIds.set(mid, cached.id);
+        return false;
+      }
+      if (cached?.complete) return false;
+      return (
+        Number(box.unreadCount ?? 0) > 0 &&
+        !storedIncomingIds[mid] &&
+        !boxMeta(box, selfMid).lastIncomingMessageId &&
+        Boolean(box.lastDeliveredMessageId)
+      );
+    });
+    const start = candidates.length ? incomingWatermarkLookupOffset % candidates.length : 0;
+    const unresolved = Array.from(
+      { length: Math.min(candidates.length, INCOMING_WATERMARK_MAX_LOOKUPS_PER_REFRESH) },
+      (_, index) => candidates[(start + index) % candidates.length],
+    );
+    incomingWatermarkLookupOffset += unresolved.length;
+    // Advance at most eight chats by one short history page per refresh. Cursor state and
+    // round-robin selection let later refreshes reach older messages and every unread chat.
     for (let offset = 0; offset < unresolved.length; offset += 4) {
       await Promise.all(
         unresolved.slice(offset, offset + 4).map(async (box: any) => {
           try {
-            const id = await fetchIncomingWatermarkFromHistory(client, box, selfMid);
             const mid = String(box.id);
-            incomingWatermarkCache.set(`${accountId}:${mid}`, { at: Date.now(), id: id ?? null });
-            if (id) historyIncomingIds.set(mid, id);
+            const key = `${accountId}:${mid}`;
+            const cached = incomingWatermarkCache.get(key);
+            const result = await fetchIncomingWatermarkFromHistory(
+              client,
+              box,
+              selfMid,
+              cached?.cursor ?? box.lastDeliveredMessageId,
+            );
+            incomingWatermarkCache.set(key, {
+              at: Date.now(),
+              id: result.id ?? null,
+              cursor: result.cursor,
+              complete: result.complete,
+            });
+            if (result.id) historyIncomingIds.set(mid, result.id);
           } catch (err) {
             log.debug(
               { accountId, chatMid: String(box.id), err },
