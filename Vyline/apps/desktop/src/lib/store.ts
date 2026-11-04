@@ -61,7 +61,9 @@ export type {
   MessageState,
 } from "./store-types.js";
 
-/** chatId → 送信済み lastMessageId（既読 API の重複抑止） */
+/** 一覧の最後の時刻が履歴の最新よりこれ以上新しければ、履歴に出てこないメッセージがあるとみなす。 */
+const BOX_AHEAD_TOLERANCE_MS = 60_000;
+/** chatId → 送信済み lastMessageId（一覧の方が新しいときは box:<時刻>。既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
@@ -2261,6 +2263,19 @@ export const useStore = create<State>()(
                   !message.id.startsWith("pending_"),
               )
             : undefined) ?? latest;
+        // 一覧（MessageBox）の最後のメッセージが履歴のどれよりも新しいときは、履歴の最新受信まで
+        // 既読にしても未読が消えない（LINE の通知メッセージなど、履歴の取得に出てこないメッセージが
+        // ある）。id を付けずに送り、バックエンドに MessageBox の lastDeliveredMessageId まで既読に
+        // させる。開いた時点で一覧の未読は 0 にされるので、未読の数では判定しない。
+        // 一覧の時刻は配信時刻のこともあり、作成時刻より少し後になるので余裕を持たせる。
+        const boxTime = get().chats.find((c) => c.id === id)?.lastMessageTime ?? 0;
+        let newestInHistory = 0;
+        for (const message of messages) {
+          if (message.chatId !== id || message.id.startsWith("pending_")) continue;
+          if (message.createdAt > newestInHistory) newestInHistory = message.createdAt;
+        }
+        const boxIsAhead =
+          !requestedMessageId && boxTime > newestInHistory + BOX_AHEAD_TOLERANCE_MS;
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => {
@@ -2278,17 +2293,18 @@ export const useStore = create<State>()(
         });
         if (demoMode) return;
         if (!accountId || (!force && (!settings.readReceipts || readDisabledMids[id]))) return;
-        const lastId = last?.id;
-        // 同じ最終メッセージへの既読は再送しない
+        const lastId = boxIsAhead ? undefined : last?.id;
+        // 同じ最終メッセージ（一覧の方が新しいときは一覧の時刻）への既読は再送しない
+        const sentMarker = boxIsAhead ? `box:${boxTime}` : lastId;
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (!force && lastId && prev === lastId) return;
-        if (lastId) readReceiptSent.set(receiptKey, lastId);
+        if (!force && sentMarker && prev === sentMarker) return;
+        if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
         try {
           const result = await api.line.sendChatChecked(accountId, id, lastId);
           if (!result.ok) throw new Error("既読の送信に失敗しました");
         } catch {
-          if (lastId) rollbackReceiptAttempt(readReceiptSent, receiptKey, lastId);
+          if (sentMarker) rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
           if (localKey) recentlyReadAt.delete(localKey);
           if (force) {
             get().showNotice(
