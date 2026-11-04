@@ -10,9 +10,8 @@ globalThis.fetch = (async () => {
   throw new Error("No network in boxMeta regressions");
 }) as unknown as typeof fetch;
 
-const { boxMeta, incomingIdFromRawMessages, incomingWatermarkPageResult } = await import(
-  "./lineService.js"
-);
+const { boxMeta, incomingIdFromRawMessages, incomingWatermarkHead, incomingWatermarkPageResult } =
+  await import("./lineService.js");
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -112,5 +111,17 @@ describe("chat list box meta", () => {
     expect(
       incomingWatermarkPageResult([{ id: "400", from: "u-peer", deliveredTime: 4900 }], "u-self"),
     ).toEqual({ id: "400", complete: true });
+  });
+
+  test("changes the cached history head when MessageBox advances", () => {
+    expect(
+      incomingWatermarkHead({
+        lastDeliveredMessageId: { messageId: 200n, deliveredTime: 2000n },
+      }),
+    ).not.toBe(
+      incomingWatermarkHead({
+        lastDeliveredMessageId: { messageId: 210n, deliveredTime: 2100n },
+      }),
+    );
   });
 });

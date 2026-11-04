@@ -820,7 +820,7 @@ const messageBoxesCache = new Map<string, MessageBoxesCacheEntry>();
 const MESSAGE_BOXES_CACHE_MS = Number(process.env.VYLINE_MESSAGE_BOXES_CACHE_MS ?? 20_000);
 const incomingWatermarkCache = new Map<
   string,
-  { at: number; id: string | null; cursor: any; complete: boolean }
+  { head: string; id: string | null; cursor: any; complete: boolean }
 >();
 let incomingWatermarkLookupOffset = 0;
 /** getMessageBoxes がハング/遅延してもメッセージ表示をブロックしないよう打ち切る */
@@ -929,6 +929,14 @@ async function fetchPreviousMessagesRpc(
 
 const INCOMING_WATERMARK_PAGE_SIZE = 100;
 const INCOMING_WATERMARK_MAX_LOOKUPS_PER_REFRESH = 8;
+
+export function incomingWatermarkHead(box: any): string {
+  const marker = box.lastDeliveredMessageId;
+  if (marker && typeof marker === "object") {
+    return `${String(marker.messageId ?? marker.id ?? "")}:${String(marker.deliveredTime ?? "")}`;
+  }
+  return String(marker ?? "");
+}
 
 export function incomingIdFromRawMessages(
   messages: unknown[],
@@ -3116,7 +3124,12 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   if (selfMid) {
     const candidates = messageBoxes.filter((box: any) => {
       const mid = String(box.id);
-      const cached = incomingWatermarkCache.get(`${accountId}:${mid}`);
+      const key = `${accountId}:${mid}`;
+      let cached = incomingWatermarkCache.get(key);
+      if (cached && cached.head !== incomingWatermarkHead(box)) {
+        incomingWatermarkCache.delete(key);
+        cached = undefined;
+      }
       if (cached?.id) {
         historyIncomingIds.set(mid, cached.id);
         return false;
@@ -3151,7 +3164,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
               cached?.cursor ?? box.lastDeliveredMessageId,
             );
             incomingWatermarkCache.set(key, {
-              at: Date.now(),
+              head: incomingWatermarkHead(box),
               id: result.id ?? null,
               cursor: result.cursor,
               complete: result.complete,
