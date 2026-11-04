@@ -121,6 +121,23 @@ const backfillInflight = new Map<string, Promise<void>>();
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
+const deferredPeerMessagesByChat = new Map<string, Map<string, Message>>();
+
+function deferPeerMessages(chatId: string, messages: Message[]): void {
+  let deferred = deferredPeerMessagesByChat.get(chatId);
+  if (!deferred) {
+    deferred = new Map();
+    deferredPeerMessagesByChat.set(chatId, deferred);
+  }
+  for (const message of messages) {
+    if (deferred.size >= 500 && !deferred.has(message.id)) {
+      const oldestId = deferred.keys().next().value;
+      if (oldestId !== undefined) deferred.delete(oldestId);
+    }
+    deferred.set(message.id, message);
+  }
+}
+
 function isAfterChatMessageWatermark(messageId: string, createdAt: number, chat: Chat): boolean {
   const idWatermark = chat.lastIncomingMessageId ?? chat.lastMessageId;
   if (idWatermark) {
@@ -131,6 +148,24 @@ function isAfterChatMessageWatermark(messageId: string, createdAt: number, chat:
     }
   }
   return createdAt > (chat.lastMessageTime ?? 0);
+}
+
+export function resolveDeferredPeerMessages(
+  messages: Message[],
+  chat: Chat,
+): { unreadCount: number; lastIncomingMessageId: string | undefined } | undefined {
+  if (!chat.lastIncomingMessageId) return undefined;
+  const lateMessages = messages.filter((message) =>
+    isAfterChatMessageWatermark(message.id, message.createdAt, chat),
+  );
+  return {
+    unreadCount: lateMessages.length,
+    lastIncomingMessageId: advanceChatMessageIdWatermark(
+      chat.lastIncomingMessageId,
+      chat.lastMessageTime,
+      lateMessages,
+    ),
+  };
 }
 
 function advanceChatMessageIdWatermark(
@@ -888,6 +923,7 @@ export const useStore = create<State>()(
           pollIncomingInflight.clear();
           messageReactionCache.clear();
           recentlyReadAt.clear();
+          deferredPeerMessagesByChat.clear();
           for (const timer of refreshDebounce.values()) clearTimeout(timer);
           refreshDebounce.clear();
           lastDeltaPollAt.clear();
@@ -931,6 +967,7 @@ export const useStore = create<State>()(
           revokeObjectUrl(st.self.backgroundUrl);
           eventPollCursor.clear();
           pollIncomingInflight.clear();
+          deferredPeerMessagesByChat.clear();
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
@@ -1221,7 +1258,7 @@ export const useStore = create<State>()(
             const base = mapChat(c, hiddenMids.has(c.mid), contactCache);
             const previous = previousChats.get(c.mid);
             const cached = contactCache.get(c.mid);
-            return {
+            const mapped = {
               ...base,
               lastIncomingMessageId: base.lastIncomingMessageId ?? previous?.lastIncomingMessageId,
               avatarUrl: base.avatarUrl || cached?.thumbnailUrl,
@@ -1239,6 +1276,18 @@ export const useStore = create<State>()(
                     : base.name,
               ),
             };
+            const deferred = deferredPeerMessagesByChat.get(c.mid);
+            if (deferred && (mapped.lastIncomingMessageId || activeChatId === c.mid)) {
+              deferredPeerMessagesByChat.delete(c.mid);
+              if (activeChatId !== c.mid && mapped.lastIncomingMessageId) {
+                const resolved = resolveDeferredPeerMessages([...deferred.values()], mapped);
+                if (resolved && resolved.unreadCount > 0) {
+                  mapped.unread += resolved.unreadCount;
+                  mapped.lastIncomingMessageId = resolved.lastIncomingMessageId;
+                }
+              }
+            }
+            return mapped;
           });
 
         // hide flag: always preserve prev.hidden when chat already exists,
@@ -3215,6 +3264,16 @@ export const useStore = create<State>()(
               const countedFromPeer = fresh.filter(
                 (m) => m.authorId !== "me" && isAfterChatMessageWatermark(m.id, m.createdAt, chat),
               );
+              if (!silent && !chat.lastIncomingMessageId) {
+                deferPeerMessages(
+                  chatId,
+                  fresh.filter(
+                    (message) =>
+                      message.authorId !== "me" &&
+                      !isAfterChatMessageWatermark(message.id, message.createdAt, chat),
+                  ),
+                );
+              }
               const newFromPeer = countedFromPeer.length;
               return {
                 ...chat,

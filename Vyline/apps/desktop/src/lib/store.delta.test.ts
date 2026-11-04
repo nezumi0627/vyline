@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { useStore } from "./store.js";
+import { resolveDeferredPeerMessages, useStore } from "./store.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -748,4 +748,32 @@ test("counts a delayed incoming ID between the peer and outgoing watermarks", ()
   ] as never);
 
   expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
+test("recounts deferred incoming messages when the peer watermark becomes available", () => {
+  const chat = Object.assign(
+    {
+      id: "deferred-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: "180" },
+  );
+  const deferred = [
+    { id: "190", createdAt: 3_000, authorId: "peer" },
+    { id: "170", createdAt: 2_000, authorId: "peer" },
+  ] as never;
+
+  expect(resolveDeferredPeerMessages(deferred, chat)).toEqual({
+    unreadCount: 1,
+    lastIncomingMessageId: "190",
+  });
+  expect(
+    resolveDeferredPeerMessages(deferred, { ...chat, lastIncomingMessageId: undefined }),
+  ).toBeUndefined();
 });
