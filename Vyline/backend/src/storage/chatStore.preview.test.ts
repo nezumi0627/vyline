@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fillPreviewFromStoredMessage,
   previewForMessage,
   rebuildChatDbRecords,
   shouldPreserveResolvedLastMessagePreview,
@@ -86,5 +87,39 @@ describe("stored message preview", () => {
     expect(previewForMessage({ ...base, contentType: "POSTNOTIFICATION" } as never)).toBe(
       "投稿のお知らせ",
     );
+  });
+});
+
+describe("fill empty list previews from stored history", () => {
+  const chat = { mid: "u1", lastMessageId: "300", lastMessageTime: 300, lastMessagePreview: "" };
+  const stored = (createdTime: number) =>
+    ({
+      id: String(createdTime),
+      from: "u1",
+      to: "u2",
+      createdTime,
+      text: "履歴の最後の文",
+      contentType: "NONE",
+    }) as never;
+
+  test("uses the stored message and its time when the history is up to date", () => {
+    expect(fillPreviewFromStoredMessage(chat as never, stored(300))).toMatchObject({
+      lastMessageId: "300",
+      lastMessageTime: 300,
+      lastMessagePreview: "履歴の最後の文",
+    });
+  });
+
+  test("fills only the text when the list points to a message missing from the history", () => {
+    expect(fillPreviewFromStoredMessage(chat as never, stored(100))).toMatchObject({
+      lastMessageId: "300",
+      lastMessageTime: 300,
+      lastMessagePreview: "履歴の最後の文",
+    });
+  });
+
+  test("keeps a resolved preview", () => {
+    const resolved = { ...chat, lastMessagePreview: "要約の文" };
+    expect(fillPreviewFromStoredMessage(resolved as never, stored(100))).toBe(resolved as never);
   });
 });
