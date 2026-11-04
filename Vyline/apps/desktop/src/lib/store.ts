@@ -68,6 +68,10 @@ const readReceiptSent = new Map<string, string>();
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
+/** このセッションで一度でも既読を取得した chat（再読み込み直後の古い発言も一度は確認する） */
+const readReceiptCheckedChats = new Set<string>();
+/** account reset/switch 後に完了した古い既読取得を破棄する世代番号 */
+let readReceiptGeneration = 0;
 const messageReactionCache = new Map<string, NonNullable<Message["reactions"]>>();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
 const READ_WATERMARK_TTL_MS = 5_000;
@@ -811,8 +815,10 @@ export const useStore = create<State>()(
               : new Map();
         }
         if (accountChanged) {
+          readReceiptGeneration += 1;
           contactFetched.clear();
           readReceiptSent.clear();
+          readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -857,6 +863,7 @@ export const useStore = create<State>()(
 
       resetAccountData: () =>
         set((st) => {
+          readReceiptGeneration += 1;
           revokeMessageObjectUrls(st.messages);
           revokeObjectUrl(st.self.avatarUrl);
           revokeObjectUrl(st.self.backgroundUrl);
@@ -865,6 +872,8 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          readReceiptCheckedChats.clear();
+          contactFetched.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -2803,6 +2812,7 @@ export const useStore = create<State>()(
       refreshReadReceipts: async (chatId, opts) => {
         const accountId = get().accountId;
         if (!accountId) return;
+        const generation = readReceiptGeneration;
         const chatKey = accountChatKey(accountId, chatId);
         const inflight = readReceiptInflight.get(chatKey);
         if (inflight) {
@@ -2859,14 +2869,51 @@ export const useStore = create<State>()(
             if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !opts?.force) return;
           }
 
-          if (!needsPoll) return;
+          // 再読み込み直後は保存済みの履歴に既読が無いので、追跡の期限（グループは 15 分）を
+          // 過ぎた発言でも、そのチャットを開いて最初の一回は取得する。
+          if (!needsPoll && readReceiptCheckedChats.has(chatKey) && !opts?.force) return;
 
-          const myIds = myMessages.map((message) => message.id);
+          // サーバーは先頭の 100 件しか見ないので、新しい順に送る。
+          const myIds = [...myMessages]
+            .sort((left, right) => right.createdAt - left.createdAt)
+            .slice(0, 100)
+            .map((message) => message.id);
           const res = await api.line.getMessageReadRange(accountId, chatId, myIds, {
             force: opts?.force === true,
           });
-          if (get().accountId !== accountId) return;
+          if (get().accountId !== accountId || readReceiptGeneration !== generation) return;
           if (!res.ok || !res.receipts) return;
+          readReceiptCheckedChats.add(chatKey);
+
+          // メッセージごとの既読も反映する。ウォーターマークが返らない場合（グループの
+          // 既読スナップショットだけで判定された場合など）でも既読数を戻す。既読は減らさない。
+          const receipts = res.receipts;
+          set((st) => ({
+            messages: st.messages.map((message) => {
+              if (message.chatId !== chatId || message.authorId !== "me") return message;
+              const receipt = receipts[message.id];
+              if (!receipt) return message;
+              const readBy = [...new Set([...(message.readBy ?? []), ...(receipt.readBy ?? [])])];
+              const readCount = Math.max(
+                message.readCount ?? 0,
+                receipt.readCount ?? 0,
+                readBy.length,
+              );
+              const read = message.read || receipt.seen === true || readCount > 0;
+              if (
+                read === message.read &&
+                readCount === (message.readCount ?? 0) &&
+                readBy.length === (message.readBy?.length ?? 0)
+              )
+                return message;
+              return {
+                ...message,
+                read,
+                ...(read ? { status: "read" as const } : {}),
+                ...(chatId.startsWith("u") ? {} : { readBy, readCount }),
+              };
+            }),
+          }));
 
           const watermark = mergeReadWatermarks(get().readWatermarks[chatKey], res);
           set((st) => ({
@@ -2898,31 +2945,40 @@ export const useStore = create<State>()(
           }
           if (readersNeedFetch.length > 0) {
             void api.line.warmCache(accountId, readersNeedFetch).then((warmRes) => {
-              if (!warmRes.ok || !warmRes.profiles) return;
+              if (
+                get().accountId !== accountId ||
+                readReceiptGeneration !== generation ||
+                !warmRes.ok ||
+                !warmRes.profiles
+              )
+                return;
               const profiles = warmRes.profiles;
-              set((st) => ({
-                chats: st.chats.map((c) => {
-                  if (c.id !== chatId) return c;
-                  const members = [...(c.members ?? [])];
-                  for (const mid of readersNeedFetch) {
-                    const profile = profiles[mid];
-                    if (!profile) continue;
-                    const name = (profile as { displayName?: string }).displayName ?? mid;
-                    const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
-                    const i = members.findIndex((x) => x.id === mid);
-                    if (i >= 0) {
-                      members[i] = {
-                        ...members[i]!,
-                        name: name && !looksLikeMid(name) ? name : members[i]!.name,
-                        avatarUrl: avatarUrl || members[i]!.avatarUrl,
-                      };
-                    } else {
-                      members.push(mapMember(mid, name, avatarUrl));
+              set((st) => {
+                if (st.accountId !== accountId || readReceiptGeneration !== generation) return st;
+                return {
+                  chats: st.chats.map((c) => {
+                    if (c.id !== chatId) return c;
+                    const members = [...(c.members ?? [])];
+                    for (const mid of readersNeedFetch) {
+                      const profile = profiles[mid];
+                      if (!profile) continue;
+                      const name = (profile as { displayName?: string }).displayName ?? mid;
+                      const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
+                      const i = members.findIndex((x) => x.id === mid);
+                      if (i >= 0) {
+                        members[i] = {
+                          ...members[i]!,
+                          name: name && !looksLikeMid(name) ? name : members[i]!.name,
+                          avatarUrl: avatarUrl || members[i]!.avatarUrl,
+                        };
+                      } else {
+                        members.push(mapMember(mid, name, avatarUrl));
+                      }
                     }
-                  }
-                  return { ...c, members };
-                }),
-              }));
+                    return { ...c, members };
+                  }),
+                };
+              });
             });
           }
 
