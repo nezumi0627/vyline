@@ -222,6 +222,8 @@ export type Chat = {
   lastMessagePreview?: string;
   /** API からの最終メッセージ時刻 (ms) — Desktop getMessageBoxes 準拠 */
   lastMessageTime?: number;
+  /** API からの最終メッセージ ID — 同時刻に届いた新着の識別用 */
+  lastMessageId?: string;
 };
 
 export type ChatSort = "recent" | "unread" | "custom";

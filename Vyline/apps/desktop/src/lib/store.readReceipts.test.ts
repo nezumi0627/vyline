@@ -73,6 +73,55 @@ test("manual mark-all sends receipts even when automatic receipts are disabled",
   expect(useStore.getState().chats.every((chat) => chat.unread === 0)).toBe(true);
 });
 
+test("uses the message ID when the chat summary advances within the same millisecond", async () => {
+  const requestedIds: string[] = [];
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string };
+    requestedIds.push(body.lastMessageId ?? "");
+    return Response.json({ ok: true, lastMessageId: body.lastMessageId });
+  }) as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-same-millisecond",
+    settings: { ...state.settings, readReceipts: true },
+    chats: [
+      {
+        id: "c-same-millisecond",
+        name: "DM",
+        type: "friend",
+        avatar: "D",
+        color: "#000",
+        status: "",
+        unread: 1,
+        lastMessageTime: 120_000,
+        lastMessageId: "100",
+      },
+    ],
+    messages: [
+      {
+        id: "90",
+        chatId: "c-same-millisecond",
+        authorId: "u-sender",
+        text: "older",
+        kind: "text",
+        createdAt: 1,
+        read: false,
+        status: "sent",
+        messageState: "normal",
+      },
+    ],
+  }));
+
+  await useStore.getState().markChatRead("c-same-millisecond");
+  useStore.setState((state) => ({
+    chats: state.chats.map((chat) =>
+      chat.id === "c-same-millisecond" ? { ...chat, lastMessageId: "101" } : chat,
+    ),
+  }));
+  await useStore.getState().markChatRead("c-same-millisecond");
+
+  expect(requestedIds).toEqual(["100", "101"]);
+});
+
 function captureReadRequests() {
   const bodies: Array<{ chatMid?: string; lastMessageId?: string }> = [];
   globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

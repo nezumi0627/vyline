@@ -2269,6 +2269,7 @@ export const useStore = create<State>()(
         // させる。開いた時点で一覧の未読は 0 にされるので、未読の数では判定しない。
         // 一覧の時刻は配信時刻のこともあり、作成時刻より少し後になるので余裕を持たせる。
         const boxTime = get().chats.find((c) => c.id === id)?.lastMessageTime ?? 0;
+        const boxMessageId = get().chats.find((c) => c.id === id)?.lastMessageId;
         let newestInHistory = 0;
         for (const message of messages) {
           if (message.chatId !== id || message.id.startsWith("pending_")) continue;
@@ -2293,9 +2294,9 @@ export const useStore = create<State>()(
         });
         if (demoMode) return;
         if (!accountId || (!force && (!settings.readReceipts || readDisabledMids[id]))) return;
-        const lastId = boxIsAhead ? undefined : last?.id;
-        // 同じ最終メッセージ（一覧の方が新しいときは一覧の時刻）への既読は再送しない
-        const sentMarker = boxIsAhead ? `box:${boxTime}` : lastId;
+        const lastId = boxIsAhead ? boxMessageId : last?.id;
+        // 同じ最終メッセージへの既読は再送しない。ID が無い場合のみ一覧時刻へフォールバックする。
+        const sentMarker = lastId ?? (boxIsAhead ? `box:${boxTime}` : undefined);
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
         if (!force && sentMarker && prev === sentMarker) return;
