@@ -2916,31 +2916,40 @@ export const useStore = create<State>()(
           }
           if (readersNeedFetch.length > 0) {
             void api.line.warmCache(accountId, readersNeedFetch).then((warmRes) => {
-              if (!warmRes.ok || !warmRes.profiles) return;
+              if (
+                get().accountId !== accountId ||
+                readReceiptGeneration !== generation ||
+                !warmRes.ok ||
+                !warmRes.profiles
+              )
+                return;
               const profiles = warmRes.profiles;
-              set((st) => ({
-                chats: st.chats.map((c) => {
-                  if (c.id !== chatId) return c;
-                  const members = [...(c.members ?? [])];
-                  for (const mid of readersNeedFetch) {
-                    const profile = profiles[mid];
-                    if (!profile) continue;
-                    const name = (profile as { displayName?: string }).displayName ?? mid;
-                    const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
-                    const i = members.findIndex((x) => x.id === mid);
-                    if (i >= 0) {
-                      members[i] = {
-                        ...members[i]!,
-                        name: name && !looksLikeMid(name) ? name : members[i]!.name,
-                        avatarUrl: avatarUrl || members[i]!.avatarUrl,
-                      };
-                    } else {
-                      members.push(mapMember(mid, name, avatarUrl));
+              set((st) => {
+                if (st.accountId !== accountId || readReceiptGeneration !== generation) return st;
+                return {
+                  chats: st.chats.map((c) => {
+                    if (c.id !== chatId) return c;
+                    const members = [...(c.members ?? [])];
+                    for (const mid of readersNeedFetch) {
+                      const profile = profiles[mid];
+                      if (!profile) continue;
+                      const name = (profile as { displayName?: string }).displayName ?? mid;
+                      const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
+                      const i = members.findIndex((x) => x.id === mid);
+                      if (i >= 0) {
+                        members[i] = {
+                          ...members[i]!,
+                          name: name && !looksLikeMid(name) ? name : members[i]!.name,
+                          avatarUrl: avatarUrl || members[i]!.avatarUrl,
+                        };
+                      } else {
+                        members.push(mapMember(mid, name, avatarUrl));
+                      }
                     }
-                  }
-                  return { ...c, members };
-                }),
-              }));
+                    return { ...c, members };
+                  }),
+                };
+              });
             });
           }
 

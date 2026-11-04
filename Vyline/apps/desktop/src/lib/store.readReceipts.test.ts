@@ -236,3 +236,58 @@ test("discards an in-flight receipt response after resetting the same account", 
   expect(requests).toBe(2);
   expect(useStore.getState().messages[0]?.read).toBe(true);
 });
+
+test("discards a stale reader-profile response after resetting the same account", async () => {
+  let releaseWarmCache!: (response: Response) => void;
+  let announceWarmCache!: () => void;
+  const warmCacheStarted = new Promise<void>((resolve) => {
+    announceWarmCache = resolve;
+  });
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (String(input).includes("/vyline/warm")) {
+      announceWarmCache();
+      return await new Promise<Response>((resolve) => {
+        releaseWarmCache = resolve;
+      });
+    }
+    return Response.json({
+      ok: true,
+      receipts: {},
+      memberReadWatermarks: [{ mid: "u-stale-reader", upTo: "old-own-message" }],
+    });
+  }) as unknown as typeof fetch;
+  const accountId = "reader-profile-reset-race";
+  const chatId = "c-reader-profile-reset-race";
+  useStore.setState({
+    accountId,
+    chats: [{ id: chatId, members: [] } as never],
+    messages: [
+      {
+        id: "old-own-message",
+        chatId,
+        authorId: "me",
+        text: "sent",
+        kind: "text",
+        createdAt: 1,
+        read: true,
+        status: "read",
+        messageState: "normal",
+      },
+    ],
+    readWatermarks: {},
+  });
+
+  await useStore.getState().refreshReadReceipts(chatId);
+  await warmCacheStarted;
+  useStore.getState().resetAccountData();
+  useStore.setState({ accountId, chats: [{ id: chatId, members: [] } as never] });
+  releaseWarmCache(
+    Response.json({
+      ok: true,
+      profiles: { "u-stale-reader": { displayName: "Stale profile" } },
+    }),
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(useStore.getState().chats[0]?.members).toEqual([]);
+});
