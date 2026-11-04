@@ -70,6 +70,7 @@ import {
   IconTrash,
   IconDownload,
 } from "@/components/icons";
+import { takeSettingsSection } from "@/lib/settingsSection";
 
 type Section =
   | "profile"
@@ -179,7 +180,9 @@ export function SettingsSections() {
   const updateSelf = useStore((s) => s.updateSelf);
   const accountId = useStore((s) => s.accountId);
   const demoMode = useStore((s) => s.demoMode);
-  const [section, setSection] = useState<Section>("read");
+  const [section, setSection] = useState<Section>(
+    () => (takeSettingsSection() as Section | null) ?? "read",
+  );
   const [nameDraft, setNameDraft] = useState(self.name);
   const [statusDraft, setStatusDraft] = useState(self.status);
   const [profileSaving, setProfileSaving] = useState(false);
