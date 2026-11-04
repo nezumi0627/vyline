@@ -675,9 +675,8 @@ const REACTION_EMOJI: Record<number, string> = {
   7: "😲",
 };
 
-// 各リアクションの公式 sticon（LINE 本家の絵文字画像）: productId / sticonId
+// CDN 配信するリアクションの公式 sticon: productId / sticonId
 const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
-  2: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "240" }, // NICE 👍
   3: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "037" }, // LOVE ❤️
   4: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "002" }, // FUN 😆
   5: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "003" }, // AMAZING 🎉
@@ -685,8 +684,14 @@ const REACTION_STICON: Record<number, { productId: string; sticonId: string }> =
   7: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "029" }, // OMG 😲
 };
 
+const REACTION_LOCAL_ASSET: Record<number, string> = {
+  2: "/reactions/line-nice.png",
+};
+
 /** リアクション公式 sticon のプロキシ URL（未定義は空文字） */
 function reactionSticonUrl(type: number): string {
+  const localAsset = REACTION_LOCAL_ASSET[type];
+  if (localAsset) return localAsset;
   const ref = REACTION_STICON[type];
   if (!ref) return "";
   return lineCdnProxy(
@@ -731,7 +736,9 @@ function ReactionBadges({
     if (r.fromMid === myMid) cur.mine = true;
     byType.set(r.type, cur);
   }
-  const entries = [...byType.entries()].filter(([t]) => REACTION_STICON[t]);
+  const entries = [...byType.entries()].filter(
+    ([t]) => REACTION_LOCAL_ASSET[t] || REACTION_STICON[t],
+  );
   if (!entries.length) return null;
   return (
     <div
