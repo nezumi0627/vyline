@@ -67,7 +67,10 @@ export type {
 const BOX_AHEAD_TOLERANCE_MS = 60_000;
 /** chatId → 送信済み lastMessageId（一覧の方が新しいときは box:<時刻>。既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
-const markReadInflight = new Map<string, { messageId: string; promise: Promise<boolean> }>();
+const markReadInflight = new Map<
+  string,
+  { messageId: string; marker?: string; promise: Promise<boolean> }
+>();
 function isMessageIdAtOrAfter(candidate: string, target: string): boolean {
   try {
     return BigInt(candidate) >= BigInt(target);
@@ -77,6 +80,9 @@ function isMessageIdAtOrAfter(candidate: string, target: string): boolean {
 }
 
 function isReceiptMarkerAtOrAfter(candidate: string, target: string): boolean {
+  if (candidate.startsWith("box:") && target.startsWith("box:")) {
+    return Number(candidate.slice(4)) >= Number(target.slice(4));
+  }
   if (candidate.startsWith("box:") || target.startsWith("box:")) return candidate === target;
   return isMessageIdAtOrAfter(candidate, target);
 }
@@ -2373,12 +2379,19 @@ export const useStore = create<State>()(
         const receiptKey = accountChatKey(accountId, id);
         const pending = markReadInflight.get(receiptKey);
         if (pending) {
-          if (!lastId || isMessageIdAtOrAfter(pending.messageId, lastId)) return pending.promise;
+          const sameTarget = sentMarker === pending.marker;
+          const alreadyCoversId =
+            Boolean(lastId && pending.messageId) &&
+            isMessageIdAtOrAfter(pending.messageId, lastId!);
+          if (sameTarget || alreadyCoversId || (!sentMarker && !pending.marker)) {
+            return pending.promise;
+          }
           await pending.promise;
           if (get().accountId !== accountId) return false;
           return get().markChatRead(id, target);
         }
         const prev = readReceiptSent.get(receiptKey);
+        if (!force && !sentMarker && prev) return true;
         if (!force && sentMarker && prev && isReceiptMarkerAtOrAfter(prev, sentMarker)) return true;
         if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
         let request!: Promise<boolean>;
@@ -2405,7 +2418,11 @@ export const useStore = create<State>()(
             }
           }
         })();
-        markReadInflight.set(receiptKey, { messageId: lastId ?? "", promise: request });
+        markReadInflight.set(receiptKey, {
+          messageId: lastId ?? "",
+          marker: sentMarker,
+          promise: request,
+        });
         return request;
       },
 

@@ -630,6 +630,37 @@ test("serializes newer read positions and ignores stale older requests", async (
   expect(requestedIds).toEqual(["100", "200"]);
 });
 
+test("queues a newer MessageBox time while an ID-less read-through is in flight", async () => {
+  const requestedIds: Array<string | undefined> = [];
+  let releaseFirst!: (response: Response) => void;
+  globalThis.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string };
+    requestedIds.push(body.lastMessageId);
+    if (requestedIds.length === 1) {
+      return await new Promise<Response>((resolve) => {
+        releaseFirst = resolve;
+      });
+    }
+    return Response.json({ ok: true, lastMessageId: "300" });
+  }) as typeof fetch;
+  setChatWithHistory("u-box-time-race", 1_000 + 120_000);
+
+  const older = useStore.getState().markChatRead("u-box-time-race");
+  await Promise.resolve();
+  useStore.setState((state) => ({
+    chats: state.chats.map((chat) =>
+      chat.id === "u-box-time-race" ? { ...chat, lastMessageTime: 1_000 + 240_000 } : chat,
+    ),
+  }));
+  const newer = useStore.getState().markChatRead("u-box-time-race");
+  await Promise.resolve();
+  expect(requestedIds).toEqual([undefined]);
+
+  releaseFirst(Response.json({ ok: true, lastMessageId: "200" }));
+  await Promise.all([older, newer]);
+  expect(requestedIds).toEqual([undefined, undefined]);
+});
+
 test("shares mark-read requests when the chat has no loaded message ID", async () => {
   let requests = 0;
   let release!: (response: Response) => void;
@@ -654,5 +685,6 @@ test("shares mark-read requests when the chat has no loaded message ID", async (
   release(Response.json({ ok: true, lastMessageId: "1000" }));
   expect(await first).toBe(true);
   expect(await duplicate).toBe(true);
+  expect(await useStore.getState().markChatRead("c-no-loaded-message")).toBe(true);
   expect(requests).toBe(1);
 });
