@@ -308,10 +308,18 @@ function withLatestStoredPreview(accountId: string, chat: StoredChat): StoredCha
  * 空のままだと、開いたとき（履歴から表示）と一覧で表示が食い違う。
  */
 export function fillPreviewFromStoredMessage(chat: StoredChat, latest: StoredMessage): StoredChat {
-  if (!isUnresolvedLastMessagePreview(chat.lastMessagePreview)) return chat;
+  // Preserve meaningful unresolved states such as encrypted, unsent, or call-event previews.
+  const currentPreview = chat.lastMessagePreview?.trim();
+  if (currentPreview && !["NONE", "0"].includes(currentPreview.toUpperCase())) return chat;
   const preview = previewForMessage(latest);
   if (isUnresolvedLastMessagePreview(preview)) return chat;
-  if (latest.createdTime < (chat.lastMessageTime ?? 0)) {
+  const summaryCursor = chat.lastMessageId
+    ? { id: chat.lastMessageId, createdTime: chat.lastMessageTime ?? 0 }
+    : undefined;
+  if (
+    latest.createdTime < (chat.lastMessageTime ?? 0) ||
+    (summaryCursor && compareMessagesNewestFirst(latest, summaryCursor) > 0)
+  ) {
     return { ...chat, lastMessagePreview: preview };
   }
   return {
