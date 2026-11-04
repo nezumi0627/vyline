@@ -2769,20 +2769,24 @@ function previewFromBoxMessage(msg: any | undefined): string {
   }
 }
 
-function boxMeta(box: any | undefined): {
+export function boxMeta(box: any | undefined): {
   lastMessageTime: number;
   lastMessagePreview: string;
   lastMessageId?: string;
   unreadCount?: number;
 } {
   if (!box) return { lastMessageTime: 0, lastMessagePreview: "" };
-  const last =
-    Array.isArray(box.lastMessages) && box.lastMessages.length > 0
-      ? box.lastMessages[0]
-      : undefined;
-  const fromMsg = last?.deliveredTime != null ? Number(last.deliveredTime) : 0;
-  const fromBox = Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
-  const boxId = box.lastDeliveredMessageId?.messageId;
+  const lastMessages: any[] = Array.isArray(box.lastMessages) ? box.lastMessages : [];
+  // Desktop LINE は退出・参加などのイベント（CHATEVENT）を一覧の最終メッセージに使わない。
+  // その前の通常メッセージを使い、通常メッセージが無ければプレビューも時刻も出さない。
+  const isChatEvent = (m: any) =>
+    String(m?.contentType) === "CHATEVENT" || String(m?.contentType) === "18";
+  const last = lastMessages.find((m) => !isChatEvent(m));
+  const skippedEvent = lastMessages.length > 0 && isChatEvent(lastMessages[0]);
+  const msgTime = last?.deliveredTime ?? last?.createdTime;
+  const fromMsg = msgTime != null ? Number(msgTime) : 0;
+  const fromBox = skippedEvent ? 0 : Number(box.lastDeliveredMessageId?.deliveredTime ?? 0n);
+  const boxId = skippedEvent ? last?.id : box.lastDeliveredMessageId?.messageId;
   const meta: {
     lastMessageTime: number;
     lastMessagePreview: string;
