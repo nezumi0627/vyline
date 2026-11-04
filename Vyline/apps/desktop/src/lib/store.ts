@@ -810,6 +810,7 @@ export const useStore = create<State>()(
         if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
+          readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -862,6 +863,7 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -2835,8 +2837,7 @@ export const useStore = create<State>()(
 
           // 再読み込み直後は保存済みの履歴に既読が無いので、追跡の期限（グループは 15 分）を
           // 過ぎた発言でも、そのチャットを開いて最初の一回は取得する。
-          if (!needsPoll && readReceiptCheckedChats.has(chatKey)) return;
-          readReceiptCheckedChats.add(chatKey);
+          if (!needsPoll && readReceiptCheckedChats.has(chatKey) && !opts?.force) return;
 
           // サーバーは先頭の 100 件しか見ないので、新しい順に送る。
           const myIds = [...myMessages]
@@ -2848,6 +2849,7 @@ export const useStore = create<State>()(
           });
           if (get().accountId !== accountId) return;
           if (!res.ok || !res.receipts) return;
+          readReceiptCheckedChats.add(chatKey);
 
           // メッセージごとの既読も反映する。ウォーターマークが返らない場合（グループの
           // 既読スナップショットだけで判定された場合など）でも既読数を戻す。既読は減らさない。

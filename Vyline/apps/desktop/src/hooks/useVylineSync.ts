@@ -13,6 +13,7 @@ import { useLineData } from "../hooks/useLineData.js";
 import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
 import { useStore } from "../lib/store.js";
+import { createReadReceiptPrimer } from "./readReceiptPriming.js";
 
 function eventsPollIntervalMs(): number {
   if (typeof document === "undefined") return 2_000;
@@ -143,13 +144,9 @@ export function useVylineSync(enabled = true) {
   useEffect(() => {
     if (!enabled || !accountId || !activeChatId) return;
 
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
-
-    // 既読者一覧を追い続けるため、既読済みでも直近 15 分の自分のメッセージがあればポーリングする
+    // 既読者一覧を追い続ける。期限切れの投稿も、初回取得が失敗したときは成功するまで再試行する。
     const shouldPoll = () => {
       const messages = useStore.getState().messages;
-
-      const now = Date.now();
 
       if (activeChatId.startsWith("u")) {
         // DM は相手が読むまで追跡する。15分を過ぎても未読なら確認を止めない。
@@ -170,8 +167,7 @@ export function useVylineSync(enabled = true) {
           m.authorId === "me" &&
           m.id &&
           !m.id.startsWith("pending_") &&
-          !m.messageState.startsWith("revoked") &&
-          now - m.createdAt < 15 * 60_000,
+          !m.messageState.startsWith("revoked"),
       );
     };
 
@@ -188,18 +184,25 @@ export function useVylineSync(enabled = true) {
     // 開いた直後（再読み込みの後など）はまだ履歴が無く、最初の tick では確認しない。
     // 自分のメッセージが入った時点で一度確認し、次の tick（最大 5 秒）まで「送信済み」のまま待たせない。
     // 期限を過ぎた古い発言も、開いて最初の一回は store 側（refreshReadReceipts）で取得する。
-    let primed = false;
-    const unsubscribe = useStore.subscribe((state) => {
-      if (primed) return;
-      if (!state.messages.some((m) => m.chatId === activeChatId && m.authorId === "me")) return;
-      primed = true;
+    const prime = createReadReceiptPrimer(() => {
       // tick() は追跡の期限（グループは 15 分）で止まるので、最初の一回は直接取りに行く。
-      if (document.visibilityState !== "hidden") void refreshReadReceipts(activeChatId);
+      void refreshReadReceipts(activeChatId);
     });
+    const primeIfVisible = (state: ReturnType<typeof useStore.getState>) =>
+      prime(
+        state.messages.some((m) => m.chatId === activeChatId && m.authorId === "me"),
+        document.visibilityState !== "hidden",
+      );
+    const unsubscribe = useStore.subscribe(primeIfVisible);
+    const retryPrimeOnVisibility = () => {
+      if (document.visibilityState === "visible") primeIfVisible(useStore.getState());
+    };
+    document.addEventListener("visibilitychange", retryPrimeOnVisibility);
 
     return () => {
       clearInterval(t);
       unsubscribe();
+      document.removeEventListener("visibilitychange", retryPrimeOnVisibility);
     };
   }, [enabled, accountId, activeChatId, refreshReadReceipts]);
 
