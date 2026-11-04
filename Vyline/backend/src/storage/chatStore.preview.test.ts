@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  isRawCallHistoryPreview,
   previewForMessage,
   rebuildChatDbRecords,
   shouldPreserveResolvedLastMessagePreview,
@@ -79,6 +80,30 @@ describe("stored message preview", () => {
         contentMetadata: { ALT_TEXT: "クーポンが届きました" },
       } as never),
     ).toBe("クーポンが届きました");
+  });
+
+  test("does not expose the raw call history text", () => {
+    const call = { ...base, contentType: "CALL", text: "Call History : 0 millisecs, Result: 77" };
+    expect(previewForMessage({ ...call, contentMetadata: {} } as never)).toBe("音声通話");
+    expect(
+      previewForMessage({ ...call, contentMetadata: { TYPE: "V", RESULT: "CANCELED" } } as never),
+    ).toBe("不在着信 · ビデオ通話");
+  });
+
+  test("treats GC_DURATION zero as a group call marker", () => {
+    expect(
+      previewForMessage({
+        ...base,
+        contentType: "CALL",
+        contentMetadata: { TYPE: "V", GC_DURATION: 0 },
+      } as never),
+    ).toBe("グループビデオ通話");
+  });
+
+  test("detects the raw call history text saved by older versions", () => {
+    expect(isRawCallHistoryPreview("Call History : 0 millisecs, Result: 77")).toBe(true);
+    expect(isRawCallHistoryPreview("音声通話")).toBe(false);
+    expect(isRawCallHistoryPreview(undefined)).toBe(false);
   });
 
   test("does not expose raw content type names", () => {

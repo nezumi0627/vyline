@@ -109,6 +109,7 @@ import {
   saveBoxOrder,
   shouldPreserveResolvedLastMessagePreview,
   isUnresolvedLastMessagePreview,
+  callPreviewLabel,
   type BootstrapPayload,
   type StoredChat,
 } from "../storage/chatStore.js";
@@ -2745,6 +2746,9 @@ function previewFromBoxMessage(msg: any | undefined): string {
   const meta = (msg.contentMetadata ?? null) as Record<string, unknown> | null;
   const alt = meta && typeof meta.ALT_TEXT === "string" ? meta.ALT_TEXT.trim() : "";
   if (alt) return alt.length > 60 ? `${alt.slice(0, 60)}…` : alt;
+  if (String(msg.contentType ?? "") === "CALL" || String(msg.contentType ?? "") === "6") {
+    return callPreviewLabel(meta);
+  }
   const text = typeof msg.text === "string" ? msg.text.trim() : "";
   // LINE 絵文字（sticon）のみの本文はプレースホルダ文字のまま出さず「絵文字」と表示
   const stripped = text.replace(/[￼�$]/g, "");
