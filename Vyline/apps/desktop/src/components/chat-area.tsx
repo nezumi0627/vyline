@@ -72,6 +72,9 @@ type MsgRow =
       highlightRegex?: boolean;
     };
 
+/** 開くときに未読の先頭を探して読み足す、古い履歴のページ数の上限。 */
+const MAX_UNREAD_BACKLOG_PAGES = 20;
+
 function canGroupImageMessage(message: Message): boolean {
   return message.kind === "image" && Boolean(message.imageSrc) && !message.replyToId;
 }
@@ -426,6 +429,10 @@ function ChatAreaBase() {
   }, [activeChatId]);
 
   const openedChatRef = useRef<string | null>(null);
+  const backlogPagesRef = useRef<{ chatId: string | null; count: number }>({
+    chatId: null,
+    count: 0,
+  });
   const replyJumpFrame = useRef<number | null>(null);
   const jumpRequestKeyRef = useRef<string | null>(null);
 
@@ -444,10 +451,10 @@ function ChatAreaBase() {
     if (olderState.loading) return;
     if (chatMessages.length === 0) return;
     if (!olderState.hasMore) {
-      const target =
-        findUnreadAnchorByCount(chatMessages, activeChatId, initialChatScrollUnreadCount)?.id ??
-        findFirstUnreadReceivedMessage(chatMessages, activeChatId)?.id ??
-        initialChatScrollMessageId;
+      // 履歴を最後まで読んでも未読の数に足りないときは、数が履歴と合っていない
+      // （通話の記録など、未読の数に入るが受信として数えないものがある）。
+      // 数から決めると一番古い受信まで戻ってしまうので、最下部で開く。
+      const target = null;
       useStore.setState({
         initialChatScrollMessageId: target,
         initialChatScrollUnreadCount: 0,
@@ -460,6 +467,18 @@ function ChatAreaBase() {
     }
     const requestKey = `unread:${activeChatId}:${chatMessages[0]?.id ?? "empty"}:${receivedCount}`;
     if (jumpRequestKeyRef.current === requestKey) return;
+    const pages = backlogPagesRef.current;
+    if (pages.chatId !== activeChatId) backlogPagesRef.current = { chatId: activeChatId, count: 0 };
+    if (backlogPagesRef.current.count >= MAX_UNREAD_BACKLOG_PAGES) {
+      // 未読の数が履歴と合わないトークで、最初まで読みに行き続けないようにする
+      useStore.setState({
+        initialChatScrollMessageId: null,
+        initialChatScrollUnreadCount: 0,
+        initialChatScrollPending: false,
+      });
+      return;
+    }
+    backlogPagesRef.current.count++;
     jumpRequestKeyRef.current = requestKey;
     window.dispatchEvent(
       new CustomEvent("vyline:load-older-messages", {
@@ -469,7 +488,6 @@ function ChatAreaBase() {
   }, [
     activeChatId,
     chatMessages,
-    initialChatScrollMessageId,
     initialChatScrollPending,
     initialChatScrollUnreadCount,
     olderState,
@@ -912,7 +930,15 @@ function ChatAreaBase() {
           data-pattern={theme.pattern}
           data-image={theme.chatImage ? "" : undefined}
         >
-          <div className="mx-auto flex w-full max-w-3xl flex-col">
+          <div
+            className="mx-auto flex w-full max-w-3xl flex-col"
+            // 未読の先頭を探して古い履歴を読み足している間は、ページが足されるたびに表示が跳ねるので隠す
+            style={
+              initialChatScrollPending && initialChatScrollUnreadCount > 0
+                ? { visibility: "hidden" }
+                : undefined
+            }
+          >
             <div className="mb-4 flex justify-center">
               {olderState.hasMore ? (
                 <button
