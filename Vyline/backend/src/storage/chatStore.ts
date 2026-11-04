@@ -245,6 +245,36 @@ type DeferredWrites = {
 const deferredWrites = new Map<string, DeferredWrites>();
 const chatMigrationChecked = new Set<string>();
 
+/**
+ * 一覧の最終メッセージが取れていない（プレビューが空・未解決）トークは、保存済みの履歴の
+ * 最新メッセージから埋める。LINE の box に lastMessages が無いと、要約が古い ID のまま空になり、
+ * トークを開いたとき（履歴から表示）と一覧で表示が食い違うため。読み出し時のみで書き戻さない。
+ */
+function withLatestStoredPreview(accountId: string, chat: StoredChat): StoredChat {
+  if (!isUnresolvedLastMessagePreview(chat.lastMessagePreview)) return chat;
+  const db = memory.get(accountId);
+  const latest =
+    dirty.has(accountId) && db
+      ? Object.values(db.messages[chat.mid] ?? {})
+          .filter((message) => !isStoredMessageDeleted(accountId, chat.mid, message.id))
+          .sort(compareMessagesNewestFirst)[0]
+      : readLatestStoredMessage(accountId, chat.mid);
+  if (!latest) return chat;
+  const preview = previewForMessage(latest);
+  if (isUnresolvedLastMessagePreview(preview)) return chat;
+  const time = chat.lastMessageTime ?? 0;
+  if (latest.createdTime < time) {
+    // 履歴の方が古い（要約が指す最終メッセージが未保存）ときは、日時と ID が食い違うので埋めない
+    return chat;
+  }
+  return {
+    ...chat,
+    lastMessageId: latest.id,
+    lastMessageTime: latest.createdTime,
+    lastMessagePreview: preview,
+  };
+}
+
 function withoutDeletedPreview(accountId: string, chat: StoredChat): StoredChat {
   if (!chat.lastMessageId || !isStoredMessageDeleted(accountId, chat.mid, chat.lastMessageId))
     return chat;
@@ -1864,7 +1894,7 @@ export async function getStoredChats(accountId: string): Promise<Chat[]> {
   for (const mid of order) {
     const c = byMid.get(mid);
     if (!c) continue;
-    result.push(storedChatToChat(c));
+    result.push(storedChatToChat(withLatestStoredPreview(accountId, c)));
     seen.add(mid);
   }
 
@@ -1873,7 +1903,7 @@ export async function getStoredChats(accountId: string): Promise<Chat[]> {
     .sort((a, b) => (b.lastMessageTime ?? 0) - (a.lastMessageTime ?? 0));
 
   for (const c of tail) {
-    result.push(storedChatToChat(c));
+    result.push(storedChatToChat(withLatestStoredPreview(accountId, c)));
   }
   return result;
 }
