@@ -139,3 +139,71 @@ test("rehydration discards a stale persisted chat selection", () => {
   expect(useStore.getState().activeChatId).toBeNull();
   expect(useStore.getState().screen).toBe("home");
 });
+
+test("hydrating Keep Memo drops other users' messages already in the store", () => {
+  const selfMid = "u-self";
+  const stored = (id: string, authorId: string) =>
+    ({
+      id,
+      chatId: selfMid,
+      authorId,
+      kind: "text",
+      text: id,
+      createdAt: Number(id.replace(/\D/g, "")),
+      messageState: "normal",
+    }) as never;
+  useStore.setState((state) => ({
+    accountId: "keep-memo",
+    self: { ...state.self, mid: selfMid },
+    activeChatId: selfMid,
+    chats: [],
+    messages: [stored("m1", "me"), stored("m2", "u-other"), stored("m3", selfMid)],
+  }));
+  useStore.getState().hydrateLineData({
+    profile: null,
+    messages: [],
+    readyChatId: null,
+    hiddenMids: new Set(),
+    contactCache: new Map(),
+    chats: [{ mid: selfMid, name: "Keep", kind: "direct", hasMessages: true, lastMessageTime: 3 }],
+  });
+  expect(useStore.getState().messages.map((m) => m.id)).toEqual(["m1", "m3"]);
+});
+
+test("hydrating Keep Memo accepts only messages sent from self to self", () => {
+  const selfMid = "u-self";
+  const message = (id: string, from?: string, to?: string) =>
+    ({ id, from, to, contentType: "NONE", createdTime: 1, text: id }) as never;
+  useStore.setState((state) => ({
+    accountId: "keep-memo-filter",
+    self: { ...state.self, mid: selfMid },
+    activeChatId: selfMid,
+    chats: [],
+    messages: [],
+  }));
+
+  useStore.getState().hydrateLineData({
+    profile: { mid: selfMid } as never,
+    messages: [
+      message("self-self", selfMid, selfMid),
+      message("other-to-self", "u-other", selfMid),
+      message("missing-from", undefined, selfMid),
+      message("missing-to", selfMid, undefined),
+    ],
+    readyChatId: selfMid,
+    hiddenMids: new Set(),
+    contactCache: new Map(),
+    chats: [
+      {
+        mid: selfMid,
+        name: "Keep",
+        kind: "direct",
+        hasMessages: true,
+        lastMessageTime: 1,
+        isSelf: true,
+      },
+    ],
+  });
+
+  expect(useStore.getState().messages.map((entry) => entry.id)).toEqual(["self-self"]);
+});

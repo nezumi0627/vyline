@@ -310,14 +310,15 @@ bun run vyline:update  # Desktop を最新版へ更新（root 直下でも可）
 
 ## バージョン管理（重要）
 
-バージョンは **4 箇所を同一に揃える必須**：
+製品バージョンの正本はルート `package.json` の `version`。次の値をリリース時に照合する：
 
 | 場所                                   | フィールド             |
 | -------------------------------------- | ---------------------- |
-| `Vyline/apps/desktop/src/lib/store.ts` | `UPDATE_NOTES.version` |
-| ルート `package.json`                  | `version`              |
-| `Vyline/apps/desktop/package.json`     | `version`              |
-| `README.md`                            | バッジの `version-...` |
+| ルート `package.json`                  | 製品バージョンの正本   |
+| `Vyline/apps/desktop/package.json`     | 製品バージョンのミラー |
+| `Vyline/apps/desktop/src/lib/store.ts` | `PRODUCT_VERSION` から `UPDATE_NOTES.version` を取得 |
+| Git タグ                               | コミット後に `v<version>` を作成し、そのコミットを指す |
+| `README.src.md` / `README.md`          | バッジとREADME記載のバージョン |
 
 - バージョン形式: セマンティックバージョン（`X.Y.Z` または `X.Y.Z-beta`）
 - beta は非公開テスト段階。public リリース前に外す
@@ -327,17 +328,20 @@ bun run vyline:update  # Desktop を最新版へ更新（root 直下でも可）
 ### 自動 bump（AI・人間共通の手順）
 
 ```powershell
-bun run bump -- 0.7.0        # 指定バージョンへ一括更新（4 箇所 + UPDATE_NOTES.title のバージョン部分）
-bun run bump -- minor        # 相対指定も可 (major / minor / patch)
-bun run bump -- 0.7.0 --tag  # git tag v0.7.0 まで自動作成
+bun run bump -- 0.7.0                     # 指定バージョンへ更新
+bun run bump -- minor                     # major / minor / patch
+bun run bump -- prerelease alpha|beta|rc  # 作成または番号を進める
+bun run bump -- promote                   # プレリリースから正式版へ昇格
+bun run version:check                     # package / notes / changelog / README / tagを検証
 ```
 
-スクリプト (`scripts/bump-version.ts`) が機械的な置換を行う。エージェントがバージョンを上げるときは手動編集ではなくこのスクリプトを使い、残りを仕上げる:
+スクリプト (`scripts/bump-version.ts`) が製品 package、README バッジ、`UPDATE_NOTES` の未記入テンプレートを更新する。タグは作成しない。エージェントがバージョンを上げるときは手動編集ではなくこのスクリプトを使い、残りを仕上げる:
 
-1. `UPDATE_NOTES.items` を今回の変更内容に書き換え（ユーザーが起動時に確認する内容・古い内容は削除）
+1. `UPDATE_NOTES.title` / `items` を今回の変更内容に書き換え（未記入のままリリースしない）
 2. `CHANGELOG.md` に同バージョンのエントリを追加（Unreleased を統合）
 3. README 冒頭 NOTE の「現在のバージョン」と「状態」行を目視確認
-4. リリース時は `docs/distribution.md` のリリースチェックリストに従う
+4. `bun run version:check` を通し、バージョン変更を含むコミットを作成してから、そのコミットを指す `v<version>` タグを作る
+5. リリース時は `docs/distribution.md` のリリースチェックリストに従う
 
 ---
 

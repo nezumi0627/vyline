@@ -1,106 +1,70 @@
 #!/usr/bin/env bun
-/**
- * バージョン一括更新スクリプト。
- *
- * 使い方:
- *   bun run bump -- 0.7.0        # 指定バージョンへ更新
- *   bun run bump -- minor        # 現在のバージョンから相対指定 (major / minor / patch)
- *   bun run bump -- 0.7.0 --tag  # 更新後に git tag v<version> を作成
- *
- * 更新対象（AGENTS.md「バージョン管理」参照）:
- *   - package.json (ルート)
- *   - Vyline/apps/desktop/package.json
- *   - Vyline/apps/desktop/src/lib/store.ts の UPDATE_NOTES.version / title
- *   - README.md のバッジ
- */
-
 import { readFileSync, writeFileSync } from "node:fs";
+import { resolveNextVersion } from "./versioning";
 
-const args = process.argv.slice(2).filter((a) => a !== "--");
-const tag = args.includes("--tag");
-const spec = args.find((a) => !a.startsWith("--"));
-
-if (!spec) {
-  console.error("使い方: bun run bump -- <version|major|minor|patch> [--tag]");
+const args = process.argv.slice(2).filter((arg) => arg !== "--");
+if (args.includes("--tag"))
+  throw new Error("タグは変更をコミットした後に作成してください。bump はタグを作成しません。");
+const spec = args[0];
+if (!spec || args.length > 1) {
+  console.error("使い方: bun run bump -- <major|minor|patch|alpha|beta|rc|promote|version>");
   process.exit(1);
 }
+const root = new URL("../", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
+const read = (path: string) => readFileSync(`${root}/${path}`, "utf8");
+const write = (path: string, value: string) => writeFileSync(`${root}/${path}`, value);
+const current = (JSON.parse(read("package.json")) as { version: string }).version;
+const operation = ["alpha", "beta", "rc"].includes(spec) ? `prerelease:${spec}` : spec;
+const next = resolveNextVersion(current, operation);
 
-const ROOT = new URL("..", import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, "$1");
-
-function read(p: string) {
-  return readFileSync(`${ROOT}/${p}`, "utf8");
-}
-function write(p: string, content: string) {
-  writeFileSync(`${ROOT}/${p}`, content);
-}
-
-const rootPkg = JSON.parse(read("package.json")) as { version: string };
-const current = rootPkg.version;
-
-let next: string;
-if (["major", "minor", "patch"].includes(spec)) {
-  const m = current.match(/^(\d+)\.(\d+)\.(\d+)(-.*)?$/);
-  if (!m) throw new Error(`現在のバージョンが不正です: ${current}`);
-  const [, maj, min, pat, suffix = ""] = m;
-  const bumped = {
-    major: [+maj + 1, 0, 0],
-    minor: [+maj, +min + 1, 0],
-    patch: [+maj, +min, +pat + 1],
-  }[spec as "major" | "minor" | "patch"];
-  next = `${bumped[0]}.${bumped[1]}.${bumped[2]}${suffix}`;
-} else {
-  next = spec;
-}
-
-if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(next)) {
-  throw new Error(`バージョン形式が不正です: ${next} (例: 1.2.3 / 1.2.3-beta)`);
-}
-
-// 1. package.json x2
-for (const p of ["package.json", "Vyline/apps/desktop/package.json"]) {
-  write(p, read(p).replace(/"version": "[^"]+"/, `"version": "${next}"`));
-}
-
-// 2. store.ts UPDATE_NOTES (version と title 先頭の「Vyline <ver>」のみ置換、後半は保持)
-// title は `Vyline <ver> — <説明>` 形式。説明は和文なので「末尾の数字」では拾えず、
-// バージョンは接頭辞側から取る（旧正規表現は和文タイトルで一切マッチしなかった）。
+const productPaths = ["package.json", "Vyline/apps/desktop/package.json"];
+const packages = productPaths.map((path) => [path, read(path)] as const);
 const storePath = "Vyline/apps/desktop/src/lib/store.ts";
 let store = read(storePath);
-const storePattern =
-  /(export const UPDATE_NOTES = \{\s*version: ")[^"]+(",\s*title: "Vyline )[\w.-]+(?=[ "])/;
-if (!storePattern.test(store)) {
-  throw new Error(`${storePath} の UPDATE_NOTES を検出できませんでした`);
+const titlePattern = /(title: `Vyline \$\{PRODUCT_VERSION\} — )[^`]+(`,)/;
+if (!titlePattern.test(store))
+  throw new Error(`${storePath} の UPDATE_NOTES.title が見つかりません`);
+store = store.replace(titlePattern, "$1リリースノートを入力してください$2");
+store = store.replace(
+  /(items: \[)[\s\S]*?(\n {2}\],)/m,
+  '$1\n    "TODO: 今回の変更内容に書き換えてください",$2',
+);
+
+let changelog = read("CHANGELOG.md");
+if (!new RegExp(`^## \\[?${next.replaceAll(".", "\\.")}\\]?`, "m").test(changelog)) {
+  changelog = `## [${next}] - Unreleased\n\n- TODO: 今回の変更内容を記載してください。\n\n${changelog}`;
 }
-store = store.replace(storePattern, `$1${next}$2${next}`);
+const releaseLabelJa = next.includes("-") ? "プレリリース" : "安定版";
+const releaseLabelEn = next.includes("-") ? "Pre-release" : "Stable";
+const readmes = ["README.src.md", "README.en.src.md"].map((path) => {
+  const original = read(path);
+  if (!/badge\/version-[\w.-]+-[\da-f]{6}/i.test(original))
+    throw new Error(`${path} のバージョンバッジが見つかりません`);
+  let content = original.replaceAll(current, next);
+  content = content.replace(
+    /alt="(?:安定版|プレリリース) [^"]+"/,
+    `alt="${releaseLabelJa} ${next}"`,
+  );
+  content = content.replace(
+    /alt="(?:Stable|Pre-release) [^"]+"/,
+    `alt="${releaseLabelEn} ${next}"`,
+  );
+  content = content.replace(
+    /badge\/version-[\w.-]+-([\da-f]{6})/i,
+    `badge/version-${next.replaceAll("-", "--")}-$1`,
+  );
+  return [path, content] as const;
+});
+for (const [path, content] of packages) {
+  const updated = content.replace(/("version"\s*:\s*")[^"]+/, `$1${next}`);
+  if (updated === content) throw new Error(`${path} の version を更新できません`);
+  write(path, updated);
+}
 write(storePath, store);
-
-// 3. README versions, release links, and badges in both language sources.
-// Shields.io badge colors vary by source, so preserve the six-digit color suffix.
-for (const readmePath of ["README.src.md", "README.en.src.md"]) {
-  const content = read(readmePath);
-  const updated = content
-    .replaceAll(current, next)
-    .replace(
-      /badge\/version-[\w.-]+-([\da-f]{6})/i,
-      `badge/version-${next.replaceAll("-", "--")}-$1`,
-    );
-  if (updated === content) {
-    throw new Error(`${readmePath} のバージョン表記を更新できませんでした`);
-  }
-  write(readmePath, updated);
-}
-
-const readmeGenerator = Bun.spawnSync(["bun", "scripts/generate-readmes.ts"]);
-if (readmeGenerator.exitCode !== 0) throw new Error("README の再生成に失敗しました。");
-
-console.log(`バージョンを ${current} → ${next} に更新しました。`);
-console.log("次の手動作業:");
-console.log(`  - ${storePath}: UPDATE_NOTES.title / items を今回の変更内容に合わせて編集`);
-console.log("  - CHANGELOG.md: 新バージョンのエントリを追記");
-console.log("  - README.md: 冒頭 NOTE の「現在のバージョン」と「状態」行を確認");
-
-if (tag) {
-  const proc = Bun.spawnSync(["git", "tag", `v${next}`]);
-  if (proc.exitCode === 0) console.log(`タグ v${next} を作成しました。`);
-  else console.error("git tag に失敗しました。");
-}
+write("CHANGELOG.md", changelog);
+for (const [path, content] of readmes) write(path, content);
+const generated = Bun.spawnSync(["bun", "scripts/generate-readmes.ts"]);
+if (generated.exitCode !== 0) throw new Error("README 再生成に失敗しました");
+console.log(
+  `${current} → ${next} に更新しました。UPDATE_NOTESを編集してからコミットしてください。タグはコミット後に作成します。`,
+);

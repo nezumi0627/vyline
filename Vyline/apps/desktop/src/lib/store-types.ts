@@ -222,6 +222,8 @@ export type Chat = {
   lastMessagePreview?: string;
   /** API からの最終メッセージ時刻 (ms) — Desktop getMessageBoxes 準拠 */
   lastMessageTime?: number;
+  /** API からの最終メッセージ ID — 同時刻に届いた新着の識別用 */
+  lastMessageId?: string;
 };
 
 export type ChatSort = "recent" | "unread" | "custom";
@@ -258,6 +260,10 @@ export type Settings = {
   proxyUrl: string;
   /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
   notificationsEnabled: boolean;
+  /** Stable updates are default; opt in to the separate prerelease feed. */
+  receiveBetaUpdates: boolean;
+  /** Show available release badges in the sidebar. */
+  updateNotificationsEnabled: boolean;
   webNotificationsEnabled?: boolean;
   hideNotificationContent?: boolean;
   /** ベータ: プロフィールにブロック確認導線を表示 */

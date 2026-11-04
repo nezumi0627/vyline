@@ -277,9 +277,10 @@ export const api = {
   updater: {
     capability: () =>
       request<{ ok: boolean; canLaunchInstaller: boolean }>("GET", "/updater/capability"),
-    launchInstaller: (version: string) =>
+    launchInstaller: (version: string, channel: "stable" | "beta") =>
       request<{ ok: boolean; launched?: boolean; error?: string }>("POST", "/updater/launch", {
         version,
+        channel,
       }),
   },
   subdevices: {
@@ -1280,10 +1281,14 @@ export const api = {
         },
       ),
     sendChatChecked: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean }>("POST", `/line/${accountId}/sendChatChecked`, {
-        chatMid,
-        lastMessageId,
-      }),
+      request<{ ok: boolean; lastMessageId?: string }>(
+        "POST",
+        `/line/${accountId}/sendChatChecked`,
+        {
+          chatMid,
+          lastMessageId,
+        },
+      ),
 
     markAllAsRead: (accountId: string, chatMids?: string[]) =>
       request<{ ok: boolean; count?: number }>("POST", `/line/${accountId}/read-all`, {
