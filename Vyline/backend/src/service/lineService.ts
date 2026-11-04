@@ -925,7 +925,8 @@ async function fetchPreviousMessagesRpc(
 }
 
 const INCOMING_WATERMARK_PAGE_SIZE = 100;
-const INCOMING_WATERMARK_MAX_PAGES = 2;
+const INCOMING_WATERMARK_MAX_PAGES = 1;
+const INCOMING_WATERMARK_MAX_LOOKUPS_PER_REFRESH = 8;
 
 export function incomingIdFromRawMessages(
   messages: unknown[],
@@ -961,7 +962,7 @@ async function fetchIncomingWatermarkFromHistory(
       String(box.id),
       endMessageId,
       INCOMING_WATERMARK_PAGE_SIZE,
-      5_000,
+      3_000,
     );
     const incomingId = incomingIdFromRawMessages(messages, selfMid);
     if (incomingId) return incomingId;
@@ -3104,22 +3105,24 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const selfMid = client.base.profile?.mid;
   const historyIncomingIds = new Map<string, string>();
   if (selfMid) {
-    const unresolved = messageBoxes.filter((box: any) => {
-      const mid = String(box.id);
-      const cached = incomingWatermarkCache.get(`${accountId}:${mid}`);
-      if (cached && Date.now() - cached.at < INCOMING_WATERMARK_CACHE_MS) {
-        if (cached.id) historyIncomingIds.set(mid, cached.id);
-        return false;
-      }
-      return (
-        Number(box.unreadCount ?? 0) > 0 &&
-        !storedIncomingIds[mid] &&
-        !boxMeta(box, selfMid).lastIncomingMessageId &&
-        Boolean(box.lastDeliveredMessageId)
-      );
-    });
-    // Only chats with unread messages and no incoming ID in either local storage or MessageBox
-    // need this bounded history fallback. Four concurrent lookups avoid blocking /S4 sync work.
+    const unresolved = messageBoxes
+      .filter((box: any) => {
+        const mid = String(box.id);
+        const cached = incomingWatermarkCache.get(`${accountId}:${mid}`);
+        if (cached && Date.now() - cached.at < INCOMING_WATERMARK_CACHE_MS) {
+          if (cached.id) historyIncomingIds.set(mid, cached.id);
+          return false;
+        }
+        return (
+          Number(box.unreadCount ?? 0) > 0 &&
+          !storedIncomingIds[mid] &&
+          !boxMeta(box, selfMid).lastIncomingMessageId &&
+          Boolean(box.lastDeliveredMessageId)
+        );
+      })
+      .slice(0, INCOMING_WATERMARK_MAX_LOOKUPS_PER_REFRESH);
+    // Only eight chats per refresh get one short history lookup. Cached results spread work
+    // across subsequent refreshes without delaying the entire roster for a large unread backlog.
     for (let offset = 0; offset < unresolved.length; offset += 4) {
       await Promise.all(
         unresolved.slice(offset, offset + 4).map(async (box: any) => {
