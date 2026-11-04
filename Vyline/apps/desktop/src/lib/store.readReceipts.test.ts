@@ -82,9 +82,7 @@ test("retries the initial receipt fetch after a failed or incomplete response", 
     globalThis.fetch = (async () => {
       requests += 1;
       return Response.json(
-        requests === 1
-          ? response
-          : { ok: true, receipts: { "old-own-message": { seen: true } } },
+        requests === 1 ? response : { ok: true, receipts: { "old-own-message": { seen: true } } },
       );
     }) as unknown as typeof fetch;
     useStore.setState({
@@ -186,3 +184,55 @@ test.each(["account-switch", "account-reset"])(
     expect(requests).toBe(2);
   },
 );
+
+test("discards an in-flight receipt response after resetting the same account", async () => {
+  let requests = 0;
+  let releaseFirst!: (response: Response) => void;
+  let announceFirst!: () => void;
+  const firstRequestStarted = new Promise<void>((resolve) => {
+    announceFirst = resolve;
+  });
+  globalThis.fetch = (async () => {
+    requests += 1;
+    if (requests === 1) {
+      announceFirst();
+      return await new Promise<Response>((resolve) => {
+        releaseFirst = resolve;
+      });
+    }
+    return Response.json({ ok: true, receipts: { "reset-race-message": { seen: true } } });
+  }) as unknown as typeof fetch;
+  const accountId = "receipt-reset-race";
+  const chatId = "c-reset-race";
+  const seed = () =>
+    useStore.setState({
+      accountId,
+      messages: [
+        {
+          id: "reset-race-message",
+          chatId,
+          authorId: "me",
+          text: "sent",
+          kind: "text",
+          createdAt: 1,
+          read: false,
+          status: "sent",
+          messageState: "normal",
+        },
+      ],
+      readWatermarks: {},
+    });
+  seed();
+  const staleRequest = useStore.getState().refreshReadReceipts(chatId);
+  await firstRequestStarted;
+
+  useStore.getState().resetAccountData();
+  seed();
+  releaseFirst(Response.json({ ok: true, receipts: { "reset-race-message": { seen: true } } }));
+  await staleRequest;
+
+  expect(useStore.getState().messages[0]?.read).toBe(false);
+  await useStore.getState().refreshReadReceipts(chatId);
+  expect(requests).toBe(2);
+  expect(useStore.getState().messages[0]?.read).toBe(true);
+});

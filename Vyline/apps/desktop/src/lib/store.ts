@@ -68,6 +68,8 @@ const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
 /** このセッションで一度でも既読を取得した chat（再読み込み直後の古い発言も一度は確認する） */
 const readReceiptCheckedChats = new Set<string>();
+/** account reset/switch 後に完了した古い既読取得を破棄する世代番号 */
+let readReceiptGeneration = 0;
 const messageReactionCache = new Map<string, NonNullable<Message["reactions"]>>();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
 const READ_WATERMARK_TTL_MS = 5_000;
@@ -808,6 +810,7 @@ export const useStore = create<State>()(
               : new Map();
         }
         if (accountChanged) {
+          readReceiptGeneration += 1;
           contactFetched.clear();
           readReceiptSent.clear();
           readReceiptCheckedChats.clear();
@@ -855,6 +858,7 @@ export const useStore = create<State>()(
 
       resetAccountData: () =>
         set((st) => {
+          readReceiptGeneration += 1;
           revokeMessageObjectUrls(st.messages);
           revokeObjectUrl(st.self.avatarUrl);
           revokeObjectUrl(st.self.backgroundUrl);
@@ -2779,6 +2783,7 @@ export const useStore = create<State>()(
       refreshReadReceipts: async (chatId, opts) => {
         const accountId = get().accountId;
         if (!accountId) return;
+        const generation = readReceiptGeneration;
         const chatKey = accountChatKey(accountId, chatId);
         const inflight = readReceiptInflight.get(chatKey);
         if (inflight) {
@@ -2847,7 +2852,7 @@ export const useStore = create<State>()(
           const res = await api.line.getMessageReadRange(accountId, chatId, myIds, {
             force: opts?.force === true,
           });
-          if (get().accountId !== accountId) return;
+          if (get().accountId !== accountId || readReceiptGeneration !== generation) return;
           if (!res.ok || !res.receipts) return;
           readReceiptCheckedChats.add(chatKey);
 
