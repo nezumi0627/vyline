@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.1.0"><img alt="Stable 1.1.0" src="https://img.shields.io/badge/version-1.1.0-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
+  <a href="https://github.com/nezumi0627/vyline/releases/tag/v1.2.0"><img alt="Stable 1.2.0" src="https://img.shields.io/badge/version-1.2.0-eeeeee?style=flat-square&amp;labelColor=181818" /></a>
   <img alt="license MIT" src="https://img.shields.io/badge/license-MIT-eeeeee?style=flat-square&amp;labelColor=181818" />
   <a href="https://技術者倫理.com"><img alt="技術者倫理 遵守済み" src="https://img.shields.io/badge/%E6%8A%80%E8%A1%93%E8%80%85%E5%80%AB%E7%90%86-%E9%81%B5%E5%AE%88%E6%B8%88%E3%81%BF-0a0a0a?style=for-the-badge&amp;labelColor=ffffff" /></a>
   <img alt="runtime Bun" src="https://img.shields.io/badge/runtime-Bun-000000?style=flat-square" />
@@ -29,7 +29,7 @@
 > Vyline is an unofficial client and is not affiliated with LINE Corporation or LY Corporation. Understand the risks to your account and data, as well as LINE's terms, before using it. See [Privacy and Data](docs/user-guide/privacy-and-data.en.md).
 
 > [!NOTE]
-> **v1.1.0 is the current stable release and development baseline.** Adds local macOS distribution, in-app update guidance, multilingual UI settings, and Desktop history restoration, and fixes Linux package startup. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.1.0) · [Changelog](CHANGELOG.md)
+> **v1.2.0 is the current stable release and development baseline.** Adds the OpenChat (Square) beta foundation, PWA support, and separate Stable/Beta update channels, and improves chat read-state synchronization and list previews. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.2.0) · [Changelog](CHANGELOG.md)
 
 ## About Vyline
 
@@ -48,19 +48,19 @@ See the [Feature Guide](docs/features.en.md) for descriptions and limitations an
 
 ## Get started
 
-**The stable release is 1.1.0.** Choose the instructions for your environment.
+**The stable release is 1.2.0.** Choose the instructions for your environment.
 
 | Environment | Download or method | Installation guide |
 | --- | --- | --- |
-| Windows x64 | [Setup.exe](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/VylineSetup-1.1.0.exe) / [Portable ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-portable-1.1.0.zip). No Bun installation required | [Windows](docs/install/windows.md) |
-| Linux x64 | [tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-linux-x64-1.1.0.tar.gz). No Bun installation required | [Linux](docs/install/linux.md) |
-| macOS | [Apple Silicon ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-macos-arm64-1.1.0.zip) / [Intel ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-macos-x64-1.1.0.zip) | [macOS](docs/install/macos.md) |
+| Windows x64 | [Setup.exe](https://github.com/nezumi0627/vyline/releases/download/v1.2.0/VylineSetup-1.2.0.exe) / [Portable ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.2.0/Vyline-portable-1.2.0.zip). No Bun installation required | [Windows](docs/install/windows.md) |
+| Linux x64 | [tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.2.0/Vyline-linux-x64-1.2.0.tar.gz). No Bun installation required | [Linux](docs/install/linux.md) |
+| macOS | [Apple Silicon ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.2.0/Vyline-macos-arm64-1.2.0.zip) / [Intel ZIP](https://github.com/nezumi0627/vyline/releases/download/v1.2.0/Vyline-macos-x64-1.2.0.zip) | [macOS](docs/install/macos.md) |
 | Docker / Web | Run on an amd64 or arm64 server | [Docker](docs/install/docker.md) |
 
 For a command-first setup, the **Bun + vyl CLI** works the same on Windows, macOS, and Linux. [Register and start vyl](docs/install/cli.md)
 
 Continue with [Login and initial setup](docs/start-here.md#ログインと初回設定). Read the [Update Guide](docs/user-guide/update.md) before updating.
-Verify downloads against [SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/SHA256SUMS.txt).
+Verify downloads against [SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.2.0/SHA256SUMS.txt).
 
 ## Before you use Vyline
 
