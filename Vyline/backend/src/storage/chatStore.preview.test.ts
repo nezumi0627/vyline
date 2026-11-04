@@ -5,6 +5,7 @@ import {
   rebuildChatDbRecords,
   shouldPreserveResolvedLastMessagePreview,
   type ChatDbRecords,
+  type StoredMessage,
 } from "./chatStore.js";
 
 describe("chat preview preservation", () => {
@@ -100,7 +101,7 @@ describe("fill empty list previews from stored history", () => {
       createdTime,
       text: "履歴の最後の文",
       contentType: "NONE",
-    }) as never;
+    }) as StoredMessage;
 
   test("uses the stored message and its time when the history is up to date", () => {
     expect(fillPreviewFromStoredMessage(chat as never, stored(300))).toMatchObject({
@@ -135,17 +136,25 @@ describe("fill empty list previews from stored history", () => {
 
   test("does not replace the summary message on an equal-time older ID", () => {
     const current = { ...chat, lastMessageId: "300", lastMessageTime: 300 };
-    const result = fillPreviewFromStoredMessage(current as never, {
-      ...stored(300), id: "299",
-    } as never);
+    const result = fillPreviewFromStoredMessage(
+      current as never,
+      {
+        ...stored(300),
+        id: "299",
+      } as StoredMessage,
+    );
     expect(result).toMatchObject({ lastMessageId: "300", lastMessageTime: 300 });
   });
 
   test("uses the stored message on an equal-time newer ID", () => {
     const current = { ...chat, lastMessageId: "299", lastMessageTime: 300 };
-    const result = fillPreviewFromStoredMessage(current as never, {
-      ...stored(300), id: "300",
-    } as never);
+    const result = fillPreviewFromStoredMessage(
+      current as never,
+      {
+        ...stored(300),
+        id: "300",
+      } as StoredMessage,
+    );
     expect(result).toMatchObject({ lastMessageId: "300", lastMessageTime: 300 });
   });
 
