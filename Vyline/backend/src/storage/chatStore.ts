@@ -33,6 +33,7 @@ import {
   readStoredChatById,
   readStoredChats,
   readLatestStoredMessage,
+  readLatestIncomingMessageIds as readStoredLatestIncomingMessageIds,
   readStoredMessage,
   readStoredMessages,
   readStoredMessagesByIds,
@@ -2011,6 +2012,14 @@ export async function getStoredMessages(
 ): Promise<Message[]> {
   const stored = await getMessages(accountId, chatMid, limit, opts);
   return stored.map((message) => storedMessageToMessage(message, chatMid));
+}
+
+export async function getLatestIncomingMessageIds(
+  accountId: string,
+): Promise<Record<string, string>> {
+  await ensureChatDbImported(accountId);
+  await flushDb(accountId);
+  return readStoredLatestIncomingMessageIds(accountId);
 }
 
 /** Compatibility snapshot for existing JSON backup readers. */

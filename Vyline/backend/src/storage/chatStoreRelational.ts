@@ -852,6 +852,22 @@ export function readLatestStoredMessage(
   return row ? (readVariant(row, "main") as StoredMessage) : undefined;
 }
 
+export function readLatestIncomingMessageIds(accountId: string): Record<string, string> {
+  const rows = sqlite
+    .query(`SELECT chat_mid, message_id FROM (
+      SELECT chat_mid, message_id,
+        ROW_NUMBER() OVER (PARTITION BY chat_mid ORDER BY
+          CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 1 ELSE 0 END ASC,
+          CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,
+          message_id DESC, created_time DESC) AS message_rank
+      FROM chat_messages_v2
+      WHERE account_id=? AND is_my_message=0 AND is_deleted=0
+        AND upper(content_type) NOT IN ('CHATEVENT', '18')
+    ) WHERE message_rank=1`)
+    .all(accountId) as Array<{ chat_mid: string; message_id: string }>;
+  return Object.fromEntries(rows.map((row) => [row.chat_mid, row.message_id]));
+}
+
 export function readStoredMessages(accountId: string, chatMid: string): StoredMessage[] {
   const rows = sqlite
     .query("SELECT * FROM chat_messages_v2 WHERE account_id=? AND chat_mid=?")

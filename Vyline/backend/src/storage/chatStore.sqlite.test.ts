@@ -502,6 +502,71 @@ test("incremental message, read-through, revoke and restore updates persist in S
   expect((await chatStore.getMessages(accountId, "c1", 1))[0]?.text).toBe("new");
 });
 
+test("returns latest normal incoming ID and excludes events and deleted messages", async () => {
+  await chatStore.upsertMessages("incoming-watermark-cache", "c-watermark", [
+    {
+      id: "240",
+      chatMid: "c-watermark",
+      from: "peer",
+      to: "me",
+      text: "received",
+      contentType: "TEXT",
+      createdTime: 1,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "250",
+      chatMid: "c-watermark",
+      from: "peer",
+      to: "me",
+      text: "late received",
+      contentType: "TEXT",
+      createdTime: 0,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "300",
+      chatMid: "c-watermark",
+      from: "me",
+      to: "peer",
+      text: "sent",
+      contentType: "TEXT",
+      createdTime: 2,
+      isMyMessage: true,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "260",
+      chatMid: "c-watermark",
+      from: "peer",
+      to: "me",
+      text: "event",
+      contentType: "CHATEVENT",
+      createdTime: 3,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "270",
+      chatMid: "c-watermark",
+      from: "peer",
+      to: "me",
+      text: "deleted",
+      contentType: "TEXT",
+      createdTime: 4,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+      isDeleted: true,
+    },
+  ]);
+
+  expect(await chatStore.getLatestIncomingMessageIds("incoming-watermark-cache")).toEqual({
+    "c-watermark": "250",
+  });
+});
+
 test("unchanged sync rows keep their first savedAt and skip relational rewrites", async () => {
   const message = {
     id: "stable",

@@ -173,6 +173,7 @@ export function mapChat(
     lastMessagePreview: c.lastMessagePreview,
     lastMessageTime: c.lastMessageTime > 0 ? c.lastMessageTime : undefined,
     lastMessageId: c.lastMessageId,
+    lastIncomingMessageId: c.lastIncomingMessageId,
   };
 }
 

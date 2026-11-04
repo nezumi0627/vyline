@@ -10,7 +10,13 @@ globalThis.fetch = (async () => {
   throw new Error("No network in boxMeta regressions");
 }) as unknown as typeof fetch;
 
-const { boxMeta } = await import("./lineService.js");
+const {
+  boxMeta,
+  incomingIdFromRawMessages,
+  incomingWatermarkCursorReachedTarget,
+  incomingWatermarkHead,
+  incomingWatermarkPageResult,
+} = await import("./lineService.js");
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -49,5 +55,80 @@ describe("chat list box meta", () => {
     expect(meta.lastMessagePreview).toBe("こんにちは");
     expect(meta.lastMessageTime).toBe(4000);
     expect(meta.lastMessageId).toBe("400");
+  });
+
+  test("finds the latest incoming message behind an outgoing message", () => {
+    const meta = boxMeta(
+      {
+        lastDeliveredMessageId: { messageId: 300n, deliveredTime: 3000n },
+        lastMessages: [
+          { id: "300", from: "u-self", contentType: "NONE", text: "sent", deliveredTime: 3000 },
+          { id: "250", from: "u-peer", contentType: "NONE", text: "received", deliveredTime: 2500 },
+        ],
+      },
+      "u-self",
+    );
+
+    expect(meta.lastMessageId).toBe("300");
+    expect(meta.lastIncomingMessageId).toBe("250");
+  });
+
+  test("finds an incoming watermark beyond two consecutive outgoing messages", () => {
+    const meta = boxMeta(
+      {
+        lastDeliveredMessageId: { messageId: 300n, deliveredTime: 3000n },
+        lastMessages: [
+          { id: "300", from: "u-self", contentType: "NONE", deliveredTime: 3000 },
+          { id: "290", from: "u-self", contentType: "NONE", deliveredTime: 2900 },
+          { id: "280", from: "u-peer", contentType: "NONE", deliveredTime: 2800 },
+        ],
+      },
+      "u-self",
+    );
+
+    expect(meta.lastMessageId).toBe("300");
+    expect(meta.lastIncomingMessageId).toBe("280");
+  });
+
+  test("finds the latest incoming ID from history beyond the MessageBox window", () => {
+    const messages = Array.from({ length: 240 }, (_, index) => ({
+      id: String(500 - index),
+      from: "u-self",
+      contentType: "NONE",
+    }));
+    messages[239] = { id: "260", from: "u-peer", contentType: "NONE" };
+    messages[238] = { id: "261", from: "u-self", contentType: "NONE" };
+
+    expect(incomingIdFromRawMessages(messages, "u-self")).toBe("260");
+  });
+
+  test("continues past a full outgoing-only history page", () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      id: String(500 - index),
+      from: "u-self",
+      deliveredTime: 5000 - index,
+    }));
+    const result = incomingWatermarkPageResult(firstPage, "u-self");
+
+    expect(result.id).toBeUndefined();
+    expect(result.complete).toBe(false);
+    expect(result.cursor).toEqual({ messageId: 401n, deliveredTime: 4901n });
+    expect(incomingWatermarkCursorReachedTarget(result.oldestId!, { messageId: 450n })).toBe(true);
+    expect(incomingWatermarkCursorReachedTarget(result.oldestId!, { messageId: 350n })).toBe(false);
+    expect(
+      incomingWatermarkPageResult([{ id: "400", from: "u-peer", deliveredTime: 4900 }], "u-self"),
+    ).toEqual({ id: "400", complete: true });
+  });
+
+  test("changes the cached history head when MessageBox advances", () => {
+    expect(
+      incomingWatermarkHead({
+        lastDeliveredMessageId: { messageId: 200n, deliveredTime: 2000n },
+      }),
+    ).not.toBe(
+      incomingWatermarkHead({
+        lastDeliveredMessageId: { messageId: 210n, deliveredTime: 2100n },
+      }),
+    );
   });
 });

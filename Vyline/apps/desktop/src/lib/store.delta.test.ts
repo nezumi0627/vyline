@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { useStore } from "./store.js";
+import { resolveDeferredPeerMessages, useStore } from "./store.js";
 
 const originalFetch = globalThis.fetch;
 
@@ -503,4 +503,292 @@ test("does not mark a new account's message failed from an old retry response", 
   await retry;
 
   expect(useStore.getState().messages).toEqual([newAccountMessage]);
+});
+
+test("does not count already listed messages as unread after a reload", () => {
+  useStore.setState({
+    accountId: "unread-after-reload",
+    activeChatId: null,
+    messages: [],
+    chats: [
+      {
+        id: "u-peer",
+        name: "Peer",
+        type: "friend",
+        avatar: "P",
+        color: "#000",
+        status: "",
+        unread: 0,
+        lastMessageTime: 2_000,
+        lastMessageId: "2",
+        lastIncomingMessageId: "2",
+      },
+    ],
+  });
+  const incoming = (id: string, createdTime: number) =>
+    ({
+      id,
+      from: "u-peer",
+      to: "self",
+      text: "",
+      contentType: "TEXT",
+      createdTime,
+      isMyMessage: false,
+    }) as never;
+
+  // 一覧にすでに数えられている（lastMessageTime まで）2 通と、その後の新着 1 通
+  useStore
+    .getState()
+    .mergeIncomingMessages("u-peer", [
+      incoming("1", 1_000),
+      incoming("2", 2_000),
+      incoming("3", 3_000),
+    ]);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
+test("counts a late incoming message newer than the listed message ID even when its timestamp is older", () => {
+  const chat = Object.assign(
+    {
+      id: "late-incoming-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: "200" },
+  );
+  useStore.setState({
+    accountId: "late-incoming",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+
+  const incomingMessages = [
+    {
+      id: "201",
+      from: "peer",
+      to: "self",
+      text: "same-time delivery",
+      contentType: "TEXT",
+      createdTime: 5_000,
+      isMyMessage: false,
+    },
+    {
+      id: "202",
+      from: "peer",
+      to: "self",
+      text: "late delivery",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never;
+
+  useStore.getState().mergeIncomingMessages("late-incoming-chat", incomingMessages);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(2);
+
+  useStore.getState().mergeIncomingMessages("late-incoming-chat", incomingMessages);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(2);
+});
+
+test("does not advance the ID watermark from messages older than the time watermark", () => {
+  const chat = Object.assign(
+    {
+      id: "time-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: undefined },
+  );
+  useStore.setState({
+    accountId: "time-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+
+  const makeIncoming = (id: string, createdTime: number) =>
+    [
+      {
+        id,
+        from: "peer",
+        to: "self",
+        text: "old delivery",
+        contentType: "TEXT",
+        createdTime,
+        isMyMessage: false,
+      },
+    ] as never;
+  useStore.getState().mergeIncomingMessages("time-watermark-chat", makeIncoming("201", 3_000));
+  useStore.getState().mergeIncomingMessages("time-watermark-chat", makeIncoming("202", 4_000));
+
+  expect(useStore.getState().chats[0]?.unread).toBe(0);
+});
+
+test("counts a delayed incoming ID newer than the listed outgoing message without a peer watermark", () => {
+  const chat = Object.assign(
+    {
+      id: "outgoing-only-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: undefined },
+  );
+  useStore.setState({
+    accountId: "outgoing-only-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+  const delayedIncoming = [
+    {
+      id: "201",
+      from: "peer",
+      to: "self",
+      text: "late delivery",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never;
+
+  useStore.getState().mergeIncomingMessages(chat.id, delayedIncoming);
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+  useStore.getState().mergeIncomingMessages(chat.id, delayedIncoming);
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
+test("counts a newer incoming message against the peer watermark below an outgoing ID", () => {
+  const chat = Object.assign(
+    {
+      id: "outgoing-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "300", lastIncomingMessageId: "240" },
+  );
+  useStore.setState({
+    accountId: "outgoing-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+  const incoming = [
+    {
+      id: "250",
+      from: "peer",
+      to: "self",
+      text: "delayed incoming",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never;
+
+  useStore.getState().mergeIncomingMessages("outgoing-watermark-chat", incoming);
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+  useStore.getState().mergeIncomingMessages("outgoing-watermark-chat", incoming);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
+test("counts a delayed incoming ID between the peer and outgoing watermarks", () => {
+  const chat = Object.assign(
+    {
+      id: "interleaved-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: "180" },
+  );
+  useStore.setState({
+    accountId: "interleaved-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+  useStore.getState().mergeIncomingMessages("interleaved-watermark-chat", [
+    {
+      id: "190",
+      from: "peer",
+      to: "self",
+      text: "delayed incoming",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
+test("recounts deferred incoming messages when the peer watermark becomes available", () => {
+  const chat = Object.assign(
+    {
+      id: "deferred-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: "180" },
+  );
+  const deferred = [
+    { id: "190", createdAt: 3_000, authorId: "peer" },
+    { id: "170", createdAt: 2_000, authorId: "peer" },
+  ] as never;
+
+  const resolved = resolveDeferredPeerMessages(deferred, chat);
+  expect(resolved).toEqual({
+    unreadCount: 1,
+    lastIncomingMessageId: "190",
+  });
+  expect(
+    resolveDeferredPeerMessages(deferred, {
+      ...chat,
+      lastIncomingMessageId: resolved?.lastIncomingMessageId,
+    }),
+  ).toEqual({ unreadCount: 0, lastIncomingMessageId: "190" });
+  expect(resolveDeferredPeerMessages(deferred, { ...chat, unread: 1 }, 0)).toEqual({
+    unreadCount: 0,
+    lastIncomingMessageId: "190",
+  });
+  expect(resolveDeferredPeerMessages(deferred, { ...chat, unread: 0 }, 1)).toEqual({
+    unreadCount: 0,
+    lastIncomingMessageId: "190",
+  });
+  expect(
+    resolveDeferredPeerMessages(deferred, { ...chat, lastIncomingMessageId: undefined }),
+  ).toBeUndefined();
 });
