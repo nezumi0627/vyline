@@ -57,7 +57,9 @@ export function createChatDayLabels(
         ? "今日"
         : key === yesterday
           ? "昨日"
-          : `${date.getMonth() + 1}月${date.getDate()}日`;
+          : date.getFullYear() === now.getFullYear()
+            ? `${date.getMonth() + 1}月${date.getDate()}日`
+            : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
     labels.set(key, label);
     return label;
   });

@@ -277,9 +277,10 @@ export const api = {
   updater: {
     capability: () =>
       request<{ ok: boolean; canLaunchInstaller: boolean }>("GET", "/updater/capability"),
-    launchInstaller: (version: string) =>
+    launchInstaller: (version: string, channel: "stable" | "beta") =>
       request<{ ok: boolean; launched?: boolean; error?: string }>("POST", "/updater/launch", {
         version,
+        channel,
       }),
   },
   subdevices: {

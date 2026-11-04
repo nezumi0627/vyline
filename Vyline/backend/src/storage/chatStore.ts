@@ -176,7 +176,32 @@ export function compareMessagesOldestFirst(left: MessageCursor, right: MessageCu
   return byTime || compareMessageIdsAscending(left.id, right.id);
 }
 
+/**
+ * 通話の記録の一覧用の表示。本文には「Call History : 0 millisecs, Result: 77」のような
+ * 記録用の文字が入るので使わない。種類の見分け方は画面の通話の記録（parseCallMeta）と揃える。
+ */
+export function callPreviewLabel(meta: Record<string, unknown> | null | undefined): string {
+  const typeHint = String(meta?.CALL_TYPE ?? meta?.TYPE ?? "").toUpperCase();
+  const video = typeHint.includes("VIDEO") || typeHint === "1" || typeHint === "V";
+  const group = meta?.GC_DURATION != null;
+  const kind = group
+    ? video
+      ? "グループビデオ通話"
+      : "グループ通話"
+    : video
+      ? "ビデオ通話"
+      : "音声通話";
+  const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();
+  if (result.includes("cancel") || result.includes("miss") || result === "3") {
+    return `不在着信 · ${kind}`;
+  }
+  return kind;
+}
+
 export function previewForMessage(message: StoredMessage): string {
+  if (message.contentType.toUpperCase() === "CALL") {
+    return callPreviewLabel(message.contentMetadata as Record<string, unknown> | undefined);
+  }
   const text = message.text?.trim();
   if (text) return text.slice(0, 120);
   // RICH / FLEX は本文が空で、表示用の代替テキストを contentMetadata.ALT_TEXT に持つ
@@ -273,14 +298,25 @@ const LEGACY_TYPE_PREVIEWS = new Set([
 
 /** 保存済みのプレビューが内部の種類名なら、最新の保存メッセージから作り直す（読み出し時のみ） */
 function withReadableTypePreview(accountId: string, chat: StoredChat): StoredChat {
-  if (!chat.lastMessageId || !LEGACY_TYPE_PREVIEWS.has(chat.lastMessagePreview ?? "")) return chat;
+  const rawCall = isRawCallHistoryPreview(chat.lastMessagePreview);
+  if (!rawCall && (!chat.lastMessageId || !LEGACY_TYPE_PREVIEWS.has(chat.lastMessagePreview ?? "")))
+    return chat;
   const db = memory.get(accountId);
-  const latest =
-    dirty.has(accountId) && db
+  const latest = !chat.lastMessageId
+    ? undefined
+    : dirty.has(accountId) && db
       ? db.messages[chat.mid]?.[chat.lastMessageId]
       : readLatestStoredMessage(accountId, chat.mid);
-  if (!latest || latest.id !== chat.lastMessageId) return chat;
+  if (!latest || latest.id !== chat.lastMessageId) {
+    // 元のメッセージが手元に無くても、通話の記録の生の文字は出さない
+    return rawCall ? { ...chat, lastMessagePreview: "通話" } : chat;
+  }
   return { ...chat, lastMessagePreview: previewForMessage(latest) };
+}
+
+/** 以前のプレビューに保存された通話の記録の生の文字（「Call History : 0 millisecs, Result: 77」） */
+export function isRawCallHistoryPreview(value: string | null | undefined): boolean {
+  return /^Call History\s*:/i.test(value?.trim() ?? "");
 }
 
 /**

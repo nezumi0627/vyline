@@ -260,6 +260,10 @@ export type Settings = {
   proxyUrl: string;
   /** モバイルプッシュ通知の有効/無効（TalkService_setNotificationsEnabled, type=USER） */
   notificationsEnabled: boolean;
+  /** Stable updates are default; opt in to the separate prerelease feed. */
+  receiveBetaUpdates: boolean;
+  /** Show available release badges in the sidebar. */
+  updateNotificationsEnabled: boolean;
   webNotificationsEnabled?: boolean;
   hideNotificationContent?: boolean;
   /** ベータ: プロフィールにブロック確認導線を表示 */

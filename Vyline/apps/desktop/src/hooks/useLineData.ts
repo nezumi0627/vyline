@@ -264,6 +264,9 @@ export function useLineData({ accountId }: UseLineDataOptions) {
         setFromLocalCache(true);
         setLoadingMessages(false);
         resolveMessageAuthors(cachedWindow.messages);
+        // 再入室でもキャッシュを出した時点で読み込み済みとする。合図が無いと
+        // 開いたときの位置決め（未読の先頭・最下部）が待ったままになり、一番上に残る
+        if (!opts?.force) setReadyChatId(chatMid);
 
         // 再入室時は表示を待たせずキャッシュを出し、その後に最新1ページだけローカルDBから統合する。
         // 3,000件読んだ履歴を3,000件再取得することも、ネットワーク先読みすることもない。

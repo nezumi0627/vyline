@@ -7,9 +7,24 @@ import { join } from "node:path";
 
 const OWNER = "nezumi0627";
 const REPO = "Vyline";
-const RELEASE_API = `https://api.github.com/repos/${OWNER}/${REPO}/releases/latest`;
+const RELEASES_API = `https://api.github.com/repos/${OWNER}/${REPO}/releases`;
 const MAX_INSTALLER_BYTES = 150 * 1024 * 1024;
-const VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
+const VERSION =
+  /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)(?:-([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?$/;
+
+function isValidVersion(value: string): boolean {
+  const match = VERSION.exec(value);
+  return Boolean(
+    match &&
+      !match[4]
+        ?.split(".")
+        .some((part) => /^\d+$/.test(part) && part.length > 1 && part.startsWith("0")),
+  );
+}
+
+export function releaseMatchesChannel(prerelease: boolean, channel: "stable" | "beta"): boolean {
+  return channel === "beta" ? prerelease : !prerelease;
+}
 
 export function isLoopbackHost(value: string): boolean {
   let hostname: string;
@@ -80,19 +95,29 @@ updaterRouter.post("/launch", async (c) => {
       501,
     );
 
-  const body = await c.req.json<{ version?: unknown }>().catch(() => null);
-  if (!body || typeof body.version !== "string" || !VERSION.test(body.version)) {
-    return c.json({ ok: false, error: "invalid release version" }, 400);
+  const body = await c.req.json<{ version?: unknown; channel?: unknown }>().catch(() => null);
+  if (
+    !body ||
+    typeof body.version !== "string" ||
+    !isValidVersion(body.version) ||
+    (body.channel !== "stable" && body.channel !== "beta")
+  ) {
+    return c.json({ ok: false, error: "invalid release version or channel" }, 400);
   }
 
   try {
-    const releaseResponse = await fetch(RELEASE_API, {
-      headers: { Accept: "application/vnd.github+json" },
-      signal: AbortSignal.timeout(12_000),
-    });
+    const releaseResponse = await fetch(
+      `${RELEASES_API}/tags/${encodeURIComponent(`v${body.version}`)}`,
+      {
+        headers: { Accept: "application/vnd.github+json" },
+        signal: AbortSignal.timeout(12_000),
+      },
+    );
     if (!releaseResponse.ok) throw new Error("GitHub release lookup failed");
     const release = (await releaseResponse.json()) as {
       tag_name?: string;
+      prerelease?: boolean;
+      draft?: boolean;
       assets?: Array<{
         name?: string;
         browser_download_url?: string;
@@ -101,8 +126,15 @@ updaterRouter.post("/launch", async (c) => {
       }>;
     };
     const tag = release.tag_name?.replace(/^v/i, "");
-    if (tag !== body.version)
-      return c.json({ ok: false, error: "release changed; check again" }, 409);
+    const tagIsPrerelease = tag ? VERSION.exec(tag)?.[4] !== undefined : false;
+    const releaseIsPrerelease = release.prerelease === true;
+    if (
+      tag !== body.version ||
+      release.draft === true ||
+      tagIsPrerelease !== releaseIsPrerelease ||
+      !releaseMatchesChannel(releaseIsPrerelease, body.channel)
+    )
+      return c.json({ ok: false, error: "release channel changed; check again" }, 409);
     const assetName = `VylineSetup-${tag}.exe`;
     const asset = release.assets?.find((item) => item.name === assetName);
     const expectedDigest = asset?.digest?.match(/^sha256:([\da-f]{64})$/i)?.[1]?.toLowerCase();
