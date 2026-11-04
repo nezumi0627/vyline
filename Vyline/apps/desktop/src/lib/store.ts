@@ -1162,15 +1162,18 @@ export const useStore = create<State>()(
         }
         const accountId = get().accountId;
         const activeChatId = get().activeChatId;
+        const previousChats = new Map(get().chats.map((chat) => [chat.id, chat]));
         const dismissed = accountId ? getDismissedChatMids(accountId) : new Set<string>();
         const restored = accountId ? new Set(getRestoredChatMids(accountId)) : new Set<string>();
         const mappedChats = chats
           .filter((c) => (!dismissed.has(c.mid) || restored.has(c.mid)) && !c.left)
           .map((c) => {
             const base = mapChat(c, hiddenMids.has(c.mid), contactCache);
+            const previous = previousChats.get(c.mid);
             const cached = contactCache.get(c.mid);
             return {
               ...base,
+              lastIncomingMessageId: base.lastIncomingMessageId ?? previous?.lastIncomingMessageId,
               avatarUrl: base.avatarUrl || cached?.thumbnailUrl,
               name:
                 base.name && !looksLikeMid(base.name)
@@ -1190,7 +1193,6 @@ export const useStore = create<State>()(
 
         // hide flag: always preserve prev.hidden when chat already exists,
         // taking precedence over the newly mapped hidden from hiddenMids
-        const previousChats = new Map(get().chats.map((chat) => [chat.id, chat]));
         const hiddenByPrev = new Map<string, boolean>();
         mappedChats.forEach((c) => {
           const prev = previousChats.get(c.id);
@@ -3090,6 +3092,11 @@ export const useStore = create<State>()(
                   ? {
                       lastMessagePreview: messagePreview(latest),
                       lastMessageTime: Math.max(c.lastMessageTime ?? 0, latest.createdAt),
+                      lastIncomingMessageId: advanceChatMessageIdWatermark(
+                        c.lastIncomingMessageId,
+                        c.lastMessageTime,
+                        fresh.filter((message) => message.authorId !== "me"),
+                      ),
                     }
                   : {}),
               };

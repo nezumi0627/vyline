@@ -92,6 +92,7 @@ import {
   getMessages,
   getTalkEventOutbox,
   filterLocallyDeletedMessages,
+  getLatestIncomingMessageIds,
   getStoredChats,
   getStoredMessages,
   getBootstrapPayload,
@@ -3020,24 +3021,26 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   let joinedChatsFetchFailed = false;
   let messageBoxesFetchFailed = false;
 
-  const [messageBoxes, joinedChats, users, storedChats, cacheMeta] = await Promise.all([
-    fetchMessageBoxesCached(accountId, client, { forChats: true }).catch((err) => {
-      messageBoxesFetchFailed = true;
-      log.warn({ accountId, err }, "message box fetch failed — preserving cached chats");
-      return [] as any[];
-    }),
-    client.fetchJoinedChats().catch((err) => {
-      joinedChatsFetchFailed = true;
-      log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
-      return [] as Awaited<ReturnType<typeof client.fetchJoinedChats>>;
-    }),
-    client.fetchUsers().catch((err) => {
-      log.warn({ accountId, err }, "fetchUsers failed — skipping friends");
-      return [] as Awaited<ReturnType<typeof client.fetchUsers>>;
-    }),
-    getStoredChats(accountId),
-    getCacheMeta(accountId),
-  ]);
+  const [messageBoxes, joinedChats, users, storedChats, cacheMeta, storedIncomingIds] =
+    await Promise.all([
+      fetchMessageBoxesCached(accountId, client, { forChats: true }).catch((err) => {
+        messageBoxesFetchFailed = true;
+        log.warn({ accountId, err }, "message box fetch failed — preserving cached chats");
+        return [] as any[];
+      }),
+      client.fetchJoinedChats().catch((err) => {
+        joinedChatsFetchFailed = true;
+        log.warn({ accountId, err }, "fetchJoinedChats failed — preserving cached groups");
+        return [] as Awaited<ReturnType<typeof client.fetchJoinedChats>>;
+      }),
+      client.fetchUsers().catch((err) => {
+        log.warn({ accountId, err }, "fetchUsers failed — skipping friends");
+        return [] as Awaited<ReturnType<typeof client.fetchUsers>>;
+      }),
+      getStoredChats(accountId),
+      getCacheMeta(accountId),
+      getLatestIncomingMessageIds(accountId).catch((): Record<string, string> => ({})),
+    ]);
   const joinedMids = new Set(joinedChats.map((chat) => chat.mid));
   if (
     !messageBoxesFetchFailed &&
@@ -3144,6 +3147,13 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const boxById = new Map(messageBoxes.map((b: { id: string }) => [b.id, b]));
   const seen = new Set<string>();
   const result: Chat[] = [];
+  const isNewerMessageId = (candidate: string, current: string) => {
+    try {
+      return BigInt(candidate) > BigInt(current);
+    } catch {
+      return false;
+    }
+  };
 
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
@@ -3154,6 +3164,14 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       !joinedChatsFetchFailed,
       client.base.profile?.mid,
     );
+    const storedIncomingId = storedIncomingIds[chat.mid];
+    if (
+      storedIncomingId &&
+      (!chat.lastIncomingMessageId ||
+        isNewerMessageId(storedIncomingId, chat.lastIncomingMessageId))
+    ) {
+      chat.lastIncomingMessageId = storedIncomingId;
+    }
     const reconciled = reconcileChatUnreadWithLocalRead(
       chat,
       cacheMeta.localReadUpTo?.[chat.mid]?.messageId,
