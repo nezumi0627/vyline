@@ -35,7 +35,7 @@ import {
 } from "@/components/icons";
 import { copyText, downloadUrl } from "@/utils/clipboard";
 import { segmentUnicodeEmoji } from "@/utils/lineSticon";
-import { lineCdnProxy, hideBrokenMedia } from "@/utils/lineMedia";
+import { hideBrokenMedia } from "@/utils/lineMedia";
 import { segmentTextWithMentions, type DraftSegment } from "@/utils/mention";
 import { mentionLabel } from "./message-bubble-helpers";
 import { previewUrlsForText, splitMessageUrls } from "@/lib/messageUrls";
