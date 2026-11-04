@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import {
+  fillPreviewFromStoredMessage,
   isRawCallHistoryPreview,
   previewForMessage,
   rebuildChatDbRecords,
   shouldPreserveResolvedLastMessagePreview,
   type ChatDbRecords,
+  type StoredMessage,
 } from "./chatStore.js";
 
 describe("chat preview preservation", () => {
@@ -111,5 +113,78 @@ describe("stored message preview", () => {
     expect(previewForMessage({ ...base, contentType: "POSTNOTIFICATION" } as never)).toBe(
       "投稿のお知らせ",
     );
+  });
+});
+
+describe("fill empty list previews from stored history", () => {
+  const chat = { mid: "u1", lastMessageId: "300", lastMessageTime: 300, lastMessagePreview: "" };
+  const stored = (createdTime: number) =>
+    ({
+      id: String(createdTime),
+      from: "u1",
+      to: "u2",
+      createdTime,
+      text: "履歴の最後の文",
+      contentType: "NONE",
+    }) as StoredMessage;
+
+  test("uses the stored message and its time when the history is up to date", () => {
+    expect(fillPreviewFromStoredMessage(chat as never, stored(300))).toMatchObject({
+      lastMessageId: "300",
+      lastMessageTime: 300,
+      lastMessagePreview: "履歴の最後の文",
+    });
+  });
+
+  test("fills only the text when the list points to a message missing from the history", () => {
+    expect(fillPreviewFromStoredMessage(chat as never, stored(100))).toMatchObject({
+      lastMessageId: "300",
+      lastMessageTime: 300,
+      lastMessagePreview: "履歴の最後の文",
+    });
+  });
+
+  test.each(["暗号化メッセージ", "UNSENT", "CHATEVENT"])(
+    "preserves meaningful unresolved preview %s",
+    (preview) => {
+      const current = { ...chat, lastMessagePreview: preview };
+      expect(fillPreviewFromStoredMessage(current as never, stored(100))).toBe(current as never);
+    },
+  );
+
+  test.each(["NONE", "0"])("fills generic unresolved preview %s", (preview) => {
+    const current = { ...chat, lastMessagePreview: preview };
+    expect(fillPreviewFromStoredMessage(current as never, stored(300))).toMatchObject({
+      lastMessagePreview: "履歴の最後の文",
+    });
+  });
+
+  test("does not replace the summary message on an equal-time older ID", () => {
+    const current = { ...chat, lastMessageId: "300", lastMessageTime: 300 };
+    const result = fillPreviewFromStoredMessage(
+      current as never,
+      {
+        ...stored(300),
+        id: "299",
+      } as StoredMessage,
+    );
+    expect(result).toMatchObject({ lastMessageId: "300", lastMessageTime: 300 });
+  });
+
+  test("uses the stored message on an equal-time newer ID", () => {
+    const current = { ...chat, lastMessageId: "299", lastMessageTime: 300 };
+    const result = fillPreviewFromStoredMessage(
+      current as never,
+      {
+        ...stored(300),
+        id: "300",
+      } as StoredMessage,
+    );
+    expect(result).toMatchObject({ lastMessageId: "300", lastMessageTime: 300 });
+  });
+
+  test("keeps a resolved preview", () => {
+    const resolved = { ...chat, lastMessagePreview: "要約の文" };
+    expect(fillPreviewFromStoredMessage(resolved as never, stored(100))).toBe(resolved as never);
   });
 });

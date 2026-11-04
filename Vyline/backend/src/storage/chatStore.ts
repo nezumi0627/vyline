@@ -334,12 +334,29 @@ function withLatestStoredPreview(accountId: string, chat: StoredChat): StoredCha
           .sort(compareMessagesNewestFirst)[0]
       : readLatestStoredMessage(accountId, chat.mid);
   if (!latest) return chat;
+  return fillPreviewFromStoredMessage(chat, latest);
+}
+
+/**
+ * 空・未解決のプレビューを、保存済みの最新メッセージで埋める。
+ * 履歴の方が古いとき（要約が指す最終メッセージが履歴に無い。LINE の通知メッセージのように
+ * 履歴の取得に出てこず、中身も空のものがある）は、文だけを埋め、日時と ID は要約のままにする。
+ * 空のままだと、開いたとき（履歴から表示）と一覧で表示が食い違う。
+ */
+export function fillPreviewFromStoredMessage(chat: StoredChat, latest: StoredMessage): StoredChat {
+  // Preserve meaningful unresolved states such as encrypted, unsent, or call-event previews.
+  const currentPreview = chat.lastMessagePreview?.trim();
+  if (currentPreview && !["NONE", "0"].includes(currentPreview.toUpperCase())) return chat;
   const preview = previewForMessage(latest);
   if (isUnresolvedLastMessagePreview(preview)) return chat;
-  const time = chat.lastMessageTime ?? 0;
-  if (latest.createdTime < time) {
-    // 履歴の方が古い（要約が指す最終メッセージが未保存）ときは、日時と ID が食い違うので埋めない
-    return chat;
+  const summaryCursor = chat.lastMessageId
+    ? { id: chat.lastMessageId, createdTime: chat.lastMessageTime ?? 0 }
+    : undefined;
+  if (
+    latest.createdTime < (chat.lastMessageTime ?? 0) ||
+    (summaryCursor && compareMessagesNewestFirst(latest, summaryCursor) > 0)
+  ) {
+    return { ...chat, lastMessagePreview: preview };
   }
   return {
     ...chat,
