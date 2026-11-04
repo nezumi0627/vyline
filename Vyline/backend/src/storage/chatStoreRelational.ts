@@ -843,7 +843,7 @@ export function readLatestStoredMessage(
   chatMid: string,
 ): StoredMessage | undefined {
   const row = sqlite
-    .query(`SELECT * FROM chat_messages_v2 WHERE account_id=? AND chat_mid=?
+    .query(`SELECT * FROM chat_messages_v2 WHERE account_id=? AND chat_mid=? AND is_deleted=0
     ORDER BY created_time DESC,
       CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 1 ELSE 0 END DESC,
       CASE WHEN message_id GLOB '*[^0-9]*' OR message_id = '' THEN 0 ELSE length(message_id) END DESC,

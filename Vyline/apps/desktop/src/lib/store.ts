@@ -8,6 +8,7 @@ import {
   type Message as LineMessage,
 } from "@vyline/types";
 import { THEME_PRESETS } from "@vyline/themes";
+import { PRODUCT_VERSION } from "./productVersion.js";
 import type {
   Chat,
   ChatSort,
@@ -18,6 +19,7 @@ import type {
   Screen,
   SelfProfile,
 } from "./store-types.js";
+import { callPreviewLabel } from "./callPreview.js";
 import {
   buildMembersFromMessages,
   looksLikeMid,
@@ -66,6 +68,10 @@ const readReceiptSent = new Map<string, string>();
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
+/** このセッションで一度でも既読を取得した chat（再読み込み直後の古い発言も一度は確認する） */
+const readReceiptCheckedChats = new Set<string>();
+/** account reset/switch 後に完了した古い既読取得を破棄する世代番号 */
+let readReceiptGeneration = 0;
 const messageReactionCache = new Map<string, NonNullable<Message["reactions"]>>();
 /** 既読ウォーターマークのキャッシュ有効時間 — 読み込み高速化のため毎回の既読取得を避ける */
 const READ_WATERMARK_TTL_MS = 5_000;
@@ -522,11 +528,8 @@ function messagePreview(m: Message): string {
     case "flex":
     case "rich":
       return m.altText || m.text || (m.kind === "flex" ? "Flexメッセージ" : "リッチメッセージ");
-    case "call": {
-      const cm = m.callMeta;
-      if (!cm) return "通話";
-      return cm.video ? "ビデオ通話" : "音声通話";
-    }
+    case "call":
+      return callPreviewLabel(m.callMeta);
     case "emoji":
       return "絵文字";
     case "system":
@@ -541,8 +544,8 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "1.1.0",
-  title: "Vyline 1.1.0 — macOS配布・履歴復元・多言語対応",
+  version: PRODUCT_VERSION,
+  title: `Vyline ${PRODUCT_VERSION} — macOS配布・履歴復元・多言語対応`,
   items: [
     "macOSローカル版、アプリ内アップデート案内、多言語設定、Desktop履歴復元に対応",
     "Linux配布物に必要なprotocol profileを同梱し、起動スモークテストを追加",
@@ -584,6 +587,7 @@ type State = {
   initialChatScrollPending: boolean;
   initialChatScrollMode: "unread" | "bottom" | null;
   showUpdateNote: boolean;
+  showManualWhatsNew: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
   self: SelfProfile;
@@ -638,6 +642,8 @@ type State = {
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
   dismissUpdateNote: () => void;
+  openManualWhatsNew: () => void;
+  closeManualWhatsNew: (openChat?: boolean) => void;
   setProfileDrawer: (open: boolean) => void;
   setIndexing: (v: { active: boolean; label: string } | null) => void;
   /** 一時的な上部ステータス通知（自動消去） */
@@ -784,6 +790,8 @@ export const useStore = create<State>()(
         proxyEnabled: false,
         proxyUrl: "",
         notificationsEnabled: true,
+        receiveBetaUpdates: false,
+        updateNotificationsEnabled: true,
         webNotificationsEnabled: false,
         hideNotificationContent: true,
         betaBlockCheckManual: false,
@@ -806,6 +814,7 @@ export const useStore = create<State>()(
       initialChatScrollPending: false,
       initialChatScrollMode: null,
       showUpdateNote: true,
+      showManualWhatsNew: false,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
       self: { name: "Vyline", avatar: "V", status: "" },
@@ -839,8 +848,10 @@ export const useStore = create<State>()(
               : new Map();
         }
         if (accountChanged) {
+          readReceiptGeneration += 1;
           contactFetched.clear();
           readReceiptSent.clear();
+          readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -885,6 +896,7 @@ export const useStore = create<State>()(
 
       resetAccountData: () =>
         set((st) => {
+          readReceiptGeneration += 1;
           revokeMessageObjectUrls(st.messages);
           revokeObjectUrl(st.self.avatarUrl);
           revokeObjectUrl(st.self.backgroundUrl);
@@ -893,6 +905,8 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          readReceiptCheckedChats.clear();
+          contactFetched.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -1089,6 +1103,9 @@ export const useStore = create<State>()(
           seenUpdateVersion: UPDATE_NOTES.version,
           screen: "chat",
         }),
+      openManualWhatsNew: () => set({ showManualWhatsNew: true }),
+      closeManualWhatsNew: (openChat = false) =>
+        set({ showManualWhatsNew: false, ...(openChat ? { screen: "chat" as const } : {}) }),
       setProfileDrawer: (open) => set({ profileDrawerOpen: open }),
       setIndexing: (v) => set({ indexing: v }),
       showNotice: (msg, ms = 4_000) => {
@@ -1123,6 +1140,8 @@ export const useStore = create<State>()(
             proxyEnabled: false,
             proxyUrl: "",
             notificationsEnabled: true,
+            receiveBetaUpdates: false,
+            updateNotificationsEnabled: true,
             webNotificationsEnabled: false,
             hideNotificationContent: true,
             betaBlockCheckManual: false,
@@ -1201,8 +1220,20 @@ export const useStore = create<State>()(
 
         const chatId =
           activeChatId && mappedChats.some((c) => c.id === activeChatId) ? activeChatId : null;
-        // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める
-        const chatMessageFilter = (m: LineMessage) => !m.to || m.to === chatId || m.from === chatId;
+        // 1on1 の受信メッセージは from=相手(chatId)/to=自分 になるため、from 側も対象に含める。
+        // Keep メモ（自分の mid のトーク）では、自分宛ての 1on1 受信メッセージが全部 to=chatId に
+        // 当てはまってしまうので、自分から自分へのメッセージだけに絞る。
+        // 読み直し直後は self.mid がまだ空なので、profile と一覧の isSelf も見る
+        const selfMid = profile?.mid || get().self.mid;
+        const isSelfChat = Boolean(
+          chatId && (chatId === selfMid || chats.some((c) => c.mid === chatId && c.isSelf)),
+        );
+        // Keep メモでは宛先・送信者の欠けたものを許さない（欠けていると別の人のメッセージも残る）。
+        // 通常のトークだけ、宛先の無いものを残す従来の扱いにする。
+        const chatMessageFilter = (m: LineMessage) => {
+          if (isSelfChat) return m.to === chatId && m.from === chatId;
+          return !m.to || m.to === chatId || m.from === chatId;
+        };
         const mappedMessages =
           chatId && accountId
             ? messages
@@ -1296,7 +1327,13 @@ export const useStore = create<State>()(
             }),
           messages: (() => {
             if (!chatId) return st.messages;
-            const existingChat = st.messages.filter((m) => m.chatId === chatId);
+            // Keep メモでは、直す前に入り込んだ他の人のメッセージがストアに残っていることがあるので、
+            // 既存のメッセージも自分のものだけに絞り直す
+            const existingChat = st.messages.filter(
+              (m) =>
+                m.chatId === chatId &&
+                (!isSelfChat || m.authorId === "me" || m.authorId === chatId),
+            );
             const pending = existingChat.filter(
               (m) =>
                 m.id.startsWith("pending_") ||
@@ -2810,6 +2847,7 @@ export const useStore = create<State>()(
       refreshReadReceipts: async (chatId, opts) => {
         const accountId = get().accountId;
         if (!accountId) return;
+        const generation = readReceiptGeneration;
         const chatKey = accountChatKey(accountId, chatId);
         const inflight = readReceiptInflight.get(chatKey);
         if (inflight) {
@@ -2866,14 +2904,51 @@ export const useStore = create<State>()(
             if (Date.now() - cached.at < READ_WATERMARK_TTL_MS && !opts?.force) return;
           }
 
-          if (!needsPoll) return;
+          // 再読み込み直後は保存済みの履歴に既読が無いので、追跡の期限（グループは 15 分）を
+          // 過ぎた発言でも、そのチャットを開いて最初の一回は取得する。
+          if (!needsPoll && readReceiptCheckedChats.has(chatKey) && !opts?.force) return;
 
-          const myIds = myMessages.map((message) => message.id);
+          // サーバーは先頭の 100 件しか見ないので、新しい順に送る。
+          const myIds = [...myMessages]
+            .sort((left, right) => right.createdAt - left.createdAt)
+            .slice(0, 100)
+            .map((message) => message.id);
           const res = await api.line.getMessageReadRange(accountId, chatId, myIds, {
             force: opts?.force === true,
           });
-          if (get().accountId !== accountId) return;
+          if (get().accountId !== accountId || readReceiptGeneration !== generation) return;
           if (!res.ok || !res.receipts) return;
+          readReceiptCheckedChats.add(chatKey);
+
+          // メッセージごとの既読も反映する。ウォーターマークが返らない場合（グループの
+          // 既読スナップショットだけで判定された場合など）でも既読数を戻す。既読は減らさない。
+          const receipts = res.receipts;
+          set((st) => ({
+            messages: st.messages.map((message) => {
+              if (message.chatId !== chatId || message.authorId !== "me") return message;
+              const receipt = receipts[message.id];
+              if (!receipt) return message;
+              const readBy = [...new Set([...(message.readBy ?? []), ...(receipt.readBy ?? [])])];
+              const readCount = Math.max(
+                message.readCount ?? 0,
+                receipt.readCount ?? 0,
+                readBy.length,
+              );
+              const read = message.read || receipt.seen === true || readCount > 0;
+              if (
+                read === message.read &&
+                readCount === (message.readCount ?? 0) &&
+                readBy.length === (message.readBy?.length ?? 0)
+              )
+                return message;
+              return {
+                ...message,
+                read,
+                ...(read ? { status: "read" as const } : {}),
+                ...(chatId.startsWith("u") ? {} : { readBy, readCount }),
+              };
+            }),
+          }));
 
           const watermark = mergeReadWatermarks(get().readWatermarks[chatKey], res);
           set((st) => ({
@@ -2905,31 +2980,40 @@ export const useStore = create<State>()(
           }
           if (readersNeedFetch.length > 0) {
             void api.line.warmCache(accountId, readersNeedFetch).then((warmRes) => {
-              if (!warmRes.ok || !warmRes.profiles) return;
+              if (
+                get().accountId !== accountId ||
+                readReceiptGeneration !== generation ||
+                !warmRes.ok ||
+                !warmRes.profiles
+              )
+                return;
               const profiles = warmRes.profiles;
-              set((st) => ({
-                chats: st.chats.map((c) => {
-                  if (c.id !== chatId) return c;
-                  const members = [...(c.members ?? [])];
-                  for (const mid of readersNeedFetch) {
-                    const profile = profiles[mid];
-                    if (!profile) continue;
-                    const name = (profile as { displayName?: string }).displayName ?? mid;
-                    const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
-                    const i = members.findIndex((x) => x.id === mid);
-                    if (i >= 0) {
-                      members[i] = {
-                        ...members[i]!,
-                        name: name && !looksLikeMid(name) ? name : members[i]!.name,
-                        avatarUrl: avatarUrl || members[i]!.avatarUrl,
-                      };
-                    } else {
-                      members.push(mapMember(mid, name, avatarUrl));
+              set((st) => {
+                if (st.accountId !== accountId || readReceiptGeneration !== generation) return st;
+                return {
+                  chats: st.chats.map((c) => {
+                    if (c.id !== chatId) return c;
+                    const members = [...(c.members ?? [])];
+                    for (const mid of readersNeedFetch) {
+                      const profile = profiles[mid];
+                      if (!profile) continue;
+                      const name = (profile as { displayName?: string }).displayName ?? mid;
+                      const avatarUrl = (profile as { thumbnailUrl?: string }).thumbnailUrl;
+                      const i = members.findIndex((x) => x.id === mid);
+                      if (i >= 0) {
+                        members[i] = {
+                          ...members[i]!,
+                          name: name && !looksLikeMid(name) ? name : members[i]!.name,
+                          avatarUrl: avatarUrl || members[i]!.avatarUrl,
+                        };
+                      } else {
+                        members.push(mapMember(mid, name, avatarUrl));
+                      }
                     }
-                  }
-                  return { ...c, members };
-                }),
-              }));
+                    return { ...c, members };
+                  }),
+                };
+              });
             });
           }
 
@@ -3468,6 +3552,7 @@ export const useStore = create<State>()(
       storage: indexedDbPersistStorage,
       skipHydration: true,
       partialize: (s) => ({
+        showManualWhatsNew: s.showManualWhatsNew,
         theme: s.theme,
         settings: s.settings,
         sidebarWidth: s.sidebarWidth,
@@ -3492,6 +3577,9 @@ export const useStore = create<State>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        if (state.showManualWhatsNew) state.screen = "settings";
+        state.settings.receiveBetaUpdates ??= false;
+        state.settings.updateNotificationsEnabled ??= true;
         // Keep chat selection transient: restarting the browser restores the roster,
         // but must not reopen a conversation or fetch its message history.
         state.activeChatId = null;

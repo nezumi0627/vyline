@@ -653,6 +653,55 @@ test("rebuilding chat summaries does not rewrite message rows", async () => {
   ).toEqual(["latest", "keep"]);
 });
 
+test("fills unresolved previews from the newest non-deleted persisted message", async () => {
+  const account = "offline-preview-skips-deleted";
+  const chatMid = "c-preview-deleted";
+  await chatStore.upsertChats(
+    account,
+    [
+      {
+        mid: chatMid,
+        name: "Preview",
+        kind: "direct",
+        hasMessages: true,
+        lastMessageId: "m2",
+        lastMessageTime: 2,
+        lastMessagePreview: "NONE",
+        updatedAt: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+    { boxOrder: [chatMid] },
+  );
+  await chatStore.upsertMessages(account, chatMid, [
+    {
+      id: "m1",
+      chatMid,
+      from: "peer",
+      to: "me",
+      text: "visible history",
+      contentType: "TEXT",
+      createdTime: 1,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "m2",
+      chatMid,
+      from: "peer",
+      to: "me",
+      text: "deleted history",
+      contentType: "TEXT",
+      createdTime: 2,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:01.000Z",
+    },
+  ]);
+  await chatStore.softDeleteMessage(account, chatMid, "m2");
+  await chatStore.flushAccountChatDb(account);
+
+  expect((await chatStore.getStoredChats(account))[0]?.lastMessagePreview).toBe("visible history");
+});
+
 test("deferred chat updates do not rewrite unchanged message history", async () => {
   const account = "offline-deferred-delta-write";
   await chatStore.upsertChats(account, [

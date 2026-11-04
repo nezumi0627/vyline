@@ -20,6 +20,9 @@ const SettingsSections = lazy(() =>
     default: module.SettingsSections,
   })),
 );
+const WhatsNewView = lazy(() =>
+  import("../components/whats-new-view.js").then((module) => ({ default: module.WhatsNewView })),
+);
 
 export function VylineApp() {
   const initialized = useAuthStore((s) => s.initialized);
@@ -31,6 +34,7 @@ export function VylineApp() {
   const setScreen = useStore((s) => s.setScreen);
   const navigate = useNavigate();
   const showUpdateNote = useStore((s) => s.showUpdateNote);
+  const showManualWhatsNew = useStore((s) => s.showManualWhatsNew);
   const indexing = useStore((s) => s.indexing);
   const notice = useStore((s) => s.notice);
   const mid = useStore((s) => s.self.mid);
@@ -153,6 +157,11 @@ export function VylineApp() {
             <SettingsSections />
           </Suspense>
         </div>
+      )}
+      {showManualWhatsNew && (
+        <Suspense fallback={null}>
+          <WhatsNewView mode="settings" />
+        </Suspense>
       )}
     </main>
   );

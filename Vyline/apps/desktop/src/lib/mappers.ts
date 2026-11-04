@@ -596,8 +596,11 @@ function parseCallMeta(
   const u = contentType.toUpperCase();
   const typeHint = String(meta?.CALL_TYPE ?? meta?.TYPE ?? "").toUpperCase();
   const video =
-    (u.includes("VIDEO") && u.includes("CALL")) || typeHint.includes("VIDEO") || typeHint === "1";
-  const group = u.includes("GROUP") || Boolean(meta?.GC_DURATION);
+    (u.includes("VIDEO") && u.includes("CALL")) ||
+    typeHint.includes("VIDEO") ||
+    typeHint === "V" ||
+    typeHint === "1";
+  const group = u.includes("GROUP") || meta?.GC_DURATION != null;
   const durationSec = parseCallDurationSeconds(meta);
   const result = String(meta?.RESULT ?? meta?.eventType ?? "").toLowerCase();
   let outcome: import("./store-types.js").CallMessageMeta["outcome"] = "ended";
