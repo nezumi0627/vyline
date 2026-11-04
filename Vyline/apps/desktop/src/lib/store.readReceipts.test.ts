@@ -191,3 +191,30 @@ test("serializes newer read positions and ignores stale older requests", async (
   expect(await useStore.getState().markChatRead("c-read-ordering", "100")).toBe(true);
   expect(requestedIds).toEqual(["100", "200"]);
 });
+
+test("shares mark-read requests when the chat has no loaded message ID", async () => {
+  let requests = 0;
+  let release!: (response: Response) => void;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return await new Promise<Response>((resolve) => {
+      release = resolve;
+    });
+  }) as unknown as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-no-id",
+    settings: { ...state.settings, readReceipts: true },
+    messages: [],
+  }));
+
+  const first = useStore.getState().markChatRead("c-no-loaded-message");
+  await Promise.resolve();
+  const duplicate = useStore.getState().markChatRead("c-no-loaded-message");
+  await Promise.resolve();
+  expect(requests).toBe(1);
+
+  release(Response.json({ ok: true }));
+  expect(await first).toBe(true);
+  expect(await duplicate).toBe(true);
+  expect(requests).toBe(1);
+});

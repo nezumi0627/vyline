@@ -2320,7 +2320,7 @@ export const useStore = create<State>()(
             }
           }
         })();
-        if (lastId) markReadInflight.set(receiptKey, { messageId: lastId, promise: request });
+        markReadInflight.set(receiptKey, { messageId: lastId ?? "", promise: request });
         return request;
       },
 
