@@ -2978,9 +2978,16 @@ export const useStore = create<State>()(
           set((st) => ({
             chats: st.chats.map((chat) => {
               if (chat.id !== chatId) return chat;
+              // 読み直しの直後は、開いていないトークのメッセージを持っていないため、
+              // 同期で届き直した既読済みのメッセージも fresh になる。一覧の未読の数は
+              // lastMessageTime までの分をサーバーが数えているので、それより新しい受信だけを足す。
+              const listedUpTo = chat.lastMessageTime ?? 0;
+              const newFromPeer = fresh.filter(
+                (m) => m.authorId !== "me" && m.createdAt > listedUpTo,
+              ).length;
               return {
                 ...chat,
-                unread: silent ? chat.unread : chat.unread + incomingFromPeer,
+                unread: silent ? chat.unread : chat.unread + newFromPeer,
                 ...(latest
                   ? {
                       lastMessagePreview: messagePreview(latest),

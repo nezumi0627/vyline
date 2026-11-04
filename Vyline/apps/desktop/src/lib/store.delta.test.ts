@@ -504,3 +504,44 @@ test("does not mark a new account's message failed from an old retry response", 
 
   expect(useStore.getState().messages).toEqual([newAccountMessage]);
 });
+
+test("does not count already listed messages as unread after a reload", () => {
+  useStore.setState({
+    accountId: "unread-after-reload",
+    activeChatId: null,
+    messages: [],
+    chats: [
+      {
+        id: "u-peer",
+        name: "Peer",
+        type: "friend",
+        avatar: "P",
+        color: "#000",
+        status: "",
+        unread: 0,
+        lastMessageTime: 2_000,
+      },
+    ],
+  });
+  const incoming = (id: string, createdTime: number) =>
+    ({
+      id,
+      from: "u-peer",
+      to: "self",
+      text: "",
+      contentType: "TEXT",
+      createdTime,
+      isMyMessage: false,
+    }) as never;
+
+  // 一覧にすでに数えられている（lastMessageTime まで）2 通と、その後の新着 1 通
+  useStore
+    .getState()
+    .mergeIncomingMessages("u-peer", [
+      incoming("1", 1_000),
+      incoming("2", 2_000),
+      incoming("3", 3_000),
+    ]);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
