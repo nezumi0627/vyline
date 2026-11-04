@@ -12,6 +12,8 @@ import { useLineData } from "../hooks/useLineData.js";
 
 import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
+import { createMarkReadRetry } from "./markReadRetry.js";
+
 import { useStore } from "../lib/store.js";
 import { createReadReceiptPrimer } from "./readReceiptPriming.js";
 
@@ -205,6 +207,30 @@ export function useVylineSync(enabled = true) {
       document.removeEventListener("visibilitychange", retryPrimeOnVisibility);
     };
   }, [enabled, accountId, activeChatId, refreshReadReceipts]);
+
+  // 開いた時点ではまだ履歴が無く、開いたときの既読送信が空振りすることがある。
+  // そのままだと次の新着が届くまで相手側（とトーク一覧の未読数）が既読にならないので、
+  // 受信メッセージが入った時点で一度送る。設定・既読を送らないトークの判定は markChatRead 側で行う。
+  useEffect(() => {
+    if (!enabled || !accountId || !activeChatId) return;
+    const retryMarkRead = createMarkReadRetry(
+      () => document.visibilityState !== "hidden",
+      () => useStore.getState().markChatRead(activeChatId),
+    );
+    const send = (state: ReturnType<typeof useStore.getState>) => {
+      if (!state.messages.some((m) => m.chatId === activeChatId && m.authorId !== "me")) return;
+      void retryMarkRead();
+    };
+    send(useStore.getState());
+    const unsubscribe = useStore.subscribe(send);
+    const onVisibility = () => send(useStore.getState());
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisibility);
+      retryMarkRead.cancel();
+    };
+  }, [enabled, accountId, activeChatId]);
 
   useEffect(() => {
     if (!enabled) return;
