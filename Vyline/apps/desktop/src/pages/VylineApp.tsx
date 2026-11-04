@@ -1,6 +1,6 @@
 import { tr as uiText } from "@/i18n";
 import { lazy, Suspense, useEffect, useState } from "react";
-import { Navigate } from "react-router-dom";
+import { Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
 import { useVylineSync } from "../hooks/useVylineSync.js";
@@ -28,6 +28,8 @@ export function VylineApp() {
   const accounts = useAuthStore((s) => s.accounts);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const screen = useStore((s) => s.screen);
+  const setScreen = useStore((s) => s.setScreen);
+  const navigate = useNavigate();
   const showUpdateNote = useStore((s) => s.showUpdateNote);
   const indexing = useStore((s) => s.indexing);
   const notice = useStore((s) => s.notice);
@@ -52,6 +54,14 @@ export function VylineApp() {
 
   // 同意前は同期・通信を開始しない
   useVylineSync(initialized && accounts.length > 0 && consented);
+
+  // ログイン画面は /login のルートにある。アカウントの追加・切替・ログアウトが
+  // setScreen("login") したら、画面の状態を戻して /login へ移す（戻るで元の画面へ）
+  useEffect(() => {
+    if (screen !== "login") return;
+    setScreen("home");
+    navigate("/login");
+  }, [screen, setScreen, navigate]);
 
   if (!initialized || loading) {
     return (
