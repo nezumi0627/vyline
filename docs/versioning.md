@@ -1,0 +1,9 @@
+# Product and Workspace Versioning
+
+The root `package.json` `version` is the canonical Vyline product version. The Desktop package mirrors it because it is a separately buildable workspace target. `UPDATE_NOTES.version` reads the root version through `PRODUCT_VERSION`; the release consistency check verifies both package versions, the release notes, changelog entry, README badges, and (in GitHub Actions) the triggering tag and commit.
+
+The updater defaults to the Stable release feed. Beta updates are opt-in and use a separate prerelease-only feed; Stable releases never enter the Beta candidate list. The sidebar notification preference is independent and controls whether an available update is surfaced there. Windows installer downloads resolve the exact selected release tag and revalidate its channel before downloading.
+
+Internal workspaces keep independent versions and do not need to match the desktop product release: `@vyline/backend`, `@vyline/cli`, `create-vyline-plugin`, `@vyline/ios-backup`, `@vyline/line-types`, `@vyline/loose-types`, `@vyline/plugin-sdk`, `@vyline/protocol`, `@vyline/themes`, `@vyline/types`, and `vyl`. They describe package/API release boundaries; the root release workflow does not publish or retag them.
+
+Run `bun run bump -- patch|minor|major`, `bun run bump -- alpha|beta|rc`, `bun run bump -- promote`, or provide a higher explicit SemVer version. A prerelease command increments the matching channel number; changing channels starts at `.1`, and promotion removes the prerelease suffix. The bump command updates product package versions, changelog heading, and README version references, then clears `UPDATE_NOTES` so release content must be entered for that version. It never creates, moves, or deletes a Git tag. Commit the completed version and release notes first, then create `v<version>` at that commit. Run `bun run version:check` before release.
