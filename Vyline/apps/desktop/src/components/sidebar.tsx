@@ -97,7 +97,13 @@ function buildPreviewMap(
       prevEntry && prevEntry.text === text && prevEntry.time === time ? prevEntry : { text, time };
     const apiTime = chat.lastMessageTime ?? 0;
     if (!last) {
-      out.set(chat.id, chat.lastMessagePreview ? stable(chat.lastMessagePreview, apiTime) : null);
+      // プレビュー文字が無くても最終メッセージ時刻があれば日時は出す
+      out.set(
+        chat.id,
+        chat.lastMessagePreview || apiTime > 0
+          ? stable(chat.lastMessagePreview ?? "", apiTime)
+          : null,
+      );
       continue;
     }
     let text = previewForMessage(last) || chat.lastMessagePreview || "";
@@ -981,7 +987,7 @@ const ChatRow = memo(function ChatRow({
   preview: { text: string; time: number } | null;
 }) {
   const name = displayName(chat, streamerMode);
-  const previewText = preview?.text ?? chat.status;
+  const previewText = preview?.text || chat.status;
   const hasUrlPreview = /https?:\/\/\S+/i.test(previewText);
   const longPressRef = useRef<{ timer: ReturnType<typeof setTimeout> | null; fired: boolean }>({
     timer: null,
