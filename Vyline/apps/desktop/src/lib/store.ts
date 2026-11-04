@@ -1295,7 +1295,7 @@ export const useStore = create<State>()(
                   mapped,
                   deferred.baselineUnread,
                 );
-                if (resolved && resolved.unreadCount > 0) {
+                if (resolved) {
                   mapped.unread += resolved.unreadCount;
                   mapped.lastIncomingMessageId = resolved.lastIncomingMessageId;
                 }
