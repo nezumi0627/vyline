@@ -7,14 +7,16 @@ test("retries mark-read after a failed request", async () => {
     () => true,
     async () => {
       attempts += 1;
-      if (attempts === 1) throw new Error("temporary failure");
+      return attempts > 1;
     },
+    0,
   );
 
   await retry();
-  await retry();
+  await new Promise((resolve) => setTimeout(resolve, 0));
 
   expect(attempts).toBe(2);
+  retry.cancel();
 });
 
 test("retries a message received while hidden when visibility returns", async () => {
@@ -24,6 +26,7 @@ test("retries a message received while hidden when visibility returns", async ()
     () => visible,
     async () => {
       attempts += 1;
+      return true;
     },
   );
   const onVisibility = () => {

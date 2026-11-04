@@ -663,7 +663,7 @@ type State = {
   toggleShowOriginal: (id: string) => void;
   retryMessage: (id: string) => Promise<void>;
   markRead: (id: string) => Promise<void>;
-  markChatRead: (id: string, target?: string | { force?: boolean }) => Promise<void>;
+  markChatRead: (id: string, target?: string | { force?: boolean }) => Promise<boolean>;
   markAllChatsRead: () => Promise<void>;
   setDraft: (chatId: string, text: string) => void;
   setDraftSticons: (
@@ -2276,17 +2276,18 @@ export const useStore = create<State>()(
             messages: nextMessages,
           };
         });
-        if (demoMode) return;
-        if (!accountId || (!force && (!settings.readReceipts || readDisabledMids[id]))) return;
+        if (demoMode) return true;
+        if (!accountId || (!force && (!settings.readReceipts || readDisabledMids[id]))) return true;
         const lastId = last?.id;
         // 同じ最終メッセージへの既読は再送しない
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
-        if (!force && lastId && prev === lastId) return;
+        if (!force && lastId && prev === lastId) return true;
         if (lastId) readReceiptSent.set(receiptKey, lastId);
         try {
           const result = await api.line.sendChatChecked(accountId, id, lastId);
           if (!result.ok) throw new Error("既読の送信に失敗しました");
+          return true;
         } catch {
           if (lastId) rollbackReceiptAttempt(readReceiptSent, receiptKey, lastId);
           if (localKey) recentlyReadAt.delete(localKey);
@@ -2295,6 +2296,7 @@ export const useStore = create<State>()(
               "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
             );
           }
+          return false;
         }
       },
 

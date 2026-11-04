@@ -1,20 +1,38 @@
+export type MarkReadRetry = (() => Promise<void>) & { cancel: () => void };
+
 export function createMarkReadRetry(
   isVisible: () => boolean,
-  markRead: () => Promise<void>,
-): () => Promise<void> {
+  markRead: () => Promise<boolean>,
+  retryDelayMs = 5_000,
+): MarkReadRetry {
   let marked = false;
   let inFlight = false;
+  let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
-  return async () => {
+  const retry = async () => {
     if (marked || inFlight || !isVisible()) return;
+    if (retryTimer) clearTimeout(retryTimer);
+    retryTimer = null;
     inFlight = true;
     try {
-      await markRead();
-      marked = true;
+      marked = await markRead();
     } catch {
-      // A later store update or visibility change can retry the receipt.
+      marked = false;
     } finally {
       inFlight = false;
+      if (!marked && !retryTimer) {
+        retryTimer = setTimeout(() => {
+          retryTimer = null;
+          void retry();
+        }, retryDelayMs);
+      }
     }
   };
+
+  return Object.assign(retry, {
+    cancel: () => {
+      if (retryTimer) clearTimeout(retryTimer);
+      retryTimer = null;
+    },
+  });
 }

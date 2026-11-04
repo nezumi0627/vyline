@@ -210,6 +210,7 @@ export function useVylineSync(enabled = true) {
     return () => {
       unsubscribe();
       document.removeEventListener("visibilitychange", onVisibility);
+      retryMarkRead.cancel();
     };
   }, [enabled, accountId, activeChatId]);
 

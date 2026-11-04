@@ -72,3 +72,33 @@ test("manual mark-all sends receipts even when automatic receipts are disabled",
   expect(requests[0]?.body.chatMids?.sort()).toEqual(["c-disabled-chat", "u-unread-chat"]);
   expect(useStore.getState().chats.every((chat) => chat.unread === 0)).toBe(true);
 });
+
+test("reports failed mark-read requests so the sync hook can retry", async () => {
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    if (requests === 1) throw new Error("temporary failure");
+    return Response.json({ ok: true });
+  }) as unknown as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-retry-result",
+    settings: { ...state.settings, readReceipts: true },
+    messages: [
+      {
+        id: "received-message",
+        chatId: "c-retry-read",
+        authorId: "u-sender",
+        text: "received",
+        kind: "text",
+        createdAt: 1,
+        read: false,
+        status: "sent",
+        messageState: "normal",
+      },
+    ],
+  }));
+
+  expect(await useStore.getState().markChatRead("c-retry-read")).toBe(false);
+  expect(await useStore.getState().markChatRead("c-retry-read")).toBe(true);
+  expect(requests).toBe(2);
+});
