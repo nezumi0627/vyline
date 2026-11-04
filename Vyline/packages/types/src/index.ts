@@ -83,6 +83,8 @@ export interface Chat {
   lastMessageTime: number;
   /** 最終メッセージ ID（getMessageBoxes の lastDeliveredMessageId） */
   lastMessageId?: string;
+  /** 最後に受信したメッセージ ID（未読イベントの再配信判定用） */
+  lastIncomingMessageId?: string;
   /** プロフィール/グループアイコン URL（無ければ空） */
   thumbnailUrl?: string;
   /** 一覧用の最終メッセージ短いプレビュー */

@@ -521,6 +521,7 @@ test("does not count already listed messages as unread after a reload", () => {
         unread: 0,
         lastMessageTime: 2_000,
         lastMessageId: "2",
+        lastIncomingMessageId: "2",
       },
     ],
   });
@@ -559,7 +560,7 @@ test("counts a late incoming message newer than the listed message ID even when 
       unread: 0,
       lastMessageTime: 5_000,
     },
-    { lastMessageId: "200" },
+    { lastMessageId: "200", lastIncomingMessageId: "200" },
   );
   useStore.setState({
     accountId: "late-incoming",
@@ -596,4 +597,82 @@ test("counts a late incoming message newer than the listed message ID even when 
   useStore.getState().mergeIncomingMessages("late-incoming-chat", incomingMessages);
 
   expect(useStore.getState().chats[0]?.unread).toBe(2);
+});
+
+test("does not advance the ID watermark from messages older than the time watermark", () => {
+  const chat = Object.assign(
+    {
+      id: "time-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: undefined },
+  );
+  useStore.setState({
+    accountId: "time-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+
+  const makeIncoming = (id: string, createdTime: number) =>
+    [
+      {
+        id,
+        from: "peer",
+        to: "self",
+        text: "old delivery",
+        contentType: "TEXT",
+        createdTime,
+        isMyMessage: false,
+      },
+    ] as never;
+  useStore.getState().mergeIncomingMessages("time-watermark-chat", makeIncoming("201", 3_000));
+  useStore.getState().mergeIncomingMessages("time-watermark-chat", makeIncoming("202", 4_000));
+
+  expect(useStore.getState().chats[0]?.unread).toBe(0);
+});
+
+test("counts a newer incoming message against the peer watermark below an outgoing ID", () => {
+  const chat = Object.assign(
+    {
+      id: "outgoing-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "300", lastIncomingMessageId: "240" },
+  );
+  useStore.setState({
+    accountId: "outgoing-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+  const incoming = [
+    {
+      id: "250",
+      from: "peer",
+      to: "self",
+      text: "delayed incoming",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never;
+
+  useStore.getState().mergeIncomingMessages("outgoing-watermark-chat", incoming);
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+  useStore.getState().mergeIncomingMessages("outgoing-watermark-chat", incoming);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
 });

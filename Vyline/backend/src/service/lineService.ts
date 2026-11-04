@@ -920,11 +920,11 @@ async function fetchPreviousMessagesRpc(
   );
 }
 
-/** Desktop 準拠: activeOnly + lastMessagesPerMessageBoxCount=1 でサーバ側最新順 */
+/** Desktop 準拠: activeOnly + 直近メッセージ2件で受信側の ID watermark も取得 */
 const DESKTOP_MESSAGE_BOX_LIST_REQUEST = {
   activeOnly: true,
   withUnreadCount: true,
-  lastMessagesPerMessageBoxCount: 1,
+  lastMessagesPerMessageBoxCount: 2,
 } as const;
 
 /**
@@ -947,7 +947,7 @@ async function fetchAllMessageBoxes(
           messageBoxListRequest: {
             activeOnly: false,
             withUnreadCount: true,
-            lastMessagesPerMessageBoxCount: 1,
+            lastMessagesPerMessageBoxCount: 2,
             minChatId: min,
             maxChatId: max,
           },
@@ -2793,10 +2793,14 @@ function previewFromBoxMessage(msg: any | undefined): string {
   }
 }
 
-export function boxMeta(box: any | undefined): {
+export function boxMeta(
+  box: any | undefined,
+  selfMid?: string,
+): {
   lastMessageTime: number;
   lastMessagePreview: string;
   lastMessageId?: string;
+  lastIncomingMessageId?: string;
   unreadCount?: number;
 } {
   if (!box) return { lastMessageTime: 0, lastMessagePreview: "" };
@@ -2806,6 +2810,9 @@ export function boxMeta(box: any | undefined): {
   const isChatEvent = (m: any) =>
     String(m?.contentType) === "CHATEVENT" || String(m?.contentType) === "18";
   const last = lastMessages.find((m) => !isChatEvent(m));
+  const lastIncoming = selfMid
+    ? lastMessages.find((m) => !isChatEvent(m) && m?.from && String(m.from) !== selfMid)
+    : undefined;
   const skippedEvent = lastMessages.length > 0 && isChatEvent(lastMessages[0]);
   const msgTime = last?.deliveredTime ?? last?.createdTime;
   const fromMsg = msgTime != null ? Number(msgTime) : 0;
@@ -2815,12 +2822,14 @@ export function boxMeta(box: any | undefined): {
     lastMessageTime: number;
     lastMessagePreview: string;
     lastMessageId?: string;
+    lastIncomingMessageId?: string;
     unreadCount?: number;
   } = {
     lastMessageTime: Math.max(fromMsg, fromBox),
     lastMessagePreview: previewFromBoxMessage(last),
   };
   if (boxId != null) meta.lastMessageId = String(boxId);
+  if (lastIncoming?.id != null) meta.lastIncomingMessageId = String(lastIncoming.id);
   if (box.unreadCount != null) {
     meta.unreadCount =
       typeof box.unreadCount === "number" ? box.unreadCount : Number(box.unreadCount);
@@ -2847,9 +2856,10 @@ function chatFromMessageBox(
     }
   >,
   joinedChatsKnown = true,
+  selfMid?: string,
 ): Chat {
   const mid = String(box.id);
-  const meta = boxMeta(box);
+  const meta = boxMeta(box, selfMid);
   const kind = detectChatKind(mid);
 
   if (kind === "group" || kind === "room") {
@@ -2878,6 +2888,7 @@ function chatFromMessageBox(
       chat.preventedJoinByTicket = groupExtra.preventedJoinByTicket;
     }
     if (meta.lastMessageId) chat.lastMessageId = meta.lastMessageId;
+    if (meta.lastIncomingMessageId) chat.lastIncomingMessageId = meta.lastIncomingMessageId;
     if (meta.unreadCount != null) chat.unreadCount = meta.unreadCount;
     return chat;
   }
@@ -2895,6 +2906,7 @@ function chatFromMessageBox(
   if (user?.userType === 2) chat.isOfficial = true;
   if (user?.statusMessage && kind === "direct") chat.statusMessage = user.statusMessage;
   if (meta.lastMessageId) chat.lastMessageId = meta.lastMessageId;
+  if (meta.lastIncomingMessageId) chat.lastIncomingMessageId = meta.lastIncomingMessageId;
   if (meta.unreadCount != null) chat.unreadCount = meta.unreadCount;
   return chat;
 }
@@ -3135,7 +3147,13 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 
   // Desktop 準拠: getMessageBoxes の返却順 = 最新メッセージ順（再ソートしない）
   for (const box of messageBoxes) {
-    const chat = chatFromMessageBox(box, groupByMid, userByMid, !joinedChatsFetchFailed);
+    const chat = chatFromMessageBox(
+      box,
+      groupByMid,
+      userByMid,
+      !joinedChatsFetchFailed,
+      client.base.profile?.mid,
+    );
     const reconciled = reconcileChatUnreadWithLocalRead(
       chat,
       cacheMeta.localReadUpTo?.[chat.mid]?.messageId,

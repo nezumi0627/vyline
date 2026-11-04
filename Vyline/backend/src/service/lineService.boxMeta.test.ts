@@ -50,4 +50,20 @@ describe("chat list box meta", () => {
     expect(meta.lastMessageTime).toBe(4000);
     expect(meta.lastMessageId).toBe("400");
   });
+
+  test("finds the latest incoming message behind an outgoing message", () => {
+    const meta = boxMeta(
+      {
+        lastDeliveredMessageId: { messageId: 300n, deliveredTime: 3000n },
+        lastMessages: [
+          { id: "300", from: "u-self", contentType: "NONE", text: "sent", deliveredTime: 3000 },
+          { id: "250", from: "u-peer", contentType: "NONE", text: "received", deliveredTime: 2500 },
+        ],
+      },
+      "u-self",
+    );
+
+    expect(meta.lastMessageId).toBe("300");
+    expect(meta.lastIncomingMessageId).toBe("250");
+  });
 });
