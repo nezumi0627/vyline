@@ -520,6 +520,7 @@ test("does not count already listed messages as unread after a reload", () => {
         status: "",
         unread: 0,
         lastMessageTime: 2_000,
+        lastMessageId: "2",
       },
     ],
   });
@@ -544,4 +545,49 @@ test("does not count already listed messages as unread after a reload", () => {
     ]);
 
   expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
+test("counts a late incoming message newer than the listed message ID even when its timestamp is older", () => {
+  const chat = Object.assign(
+    {
+      id: "late-incoming-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200" },
+  );
+  useStore.setState({
+    accountId: "late-incoming",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+
+  useStore.getState().mergeIncomingMessages("late-incoming-chat", [
+    {
+      id: "201",
+      from: "peer",
+      to: "self",
+      text: "same-time delivery",
+      contentType: "TEXT",
+      createdTime: 5_000,
+      isMyMessage: false,
+    },
+    {
+      id: "202",
+      from: "peer",
+      to: "self",
+      text: "late delivery",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(2);
 });

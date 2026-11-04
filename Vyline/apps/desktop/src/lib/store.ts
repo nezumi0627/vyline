@@ -86,6 +86,16 @@ const backfillInflight = new Map<string, Promise<void>>();
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
+function isAfterChatMessageWatermark(messageId: string, createdAt: number, chat: Chat): boolean {
+  if (chat.lastMessageId) {
+    try {
+      return BigInt(messageId) > BigInt(chat.lastMessageId);
+    } catch {
+      // Fall back to timestamps for non-numeric IDs.
+    }
+  }
+  return createdAt > (chat.lastMessageTime ?? 0);
+}
 /** 最近既読にした chat の時刻（サーバ反映前の未読上書き抑止） */
 const recentlyReadAt = new Map<string, number>();
 /**
@@ -2978,12 +2988,12 @@ export const useStore = create<State>()(
           set((st) => ({
             chats: st.chats.map((chat) => {
               if (chat.id !== chatId) return chat;
-              // 読み直しの直後は、開いていないトークのメッセージを持っていないため、
-              // 同期で届き直した既読済みのメッセージも fresh になる。一覧の未読の数は
-              // lastMessageTime までの分をサーバーが数えているので、それより新しい受信だけを足す。
-              const listedUpTo = chat.lastMessageTime ?? 0;
+              // 読み直し直後はメッセージ本体が未ロードなので、API 一覧の最終 ID を
+              // watermark にして、既に一覧へ反映済みの受信だけを未読数から除外する。
               const newFromPeer = fresh.filter(
-                (m) => m.authorId !== "me" && m.createdAt > listedUpTo,
+                (m) =>
+                  m.authorId !== "me" &&
+                  isAfterChatMessageWatermark(m.id, m.createdAt, chat),
               ).length;
               return {
                 ...chat,
@@ -3377,7 +3387,12 @@ export const useStore = create<State>()(
                         !knownIds.has(message.id) &&
                         message.from !== state.self.mid &&
                         message.from !== state.accountId &&
-                        (!chat?.lastMessageTime || message.createdTime >= chat.lastMessageTime),
+                        (!chat ||
+                          isAfterChatMessageWatermark(
+                            message.id,
+                            message.createdTime,
+                            chat,
+                          )),
                     );
                     if (fresh) {
                       new Notification(
