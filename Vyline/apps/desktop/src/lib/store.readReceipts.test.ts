@@ -92,7 +92,7 @@ test("uses the message ID when the chat summary advances within the same millise
         color: "#000",
         status: "",
         unread: 1,
-        lastMessageTime: 120_000,
+        lastMessageTime: 1,
         lastMessageId: "100",
       },
     ],

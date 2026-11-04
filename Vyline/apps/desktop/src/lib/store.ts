@@ -2271,12 +2271,33 @@ export const useStore = create<State>()(
         const boxTime = get().chats.find((c) => c.id === id)?.lastMessageTime ?? 0;
         const boxMessageId = get().chats.find((c) => c.id === id)?.lastMessageId;
         let newestInHistory = 0;
+        let newestHistoryMessageId: string | undefined;
         for (const message of messages) {
           if (message.chatId !== id || message.id.startsWith("pending_")) continue;
-          if (message.createdAt > newestInHistory) newestInHistory = message.createdAt;
+          if (message.createdAt > newestInHistory) {
+            newestInHistory = message.createdAt;
+            newestHistoryMessageId = message.id;
+          } else if (message.createdAt === newestInHistory && newestHistoryMessageId) {
+            try {
+              if (BigInt(message.id) > BigInt(newestHistoryMessageId)) {
+                newestHistoryMessageId = message.id;
+              }
+            } catch {
+              /* same-time opaque IDs keep the existing history head */
+            }
+          }
+        }
+        let boxIdIsAhead = false;
+        if (boxMessageId && newestHistoryMessageId) {
+          try {
+            boxIdIsAhead = BigInt(boxMessageId) > BigInt(newestHistoryMessageId);
+          } catch {
+            /* Fall back to the delivery-time comparison below. */
+          }
         }
         const boxIsAhead =
-          !requestedMessageId && boxTime > newestInHistory + BOX_AHEAD_TOLERANCE_MS;
+          !requestedMessageId &&
+          (boxIdIsAhead || boxTime > newestInHistory + BOX_AHEAD_TOLERANCE_MS);
         const localKey = accountId ? accountChatKey(accountId, id) : null;
         if (localKey) recentlyReadAt.set(localKey, Date.now());
         set((st) => {
