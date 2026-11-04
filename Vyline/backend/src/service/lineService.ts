@@ -871,6 +871,7 @@ export async function clearAccountRuntimeCaches(accountId: string): Promise<void
   messageBoxesCache.delete(messageBoxesCacheKey(accountId, false));
   deleteAccountPrefixed(boxCursorCache, accountId);
   deleteAccountPrefixed(boxCursorMiss, accountId);
+  deleteAccountPrefixed(incomingWatermarkCache, accountId);
   deleteAccountPrefixed(chatNameCache, accountId);
   deleteAccountPrefixed(mediaFlowCache, accountId);
   deleteAccountPrefixed(contactProfileCache, accountId);

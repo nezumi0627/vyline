@@ -502,7 +502,7 @@ test("incremental message, read-through, revoke and restore updates persist in S
   expect((await chatStore.getMessages(accountId, "c1", 1))[0]?.text).toBe("new");
 });
 
-test("returns the latest cached incoming ID separately from outgoing messages", async () => {
+test("returns latest normal incoming ID and excludes events and deleted messages", async () => {
   await chatStore.upsertMessages("incoming-watermark-cache", "c-watermark", [
     {
       id: "240",
@@ -536,6 +536,29 @@ test("returns the latest cached incoming ID separately from outgoing messages", 
       createdTime: 2,
       isMyMessage: true,
       savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "260",
+      chatMid: "c-watermark",
+      from: "peer",
+      to: "me",
+      text: "event",
+      contentType: "CHATEVENT",
+      createdTime: 3,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+    },
+    {
+      id: "270",
+      chatMid: "c-watermark",
+      from: "peer",
+      to: "me",
+      text: "deleted",
+      contentType: "TEXT",
+      createdTime: 4,
+      isMyMessage: false,
+      savedAt: "2026-01-01T00:00:00.000Z",
+      isDeleted: true,
     },
   ]);
 
