@@ -10,8 +10,13 @@ globalThis.fetch = (async () => {
   throw new Error("No network in boxMeta regressions");
 }) as unknown as typeof fetch;
 
-const { boxMeta, incomingIdFromRawMessages, incomingWatermarkHead, incomingWatermarkPageResult } =
-  await import("./lineService.js");
+const {
+  boxMeta,
+  incomingIdFromRawMessages,
+  incomingWatermarkCursorReachedTarget,
+  incomingWatermarkHead,
+  incomingWatermarkPageResult,
+} = await import("./lineService.js");
 
 afterAll(() => {
   globalThis.fetch = originalFetch;
@@ -108,6 +113,8 @@ describe("chat list box meta", () => {
     expect(result.id).toBeUndefined();
     expect(result.complete).toBe(false);
     expect(result.cursor).toEqual({ messageId: 401n, deliveredTime: 4901n });
+    expect(incomingWatermarkCursorReachedTarget(result.oldestId!, { messageId: 450n })).toBe(true);
+    expect(incomingWatermarkCursorReachedTarget(result.oldestId!, { messageId: 350n })).toBe(false);
     expect(
       incomingWatermarkPageResult([{ id: "400", from: "u-peer", deliveredTime: 4900 }], "u-self"),
     ).toEqual({ id: "400", complete: true });

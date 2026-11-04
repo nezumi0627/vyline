@@ -820,7 +820,15 @@ const messageBoxesCache = new Map<string, MessageBoxesCacheEntry>();
 const MESSAGE_BOXES_CACHE_MS = Number(process.env.VYLINE_MESSAGE_BOXES_CACHE_MS ?? 20_000);
 const incomingWatermarkCache = new Map<
   string,
-  { head: string; id: string | null; cursor: any; complete: boolean }
+  {
+    head: string;
+    headCursor: any;
+    id: string | null;
+    cursor: any;
+    catchupTarget?: any;
+    resumeCursor?: any;
+    complete: boolean;
+  }
 >();
 let incomingWatermarkLookupOffset = 0;
 /** getMessageBoxes がハング/遅延してもメッセージ表示をブロックしないよう打ち切る */
@@ -962,7 +970,7 @@ export function incomingIdFromRawMessages(
 export function incomingWatermarkPageResult(
   messages: unknown[],
   selfMid: string,
-): { id?: string; cursor?: any; complete: boolean } {
+): { id?: string; cursor?: any; oldestId?: string; complete: boolean } {
   const id = incomingIdFromRawMessages(messages, selfMid);
   if (id) return { id, complete: true };
   if (messages.length < INCOMING_WATERMARK_PAGE_SIZE) return { complete: true };
@@ -975,8 +983,19 @@ export function incomingWatermarkPageResult(
       messageId: BigInt(String(oldest.id)),
       deliveredTime: BigInt(String(oldest.deliveredTime ?? oldest.createdTime ?? 0)),
     },
+    oldestId: String(oldest.id),
     complete: false,
   };
+}
+
+export function incomingWatermarkCursorReachedTarget(oldestId: string, target: any): boolean {
+  const targetId = target?.messageId ?? target?.id;
+  if (targetId == null) return false;
+  try {
+    return BigInt(oldestId) <= BigInt(String(targetId));
+  } catch {
+    return oldestId === String(targetId);
+  }
 }
 
 async function fetchIncomingWatermarkFromHistory(
@@ -984,7 +1003,7 @@ async function fetchIncomingWatermarkFromHistory(
   box: any,
   selfMid: string,
   cursor: any,
-): Promise<{ id?: string; cursor?: any; complete: boolean }> {
+): Promise<{ id?: string; cursor?: any; oldestId?: string; complete: boolean }> {
   if (!cursor) return { complete: true };
   const messages = await fetchPreviousMessagesRpc(
     client,
@@ -3157,16 +3176,34 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
             const mid = String(box.id);
             const key = `${accountId}:${mid}`;
             const cached = incomingWatermarkCache.get(key);
-            const result = await fetchIncomingWatermarkFromHistory(
-              client,
-              box,
-              selfMid,
-              cached?.cursor ?? box.lastDeliveredMessageId,
-            );
+            let cursor = cached?.cursor ?? box.lastDeliveredMessageId;
+            let catchupTarget = cached?.catchupTarget;
+            let resumeCursor = cached?.resumeCursor;
+            if (cached && !cached.complete && cached.head !== incomingWatermarkHead(box)) {
+              catchupTarget ??= cached.headCursor;
+              resumeCursor ??= cached.cursor;
+              cursor = box.lastDeliveredMessageId;
+            }
+            const result = await fetchIncomingWatermarkFromHistory(client, box, selfMid, cursor);
+            if (
+              !result.id &&
+              result.oldestId &&
+              catchupTarget &&
+              incomingWatermarkCursorReachedTarget(result.oldestId, catchupTarget)
+            ) {
+              cursor = resumeCursor ?? result.cursor;
+              catchupTarget = undefined;
+              resumeCursor = undefined;
+            } else {
+              cursor = result.cursor;
+            }
             incomingWatermarkCache.set(key, {
               head: incomingWatermarkHead(box),
+              headCursor: box.lastDeliveredMessageId,
               id: result.id ?? null,
-              cursor: result.cursor,
+              cursor,
+              catchupTarget,
+              resumeCursor,
               complete: result.complete,
             });
             if (result.id) historyIncomingIds.set(mid, result.id);
