@@ -121,16 +121,26 @@ const backfillInflight = new Map<string, Promise<void>>();
 const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
-const deferredPeerMessagesByChat = new Map<string, Map<string, Message>>();
+const deferredPeerMessagesByChat = new Map<
+  string,
+  {
+    baselineUnread: number;
+    messages: Map<string, Pick<Message, "id" | "authorId" | "createdAt">>;
+  }
+>();
 
-function deferPeerMessages(chatId: string, messages: Message[]): void {
+function deferPeerMessages(chatId: string, messages: Message[], baselineUnread: number): void {
   let deferred = deferredPeerMessagesByChat.get(chatId);
   if (!deferred) {
-    deferred = new Map();
+    deferred = { baselineUnread, messages: new Map() };
     deferredPeerMessagesByChat.set(chatId, deferred);
   }
   for (const message of messages) {
-    deferred.set(message.id, message);
+    deferred.messages.set(message.id, {
+      id: message.id,
+      authorId: message.authorId,
+      createdAt: message.createdAt,
+    });
   }
 }
 
@@ -147,15 +157,19 @@ function isAfterChatMessageWatermark(messageId: string, createdAt: number, chat:
 }
 
 export function resolveDeferredPeerMessages(
-  messages: Message[],
+  messages: Array<Pick<Message, "id" | "authorId" | "createdAt">>,
   chat: Chat,
+  baselineUnread = chat.unread,
 ): { unreadCount: number; lastIncomingMessageId: string | undefined } | undefined {
   if (!chat.lastIncomingMessageId) return undefined;
   const lateMessages = messages.filter((message) =>
     isAfterChatMessageWatermark(message.id, message.createdAt, chat),
   );
   return {
-    unreadCount: lateMessages.length,
+    unreadCount:
+      chat.unread < baselineUnread
+        ? 0
+        : Math.max(0, lateMessages.length - Math.max(0, chat.unread - baselineUnread)),
     lastIncomingMessageId: advanceChatMessageIdWatermark(
       chat.lastIncomingMessageId,
       chat.lastMessageTime,
@@ -167,7 +181,7 @@ export function resolveDeferredPeerMessages(
 function advanceChatMessageIdWatermark(
   currentId: string | undefined,
   currentTime: number | undefined,
-  incoming: Message[],
+  incoming: Array<Pick<Message, "id" | "authorId" | "createdAt">>,
 ): string | undefined {
   const fromPeers = incoming.filter((message) => message.authorId !== "me");
   if (fromPeers.length === 0) return currentId;
@@ -1276,7 +1290,11 @@ export const useStore = create<State>()(
             if (deferred && (mapped.lastIncomingMessageId || activeChatId === c.mid)) {
               deferredPeerMessagesByChat.delete(c.mid);
               if (activeChatId !== c.mid && mapped.lastIncomingMessageId) {
-                const resolved = resolveDeferredPeerMessages([...deferred.values()], mapped);
+                const resolved = resolveDeferredPeerMessages(
+                  [...deferred.messages.values()],
+                  mapped,
+                  deferred.baselineUnread,
+                );
                 if (resolved && resolved.unreadCount > 0) {
                   mapped.unread += resolved.unreadCount;
                   mapped.lastIncomingMessageId = resolved.lastIncomingMessageId;
@@ -1285,6 +1303,10 @@ export const useStore = create<State>()(
             }
             return mapped;
           });
+        const liveChatIds = new Set(mappedChats.map((chat) => chat.id));
+        for (const chatId of deferredPeerMessagesByChat.keys()) {
+          if (!liveChatIds.has(chatId)) deferredPeerMessagesByChat.delete(chatId);
+        }
 
         // hide flag: always preserve prev.hidden when chat already exists,
         // taking precedence over the newly mapped hidden from hiddenMids
@@ -3268,6 +3290,7 @@ export const useStore = create<State>()(
                       message.authorId !== "me" &&
                       !isAfterChatMessageWatermark(message.id, message.createdAt, chat),
                   ),
+                  chat.unread,
                 );
               }
               const newFromPeer = countedFromPeer.length;
