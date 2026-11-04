@@ -96,6 +96,26 @@ function isAfterChatMessageWatermark(messageId: string, createdAt: number, chat:
   }
   return createdAt > (chat.lastMessageTime ?? 0);
 }
+
+function advanceChatMessageIdWatermark(
+  currentId: string | undefined,
+  currentTime: number | undefined,
+  incoming: Message[],
+): string | undefined {
+  const fromPeers = incoming.filter((message) => message.authorId !== "me");
+  if (fromPeers.length === 0) return currentId;
+  if (
+    (!currentId || /^\d+$/.test(currentId)) &&
+    fromPeers.every((message) => /^\d+$/.test(message.id))
+  ) {
+    return fromPeers.reduce((latest, message) => {
+      if (!latest) return message.id;
+      return BigInt(message.id) > BigInt(latest) ? message.id : latest;
+    }, currentId);
+  }
+  const latest = fromPeers.reduce((a, b) => (a.createdAt >= b.createdAt ? a : b));
+  return latest.createdAt > (currentTime ?? 0) ? latest.id : currentId;
+}
 /** 最近既読にした chat の時刻（サーバ反映前の未読上書き抑止） */
 const recentlyReadAt = new Map<string, number>();
 /**
@@ -2998,6 +3018,11 @@ export const useStore = create<State>()(
                 unread: silent ? chat.unread : chat.unread + newFromPeer,
                 ...(latest
                   ? {
+                      lastMessageId: advanceChatMessageIdWatermark(
+                        chat.lastMessageId,
+                        chat.lastMessageTime,
+                        fresh,
+                      ),
                       lastMessagePreview: messagePreview(latest),
                       lastMessageTime: Math.max(chat.lastMessageTime ?? 0, latest.createdAt),
                     }

@@ -568,7 +568,7 @@ test("counts a late incoming message newer than the listed message ID even when 
     chats: [chat],
   });
 
-  useStore.getState().mergeIncomingMessages("late-incoming-chat", [
+  const incomingMessages = [
     {
       id: "201",
       from: "peer",
@@ -587,7 +587,13 @@ test("counts a late incoming message newer than the listed message ID even when 
       createdTime: 3_000,
       isMyMessage: false,
     },
-  ] as never);
+  ] as never;
+
+  useStore.getState().mergeIncomingMessages("late-incoming-chat", incomingMessages);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(2);
+
+  useStore.getState().mergeIncomingMessages("late-incoming-chat", incomingMessages);
 
   expect(useStore.getState().chats[0]?.unread).toBe(2);
 });
