@@ -34,6 +34,18 @@ export function calculateVisibleRange(
   return { startIdx, endIdx: Math.min(endIdx + 1, offsets.length) };
 }
 
+/**
+ * 行が実際に占める高さ（上下の margin を含む）。offsetHeight だけだと、日付の行（my-3）や
+ * メッセージの行（mt-3）の margin の分だけ余白の計算が実際より短くなる。端の行が出入りするたびに
+ * 全体の高さが変わり、最下部で位置が押し戻されて出入りを繰り返す（表示が小刻みに跳ねる）。
+ */
+export function outerHeight(el: HTMLElement): number {
+  const style = getComputedStyle(el);
+  const top = Number.parseFloat(style.marginTop) || 0;
+  const bottom = Number.parseFloat(style.marginBottom) || 0;
+  return el.offsetHeight + top + bottom;
+}
+
 export function useVirtualList<T>({
   rows,
   estimateHeight,
@@ -52,6 +64,7 @@ export function useVirtualList<T>({
   const positionFrame = useRef<number | null>(null);
   const refCache = useRef(new Map<string, (el: HTMLElement | null) => void>());
   const observers = useRef(new Map<string, ResizeObserver>());
+  const elements = useRef(new Map<string, HTMLElement>());
   const anchorRef = useRef<{ key: string; center: boolean } | null>(null);
   const keepBottomRef = useRef(false);
   const autoScrollInFlightRef = useRef(false);
@@ -129,7 +142,7 @@ export function useVirtualList<T>({
   const measure = useCallback(
     (key: string, el: HTMLElement | null) => {
       if (!el) return;
-      const h = el.offsetHeight;
+      const h = outerHeight(el);
       const prev = heights.current.get(key);
       if (prev !== h) {
         heights.current.set(key, h);
@@ -158,7 +171,11 @@ export function useVirtualList<T>({
         cb = (el: HTMLElement | null) => {
           observers.current.get(key)?.disconnect();
           observers.current.delete(key);
-          if (!el) return;
+          if (!el) {
+            elements.current.delete(key);
+            return;
+          }
+          elements.current.set(key, el);
           measure(key, el);
           if (typeof ResizeObserver === "undefined") return;
           const observer = new ResizeObserver(() => measure(key, el));
@@ -181,9 +198,16 @@ export function useVirtualList<T>({
       if (keys.has(key)) continue;
       observers.current.get(key)?.disconnect();
       observers.current.delete(key);
+      elements.current.delete(key);
       refCache.current.delete(key);
     }
   }, [rows]);
+
+  // 前の行の送り主が変わると margin（mt-3 / mt-0.5）だけが変わり、ResizeObserver は気付かない。
+  // 描画のたびに、出ている行を測り直す（変わっていなければ何もしない）。
+  useLayoutEffect(() => {
+    for (const [key, el] of elements.current) measure(key, el);
+  });
 
   useEffect(() => {
     const el = containerRef.current;
@@ -211,6 +235,7 @@ export function useVirtualList<T>({
       tickScheduled.current = false;
       for (const observer of observers.current.values()) observer.disconnect();
       observers.current.clear();
+      elements.current.clear();
       refCache.current.clear();
       heights.current.clear();
     };
