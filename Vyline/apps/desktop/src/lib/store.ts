@@ -93,12 +93,10 @@ const contactFetched = new Set<string>();
 /** このセッションでユーザーが明示的に開いた chatId（自動既読ガード） */
 const sessionOpenedChats = new Set<string>();
 function isAfterChatMessageWatermark(messageId: string, createdAt: number, chat: Chat): boolean {
-  if (chat.lastIncomingMessageId) {
+  const idWatermark = chat.lastIncomingMessageId ?? chat.lastMessageId;
+  if (idWatermark) {
     try {
-      return (
-        BigInt(messageId) > BigInt(chat.lastIncomingMessageId) ||
-        createdAt > (chat.lastMessageTime ?? 0)
-      );
+      return BigInt(messageId) > BigInt(idWatermark) || createdAt > (chat.lastMessageTime ?? 0);
     } catch {
       // Fall back to timestamps for non-numeric IDs.
     }

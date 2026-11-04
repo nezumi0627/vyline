@@ -638,6 +638,44 @@ test("does not advance the ID watermark from messages older than the time waterm
   expect(useStore.getState().chats[0]?.unread).toBe(0);
 });
 
+test("counts a delayed incoming ID newer than the listed outgoing message without a peer watermark", () => {
+  const chat = Object.assign(
+    {
+      id: "outgoing-only-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: undefined },
+  );
+  useStore.setState({
+    accountId: "outgoing-only-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+  const delayedIncoming = [
+    {
+      id: "201",
+      from: "peer",
+      to: "self",
+      text: "late delivery",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never;
+
+  useStore.getState().mergeIncomingMessages(chat.id, delayedIncoming);
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+  useStore.getState().mergeIncomingMessages(chat.id, delayedIncoming);
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
+
 test("counts a newer incoming message against the peer watermark below an outgoing ID", () => {
   const chat = Object.assign(
     {
