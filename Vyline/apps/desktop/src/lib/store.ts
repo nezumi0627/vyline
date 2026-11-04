@@ -2991,9 +2991,7 @@ export const useStore = create<State>()(
               // 読み直し直後はメッセージ本体が未ロードなので、API 一覧の最終 ID を
               // watermark にして、既に一覧へ反映済みの受信だけを未読数から除外する。
               const newFromPeer = fresh.filter(
-                (m) =>
-                  m.authorId !== "me" &&
-                  isAfterChatMessageWatermark(m.id, m.createdAt, chat),
+                (m) => m.authorId !== "me" && isAfterChatMessageWatermark(m.id, m.createdAt, chat),
               ).length;
               return {
                 ...chat,
@@ -3388,11 +3386,7 @@ export const useStore = create<State>()(
                         message.from !== state.self.mid &&
                         message.from !== state.accountId &&
                         (!chat ||
-                          isAfterChatMessageWatermark(
-                            message.id,
-                            message.createdTime,
-                            chat,
-                          )),
+                          isAfterChatMessageWatermark(message.id, message.createdTime, chat)),
                     );
                     if (fresh) {
                       new Notification(
