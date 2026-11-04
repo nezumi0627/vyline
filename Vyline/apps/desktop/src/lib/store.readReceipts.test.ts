@@ -661,6 +661,35 @@ test("queues a newer MessageBox time while an ID-less read-through is in flight"
   expect(requestedIds).toEqual([undefined, undefined]);
 });
 
+test("uses the resolved MessageBox ID to suppress an older numeric read", async () => {
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return Response.json({ ok: true, lastMessageId: "200" });
+  }) as unknown as typeof fetch;
+  setChatWithHistory("u-box-resolved-id", 1_000 + 120_000);
+  useStore.setState({
+    messages: [
+      {
+        id: "100",
+        chatId: "u-box-resolved-id",
+        authorId: "u-box-resolved-id",
+        text: "older history",
+        kind: "text",
+        createdAt: 1_000,
+        read: true,
+        status: "read",
+        messageState: "normal",
+      },
+    ],
+  });
+
+  await useStore.getState().markChatRead("u-box-resolved-id");
+  await useStore.getState().markChatRead("u-box-resolved-id", "100");
+
+  expect(requests).toBe(1);
+});
+
 test("shares mark-read requests when the chat has no loaded message ID", async () => {
   let requests = 0;
   let release!: (response: Response) => void;

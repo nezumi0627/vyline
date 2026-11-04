@@ -67,6 +67,7 @@ export type {
 const BOX_AHEAD_TOLERANCE_MS = 60_000;
 /** chatId → 送信済み lastMessageId（一覧の方が新しいときは box:<時刻>。既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
+const readReceiptResolvedIds = new Map<string, string>();
 const markReadInflight = new Map<
   string,
   { messageId: string; marker?: string; promise: Promise<boolean> }
@@ -79,9 +80,16 @@ function isMessageIdAtOrAfter(candidate: string, target: string): boolean {
   }
 }
 
-function isReceiptMarkerAtOrAfter(candidate: string, target: string): boolean {
+function isReceiptMarkerAtOrAfter(
+  candidate: string,
+  target: string,
+  candidateResolvedId?: string,
+): boolean {
   if (candidate.startsWith("box:") && target.startsWith("box:")) {
     return Number(candidate.slice(4)) >= Number(target.slice(4));
+  }
+  if (candidate.startsWith("box:") && candidateResolvedId) {
+    return isMessageIdAtOrAfter(candidateResolvedId, target);
   }
   if (candidate.startsWith("box:") || target.startsWith("box:")) return candidate === target;
   return isMessageIdAtOrAfter(candidate, target);
@@ -839,6 +847,7 @@ export const useStore = create<State>()(
           readReceiptGeneration += 1;
           contactFetched.clear();
           readReceiptSent.clear();
+          readReceiptResolvedIds.clear();
           markReadInflight.clear();
           readReceiptCheckedChats.clear();
           readReceiptInflight.clear();
@@ -894,6 +903,7 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          readReceiptResolvedIds.clear();
           markReadInflight.clear();
           readReceiptCheckedChats.clear();
           contactFetched.clear();
@@ -2392,8 +2402,18 @@ export const useStore = create<State>()(
         }
         const prev = readReceiptSent.get(receiptKey);
         if (!force && !sentMarker && prev) return true;
-        if (!force && sentMarker && prev && isReceiptMarkerAtOrAfter(prev, sentMarker)) return true;
-        if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
+        if (
+          !force &&
+          sentMarker &&
+          prev &&
+          isReceiptMarkerAtOrAfter(prev, sentMarker, readReceiptResolvedIds.get(receiptKey))
+        ) {
+          return true;
+        }
+        if (sentMarker) {
+          readReceiptSent.set(receiptKey, sentMarker);
+          readReceiptResolvedIds.delete(receiptKey);
+        }
         let request!: Promise<boolean>;
         request = (async () => {
           try {
@@ -2402,9 +2422,13 @@ export const useStore = create<State>()(
               throw new Error("既読の送信に失敗しました");
             }
             readReceiptSent.set(receiptKey, sentMarker ?? result.lastMessageId.trim());
+            readReceiptResolvedIds.set(receiptKey, result.lastMessageId.trim());
             return true;
           } catch {
-            if (sentMarker) rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
+            if (sentMarker) {
+              rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
+              readReceiptResolvedIds.delete(receiptKey);
+            }
             if (localKey) recentlyReadAt.delete(localKey);
             if (force) {
               get().showNotice(
