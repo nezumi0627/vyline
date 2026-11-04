@@ -39,6 +39,7 @@ import {
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { MidSearchProfileDrawer, type MidSearchProfile } from "@/components/mid-search-profile";
 import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
+import { requestSettingsSection } from "@/lib/settingsSection";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official" | "openchat";
 
@@ -569,7 +570,10 @@ function SidebarBase() {
       <div className="vy-sidebar-profile relative grid grid-cols-[1fr_auto_1fr] items-center px-4 py-3">
         <button
           type="button"
-          onClick={() => setScreen("settings")}
+          onClick={() => {
+            requestSettingsSection("profile");
+            setScreen("settings");
+          }}
           className="justify-self-start rounded-full outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
           aria-label={uiText("プロフィール設定")}
         >
