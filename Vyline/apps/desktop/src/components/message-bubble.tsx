@@ -675,7 +675,7 @@ const REACTION_EMOJI: Record<number, string> = {
   7: "😲",
 };
 
-// 見本画像から切り出して背景透過・高解像度化した標準リアクション
+// 見本画像をベクタートレースし、背景透過PNGに書き出した標準リアクション
 const REACTION_ASSET: Record<number, string> = {
   2: "/reactions/line-nice.png",
   3: "/reactions/line-love.png",
