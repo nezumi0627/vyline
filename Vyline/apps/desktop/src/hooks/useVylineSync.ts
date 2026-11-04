@@ -12,6 +12,8 @@ import { useLineData } from "../hooks/useLineData.js";
 
 import { useHiddenChats } from "../hooks/useHiddenChats.js";
 
+import { createMarkReadRetry } from "./markReadRetry.js";
+
 import { useStore } from "../lib/store.js";
 
 function eventsPollIntervalMs(): number {
@@ -193,15 +195,22 @@ export function useVylineSync(enabled = true) {
   // 受信メッセージが入った時点で一度送る。設定・既読を送らないトークの判定は markChatRead 側で行う。
   useEffect(() => {
     if (!enabled || !accountId || !activeChatId) return;
-    let sent = false;
+    const retryMarkRead = createMarkReadRetry(
+      () => document.visibilityState !== "hidden",
+      () => useStore.getState().markChatRead(activeChatId),
+    );
     const send = (state: ReturnType<typeof useStore.getState>) => {
-      if (sent || document.visibilityState === "hidden") return;
       if (!state.messages.some((m) => m.chatId === activeChatId && m.authorId !== "me")) return;
-      sent = true;
-      void state.markChatRead(activeChatId);
+      void retryMarkRead();
     };
     send(useStore.getState());
-    return useStore.subscribe(send);
+    const unsubscribe = useStore.subscribe(send);
+    const onVisibility = () => send(useStore.getState());
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      unsubscribe();
+      document.removeEventListener("visibilitychange", onVisibility);
+    };
   }, [enabled, accountId, activeChatId]);
 
   useEffect(() => {
