@@ -769,10 +769,17 @@ test("recounts deferred incoming messages when the peer watermark becomes availa
     { id: "170", createdAt: 2_000, authorId: "peer" },
   ] as never;
 
-  expect(resolveDeferredPeerMessages(deferred, chat)).toEqual({
+  const resolved = resolveDeferredPeerMessages(deferred, chat);
+  expect(resolved).toEqual({
     unreadCount: 1,
     lastIncomingMessageId: "190",
   });
+  expect(
+    resolveDeferredPeerMessages(deferred, {
+      ...chat,
+      lastIncomingMessageId: resolved?.lastIncomingMessageId,
+    }),
+  ).toEqual({ unreadCount: 0, lastIncomingMessageId: "190" });
   expect(
     resolveDeferredPeerMessages(deferred, { ...chat, lastIncomingMessageId: undefined }),
   ).toBeUndefined();

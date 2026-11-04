@@ -130,10 +130,6 @@ function deferPeerMessages(chatId: string, messages: Message[]): void {
     deferredPeerMessagesByChat.set(chatId, deferred);
   }
   for (const message of messages) {
-    if (deferred.size >= 500 && !deferred.has(message.id)) {
-      const oldestId = deferred.keys().next().value;
-      if (oldestId !== undefined) deferred.delete(oldestId);
-    }
     deferred.set(message.id, message);
   }
 }
