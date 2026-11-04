@@ -66,4 +66,21 @@ describe("chat list box meta", () => {
     expect(meta.lastMessageId).toBe("300");
     expect(meta.lastIncomingMessageId).toBe("250");
   });
+
+  test("finds an incoming watermark beyond two consecutive outgoing messages", () => {
+    const meta = boxMeta(
+      {
+        lastDeliveredMessageId: { messageId: 300n, deliveredTime: 3000n },
+        lastMessages: [
+          { id: "300", from: "u-self", contentType: "NONE", deliveredTime: 3000 },
+          { id: "290", from: "u-self", contentType: "NONE", deliveredTime: 2900 },
+          { id: "280", from: "u-peer", contentType: "NONE", deliveredTime: 2800 },
+        ],
+      },
+      "u-self",
+    );
+
+    expect(meta.lastMessageId).toBe("300");
+    expect(meta.lastIncomingMessageId).toBe("280");
+  });
 });

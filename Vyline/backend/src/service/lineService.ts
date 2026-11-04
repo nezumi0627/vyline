@@ -922,11 +922,11 @@ async function fetchPreviousMessagesRpc(
   );
 }
 
-/** Desktop 準拠: activeOnly + 直近メッセージ2件で受信側の ID watermark も取得 */
+/** チャット一覧の送信連投より前にある受信IDも取得できるよう、直近10件を要求する。 */
 const DESKTOP_MESSAGE_BOX_LIST_REQUEST = {
   activeOnly: true,
   withUnreadCount: true,
-  lastMessagesPerMessageBoxCount: 2,
+  lastMessagesPerMessageBoxCount: 10,
 } as const;
 
 /**
@@ -949,7 +949,7 @@ async function fetchAllMessageBoxes(
           messageBoxListRequest: {
             activeOnly: false,
             withUnreadCount: true,
-            lastMessagesPerMessageBoxCount: 2,
+            lastMessagesPerMessageBoxCount: 10,
             minChatId: min,
             maxChatId: max,
           },

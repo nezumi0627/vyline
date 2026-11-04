@@ -714,3 +714,38 @@ test("counts a newer incoming message against the peer watermark below an outgoi
 
   expect(useStore.getState().chats[0]?.unread).toBe(1);
 });
+
+test("counts a delayed incoming ID between the peer and outgoing watermarks", () => {
+  const chat = Object.assign(
+    {
+      id: "interleaved-watermark-chat",
+      name: "Peer",
+      type: "friend" as const,
+      avatar: "P",
+      color: "#000",
+      status: "",
+      unread: 0,
+      lastMessageTime: 5_000,
+    },
+    { lastMessageId: "200", lastIncomingMessageId: "180" },
+  );
+  useStore.setState({
+    accountId: "interleaved-watermark",
+    activeChatId: null,
+    messages: [],
+    chats: [chat],
+  });
+  useStore.getState().mergeIncomingMessages("interleaved-watermark-chat", [
+    {
+      id: "190",
+      from: "peer",
+      to: "self",
+      text: "delayed incoming",
+      contentType: "TEXT",
+      createdTime: 3_000,
+      isMyMessage: false,
+    },
+  ] as never);
+
+  expect(useStore.getState().chats[0]?.unread).toBe(1);
+});
