@@ -2,11 +2,11 @@
 
 Last updated: 2026-11-05
 
-The current stable baseline is **v1.2.0**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
+The current stable baseline is **v1.2.1**. Future fixes and features are developed on main from this stable release. Published tags are not overwritten; new releases use new version numbers.
 
-## v1.2.0 — OpenChat and chat improvements
+## v1.2.1 — OpenChat and chat improvements
 
-Adds the opt-in OpenChat (Square) beta foundation, verified sticker/read/reaction actions, PWA support, and separate Stable/Beta update channels. Improves unread and read-state synchronization, chat-list previews, profile navigation, and account switching. See the [changelog](../../CHANGELOG.md) and [GitHub Release](https://github.com/nezumi0627/vyline/releases/tag/v1.2.0).
+Adds the opt-in OpenChat (Square) beta foundation, sticker/read/reaction actions, PWA support, and separate Stable/Beta update channels. Improves unread and read-state synchronization, chat-list previews, profile navigation, and account switching. See the [changelog](../../CHANGELOG.md) and [GitHub Release](https://github.com/nezumi0627/vyline/releases/tag/v1.2.1).
 
 ## v1.1.0 — macOS distribution, history restore, and multilingual UI
 
