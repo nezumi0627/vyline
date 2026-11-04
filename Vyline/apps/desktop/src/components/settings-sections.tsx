@@ -7,6 +7,7 @@ import {
   BUILD_COMMIT_SHA,
   checkForUpdates,
   formatBuildVersion,
+  getUpdateChannel,
   type UpdateInfo,
 } from "@/lib/updater";
 import { cn } from "@/lib/utils";
@@ -69,6 +70,7 @@ import {
   IconHardDrive,
   IconTrash,
   IconDownload,
+  IconUpdate,
 } from "@/components/icons";
 import { takeSettingsSection } from "@/lib/settingsSection";
 
@@ -80,6 +82,7 @@ type Section =
   | "privacy"
   | "session"
   | "notifications"
+  | "updates"
   | "advanced"
   | "subdevices"
   | "storage"
@@ -112,6 +115,10 @@ const NAV_GROUPS: { title: string; items: NavItem[] }[] = [
   {
     title: "通知",
     items: [{ key: "notifications", label: "通知", icon: <IconBell size={18} /> }],
+  },
+  {
+    title: "更新",
+    items: [{ key: "updates", label: "更新", icon: <IconUpdate size={18} /> }],
   },
   {
     title: "プライバシー",
@@ -681,6 +688,8 @@ export function SettingsSections() {
 
               {section === "notifications" && <NotificationsSection />}
 
+              {section === "updates" && <UpdatesSection />}
+
               {section === "privacy" && <PrivacySection />}
 
               {section === "session" && <SessionSection />}
@@ -705,6 +714,46 @@ export function SettingsSections() {
         </div>
       </div>
     </div>
+  );
+}
+
+function UpdatesSection() {
+  const settings = useStore((s) => s.settings);
+  const updateSetting = useStore((s) => s.updateSetting);
+  const setScreen = useStore((s) => s.setScreen);
+
+  return (
+    <Section title={uiText("更新")} desc={uiText("Stable版とBeta版の更新チャンネルを管理します")}>
+      <Card>
+        <Row
+          title={uiText("Beta版を受け取る")}
+          desc={uiText("OFFはStable版のみ、ONはStable版を含まないプレリリース版のみを確認します。")}
+        >
+          <Toggle
+            checked={settings.receiveBetaUpdates ?? false}
+            onChange={(value) => updateSetting("receiveBetaUpdates", value)}
+            label={uiText("Beta版を受け取る")}
+          />
+        </Row>
+        <Row
+          title={uiText("更新通知を表示")}
+          desc={uiText("選択中のチャンネルに新しい版があるとサイドバーに通知します。")}
+        >
+          <Toggle
+            checked={settings.updateNotificationsEnabled ?? true}
+            onChange={(value) => updateSetting("updateNotificationsEnabled", value)}
+            label={uiText("更新通知を表示")}
+          />
+        </Row>
+      </Card>
+      <button
+        type="button"
+        onClick={() => setScreen("updater")}
+        className="mt-4 rounded-lg border border-[var(--vy-border)] px-4 py-2 text-sm font-medium hover:bg-[var(--vy-surface-2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+      >
+        {uiText("更新を確認")}
+      </button>
+    </Section>
   );
 }
 
@@ -2610,12 +2659,15 @@ function TypeCard({
 }
 
 function InfoSection() {
+  const openManualWhatsNew = useStore((s) => s.openManualWhatsNew);
+  const settings = useStore((s) => s.settings);
+  const channel = getUpdateChannel(settings.receiveBetaUpdates ?? false);
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [checking, setChecking] = useState(false);
 
   const check = () => {
     setChecking(true);
-    void checkForUpdates({ force: true }).then((info) => {
+    void checkForUpdates({ force: true, channel }).then((info) => {
       setUpdateInfo(info);
       setChecking(false);
     });
@@ -2624,7 +2676,7 @@ function InfoSection() {
   useEffect(() => {
     let cancelled = false;
     setChecking(true);
-    checkForUpdates().then((info) => {
+    checkForUpdates({ channel }).then((info) => {
       if (!cancelled) {
         setUpdateInfo(info);
         setChecking(false);
@@ -2633,7 +2685,7 @@ function InfoSection() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [channel]);
 
   return (
     <Section title={uiText("情報")} desc={uiText("Vyline について")}>
@@ -2707,9 +2759,7 @@ function InfoSection() {
                     rel="noopener noreferrer"
                     className="rounded-lg bg-[var(--vy-accent)] px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] hover:opacity-90"
                   >
-                    {updateInfo.platform === "windows"
-                      ? "更新インストーラーを取得"
-                      : "Linux更新ファイルを取得"}
+                    {uiText("公式配布ファイルを取得")}
                   </a>
                 )}
               </div>
@@ -2776,6 +2826,26 @@ function InfoSection() {
           <p className="mt-3 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
             {uiText("LINE 非公式サードパーティクライアント。Bun + Hono + React で構築。")}{" "}
           </p>
+        </div>
+
+        <div className="border-t border-[var(--vy-border)] p-5">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <h3 className="text-sm font-semibold">What's New / {uiText("更新履歴")}</h3>
+              <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+                {uiText("Vyline {{version}} で追加・修正された内容を確認できます。", {
+                  version: UPDATE_NOTES.version,
+                })}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={openManualWhatsNew}
+              className="min-h-10 rounded-lg bg-[var(--vy-accent)] px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
+            >
+              {uiText("What's Newを開く")}
+            </button>
+          </div>
         </div>
 
         {/* author */}

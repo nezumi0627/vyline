@@ -38,7 +38,12 @@ import {
 } from "@/components/icons";
 import { CreateGroupDialog } from "@/components/create-group-dialog";
 import { MidSearchProfileDrawer, type MidSearchProfile } from "@/components/mid-search-profile";
-import { checkForUpdates, type UpdateInfo } from "@/lib/updater";
+import {
+  checkForUpdates,
+  getUpdateChannel,
+  shouldShowUpdateNotification,
+  type UpdateInfo,
+} from "@/lib/updater";
 import { requestSettingsSection } from "@/lib/settingsSection";
 
 type Tab = "all" | "friend" | "group" | "hidden" | "official" | "openchat";
@@ -134,6 +139,8 @@ function SidebarBase() {
   const openChat = useStore((s) => s.openChat);
   const setScreen = useStore((s) => s.setScreen);
   const streamerSettings = useStore((s) => s.settings);
+  const updateChannel = getUpdateChannel(streamerSettings.receiveBetaUpdates ?? false);
+  const updateNotificationsEnabled = streamerSettings.updateNotificationsEnabled ?? true;
   const streamerMode = streamerSettings.streamerMode;
   const sort = useStore((s) => s.settings.chatSort);
   const updateSetting = useStore((s) => s.updateSetting);
@@ -143,9 +150,18 @@ function SidebarBase() {
 
   useEffect(() => {
     let cancelled = false;
+    if (!updateNotificationsEnabled) {
+      setAvailableUpdate(null);
+      return () => {
+        cancelled = true;
+      };
+    }
     const refresh = () => {
-      void checkForUpdates().then((info) => {
-        if (!cancelled) setAvailableUpdate(info.hasUpdate ? info : null);
+      void checkForUpdates({ channel: updateChannel }).then((info) => {
+        if (!cancelled)
+          setAvailableUpdate(
+            shouldShowUpdateNotification(updateNotificationsEnabled, info) ? info : null,
+          );
       });
     };
     refresh();
@@ -154,7 +170,7 @@ function SidebarBase() {
       cancelled = true;
       window.clearInterval(timer);
     };
-  }, []);
+  }, [updateChannel, updateNotificationsEnabled]);
 
   const togglePin = useStore((s) => s.togglePin);
   const toggleHide = useStore((s) => s.toggleHide);
