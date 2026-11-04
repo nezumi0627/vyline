@@ -169,3 +169,34 @@ test("hydrating Keep Memo drops other users' messages already in the store", () 
   });
   expect(useStore.getState().messages.map((m) => m.id)).toEqual(["m1", "m3"]);
 });
+
+test("hydrating Keep Memo accepts only messages sent from self to self", () => {
+  const selfMid = "u-self";
+  const message = (id: string, from?: string, to?: string) =>
+    ({ id, from, to, contentType: "NONE", createdTime: 1, text: id }) as never;
+  useStore.setState((state) => ({
+    accountId: "keep-memo-filter",
+    self: { ...state.self, mid: selfMid },
+    activeChatId: selfMid,
+    chats: [],
+    messages: [],
+  }));
+
+  useStore.getState().hydrateLineData({
+    profile: { mid: selfMid } as never,
+    messages: [
+      message("self-self", selfMid, selfMid),
+      message("other-to-self", "u-other", selfMid),
+      message("missing-from", undefined, selfMid),
+      message("missing-to", selfMid, undefined),
+    ],
+    readyChatId: selfMid,
+    hiddenMids: new Set(),
+    contactCache: new Map(),
+    chats: [
+      { mid: selfMid, name: "Keep", kind: "direct", hasMessages: true, lastMessageTime: 1, isSelf: true },
+    ],
+  });
+
+  expect(useStore.getState().messages.map((entry) => entry.id)).toEqual(["self-self"]);
+});
