@@ -330,6 +330,7 @@ const MIME: Record<string, string> = {
   ".js": "text/javascript; charset=utf-8",
   ".css": "text/css; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".webmanifest": "application/manifest+json",
   ".svg": "image/svg+xml",
   ".png": "image/png",
   ".jpg": "image/jpeg",
@@ -362,7 +363,10 @@ async function serveStaticFile(path: string) {
     status: 200,
     headers: {
       "Content-Type": MIME[ext] ?? "application/octet-stream",
-      "Cache-Control": ext === ".html" ? "no-cache" : "public, max-age=31536000, immutable",
+      "Cache-Control":
+        ext === ".html" || ext === ".webmanifest"
+          ? "no-cache"
+          : "public, max-age=31536000, immutable",
     },
   });
 }
