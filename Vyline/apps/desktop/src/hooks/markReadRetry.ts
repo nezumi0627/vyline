@@ -7,10 +7,11 @@ export function createMarkReadRetry(
 ): MarkReadRetry {
   let marked = false;
   let inFlight = false;
+  let cancelled = false;
   let retryTimer: ReturnType<typeof setTimeout> | null = null;
 
   const retry = async () => {
-    if (marked || inFlight || !isVisible()) return;
+    if (cancelled || marked || inFlight || !isVisible()) return;
     if (retryTimer) clearTimeout(retryTimer);
     retryTimer = null;
     inFlight = true;
@@ -20,7 +21,7 @@ export function createMarkReadRetry(
       marked = false;
     } finally {
       inFlight = false;
-      if (!marked && !retryTimer) {
+      if (!cancelled && !marked && !retryTimer) {
         retryTimer = setTimeout(() => {
           retryTimer = null;
           void retry();
@@ -31,6 +32,7 @@ export function createMarkReadRetry(
 
   return Object.assign(retry, {
     cancel: () => {
+      cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
       retryTimer = null;
     },

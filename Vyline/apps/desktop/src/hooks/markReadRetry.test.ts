@@ -40,3 +40,26 @@ test("retries a message received while hidden when visibility returns", async ()
 
   expect(attempts).toBe(1);
 });
+
+test("does not schedule another attempt when the effect is cancelled in flight", async () => {
+  let attempts = 0;
+  let finishRequest!: (succeeded: boolean) => void;
+  const retry = createMarkReadRetry(
+    () => true,
+    async () => {
+      attempts += 1;
+      return await new Promise<boolean>((resolve) => {
+        finishRequest = resolve;
+      });
+    },
+    0,
+  );
+
+  const pending = retry();
+  retry.cancel();
+  finishRequest(false);
+  await pending;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  expect(attempts).toBe(1);
+});
