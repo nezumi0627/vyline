@@ -675,28 +675,19 @@ const REACTION_EMOJI: Record<number, string> = {
   7: "😲",
 };
 
-// CDN 配信するリアクションの公式 sticon: productId / sticonId
-const REACTION_STICON: Record<number, { productId: string; sticonId: string }> = {
-  3: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "037" }, // LOVE ❤️
-  4: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "002" }, // FUN 😆
-  5: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "003" }, // AMAZING 🎉
-  6: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "024" }, // SAD 😢
-  7: { productId: "5ac1bfd5040ab15980c9b435", sticonId: "029" }, // OMG 😲
-};
-
-const REACTION_LOCAL_ASSET: Record<number, string> = {
+// 見本画像から切り出して背景透過・高解像度化した標準リアクション
+const REACTION_ASSET: Record<number, string> = {
   2: "/reactions/line-nice.png",
+  3: "/reactions/line-love.png",
+  4: "/reactions/line-fun.png",
+  5: "/reactions/line-amazing.png",
+  6: "/reactions/line-sad.png",
+  7: "/reactions/line-omg.png",
 };
 
-/** リアクション公式 sticon のプロキシ URL（未定義は空文字） */
-function reactionSticonUrl(type: number): string {
-  const localAsset = REACTION_LOCAL_ASSET[type];
-  if (localAsset) return localAsset;
-  const ref = REACTION_STICON[type];
-  if (!ref) return "";
-  return lineCdnProxy(
-    `https://stickershop.line-scdn.net/sticonshop/v1/sticon/${ref.productId}/android/${ref.sticonId}.png`,
-  );
+/** ローカル標準リアクション画像（未定義は空文字） */
+function reactionAssetUrl(type: number): string {
+  return REACTION_ASSET[type] ?? "";
 }
 
 /** メニュー等で使う小さなリアクション画像 */
@@ -704,7 +695,7 @@ function ReactionGlyph({ type }: { type: number }) {
   return (
     <span className="relative inline-flex h-4 w-4 items-center justify-center">
       <img
-        src={reactionSticonUrl(type)}
+        src={reactionAssetUrl(type)}
         alt={REACTION_EMOJI[type] ?? ""}
         loading="lazy"
         draggable={false}
@@ -736,9 +727,7 @@ function ReactionBadges({
     if (r.fromMid === myMid) cur.mine = true;
     byType.set(r.type, cur);
   }
-  const entries = [...byType.entries()].filter(
-    ([t]) => REACTION_LOCAL_ASSET[t] || REACTION_STICON[t],
-  );
+  const entries = [...byType.entries()].filter(([t]) => REACTION_ASSET[t]);
   if (!entries.length) return null;
   return (
     <div
@@ -761,7 +750,7 @@ function ReactionBadges({
           aria-label={mine ? "リアクションを取り消す" : "リアクション"}
         >
           <img
-            src={reactionSticonUrl(type)}
+            src={reactionAssetUrl(type)}
             alt={REACTION_EMOJI[type]}
             loading="lazy"
             draggable={false}
