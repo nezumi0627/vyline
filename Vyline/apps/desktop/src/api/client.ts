@@ -1280,7 +1280,7 @@ export const api = {
         },
       ),
     sendChatChecked: (accountId: string, chatMid: string, lastMessageId?: string) =>
-      request<{ ok: boolean }>("POST", `/line/${accountId}/sendChatChecked`, {
+      request<{ ok: boolean; lastMessageId?: string }>("POST", `/line/${accountId}/sendChatChecked`, {
         chatMid,
         lastMessageId,
       }),

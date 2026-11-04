@@ -79,7 +79,7 @@ function captureReadRequests() {
     if (String(input).includes("/sendChatChecked")) {
       bodies.push(JSON.parse(String(init?.body ?? "{}")) as { lastMessageId?: string });
     }
-    return Response.json({ ok: true });
+    return Response.json({ ok: true, lastMessageId: "1000" });
   }) as typeof fetch;
   return bodies;
 }
@@ -129,6 +129,20 @@ test("reads through the message box when the list is ahead of the history", asyn
   // 同じ一覧の時刻へは送り直さない
   await useStore.getState().markChatRead("u-box-ahead");
   expect(bodies).toHaveLength(1);
+});
+
+test("retries read-through when the backend could not resolve a message id", async () => {
+  let attempts = 0;
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    if (String(input).includes("/sendChatChecked")) attempts++;
+    return Response.json({ ok: true });
+  }) as typeof fetch;
+  setChatWithHistory("u-box-id-unavailable", 1_000 + 2 * 60_000);
+
+  await useStore.getState().markChatRead("u-box-id-unavailable");
+  await useStore.getState().markChatRead("u-box-id-unavailable");
+
+  expect(attempts).toBe(2);
 });
 
 test("reads through the latest received message when the list time is only slightly later", async () => {

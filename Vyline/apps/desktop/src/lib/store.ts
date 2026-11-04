@@ -2302,7 +2302,9 @@ export const useStore = create<State>()(
         if (sentMarker) readReceiptSent.set(receiptKey, sentMarker);
         try {
           const result = await api.line.sendChatChecked(accountId, id, lastId);
-          if (!result.ok) throw new Error("既読の送信に失敗しました");
+          if (!result.ok || !result.lastMessageId?.trim()) {
+            throw new Error("既読の送信に失敗しました");
+          }
         } catch {
           if (sentMarker) rollbackReceiptAttempt(readReceiptSent, receiptKey, sentMarker);
           if (localKey) recentlyReadAt.delete(localKey);
