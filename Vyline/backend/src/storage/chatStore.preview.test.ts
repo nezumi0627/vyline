@@ -1,5 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import {
+  previewForMessage,
   rebuildChatDbRecords,
   shouldPreserveResolvedLastMessagePreview,
   type ChatDbRecords,
@@ -57,5 +58,33 @@ describe("chat preview preservation", () => {
 
     rebuildChatDbRecords(records);
     expect(records.chats.c1?.lastMessagePreview).toBe("復号済み本文");
+  });
+});
+
+describe("stored message preview", () => {
+  const base = { id: "1", from: "u1", to: "u2", createdTime: 100, text: null };
+
+  test("uses ALT_TEXT for rich and flex messages", () => {
+    expect(
+      previewForMessage({
+        ...base,
+        contentType: "RICH",
+        contentMetadata: { ALT_TEXT: "本日発売のお知らせ" },
+      } as never),
+    ).toBe("本日発売のお知らせ");
+    expect(
+      previewForMessage({
+        ...base,
+        contentType: "FLEX",
+        contentMetadata: { ALT_TEXT: "クーポンが届きました" },
+      } as never),
+    ).toBe("クーポンが届きました");
+  });
+
+  test("does not expose raw content type names", () => {
+    expect(previewForMessage({ ...base, contentType: "RICH" } as never)).toBe("リッチメッセージ");
+    expect(previewForMessage({ ...base, contentType: "POSTNOTIFICATION" } as never)).toBe(
+      "投稿のお知らせ",
+    );
   });
 });
