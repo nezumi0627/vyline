@@ -8,6 +8,7 @@ import {
   type Message as LineMessage,
 } from "@vyline/types";
 import { THEME_PRESETS } from "@vyline/themes";
+import { PRODUCT_VERSION } from "./productVersion.js";
 import type {
   Chat,
   ChatSort,
@@ -508,8 +509,8 @@ function messagePreview(m: Message): string {
 }
 
 export const UPDATE_NOTES = {
-  version: "1.1.0",
-  title: "Vyline 1.1.0 — macOS配布・履歴復元・多言語対応",
+  version: PRODUCT_VERSION,
+  title: `Vyline ${PRODUCT_VERSION} — macOS配布・履歴復元・多言語対応`,
   items: [
     "macOSローカル版、アプリ内アップデート案内、多言語設定、Desktop履歴復元に対応",
     "Linux配布物に必要なprotocol profileを同梱し、起動スモークテストを追加",
@@ -551,6 +552,7 @@ type State = {
   initialChatScrollPending: boolean;
   initialChatScrollMode: "unread" | "bottom" | null;
   showUpdateNote: boolean;
+  showManualWhatsNew: boolean;
   seenUpdateVersion: string;
   profileDrawerOpen: boolean;
   self: SelfProfile;
@@ -605,6 +607,8 @@ type State = {
   _activateChat: (id: string, opts?: { history?: boolean }) => void;
   closeChat: () => void;
   dismissUpdateNote: () => void;
+  openManualWhatsNew: () => void;
+  closeManualWhatsNew: (openChat?: boolean) => void;
   setProfileDrawer: (open: boolean) => void;
   setIndexing: (v: { active: boolean; label: string } | null) => void;
   /** 一時的な上部ステータス通知（自動消去） */
@@ -751,6 +755,8 @@ export const useStore = create<State>()(
         proxyEnabled: false,
         proxyUrl: "",
         notificationsEnabled: true,
+        receiveBetaUpdates: false,
+        updateNotificationsEnabled: true,
         webNotificationsEnabled: false,
         hideNotificationContent: true,
         betaBlockCheckManual: false,
@@ -773,6 +779,7 @@ export const useStore = create<State>()(
       initialChatScrollPending: false,
       initialChatScrollMode: null,
       showUpdateNote: true,
+      showManualWhatsNew: false,
       seenUpdateVersion: "",
       profileDrawerOpen: false,
       self: { name: "Vyline", avatar: "V", status: "" },
@@ -1056,6 +1063,9 @@ export const useStore = create<State>()(
           seenUpdateVersion: UPDATE_NOTES.version,
           screen: "chat",
         }),
+      openManualWhatsNew: () => set({ showManualWhatsNew: true }),
+      closeManualWhatsNew: (openChat = false) =>
+        set({ showManualWhatsNew: false, ...(openChat ? { screen: "chat" as const } : {}) }),
       setProfileDrawer: (open) => set({ profileDrawerOpen: open }),
       setIndexing: (v) => set({ indexing: v }),
       showNotice: (msg, ms = 4_000) => {
@@ -1090,6 +1100,8 @@ export const useStore = create<State>()(
             proxyEnabled: false,
             proxyUrl: "",
             notificationsEnabled: true,
+            receiveBetaUpdates: false,
+            updateNotificationsEnabled: true,
             webNotificationsEnabled: false,
             hideNotificationContent: true,
             betaBlockCheckManual: false,
@@ -3416,6 +3428,7 @@ export const useStore = create<State>()(
       storage: indexedDbPersistStorage,
       skipHydration: true,
       partialize: (s) => ({
+        showManualWhatsNew: s.showManualWhatsNew,
         theme: s.theme,
         settings: s.settings,
         sidebarWidth: s.sidebarWidth,
@@ -3440,6 +3453,9 @@ export const useStore = create<State>()(
       }),
       onRehydrateStorage: () => (state) => {
         if (!state) return;
+        if (state.showManualWhatsNew) state.screen = "settings";
+        state.settings.receiveBetaUpdates ??= false;
+        state.settings.updateNotificationsEnabled ??= true;
         // Keep chat selection transient: restarting the browser restores the roster,
         // but must not reopen a conversation or fetch its message history.
         state.activeChatId = null;

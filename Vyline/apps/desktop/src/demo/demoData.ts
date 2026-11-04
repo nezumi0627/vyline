@@ -271,6 +271,8 @@ export const demoSettings: Settings = {
   proxyEnabled: false,
   proxyUrl: "",
   notificationsEnabled: true,
+  receiveBetaUpdates: false,
+  updateNotificationsEnabled: true,
   betaBlockCheckManual: false,
   betaBlockCheckAuto: false,
   betaMidSearch: false,
