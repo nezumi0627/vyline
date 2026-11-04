@@ -45,7 +45,6 @@ import {
   findLatestReceivedMessage,
   markReceivedMessagesReadThrough,
   resolveInitialUnreadScrollTarget,
-  rollbackReceiptAttempt,
 } from "./readReceiptSelection.js";
 import { retainMessagesForChat } from "./chatMessageSelector.js";
 import { shouldThrottleDeltaPoll } from "./deltaPollPolicy.js";
@@ -63,6 +62,7 @@ export type {
 
 /** chatId → 送信済み lastMessageId（既読 API の重複抑止） */
 const readReceiptSent = new Map<string, string>();
+const markReadInflight = new Map<string, { messageId: string; promise: Promise<boolean> }>();
 /** chatId → 進行中の既読ポーリング */
 const readReceiptInflight = new Map<string, Promise<void>>();
 const readReceiptForceInflight = new Map<string, Promise<void>>();
@@ -808,6 +808,7 @@ export const useStore = create<State>()(
         if (accountChanged) {
           contactFetched.clear();
           readReceiptSent.clear();
+          markReadInflight.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -860,6 +861,7 @@ export const useStore = create<State>()(
           messageReactionCache.clear();
           recentlyReadAt.clear();
           readReceiptSent.clear();
+          markReadInflight.clear();
           readReceiptInflight.clear();
           readReceiptForceInflight.clear();
           backfillInflight.clear();
@@ -2283,21 +2285,31 @@ export const useStore = create<State>()(
         const receiptKey = accountChatKey(accountId, id);
         const prev = readReceiptSent.get(receiptKey);
         if (!force && lastId && prev === lastId) return true;
-        if (lastId) readReceiptSent.set(receiptKey, lastId);
-        try {
-          const result = await api.line.sendChatChecked(accountId, id, lastId);
-          if (!result.ok) throw new Error("既読の送信に失敗しました");
-          return true;
-        } catch {
-          if (lastId) rollbackReceiptAttempt(readReceiptSent, receiptKey, lastId);
-          if (localKey) recentlyReadAt.delete(localKey);
-          if (force) {
-            get().showNotice(
-              "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
-            );
+        const pending = markReadInflight.get(receiptKey);
+        if (!force && lastId && pending?.messageId === lastId) return pending.promise;
+        let request!: Promise<boolean>;
+        request = (async () => {
+          try {
+            const result = await api.line.sendChatChecked(accountId, id, lastId);
+            if (!result.ok) throw new Error("既読の送信に失敗しました");
+            if (lastId) readReceiptSent.set(receiptKey, lastId);
+            return true;
+          } catch {
+            if (localKey) recentlyReadAt.delete(localKey);
+            if (force) {
+              get().showNotice(
+                "既読を送信できませんでした。接続を確認して、もう一度お試しください。",
+              );
+            }
+            return false;
+          } finally {
+            if (markReadInflight.get(receiptKey)?.promise === request) {
+              markReadInflight.delete(receiptKey);
+            }
           }
-          return false;
-        }
+        })();
+        if (lastId) markReadInflight.set(receiptKey, { messageId: lastId, promise: request });
+        return request;
       },
 
       markAllChatsRead: async () => {

@@ -102,3 +102,36 @@ test("reports failed mark-read requests so the sync hook can retry", async () =>
   expect(await useStore.getState().markChatRead("c-retry-read")).toBe(true);
   expect(requests).toBe(2);
 });
+
+test("shares an in-flight mark-read result and retries after a failed request", async () => {
+  let requests = 0;
+  globalThis.fetch = (async () => {
+    requests += 1;
+    return Response.json(requests === 1 ? { ok: false } : { ok: true });
+  }) as unknown as typeof fetch;
+  useStore.setState((state) => ({
+    accountId: "mark-read-inflight",
+    settings: { ...state.settings, readReceipts: true },
+    messages: [
+      {
+        id: "received-message",
+        chatId: "c-inflight-read",
+        authorId: "u-sender",
+        text: "received",
+        kind: "text",
+        createdAt: 1,
+        read: false,
+        status: "sent",
+        messageState: "normal",
+      },
+    ],
+  }));
+
+  const first = useStore.getState().markChatRead("c-inflight-read");
+  const duplicate = useStore.getState().markChatRead("c-inflight-read");
+  expect(await first).toBe(false);
+  expect(await duplicate).toBe(false);
+  expect(requests).toBe(1);
+  expect(await useStore.getState().markChatRead("c-inflight-read")).toBe(true);
+  expect(requests).toBe(2);
+});
