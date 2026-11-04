@@ -396,8 +396,9 @@ export function SettingsSections() {
                         />
                       </label>
                     </div>
-                    <div className="-mt-10 flex items-end gap-4 px-4 pb-4">
-                      <div className="relative">
+                    {/* アイコンだけ背景に重ね、名前は背景の下に少し離して置く（行ごと上げると名前が背景と重なる） */}
+                    <div className="flex items-start gap-4 px-4 pb-4">
+                      <div className="relative -mt-10 shrink-0">
                         <Avatar
                           glyph={self.avatar}
                           color="var(--vy-accent)"
@@ -415,7 +416,7 @@ export function SettingsSections() {
                           />
                         </label>
                       </div>
-                      <div className="min-w-0 flex-1 pb-1">
+                      <div className="min-w-0 flex-1 pt-3">
                         <div className="flex items-center gap-1.5">
                           <p className="truncate text-base font-semibold">{self.name}</p>
                           {self.premium?.active && <PremiumBadge size={14} compact />}
