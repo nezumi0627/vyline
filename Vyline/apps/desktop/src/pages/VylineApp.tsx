@@ -1,5 +1,5 @@
 import { tr as uiText } from "@/i18n";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
@@ -38,6 +38,10 @@ export function VylineApp() {
   const accountId = useStore((s) => s.accountId);
   const [consented, setConsented] = useState(() => hasTosConsent());
   const [setupDone, setSetupDone] = useState(false);
+  // アプリの画面を一度出した後に mid が判明した場合（設定の「引継ぎ・診断」など）、
+  // いきなり VylineSetup に差し替えると開いている画面が作り直される。裏で確かめてから出す。
+  const appShown = useRef(false);
+  const [setupNeeded, setSetupNeeded] = useState(false);
 
   useEffect(() => {
     void bootstrap();
@@ -62,6 +66,24 @@ export function VylineApp() {
     setScreen("home");
     navigate("/login");
   }, [screen, setScreen, navigate]);
+
+  useEffect(() => {
+    if (setupDone || !appShown.current || !mid || !/^u[0-9a-f]{32}$/i.test(mid)) return;
+    let cancelled = false;
+    void api.settings
+      .account(mid)
+      .then((result) => {
+        if (cancelled) return;
+        if (result.ok && result.settings.setup.completed) setSetupDone(true);
+        else setSetupNeeded(true);
+      })
+      .catch(() => {
+        if (!cancelled) setSetupNeeded(true);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [mid, setupDone]);
 
   if (!initialized || loading) {
     return (
@@ -96,7 +118,7 @@ export function VylineApp() {
     );
   }
 
-  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
+  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid) && (!appShown.current || setupNeeded)) {
     return (
       <VylineSetup
         mid={mid}
@@ -107,6 +129,7 @@ export function VylineApp() {
     );
   }
 
+  appShown.current = true;
   return (
     <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
