@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { PRODUCT_VERSION } from "./productVersion";
 import {
   checkForUpdates,
   clearUpdateCheckCache,
@@ -17,6 +18,12 @@ import {
   selectReleaseForChannel,
   shouldShowUpdateNotification,
 } from "./updater";
+
+const [currentMajor, currentMinor, currentPatch] = PRODUCT_VERSION.split("-")[0]
+  .split(".")
+  .map(Number);
+const newerStableVersion = `${currentMajor}.${currentMinor}.${currentPatch + 1}`;
+const newerBetaVersion = `${currentMajor}.${currentMinor + 1}.0-beta.1`;
 
 describe("update channels", () => {
   const releases = [
@@ -334,18 +341,18 @@ test("Beta update checks use only the prerelease feed and keep their cache separ
     urls.push(url);
     if (url.endsWith("/releases/latest")) {
       return Response.json({
-        tag_name: "v9.0.0",
+        tag_name: `v${newerStableVersion}`,
         prerelease: false,
-        html_url: "https://github.com/nezumi0627/Vyline/releases/tag/v9.0.0",
+        html_url: `https://github.com/nezumi0627/Vyline/releases/tag/v${newerStableVersion}`,
         assets: [],
       });
     }
     return Response.json([
       { tag_name: "v8.0.0", prerelease: false },
       {
-        tag_name: "v1.2.0-beta.10",
+        tag_name: `v${newerBetaVersion}`,
         prerelease: true,
-        html_url: "https://github.com/nezumi0627/Vyline/releases/tag/v1.2.0-beta.10",
+        html_url: `https://github.com/nezumi0627/Vyline/releases/tag/v${newerBetaVersion}`,
         assets: [],
       },
       { tag_name: "v9.9.9-beta.1", prerelease: true, draft: true },
@@ -355,10 +362,10 @@ test("Beta update checks use only the prerelease feed and keep their cache separ
     const beta = await checkForUpdates({ force: true, channel: "beta" });
     const stable = await checkForUpdates({ force: true, channel: "stable" });
     expect(beta.channel).toBe("beta");
-    expect(beta.latestVersion).toBe("1.2.0-beta.10");
+    expect(beta.latestVersion).toBe(newerBetaVersion);
     expect(beta.hasUpdate).toBe(true);
     expect(stable.channel).toBe("stable");
-    expect(stable.latestVersion).toBe("9.0.0");
+    expect(stable.latestVersion).toBe(newerStableVersion);
     expect(urls).toEqual([
       "https://api.github.com/repos/nezumi0627/Vyline/releases?per_page=100",
       "https://api.github.com/repos/nezumi0627/Vyline/releases/latest",
@@ -404,17 +411,19 @@ test("a newer stable release is advertised with its validated release page", asy
   clearUpdateCheckCache();
   globalThis.fetch = (async () =>
     Response.json({
-      tag_name: "v1.1.1",
+      tag_name: `v${newerStableVersion}`,
       prerelease: false,
       draft: false,
-      html_url: "https://github.com/nezumi0627/Vyline/releases/tag/v1.1.1",
+      html_url: `https://github.com/nezumi0627/Vyline/releases/tag/v${newerStableVersion}`,
       assets: [],
     })) as unknown as typeof fetch;
   try {
     const info = await checkForUpdates({ force: true });
     expect(info.hasUpdate).toBe(true);
-    expect(info.latestVersion).toBe("1.1.1");
-    expect(info.url).toBe("https://github.com/nezumi0627/Vyline/releases/tag/v1.1.1");
+    expect(info.latestVersion).toBe(newerStableVersion);
+    expect(info.url).toBe(
+      `https://github.com/nezumi0627/Vyline/releases/tag/v${newerStableVersion}`,
+    );
     expect(info.downloadUrl).toBeNull();
   } finally {
     globalThis.fetch = originalFetch;
