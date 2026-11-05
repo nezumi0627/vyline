@@ -5,6 +5,8 @@ import {
   buildSquareCreateOptions,
   buildSquareStickerContent,
   buildSquareThreadTextRequest,
+  buildSquareInvitationRequest,
+  buildSquareAnnouncementRequest,
 } from "./squareService.js";
 
 describe("Square read and reaction request builders", () => {
@@ -84,6 +86,28 @@ describe("Square thread wire request", () => {
           toType: "SQUARE_THREAD",
         },
       },
+    });
+  });
+});
+
+describe("HAR-backed Square room controls", () => {
+  test("uses the Square mid as the invitation ticket request identity", () => {
+    expect(buildSquareInvitationRequest("square-mid")).toEqual({ request: { mid: "square-mid" } });
+  });
+
+  test("builds announcement requests from an existing room message", () => {
+    expect(
+      buildSquareAnnouncementRequest("room", "member", {
+        id: "message",
+        text: "announcement",
+        createdTime: 123,
+      }),
+    ).toEqual({
+      squareChatMid: "room",
+      senderMid: "member",
+      messageId: "message",
+      text: "announcement",
+      createdAt: 123,
     });
   });
 });

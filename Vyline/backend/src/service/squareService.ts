@@ -60,6 +60,28 @@ export function buildSquareReadRequest(roomId: string, messageId: string, thread
   };
 }
 
+export function buildSquareInvitationRequest(squareMid: string) {
+  if (!squareMid || squareMid.length > 512) throw new Error("invalid Square identity");
+  return { request: { mid: squareMid } };
+}
+
+export function buildSquareAnnouncementRequest(
+  roomId: string,
+  senderMid: string,
+  message: { id: string; text?: string; createdTime?: number | string },
+) {
+  const createdAt = Number(message.createdTime ?? 0);
+  if (!roomId || !senderMid || !message.id || !message.text?.trim() || !Number.isFinite(createdAt))
+    throw new Error("invalid Square announcement message");
+  return {
+    squareChatMid: roomId,
+    senderMid,
+    messageId: message.id,
+    text: message.text,
+    createdAt,
+  };
+}
+
 export function buildSquareReactionRequest(
   roomId: string,
   messageId: string,
@@ -700,6 +722,120 @@ export async function listSquareMembers(
       members: response.squareChatMembers ?? [],
       continuationToken: response.continuationToken || null,
     };
+  });
+}
+
+export async function listSquareAnnouncements(
+  accountId: string,
+  roomId: string,
+  client: VylineClient,
+) {
+  if (!roomId || roomId.length > 512) throw new Error("invalid Square room id");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const generation = store.getGeneration();
+    const response = await client.base.square.getSquareChatAnnouncements({
+      getSquareChatAnnouncementsRequest: { squareChatMid: roomId },
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    const announcements = response.announcements ?? [];
+    for (const announcement of announcements) {
+      store.upsertEntity(
+        "announcement",
+        `${roomId}:${announcement.announcementSeq}`,
+        announcement,
+        roomId,
+      );
+    }
+    return { ok: true as const, announcements };
+  });
+}
+
+export function readSquareAnnouncementsCache(accountId: string, roomId: string) {
+  const store = getSquareStore(accountId);
+  if (!store.isEnabled()) throw new SquareDisabledError();
+  if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+  return {
+    ok: true as const,
+    stale: true as const,
+    announcements: store.listEntities<LINE.SquareChatAnnouncement>("announcement", roomId),
+  };
+}
+
+export async function createSquareAnnouncement(
+  accountId: string,
+  roomId: string,
+  messageId: string,
+  client: VylineClient,
+) {
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const message = store.getMessage<{
+      message?: { id?: string; text?: string; createdTime?: number | string; from?: string };
+    }>(roomId, messageId)?.message;
+    if (!message?.id || !message.from || !message.text?.trim())
+      throw new Error("Square announcement requires a cached text message");
+    const generation = store.getGeneration();
+    const response = await client.base.square.createSquareChatAnnouncement(
+      buildSquareAnnouncementRequest(
+        roomId,
+        message.from,
+        message as { id: string; text: string; createdTime?: number | string },
+      ),
+    );
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    if (response.announcement) {
+      store.upsertEntity(
+        "announcement",
+        `${roomId}:${response.announcement.announcementSeq}`,
+        response.announcement,
+        roomId,
+      );
+    }
+    return { ok: true as const, announcement: response.announcement };
+  });
+}
+
+export async function deleteSquareAnnouncement(
+  accountId: string,
+  roomId: string,
+  announcementSeq: string,
+  client: VylineClient,
+) {
+  if (!/^\d{1,20}$/.test(announcementSeq)) throw new Error("invalid Square announcement sequence");
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    if (!store.hasRoom(roomId)) throw new SquareRoomUnavailableError();
+    const generation = store.getGeneration();
+    await client.base.square.deleteSquareChatAnnouncement({
+      deleteSquareChatAnnouncementRequest: {
+        squareChatMid: roomId,
+        announcementSeq: BigInt(announcementSeq),
+      },
+    });
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    store.deleteEntity("announcement", `${roomId}:${announcementSeq}`);
+    return { ok: true as const };
+  });
+}
+
+export async function getSquareInvitationUrl(
+  accountId: string,
+  roomId: string,
+  client: VylineClient,
+) {
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    const room = store.listRooms().find((item) => item.id === roomId);
+    if (!room?.parentSquareId) throw new SquareRoomUnavailableError();
+    const generation = store.getGeneration();
+    const response = await client.base.square.getInvitationTicketUrl(
+      buildSquareInvitationRequest(room.parentSquareId),
+    );
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    return { ok: true as const, invitationURL: response.invitationURL };
   });
 }
 

@@ -28,6 +28,11 @@ import {
   getSquareFeatureStatus,
   getSquareFeatureStore,
   createPrivateSquare,
+  listSquareAnnouncements,
+  readSquareAnnouncementsCache,
+  createSquareAnnouncement,
+  deleteSquareAnnouncement,
+  getSquareInvitationUrl,
   loadSquareThreadContext,
   joinSquareThreadForAccount,
   listSquareMembers,
@@ -265,6 +270,70 @@ lineRouter.post("/:accountId/square/create", async (c) => {
     const client = getClient(accountId);
     if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
     return c.json(await createPrivateSquare(accountId, body.name, body.description ?? "", client));
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/rooms/:roomId/announcements", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    try {
+      return c.json(await listSquareAnnouncements(accountId, c.req.param("roomId"), client));
+    } catch (error) {
+      const cached = readSquareAnnouncementsCache(accountId, c.req.param("roomId"));
+      if (cached.announcements.length > 0) return c.json(cached);
+      throw error;
+    }
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.get("/:accountId/square/rooms/:roomId/invitation", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await getSquareInvitationUrl(accountId, c.req.param("roomId"), client));
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/rooms/:roomId/announcements", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req
+    .json<{ messageId?: unknown }>()
+    .catch((): { messageId?: unknown } => ({}));
+  if (typeof body.messageId !== "string" || !body.messageId || body.messageId.length > 512)
+    return c.json({ ok: false, error: "messageId is required" }, 400);
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await createSquareAnnouncement(accountId, c.req.param("roomId"), body.messageId, client),
+    );
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.delete("/:accountId/square/rooms/:roomId/announcements/:announcementSeq", async (c) => {
+  const accountId = c.req.param("accountId");
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(
+      await deleteSquareAnnouncement(
+        accountId,
+        c.req.param("roomId"),
+        c.req.param("announcementSeq"),
+        client,
+      ),
+    );
   } catch (error) {
     return handleError(error, c);
   }

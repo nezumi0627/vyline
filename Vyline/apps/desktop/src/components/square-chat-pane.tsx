@@ -141,6 +141,11 @@ export function SquareChatPane({
   const [members, setMembers] = useState<SquareRoomMember[]>([]);
   const [memberCursor, setMemberCursor] = useState<string | null>(null);
   const [membersLoading, setMembersLoading] = useState(false);
+  const [roomToolsOpen, setRoomToolsOpen] = useState(false);
+  const [announcements, setAnnouncements] = useState<
+    Array<{ announcementSeq: string | number; contents?: unknown }>
+  >([]);
+  const [announcementLoading, setAnnouncementLoading] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
   const operationIdRef = useRef<string | null>(null);
   const stickerOperationRef = useRef<{ key: string; id: string } | null>(null);
@@ -366,6 +371,60 @@ export function SquareChatPane({
     }
   };
 
+  const loadAnnouncements = async () => {
+    if (!accountId || announcementLoading) return;
+    setAnnouncementLoading(true);
+    try {
+      const result = await api.line.squareAnnouncements(accountId, room.id);
+      setAnnouncements(result.announcements);
+    } catch {
+      setNotice(uiText("アナウンスを取得できませんでした"));
+    } finally {
+      setAnnouncementLoading(false);
+    }
+  };
+
+  const copyInvitation = async () => {
+    if (!accountId) return;
+    try {
+      const { invitationURL } = await api.line.squareInvitation(accountId, room.id);
+      await navigator.clipboard.writeText(invitationURL);
+      setNotice(uiText("招待リンクをコピーしました"));
+    } catch {
+      setNotice(uiText("招待リンクを取得できませんでした"));
+    }
+  };
+
+  const createAnnouncement = async (messageId: string) => {
+    if (!accountId || messageActionId) return;
+    setMessageActionId(messageId);
+    try {
+      await api.line.squareCreateAnnouncement(accountId, room.id, messageId);
+      await loadAnnouncements();
+      setNotice(uiText("アナウンスに設定しました"));
+    } catch {
+      setNotice(uiText("アナウンスに設定できませんでした。権限とメッセージ形式を確認してください"));
+    } finally {
+      setMessageActionId(null);
+    }
+  };
+
+  const deleteAnnouncement = async (sequence: string | number) => {
+    if (!accountId || messageActionId) return;
+    if (!window.confirm(uiText("このアナウンスを削除しますか？"))) return;
+    const key = String(sequence);
+    setMessageActionId(key);
+    try {
+      await api.line.squareDeleteAnnouncement(accountId, room.id, sequence);
+      setAnnouncements((current) => current.filter((item) => String(item.announcementSeq) !== key));
+      setNotice(uiText("アナウンスを削除しました"));
+    } catch {
+      setNotice(uiText("アナウンスを削除できませんでした。権限と状態を確認してください"));
+    } finally {
+      setMessageActionId(null);
+    }
+  };
+
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-[var(--vy-chat-bg)]">
       <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 pl-14">
@@ -419,6 +478,17 @@ export function SquareChatPane({
           className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
         >
           {uiText("メンバー")}
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            const next = !roomToolsOpen;
+            setRoomToolsOpen(next);
+            if (next && announcements.length === 0) void loadAnnouncements();
+          }}
+          className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
+        >
+          {uiText("グループ設定")}
         </button>
       </header>
 
@@ -478,6 +548,58 @@ export function SquareChatPane({
                   {membersLoading ? uiText("読み込み中…") : uiText("続きを読み込む")}
                 </button>
               )}
+            </section>
+          )}
+          {roomToolsOpen && (
+            <section className="mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h2 className="text-xs font-semibold text-[var(--vy-text-dim)]">
+                  {uiText("OpenChatの機能")}
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => void copyInvitation()}
+                  className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs text-[var(--vy-text)] hover:bg-[var(--vy-surface-2)]"
+                >
+                  {uiText("招待リンクをコピー")}
+                </button>
+              </div>
+              <div className="mt-3 space-y-2">
+                <h3 className="text-xs font-semibold text-[var(--vy-text)]">
+                  {uiText("アナウンス")}
+                </h3>
+                {announcementLoading ? (
+                  <p className="text-xs text-[var(--vy-text-dim)]">{uiText("読み込み中…")}</p>
+                ) : announcements.length === 0 ? (
+                  <p className="text-xs text-[var(--vy-text-dim)]">
+                    {uiText("アナウンスはありません")}
+                  </p>
+                ) : (
+                  announcements.map((item) => (
+                    <div
+                      key={String(item.announcementSeq)}
+                      className="flex items-start gap-2 rounded-lg bg-[var(--vy-surface-2)] p-2"
+                    >
+                      <p className="min-w-0 flex-1 whitespace-pre-wrap break-words text-xs text-[var(--vy-text)]">
+                        {(
+                          item.contents as
+                            | { textMessageAnnouncementContents?: { text?: string } }
+                            | undefined
+                        )?.textMessageAnnouncementContents?.text ??
+                          uiText("このアナウンスの本文は表示できません")}
+                      </p>
+                      <button
+                        type="button"
+                        disabled={messageActionId === String(item.announcementSeq)}
+                        onClick={() => void deleteAnnouncement(item.announcementSeq)}
+                        className="shrink-0 rounded-md px-2 py-1 text-xs text-red-400 hover:bg-red-400/10"
+                      >
+                        {uiText("削除")}
+                      </button>
+                    </div>
+                  ))
+                )}
+              </div>
             </section>
           )}
           {loading ? (
@@ -546,6 +668,16 @@ export function SquareChatPane({
                     </time>
                   )}
                   <div className="mt-1 flex items-center gap-1 border-t border-current/10 pt-1 opacity-80">
+                    {!threadMid && message.text?.trim() && (
+                      <button
+                        type="button"
+                        disabled={messageActionId !== null}
+                        onClick={() => void createAnnouncement(message.id)}
+                        className="rounded px-1.5 py-0.5 text-[10px] hover:bg-black/10 disabled:opacity-40"
+                      >
+                        {uiText("アナウンスに設定")}
+                      </button>
+                    )}
                     <button
                       type="button"
                       disabled={messageActionId !== null}

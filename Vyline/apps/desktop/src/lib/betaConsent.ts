@@ -105,8 +105,28 @@ export function latestBetaFeatureDecision(
   return undefined;
 }
 
-export function hasBetaFeatureConsent(featureId: string): boolean {
-  return latestBetaFeatureDecision(ledger.events, featureId) === "accepted";
+export function hasBetaFeatureConsentVersion(
+  events: readonly BetaConsentEvent[],
+  featureId: string,
+  requiredVersion: string,
+): boolean {
+  for (let index = events.length - 1; index >= 0; index--) {
+    const event = events[index];
+    if (event?.featureId !== featureId) continue;
+    return event.decision === "accepted" && event.featureVersion === requiredVersion;
+  }
+  return false;
+}
+
+export function hasBetaFeatureConsent(featureId: string, requiredVersion?: string): boolean {
+  if (requiredVersion)
+    return hasBetaFeatureConsentVersion(ledger.events, featureId, requiredVersion);
+  for (let index = ledger.events.length - 1; index >= 0; index--) {
+    const event = ledger.events[index];
+    if (event?.featureId !== featureId) continue;
+    return event.decision === "accepted";
+  }
+  return false;
 }
 
 export function getBetaFeatureConsentHistory(): BetaConsentEvent[] {

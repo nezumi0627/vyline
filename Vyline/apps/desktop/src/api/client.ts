@@ -490,6 +490,40 @@ export const api = {
         room: { id: string; name: string; parentSquareId: string };
       }>("POST", `/line/${encodeURIComponent(accountId)}/square/create`, { name, description }),
 
+    squareAnnouncements: (accountId: string, roomId: string) =>
+      request<{
+        ok: boolean;
+        announcements: Array<{
+          announcementSeq: string | number;
+          type: number;
+          contents: unknown;
+          createdAt: string | number;
+          creator: string;
+        }>;
+      }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/announcements`,
+      ),
+
+    squareCreateAnnouncement: (accountId: string, roomId: string, messageId: string) =>
+      request<{ ok: boolean }>(
+        "POST",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/announcements`,
+        { messageId },
+      ),
+
+    squareDeleteAnnouncement: (accountId: string, roomId: string, sequence: string | number) =>
+      request<{ ok: boolean }>(
+        "DELETE",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/announcements/${encodeURIComponent(String(sequence))}`,
+      ),
+
+    squareInvitation: (accountId: string, roomId: string) =>
+      request<{ ok: boolean; invitationURL: string }>(
+        "GET",
+        `/line/${encodeURIComponent(accountId)}/square/rooms/${encodeURIComponent(roomId)}/invitation`,
+      ),
+
     squareSearch: (accountId: string, query: string) =>
       request<{
         ok: boolean;
