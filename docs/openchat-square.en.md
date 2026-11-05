@@ -1,14 +1,14 @@
 # OpenChat / Square (Beta)
 
-Last updated: 2026-11-04
+Last updated: 2026-11-05
 
 ## Status
 
 OpenChat support is Beta. Vyline makes no Square requests until the user enables **OpenChat** in Settings > Beta Features and records consent. While disabled, only the local account-scoped SQLite flag is read.
 
-The current implementation lists joined OpenChats/rooms, searches OpenChats, fetches messages for a selected room, and sends text. It also supports thread reading/text replies, read-only member roles, and lazy image/video/audio previews after matching the HAR with the existing protocol implementation. It uses a separate `/SQ1` BFF path, UI, and database from regular Talk `/S4`, Chat, Message, and read-state code.
+The implementation uses a separate `/SQ1` BFF path, UI, and database from regular Talk `/S4`, Chat, Message, and read-state code. HAR-observed RPCs are distinguished from RPCs present in the implementation but absent from the capture; the latter are not treated as HAR-verified behavior. Current features include joined-room message viewing, text/sticker sending, thread viewing/replies, member-role display, lazy image/video/audio previews, manual read, standard reactions, and private room creation. Attachment sending, note content, role/admin changes, live talk, and room join/leave remain unsupported or unverified.
 
-Media attachment sending, note content, read receipts, reactions, role/admin actions, live talk, and room join/leave are not implemented. OpenChat threads have not been proven equivalent to ordinary subrooms, so the UI handles thread references only.
+OpenChat threads and ordinary subchats are separate features; Vyline currently handles only message threads, not subchat hierarchies.
 
 ## Data flow
 
@@ -40,8 +40,9 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 | --- | --- | --- |
 | Enable status | Implemented | `GET /line/:accountId/square/status` reads local config only |
 | Enable / disable | Implemented | Changes the account SQLite flag; generation invalidates in-flight responses |
-| Joined list | Implemented | Bounded pagination through `/SQ1` `getJoinedSquares` and `getJoinedSquareChats` |
-| OpenChat search | Implemented | `/SQ1` `searchSquares`, query length 2–100, 20 results, one-second server-side interval |
+| Create OpenChat | Implemented | Uses HAR-observed `/SQ1` `createSquare`; private/search-hidden and invitation-code join mode only. Caches the default room from the response in the account's `square.sqlite` |
+| Joined list | Partially unverified | Current code calls `/SQ1` `getJoinedSquares` and `getJoinedSquareChats`, but neither appeared in this HAR. This is not a HAR-verified flow; it is still unknown whether `fetchMyEvents` alone can rebuild a complete initial list |
+| OpenChat search | Partially unverified | Current code calls `/SQ1` `searchSquares`, which did not appear in this HAR. `/sf/main/search` returned `text/x-component` Next.js RSC data and is not treated as a stable JSON API |
 | Room messages | Partial | `/SQ1` `fetchSquareChatEvents`, at most five pages per call, persisted continuation |
 | Text send | Implemented | `/SQ1` `sendMessage`, 1.25-second per-room cooldown and SQLite operation UUID |
 | Thread read/reply | Partial | Opens only `threadInfo.chatThreadMid` discovered in a parent message. `getSquareThread` must confirm the user's membership is `JOINED` before `sendSquareThreadMessage`; shares per-room cooldown and operation deduplication |
@@ -59,6 +60,37 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 | E2EE | Unverified | No Talk E2EE decrypt path was found in the Square message class; do not guess how to decrypt |
 
 ### Thread communication verified in the HAR
+
+### HAR as the source of truth
+
+The HAR supplied on 2026-11-04 was parsed locally. It contains 5,303 requests, including 1,088 `/SQ1` requests; all 1,088 Thrift compact protocol method names were decoded. Request values (credentials, identifiers, message contents, and invite data) were not copied into this document.
+
+| RPC | Count | Vyline status |
+| --- | ---: | --- |
+| `fetchMyEvents` | 312 | Observed; protocol poller exists. Not established as a complete initial-list replacement |
+| `fetchSquareChatEvents` | 482 | Observed; used for room history and delta fetches |
+| `markAsRead` / `markThreadsAsRead` | 72 / 1 | Observed; manual room read path connected; complete read-state synchronization is unverified |
+| `sendMessage` / `sendSquareThreadMessage` | 52 / 7 | Observed; room and thread text send paths connected |
+| `createSquare` / `createSquareChat` | 1 / 1 | Observed; Vyline creation uses `createSquare` and validates the default room in its response |
+| `getJoinedSquares` / `getJoinedSquareChats` / `searchSquares` | 0 / 0 / 0 | Not observed in this HAR, although present in the current implementation/protocol |
+
+All 44 observed RPC method names and counts:
+
+```text
+createSquare 1 · createSquareChat 1 · createSquareChatAnnouncement 2 · deleteSquareChat 2 · deleteSquareChatAnnouncement 1
+destroyMessages 1 · fetchMyEvents 312 · fetchSquareChatEvents 482 · findSquareByEmid 3 · getCategories 7
+getInvitationTicketUrl 3 · getJoinableSquareChats 5 · getNoteStatus 1 · getSquare 1 · getSquareChatAnnouncements 6
+getSquareChatMembers 3 · getSquareEmid 1 · getSquareMember 11 · getSquareMembersBySquare 7 · getSquareStatus 25
+getSquareThread 1 · getSquareThreadMid 1 · hideSquareMemberContents 1 · joinSquare 1 · joinSquareThread 1
+leaveSquareChat 1 · leaveSquareThread 1 · markAsRead 72 · markThreadsAsRead 1 · reactToMessage 3
+removeSubscriptions 12 · reportSquare 1 · reportSquareMember 2 · searchSquareChatMembers 3 · searchSquareChatMentionables 5
+searchSquareMembers 5 · sendMessage 52 · sendSquareThreadMessage 7 · unhideSquareMemberContents 1 · unsendMessage 5
+updateSquare 2 · updateSquareChat 18 · updateSquareChatMember 6 · updateSquareMember 5 · updateSquareMembers 6
+```
+
+The public site's `/sf/main/search`, `/sf/main/category/0`, and `/sf/main/live-talks` returned `text/x-component` Next.js RSC responses in the capture, not a stable JSON API. The JSON REST endpoint `/smw/api/v2p/sm/square` and `/squares/similar` are not joined-room list APIs. A successful HTTP status alone does not prove the Thrift RPC succeeded; the HAR included Thrift exceptions.
+
+Therefore, joined-list and search cannot currently be described as proven by this HAR. Until a capture records their RPCs, report their current implementation separately and do not replace a fetch failure with a false empty list.
 
 The supplied ~98 MB HAR was parsed locally with the protocol package's Thrift decoder. Only RPC and field names are documented; values are omitted.
 
@@ -100,6 +132,54 @@ These are Vyline safeguards, not LINE-published thresholds or a way to bypass li
 ## Scope, official references, and HAR
 
 This investigation and implementation scope is limited to Japanese public materials and the supplied HAR. Taiwan and Thailand are explicitly out of scope; no compatibility claim is made for them.
+
+### Secondary-device capability matrix
+
+Checked against LINE's **official app instructions** on 2026-11-05. “Documented” means the help page provides Windows/Mac or iPad/Android steps. “Excluded” is used only where the official page explicitly excludes Chrome secondary devices. Official-app instructions do not prove that Vyline's private `/SQ1` RPCs work in the same device mode.
+
+| Feature | Windows/Mac secondary | iPad/Android secondary | Chrome secondary | Vyline status |
+|---|---|---|---|---|
+| OpenChat use, search, join, invite | Documented | Documented | Excluded | Joined-list/search RPCs absent from supplied HAR; unverified |
+| Create an OpenChat | Documented | Documented | Excluded | `createSquare` observed; private/code-only flow implemented |
+| Per-OpenChat profile | Documented | Documented | Excluded | Not implemented; profile API and permissions unverified |
+| Share invitation link/QR | Documented | Documented | Excluded | `getInvitationTicketUrl` observed; issue conditions, expiry, and safe UI unverified |
+| Edit room info/join settings | Documented | Documented | Excluded | Not implemented; update RPC intent/arguments unresolved |
+| Co-admin and permission management | Documented | Documented | Excluded | Role display only; mutations not implemented |
+| Approve/reject join requests | Documented | Documented | Excluded | Not implemented; request/response and permissions need validation |
+| Remove a current member | Documented | Documented | Excluded | Not implemented; observed admin RPCs are not identified sufficiently |
+| Remove recently-left members/cancel pending request | Some PC-secondary actions excluded | Documented | Excluded | Not implemented |
+| Create/manage subchats | Documented | Documented | Excluded | Not implemented; separate structure needs investigation |
+| Message threads | Documented | Documented | Excluded | Discovery, view, join, and text replies implemented |
+| Send/delete room messages | Documented | Documented | Excluded | Text/sticker send implemented; delete unsupported (`unsendMessage` purpose is unconfirmed) |
+| `@All` | Feature documented (device scope unspecified) | Feature documented (device scope unspecified) | Not stated | Not implemented; permission and one-per-hour constraints unverified |
+| View/create/edit/delete/share notes | Documented | Documented | Excluded | Not implemented; HAR has `getNoteStatus` only, no confirmed content API |
+| Report OpenChat/posts/members | Documented | Documented | Not stated | Not implemented; target, confirmation UI, and response handling unverified |
+| Hide a member's posts on this device | Documented | Documented | Not stated | Not implemented; `hideSquareMemberContents` request and event sync unverified |
+| Leave OpenChat/subchat | Documented | Documented | Excluded | Not implemented; leave RPC contract and subchat hierarchy unverified |
+| Standard reactions | Documented | Documented | Excluded | Six manual reaction types implemented; state sync absent |
+| Delete room (admin) | Documented | Documented | Excluded | Not implemented; destructive contract needs validation and UI confirmation |
+| System-message settings for joins/leaves | Excluded | Documented | Not stated | Not implemented |
+| Manually sync OpenChat information | Documented | Documented | Not stated | Not implemented |
+| Unread-count and OpenChat notification settings | Documented | Documented | Not stated | Not integrated with Vyline's unread counts or notification settings |
+| OpenChat message summaries | Partially documented (eligibility applies) | Partially documented (eligibility applies) | Not stated | Not implemented; LINE-side limited feature is not invoked by Vyline |
+| LIFF inside OpenChat | Not supported | Not supported | Not supported | Not integrated; LINE Developers does not officially support LIFF apps inside OpenChat |
+
+“Documented” describes official app instructions, not a public API or a guarantee for third-party clients. The main OpenChat settings page provides Windows/Mac and iPad/Android steps for search visibility, while the subchat settings page describes its search-visibility setting as smartphone-primary-only. These are different settings, so Vyline leaves both unimplemented until their request contracts are known. Secondary devices are not one uniform capability class.
+
+Vyline's protocol defaults to `IOSIPAD`. `ANDROIDSECONDARY`, `DESKTOPWIN`, and `DESKTOPMAC` are separate modes; the selected mode is persisted in account token metadata. `DESKTOPWIN`/`DESKTOPMAC` use the official Desktop device slot and can affect coexistence with the official Desktop client. We therefore do not assume that every feature works on every secondary mode; verification must be per mode, permission, and RPC.
+
+Official device-specific references:
+
+- [OpenChat basics for admins](https://help.line.me/line/smartphone?contentId=20005393&lang=ja)
+- [OpenChat basics for participants](https://help.line.me/line/smartphone/pc?contentId=20005375&lang=ja)
+- [OpenChat settings](https://help.line.me/line/smartphone?contentId=20020647&lang=ja)
+- [Member management](https://help.line.me/line/smartphone?contentId=20005392&lang=ja)
+- [Message management](https://help.line.me/line/smartphone?contentId=20015842&lang=ja)
+- [Delete an OpenChat](https://help.line.me/line/smartphone?contentId=20005403&lang=ja)
+- [Reactions](https://help.line.me/line/smartphone?contentId=20020725&lang=ja)
+- [Sync OpenChat information](https://help.line.me/line/?contentId=20024116&lang=ja)
+- [Create/manage subchats](https://help.line.me/line/IOSSecondary/?contentId=20024745&lang=ja)
+- [Multiple-device types and restrictions](https://help.line.me/line/smartphone?contentId=20000132&lang=ja)
 
 Official guidance treats normal subchats and message threads as distinct features. Vyline currently handles only threads discovered from a parent message's `chatThreadMid`; subchat hierarchy is not classified. The UI does not enforce the official thread creation/reply time windows, so the server remains authoritative. Thread directory and favorites are also absent. Since LINE does not officially support LIFF apps inside OpenChat, Vyline does not launch LIFF from the OpenChat UI.
 

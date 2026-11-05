@@ -193,6 +193,10 @@ function SidebarBase() {
     Array<{ mid: string; name: string; desc?: string }>
   >([]);
   const [squareNotice, setSquareNotice] = useState("");
+  const [squareCreateOpen, setSquareCreateOpen] = useState(false);
+  const [squareCreateName, setSquareCreateName] = useState("");
+  const [squareCreateDescription, setSquareCreateDescription] = useState("");
+  const [squareCreateBusy, setSquareCreateBusy] = useState(false);
   const [query, setQuery] = useState("");
   const midQuery = /^u[0-9a-f]{32}$/i.test(query.trim()) ? query.trim() : "";
   const [midProfile, setMidProfile] = useState<MidSearchProfile | null>(null);
@@ -298,6 +302,40 @@ function SidebarBase() {
       setSquareNotice(uiText("OpenChat一覧を取得できません。接続状態を確認してください"));
     }
   }, [accountId]);
+
+  const createSquareRoom = useCallback(async () => {
+    if (!accountId || !squareCreateName.trim() || squareCreateBusy) return;
+    setSquareCreateBusy(true);
+    setSquareNotice("");
+    try {
+      const result = await api.line.squareCreate(
+        accountId,
+        squareCreateName,
+        squareCreateDescription,
+      );
+      setSquareRooms((rooms) => [
+        ...rooms.filter((room) => room.id !== result.room.id),
+        result.room,
+      ]);
+      setSquareNames((names) => ({ ...names, [result.square.mid]: result.square.name }));
+      setSquareCreateOpen(false);
+      setSquareCreateName("");
+      setSquareCreateDescription("");
+      window.dispatchEvent(
+        new CustomEvent("vyline:square-room", {
+          detail: {
+            id: result.room.id,
+            name: result.room.name,
+            squareName: result.square.name,
+          },
+        }),
+      );
+    } catch {
+      setSquareNotice(uiText("OpenChatを作成できませんでした。通信状態を確認してください"));
+    } finally {
+      setSquareCreateBusy(false);
+    }
+  }, [accountId, squareCreateBusy, squareCreateDescription, squareCreateName]);
 
   useEffect(() => {
     let cancelled = false;
@@ -810,6 +848,68 @@ function SidebarBase() {
       >
         {tab === "openchat" ? (
           <>
+            <section className="mb-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="min-w-0">
+                  <p className="text-xs font-semibold">{uiText("OpenChatを作成")}</p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-[var(--vy-text-dim)]">
+                    {uiText("検索には表示せず、参加コード制で作成します")}
+                  </p>
+                  <p className="mt-1 text-[10px] leading-relaxed text-[var(--vy-text-dim)]">
+                    {uiText(
+                      "副端末での公式対応とVylineのAPI対応は別です。機能ごとの検証状況はOpenChatガイドを確認してください",
+                    )}
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSquareCreateOpen((open) => !open)}
+                  aria-expanded={squareCreateOpen}
+                  className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs font-medium text-[var(--vy-accent)] hover:bg-[var(--vy-surface-2)]"
+                >
+                  {squareCreateOpen ? uiText("閉じる") : uiText("作成")}
+                </button>
+              </div>
+              {squareCreateOpen && (
+                <form
+                  className="mt-3 space-y-2"
+                  onSubmit={(event) => {
+                    event.preventDefault();
+                    void createSquareRoom();
+                  }}
+                >
+                  <label className="block text-[11px] font-medium">
+                    {uiText("OpenChat名")}
+                    <input
+                      value={squareCreateName}
+                      onChange={(event) => setSquareCreateName(event.target.value)}
+                      maxLength={100}
+                      required
+                      autoComplete="off"
+                      className="mt-1 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-xs outline-none focus:border-[var(--vy-accent)]"
+                    />
+                  </label>
+                  <label className="block text-[11px] font-medium">
+                    {uiText("説明（任意）")}
+                    <textarea
+                      value={squareCreateDescription}
+                      onChange={(event) => setSquareCreateDescription(event.target.value)}
+                      maxLength={1000}
+                      rows={2}
+                      className="mt-1 w-full resize-y rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-xs outline-none focus:border-[var(--vy-accent)]"
+                    />
+                  </label>
+                  <button
+                    type="submit"
+                    disabled={squareCreateBusy || !squareCreateName.trim()}
+                    className="w-full rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                    style={{ background: "var(--vy-accent)" }}
+                  >
+                    {squareCreateBusy ? uiText("作成中…") : uiText("非公開の参加コード制で作成")}
+                  </button>
+                </form>
+              )}
+            </section>
             {squareSearchResults.length > 0 && (
               <section className="mb-3 border-b border-[var(--vy-border)] pb-2">
                 <p className="px-2 py-1.5 text-[11px] font-semibold text-[var(--vy-text-dim)]">
