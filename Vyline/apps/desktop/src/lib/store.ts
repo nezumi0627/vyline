@@ -617,13 +617,11 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: PRODUCT_VERSION,
-  title: `Vyline ${PRODUCT_VERSION} — OpenChat対応・チャット同期改善`,
+  title: `Vyline ${PRODUCT_VERSION} — OpenChatの招待・アナウンス機能を追加`,
   items: [
-    "OpenChat（Square）ベータのオプトイン基盤と、スタンプ送信・既読・リアクション操作を追加",
-    "Stable/Beta更新チャンネルを分離し、インストール可能なPWAと機能状況ページを追加",
-    "チャットの未読位置・既読表示・再読み込み後の同期を改善",
-    "チャット一覧の履歴プレビュー、通話表示、固定チャットのスクロールを改善",
-    "プロフィール移動、アカウント切替、Keepメモ、リアクション表示を修正",
+    "OpenChat Betaに招待リンクの取得とアナウンスの閲覧・作成・削除を追加",
+    "プライマリデバイス由来の試験実装であり、サブデバイス互換が未検証で利用非推奨であることを明記",
+    "OpenChatの説明更新を記録し、旧version 1同意のアカウントは再同意まで自動でOFF",
   ],
 };
 

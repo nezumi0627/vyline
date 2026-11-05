@@ -3,7 +3,7 @@ import { dirname } from "node:path";
 import { Database } from "bun:sqlite";
 import { accountFile } from "./accountDirs.js";
 
-export type SquareEntityKind = "square" | "room" | "member" | "squareMember";
+export type SquareEntityKind = "square" | "room" | "member" | "squareMember" | "announcement";
 export type SquareRoomRecord = { id: string; name?: string; parentSquareId?: string | null };
 export type SquareStoredMessage = {
   roomId: string;
@@ -183,6 +183,10 @@ export class SquareStore {
 
   listRooms(): SquareRoomRecord[] {
     return this.listEntities<SquareRoomRecord>("room");
+  }
+
+  deleteEntity(kind: SquareEntityKind, id: string): void {
+    this.db.query("DELETE FROM square_entities WHERE kind=? AND entity_id=?").run(kind, id);
   }
 
   hasRoom(roomId: string): boolean {

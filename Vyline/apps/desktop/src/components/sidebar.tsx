@@ -17,6 +17,7 @@ import { OfficialBadge } from "@/components/official-badge";
 import { PremiumBadge } from "@/components/premium-badge";
 import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
 import { api } from "@/api/client";
+import { betaFeatureIdForSetting, hasBetaFeatureConsent } from "@/lib/betaConsent";
 import { useAuthStore } from "@/stores/authStore";
 import {
   IconSearch,
@@ -350,6 +351,21 @@ function SidebarBase() {
     const syncStatus = async () => {
       try {
         const status = await api.line.squareStatus(accountId);
+        if (
+          status.enabled &&
+          !hasBetaFeatureConsent(betaFeatureIdForSetting("betaOpenChatSquare"), "2")
+        ) {
+          await api.line.squareDisable(accountId);
+          if (!cancelled) {
+            setSquareEnabled(false);
+            setSquareNotice(
+              uiText(
+                "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。",
+              ),
+            );
+          }
+          return;
+        }
         if (!cancelled) setSquareEnabled(status.enabled);
         if (status.enabled && !cancelled) await refreshSquareRooms();
       } catch {

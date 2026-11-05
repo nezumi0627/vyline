@@ -114,6 +114,21 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
     void api.line
       .squareStatus(accountId)
       .then((status) => {
+        if (
+          status.enabled &&
+          !isBetaFeatureConsentActive(betaFeatureIdForSetting("betaOpenChatSquare"), "2")
+        ) {
+          return api.line.squareDisable(accountId).then(() => {
+            if (!cancelled) {
+              setEnabled(false);
+              setMessage(
+                uiText(
+                  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。",
+                ),
+              );
+            }
+          });
+        }
         if (!cancelled) setEnabled(status.enabled);
       })
       .catch(() => {
@@ -132,13 +147,13 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
       if (next) {
         const accepted = window.confirm(
           uiText(
-            "OpenChat Betaを有効にします。LINEのSquare APIへ接続し、参加中のOpenChat一覧と、開いたルームのメッセージをこのアカウント専用SQLiteに保存します。機能は未検証の部分があり、送信操作も可能です。有効にしますか？",
+            "OpenChat Betaを有効にします。プライマリデバイスから取得した通信を基準にした試験的実装で、サブデバイス互換は未検証です。利用は推奨できず、有効化と操作は自己責任となります。LINE Square APIへ接続し、参加中の一覧と開いたルームのメッセージをこのアカウント専用SQLiteに保存します。後日サブデバイスでも通信を再取得して互換性を検証し、安定化する予定です。有効にしますか？",
           ),
         );
         const recorded = await recordBetaFeatureDecision(
           betaFeatureIdForSetting("betaOpenChatSquare"),
           accepted ? "accepted" : "declined",
-          { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+          { featureVersion: "2", appVersion: UPDATE_NOTES.version },
         );
         if (!accepted || !recorded) {
           setMessage(
@@ -162,7 +177,7 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
       const recorded = await recordBetaFeatureDecision(
         betaFeatureIdForSetting("betaOpenChatSquare"),
         "withdrawn",
-        { featureVersion: "1", appVersion: UPDATE_NOTES.version },
+        { featureVersion: "2", appVersion: UPDATE_NOTES.version },
       );
       setMessage(
         uiText(
@@ -184,7 +199,7 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
     <SettingsRow
       title={uiText("OpenChat / Square（Beta）")}
       description={uiText(
-        "有効にするまでSquare APIへの通信は行いません。有効化後も選択したルームだけを同期します。",
+        "プライマリデバイスの通信を基準にした試験実装です。サブデバイス互換は未検証で利用は推奨できません。有効にするまでSquare通信は行いません。後日サブデバイスで再検証します。",
       )}
     >
       <div className="flex flex-col items-end gap-1">

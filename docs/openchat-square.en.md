@@ -6,7 +6,9 @@ Last updated: 2026-11-05
 
 OpenChat support is Beta. Vyline makes no Square requests until the user enables **OpenChat** in Settings > Beta Features and records consent. While disabled, only the local account-scoped SQLite flag is read.
 
-The implementation uses a separate `/SQ1` BFF path, UI, and database from regular Talk `/S4`, Chat, Message, and read-state code. HAR-observed RPCs are distinguished from RPCs present in the implementation but absent from the capture; the latter are not treated as HAR-verified behavior. Current features include joined-room message viewing, text/sticker sending, thread viewing/replies, member-role display, lazy image/video/audio previews, manual read, standard reactions, and private room creation. Attachment sending, note content, role/admin changes, live talk, and room join/leave remain unsupported or unverified.
+The current communication implementation is **experimental and based on a HAR captured from a primary device**. Secondary-device compatibility is unverified, so use is not recommended. Enabling and operating it are at the user's own discretion and risk. We plan to capture traffic on secondary devices later, verify device differences, and improve stability.
+
+The implementation uses a separate `/SQ1` BFF path, UI, and database from regular Talk `/S4`, Chat, Message, and read-state code. HAR-observed RPCs are distinguished from RPCs present in the implementation but absent from the capture; the latter are not treated as HAR-verified behavior. Current features include joined-room message viewing, text/sticker sending, thread viewing/replies, member-role display, lazy image/video/audio previews, manual read, standard reactions, private room creation, invitation URL retrieval, and announcement listing/creation/deletion. Attachment sending, note content, role/admin changes, live talk, and room join/leave remain unsupported or unverified.
 
 OpenChat threads and ordinary subchats are separate features; Vyline currently handles only message threads, not subchat hierarchies.
 
@@ -33,6 +35,7 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 - A room's events are requested when that room is opened and then every 60 seconds while visible. Other rooms are not scanned in the background.
 - Disabling updates the backend flag and generation first. An already dispatched HTTP/RPC call may not be cancellable, but its response is discarded and cannot write to the database or UI; no new Square calls are scheduled.
 - Consent history stays in the existing local Beta ledger. Cached content may include messages and profiles, so protect the device and its user account.
+- With this notice update, an account that only has OpenChat consent version 1 is automatically switched OFF. Square calls remain disabled until the user reviews the notice and records version 2 consent.
 
 ## APIs and capabilities
 
@@ -41,6 +44,8 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 | Enable status | Implemented | `GET /line/:accountId/square/status` reads local config only |
 | Enable / disable | Implemented | Changes the account SQLite flag; generation invalidates in-flight responses |
 | Create OpenChat | Implemented | Uses HAR-observed `/SQ1` `createSquare`; private/search-hidden and invitation-code join mode only. Caches the default room from the response in the account's `square.sqlite` |
+| Invite URL | Experimental | Calls HAR-observed `getInvitationTicketUrl` with the cached parent Square ID and copies the result only after an explicit user action |
+| Announcements | Experimental | Reads, creates, and deletes via HAR-observed `getSquareChatAnnouncements`, `createSquareChatAnnouncement`, and `deleteSquareChatAnnouncement`; LINE remains authoritative for permissions |
 | Joined list | Partially unverified | Current code calls `/SQ1` `getJoinedSquares` and `getJoinedSquareChats`, but neither appeared in this HAR. This is not a HAR-verified flow; it is still unknown whether `fetchMyEvents` alone can rebuild a complete initial list |
 | OpenChat search | Partially unverified | Current code calls `/SQ1` `searchSquares`, which did not appear in this HAR. `/sf/main/search` returned `text/x-component` Next.js RSC data and is not treated as a stable JSON API |
 | Room messages | Partial | `/SQ1` `fetchSquareChatEvents`, at most five pages per call, persisted continuation |
@@ -56,7 +61,7 @@ Square identifiers never enter the regular Talk chat/message model or Talk API. 
 | Notes | Not supported | HAR contains one `getNoteStatus`; protocol types establish status data only, not note-content fetch/post. Do not equate OpenNote HTTP traffic with Square Note APIs |
 | Join / leave / admin | Not supported | HAR recorded five `getJoinableSquareChats`, zero `joinSquareChat`, one `leaveSquareChat`, and one separate `joinSquare`. Join conditions, leave arguments, approval and recovery remain unverified |
 | Live talk | Not supported | No `/SQLV1` requests or related `/SQ1` RPCs appeared in this HAR. Protocol types alone do not establish OpenChat wire behavior or audio transport |
-| LIFF | Not supported | No assumption that LIFF works inside OpenChat |
+| Bot / LIFF | Not connected | The HAR's `LIFF1` traffic is not proven to be an OpenChat bot or room operation. It is not called from the Square UI. LINE Developers does not officially support LIFF inside OpenChat |
 | E2EE | Unverified | No Talk E2EE decrypt path was found in the Square message class; do not guess how to decrypt |
 
 ### Thread communication verified in the HAR
@@ -115,7 +120,7 @@ The supplied ~98 MB HAR was parsed locally with the protocol package's Thrift de
 Each account uses `data/accounts/<safe-account-id>/square.sqlite`, separate from normal chat storage. Main tables:
 
 - `square_settings`: Beta state
-- `square_entities`: Square / room / member JSON cache
+- `square_entities`: Square / room / member / announcement JSON cache
 - `square_messages`: message cache keyed by room ID and Square message ID
 - `square_message_tombstones`: prevent resurrection after deletion
 - `square_room_sync_state`: per-room cursor and continuation token

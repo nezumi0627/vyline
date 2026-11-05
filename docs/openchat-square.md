@@ -6,9 +6,11 @@
 
 OpenChat 対応は Beta です。設定 > ベータ機能で「OpenChatを有効にする」に同意・切替するまで、Vyline は Square の通信を開始しません。無効時に許可されるのは、アカウント別 SQLite のローカル設定状態を読む処理だけです。
 
+現在の通信実装は**プライマリデバイスで取得したHARを基準にした試験的なもの**です。サブデバイスでの互換性は未検証で、利用は推奨できません。有効化・操作は利用者自身の判断と責任で行ってください。後日サブデバイスでも通信を取得し、端末差を検証して安定化する予定です。
+
 通常トークの Talk `/S4`・Chat・Message・既読処理とは別の `/SQ1` BFF 経路、別 UI、別 DB を使います。HARに記録されたRPCと、実装にはあるがHARで観測できなかったRPCを区別します。後者はHARに基づく確定仕様とは扱いません。
 
-この実装は、参加中ルームの閲覧・テキスト/スタンプ送信、スレッド閲覧・テキスト返信、メンバー役職表示、画像/動画/音声の遅延プレビュー、手動既読、標準リアクション、非公開ルーム作成に対応します。以下の機能表で、LINE公式アプリの端末対応とVylineの実装状況を別々に示します。メディア添付送信、ノート本文、役職変更などの管理操作、ライブトーク、ルーム参加/退出は未対応または通信仕様未確定です。OpenChatの「スレッド」と通常ルームの「サブルーム」は別機能として扱います。
+この実装は、参加中ルームの閲覧・テキスト/スタンプ送信、スレッド閲覧・テキスト返信、メンバー役職表示、画像/動画/音声の遅延プレビュー、手動既読、標準リアクション、非公開ルーム作成、招待URL取得、アナウンス閲覧/作成/削除に対応します。以下の機能表で、LINE公式アプリの端末対応とVylineの実装状況を別々に示します。メディア添付送信、ノート本文、役職変更などの管理操作、ライブトーク、ルーム参加/退出は未対応または通信仕様未確定です。OpenChatの「スレッド」と通常ルームの「サブルーム」は別機能として扱います。
 
 ## データフロー
 
@@ -33,6 +35,7 @@ flowchart LR
 - メッセージ API はルームを開いた時に呼び出し、そのルームだけを可視状態で 60 秒ごとに差分取得します。他のルームをバックグラウンドで走査しません。
 - 無効化はまずバックエンドのフラグと世代番号を更新します。すでに送信済みの HTTP/RPC はキャンセルできない場合がありますが、応答を破棄し、後続の DB 書込・UI 反映・新規 RPC を止めます。
 - OpenChat Beta の同意ログは既存の端末内 Beta consent ledger に保存します。キャッシュにはメッセージ・プロフィール等が含まれるため、端末ユーザーと端末の保護が必要です。
+- 今回の説明更新に伴い、以前の OpenChat 同意（feature version 1）だけがある場合は機能を自動で OFF にし、再確認後に version 2 の同意が記録されるまでSquare通信を行いません。
 
 ## API と現在の機能
 
@@ -41,6 +44,8 @@ flowchart LR
 | 有効状態 | 実装 | `GET /line/:accountId/square/status` はローカル設定のみ参照 |
 | 有効化 / 無効化 | 実装 | ローカル SQLite のフラグを更新。無効化時は世代番号で処理中応答を破棄 |
 | OpenChat 作成 | 実装 | HARに1回記録された `/SQ1` `createSquare` を使用。検索非表示・参加コード方式に限定し、`createSquare` 応答から返る既定ルームを同じアカウントの `square.sqlite` へ保存 |
+| 招待リンク | 試験実装 | HARで観測した`getInvitationTicketUrl`をキャッシュ済みSquare IDで呼び出し、ユーザー操作でクリップボードへコピー |
+| アナウンス | 試験実装 | HARで観測した`getSquareChatAnnouncements`・`createSquareChatAnnouncement`・`deleteSquareChatAnnouncement`で一覧/作成/削除。最終的な権限判定はLINE側 |
 | 参加中一覧 | 一部未検証 | 現実装は `/SQ1` `getJoinedSquares` / `getJoinedSquareChats` を使用するが、対象HARではどちらも0回。HARで確認済みの手順とは言えない。`fetchMyEvents`だけで完全な初期一覧を復元できるかは未確定 |
 | OpenChat 検索 | 一部未検証 | 現実装は `/SQ1` `searchSquares` を使用するが、対象HARでは0回。Webの `/sf/main/search` は `text/x-component` のNext.js RSC応答で、安定したJSON APIとして扱わない |
 | ルーム履歴 | 部分実装 | `/SQ1` `fetchSquareChatEvents`、1 回最大 5 ページ、継続トークン保存 |
@@ -56,7 +61,7 @@ flowchart LR
 | ノート | 未対応 | HARで`getNoteStatus`を1回確認。Protocol型が示すのは状態情報までで、本文取得・投稿の全フローは未確認。OpenNote系HTTP通信をSquare Note APIと同一視しない |
 | 参加・退出・管理 | 未対応 | HARで`getJoinableSquareChats` 5件、`leaveSquareChat` 1件、`joinSquareChat` 0件、別操作`joinSquare` 1件を確認。参加条件、退出要求値、承認・失敗復旧を未検証 |
 | ライブトーク | 未対応 | HARに`/SQLV1`通信はなく、`/SQ1`でも関連RPCなし。Protocolに別サービスの型・呼び出し口があるだけではOpenChat向け通信契約や音声経路を確認できない |
-| LIFF | 未対応 | OpenChat 内で LIFF が公式サポートされる前提は置かない |
+| Bot / LIFF | 未接続 | HARの`LIFF1`通信がOpenChatのBot/ルーム操作である根拠はありません。Square UIから呼び出しません。LINE DevelopersもOpenChat内のLIFFを公式サポートしていません |
 | E2EE | 未確認 | Square メッセージクラスに Talk E2EE 復号経路が見つからない。暗号化状態を仮定して復号しない |
 
 ### HARで確認したスレッド通信
@@ -117,7 +122,7 @@ OpenChat公開サイトの `/sf/main/search`、`/sf/main/category/0`、`/sf/main
 各アカウントの `data/accounts/<safe-account-id>/square.sqlite` に保存し、通常トークの Chat DB と分離します。主なテーブルは次のとおりです。
 
 - `square_settings`: Beta の有効状態
-- `square_entities`: Square / room / member の JSON キャッシュ
+- `square_entities`: Square / room / member / announcement の JSON キャッシュ
 - `square_messages`: room ID と Square message ID を主キーにした本文キャッシュ
 - `square_message_tombstones`: 取消しの再出現防止
 - `square_room_sync_state`: ルームごとの cursor と continuation token

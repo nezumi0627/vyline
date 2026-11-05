@@ -800,5 +800,22 @@
   "非公開の参加コード制で作成": "Create private OpenChat",
   "OpenChatを作成できませんでした。通信状態を確認してください": "Could not create the OpenChat. Check your connection.",
   "作成中…": "Creating…",
-  "検索結果。参加操作は未対応": "Search result. Joining is not supported yet."
+  "検索結果。参加操作は未対応": "Search result. Joining is not supported yet.",
+  "OpenChatはプライマリデバイスの通信を基準にした試験実装です。サブデバイス互換は未検証のため利用を推奨できません。利用は自己責任となり、後日サブデバイスから通信を再取得して検証・安定化する予定です。": "OpenChat is experimental and based on traffic captured from a primary device. Secondary-device compatibility is unverified, so use is not recommended. Use at your own risk. We plan to capture traffic on secondary devices later to verify compatibility and improve stability.",
+  "OpenChat Betaを有効にします。プライマリデバイスから取得した通信を基準にした試験的実装で、サブデバイス互換は未検証です。利用は推奨できず、有効化と操作は自己責任となります。LINE Square APIへ接続し、参加中の一覧と開いたルームのメッセージをこのアカウント専用SQLiteに保存します。後日サブデバイスでも通信を再取得して互換性を検証し、安定化する予定です。有効にしますか？": "Enable OpenChat Beta? This experimental implementation is based on traffic captured from a primary device; compatibility with secondary devices is unverified. Use is not recommended, and enabling or operating it is at your own risk. Vyline connects to the LINE Square APIs and stores joined-room lists and messages from opened rooms in this account-specific SQLite database. We plan to recapture traffic on secondary devices later to verify and improve compatibility.",
+  "アナウンスを取得できませんでした": "Could not load announcements.",
+  "招待リンクをコピーしました": "Invitation link copied.",
+  "招待リンクを取得できませんでした": "Could not get the invitation link.",
+  "アナウンスに設定しました": "Message added to announcements.",
+  "アナウンスに設定できませんでした。権限とメッセージ形式を確認してください": "Could not add the announcement. Check your permissions and message type.",
+  "このアナウンスを削除しますか？": "Delete this announcement?",
+  "アナウンスを削除しました": "Announcement deleted.",
+  "アナウンスを削除できませんでした。権限と状態を確認してください": "Could not delete the announcement. Check your permissions and its current state.",
+  "グループ設定": "Room settings",
+  "OpenChatの機能": "OpenChat tools",
+  "招待リンクをコピー": "Copy invite link",
+  "アナウンスはありません": "No announcements.",
+  "このアナウンスの本文は表示できません": "Announcement text is unavailable.",
+  "アナウンスに設定": "Pin as announcement",
+  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。"
 }
