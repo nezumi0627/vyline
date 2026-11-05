@@ -1,14 +1,14 @@
 # OpenChat / Square（Beta）
 
-最終更新: 2026-11-04
+最終更新: 2026-11-05
 
 ## 状態
 
 OpenChat 対応は Beta です。設定 > ベータ機能で「OpenChatを有効にする」に同意・切替するまで、Vyline は Square の通信を開始しません。無効時に許可されるのは、アカウント別 SQLite のローカル設定状態を読む処理だけです。
 
-現在の実装は、参加中の OpenChat / ルーム一覧、OpenChat 内の検索、選択したルームのメッセージ取得・テキスト送信です。通常トークの Talk `/S4`・Chat・Message・既読処理とは別の `/SQ1` BFF 経路、別 UI、別 DB を使います。
+通常トークの Talk `/S4`・Chat・Message・既読処理とは別の `/SQ1` BFF 経路、別 UI、別 DB を使います。HARに記録されたRPCと、実装にはあるがHARで観測できなかったRPCを区別します。後者はHARに基づく確定仕様とは扱いません。
 
-この実装は、参加中ルームの閲覧・テキスト送信に加えて、HARとprotocol実装を照合したスレッド閲覧・テキスト返信、メンバー役職表示、画像/動画/音声の遅延プレビューに対応します。メディア添付送信、ノート本文、既読通知、リアクション、役職・管理操作、ライブトーク、ルーム参加/退出は未対応です。OpenChatの「スレッド」と通常ルームの「サブルーム」は同一機能と確認できていないため、画面ではスレッドのみを扱います。
+この実装は、参加中ルームの閲覧・テキスト/スタンプ送信、スレッド閲覧・テキスト返信、メンバー役職表示、画像/動画/音声の遅延プレビュー、手動既読、標準リアクション、非公開ルーム作成に対応します。以下の機能表で、LINE公式アプリの端末対応とVylineの実装状況を別々に示します。メディア添付送信、ノート本文、役職変更などの管理操作、ライブトーク、ルーム参加/退出は未対応または通信仕様未確定です。OpenChatの「スレッド」と通常ルームの「サブルーム」は別機能として扱います。
 
 ## データフロー
 
@@ -40,8 +40,9 @@ flowchart LR
 | --- | --- | --- |
 | 有効状態 | 実装 | `GET /line/:accountId/square/status` はローカル設定のみ参照 |
 | 有効化 / 無効化 | 実装 | ローカル SQLite のフラグを更新。無効化時は世代番号で処理中応答を破棄 |
-| 参加中一覧 | 実装 | `/SQ1` `getJoinedSquares` と `getJoinedSquareChats` を上限付きでページ取得 |
-| OpenChat 検索 | 実装 | `/SQ1` `searchSquares`、2〜100 文字、結果 20 件、サーバー側 1 秒間隔制限 |
+| OpenChat 作成 | 実装 | HARに1回記録された `/SQ1` `createSquare` を使用。検索非表示・参加コード方式に限定し、`createSquare` 応答から返る既定ルームを同じアカウントの `square.sqlite` へ保存 |
+| 参加中一覧 | 一部未検証 | 現実装は `/SQ1` `getJoinedSquares` / `getJoinedSquareChats` を使用するが、対象HARではどちらも0回。HARで確認済みの手順とは言えない。`fetchMyEvents`だけで完全な初期一覧を復元できるかは未確定 |
+| OpenChat 検索 | 一部未検証 | 現実装は `/SQ1` `searchSquares` を使用するが、対象HARでは0回。Webの `/sf/main/search` は `text/x-component` のNext.js RSC応答で、安定したJSON APIとして扱わない |
 | ルーム履歴 | 部分実装 | `/SQ1` `fetchSquareChatEvents`、1 回最大 5 ページ、継続トークン保存 |
 | テキスト送信 | 実装 | `/SQ1` `sendMessage`。ルームごと 1.25 秒間隔、操作 UUID を SQLite に記録 |
 | スレッド閲覧・返信 | 部分実装 | 親メッセージに記録された `threadInfo.chatThreadMid` のみ開く。`getSquareThread` で本人が `JOINED` の場合に限り `sendSquareThreadMessage` を許可。ルームごとの送信間隔と操作 UUID 重複防止を共有 |
@@ -59,6 +60,39 @@ flowchart LR
 | E2EE | 未確認 | Square メッセージクラスに Talk E2EE 復号経路が見つからない。暗号化状態を仮定して復号しない |
 
 ### HARで確認したスレッド通信
+
+### HARを基準にした通信監査
+
+2026-11-04に提供されたHARをローカルで解析しました。全5,303リクエスト中、`/SQ1` は1,088件で、Thrift compact protocolのメソッド名を1,088件すべて復号できました。HARの値（認証情報、識別子、本文、招待情報）は資料やログに転記していません。
+
+| RPC | 件数 | Vylineでの扱い |
+| --- | ---: | --- |
+| `fetchMyEvents` | 312 | HAR確認。現実装では主にprotocol側poller。初期一覧の完全な代替とは未確認 |
+| `fetchSquareChatEvents` | 482 | HAR確認。ルーム履歴・差分取得 |
+| `markAsRead` / `markThreadsAsRead` | 72 / 1 | HAR確認。通常ルームの手動既読経路は接続済み。全状態同期は未確認 |
+| `sendMessage` / `sendSquareThreadMessage` | 52 / 7 | HAR確認。通常ルーム送信およびスレッド送信の根拠 |
+| `createSquare` / `createSquareChat` | 1 / 1 | HAR確認。Vylineからの新規作成は`createSquare`で、レスポンスに既定ルームが返ることを検証 |
+| `getJoinedSquares` / `getJoinedSquareChats` / `searchSquares` | 0 / 0 / 0 | HAR未観測。実装・protocolに存在することだけではHAR根拠にならない |
+
+他の `/SQ1` RPC もHARで観測しました。メソッド別の全件数と、各RPCの要求/応答フィールドは今後の実装根拠としてHARとprotocol型を併記して確認してください。HTTP status 200だけではRPC成功を意味しません。HARにはThrift例外応答も含まれていました。
+
+全44メソッドの出現件数（HARの要求名のみを集計、要求値は非表示）:
+
+```text
+createSquare 1 · createSquareChat 1 · createSquareChatAnnouncement 2 · deleteSquareChat 2 · deleteSquareChatAnnouncement 1
+destroyMessages 1 · fetchMyEvents 312 · fetchSquareChatEvents 482 · findSquareByEmid 3 · getCategories 7
+getInvitationTicketUrl 3 · getJoinableSquareChats 5 · getNoteStatus 1 · getSquare 1 · getSquareChatAnnouncements 6
+getSquareChatMembers 3 · getSquareEmid 1 · getSquareMember 11 · getSquareMembersBySquare 7 · getSquareStatus 25
+getSquareThread 1 · getSquareThreadMid 1 · hideSquareMemberContents 1 · joinSquare 1 · joinSquareThread 1
+leaveSquareChat 1 · leaveSquareThread 1 · markAsRead 72 · markThreadsAsRead 1 · reactToMessage 3
+removeSubscriptions 12 · reportSquare 1 · reportSquareMember 2 · searchSquareChatMembers 3 · searchSquareChatMentionables 5
+searchSquareMembers 5 · sendMessage 52 · sendSquareThreadMessage 7 · unhideSquareMemberContents 1 · unsendMessage 5
+updateSquare 2 · updateSquareChat 18 · updateSquareChatMember 6 · updateSquareMember 5 · updateSquareMembers 6
+```
+
+OpenChat公開サイトの `/sf/main/search`、`/sf/main/category/0`、`/sf/main/live-talks` はHAR上で `text/x-component`（Next.js RSC）として返っていました。画面用の内部転送形式なので、安定した一覧APIとして新規実装に採用しません。Square JSON RESTの`/smw/api/v2p/sm/square`や`/squares/similar`はHARに存在しますが、参加中一覧APIではありません。
+
+このため、現時点で「一覧・検索もHARに実例があるAPIで確定済み」とは扱えません。HAR記録が必要なRPCを追加採取するまでは、一覧・検索の現行実装に依存する範囲を明示し、取得不能時に誤った空一覧へ置き換えないようにします。
 
 提供された約98 MBのHARを、protocol packageのThrift decoderでローカル解析しました。値はレポートに出さず、要求/応答のフィールド名とRPC名だけを照合しています。
 
@@ -100,6 +134,54 @@ LINE が公開している Messaging API の rate limit は、非公開の `/SQ1
 ## 対象地域・公式資料・HAR
 
 今回の調査・実装対象は日本向けの公開資料と提供HARに限定します。台湾・タイの仕様・動作・互換性は依頼により対象外であり、対応済みとは扱いません。
+
+### セカンダリデバイスの機能対応
+
+以下は2026-11-05に確認した**LINE公式アプリの操作案内**です。公式ヘルプにWindows/MacまたはiPad/Androidの操作手順がある場合を「案内あり」とします。「対象外」はChromeセカンダリについて公式ページが明記した制限です。公式アプリで利用できることは、Vylineの非公開 `/SQ1` RPCが同じ端末モードで成功する保証ではありません。
+
+| 機能 | Windows/Macサブ端末 | iPad/Androidサブ端末 | Chromeサブ端末 | Vylineの現状 |
+|---|---|---|---|---|
+| OpenChatの利用・検索・参加・招待 | 案内あり | 案内あり | 対象外 | 参加中一覧/検索APIはHAR未観測。検索は未検証 |
+| OpenChat作成 | 案内あり | 案内あり | 対象外 | HARで`createSquare`を確認。非公開・参加コード方式のみ実装 |
+| OpenChatごとのプロフィール変更 | 案内あり | 案内あり | 対象外 | 未実装。プロフィールAPI・更新権限を未検証 |
+| 招待リンク/QRの共有 | 案内あり | 案内あり | 対象外 | HARで`getInvitationTicketUrl`を確認。発行条件・失効・安全な表示を未検証 |
+| ルーム情報の編集・参加方式設定 | 案内あり | 案内あり | 対象外 | 未実装。HARの更新RPCは目的/引数を確定できず |
+| 共同管理者・権限管理 | 案内あり | 案内あり | 対象外 | 役職表示のみ。更新操作は未実装 |
+| 参加申請の承認/拒否 | 案内あり | 案内あり | 対象外 | 未実装。要求/応答と権限条件の追加確認が必要 |
+| 現在のメンバーを強制退会 | 案内あり | 案内あり | 対象外 | 未実装。HARに管理RPCはあるが操作内容を確定できず |
+| 直近退会者への強制退会・参加申請取消し | 一部対象外 | 案内あり | 対象外 | 未実装 |
+| サブトークルームの作成/管理 | 案内あり | 案内あり | 対象外 | 未実装。通常ルームと異なる構造を要調査 |
+| メッセージスレッド | 案内あり | 案内あり | 対象外 | スレッド検出・閲覧・参加・テキスト返信を実装 |
+| ルーム内メッセージ送信・削除 | 案内あり | 案内あり | 対象外 | テキスト/スタンプ送信を実装。削除未実装（HARの`unsendMessage`用途は未確定） |
+| `@All` | 機能案内あり（端末別記載なし） | 機能案内あり（端末別記載なし） | 記載なし | 未実装。権限と1時間あたりの制約を未検証 |
+| ノート閲覧・作成/編集/削除・共有 | 案内あり | 案内あり | 対象外 | 未実装。HARは`getNoteStatus`のみで本文API未確定 |
+| OpenChat/投稿/メンバーの通報 | 案内あり | 案内あり | 記載なし | 未実装。実行先・確認UI・応答処理を未検証 |
+| 特定メンバーの投稿を自分の端末だけ非表示 | 案内あり | 案内あり | 記載なし | 未実装。HARの`hideSquareMemberContents`等の引数・イベント同期未検証 |
+| OpenChat/サブトークルームから退会 | 案内あり | 案内あり | 対象外 | 未実装。退出APIとサブトークルーム階層が未検証 |
+| 標準リアクション | 案内あり | 案内あり | 対象外 | 6種の手動リアクションを実装。状態同期は未実装 |
+| 未読数の表示設定・OpenChat通知 | 案内あり | 案内あり | 記載なし | Vyline内の未読数・通知設定とは未連携 |
+| OpenChatメッセージ要約 | 一部機能案内あり（適用条件あり） | 一部機能案内あり（適用条件あり） | 記載なし | 未実装。LINE側の限定提供機能で、Vylineから呼び出さない |
+| ルーム削除（管理者） | 案内あり | 案内あり | 対象外 | 未実装。不可逆性があるため、要求/応答とUI確認が必要 |
+| 参加/退出などのシステム通知設定 | 対象外 | 案内あり | 記載なし | 未実装 |
+| OpenChat情報の手動同期 | 案内あり | 案内あり | 記載なし | 未実装 |
+| OpenChat内のLIFF | 非対応 | 非対応 | 非対応 | LINE DevelopersがOpenChat内LIFFを正式サポートしないため組み込まない |
+
+「案内あり」は利用可否を示す公式アプリの手順であり、APIの公開やサードパーティークライアントの許可・互換性を示すものではありません。検索表示設定は、メインOpenChat設定ページではWindows/MacとiPad/Androidの手順がありますが、サブトークルーム設定ページではスマートフォンのメイン端末限定と記載されています。設定対象が異なるため矛盾と断定せず、要求仕様が固まるまでVylineでは未実装とします。サブ端末の中でも実行環境は同一ではありません。
+
+Vylineプロトコルの既定モードは`IOSIPAD`です。`ANDROIDSECONDARY`、`DESKTOPWIN`、`DESKTOPMAC`も別モードとして存在し、保存済みアカウントのモードはtoken metadataに保持されます。`DESKTOPWIN`/`DESKTOPMAC`は公式Desktopと同じ端末スロットを使うため、公式Desktopとの同時利用に影響します。したがって「セカンダリなら全機能が使える」とは仮定せず、各モード・権限・RPCごとに検証します。
+
+### 端末差の公式参照
+
+- [管理者向け基本機能（作成、共同管理者、権限）](https://help.line.me/line/smartphone?contentId=20005393&lang=ja)
+- [参加者向け基本機能（検索、参加、ノート、スレッド）](https://help.line.me/line/smartphone/pc?contentId=20005375&lang=ja)
+- [OpenChat設定管理](https://help.line.me/line/smartphone?contentId=20020647&lang=ja)
+- [参加メンバー管理](https://help.line.me/line/smartphone?contentId=20005392&lang=ja)
+- [メッセージ管理](https://help.line.me/line/smartphone?contentId=20015842&lang=ja)
+- [OpenChat削除](https://help.line.me/line/smartphone?contentId=20005403&lang=ja)
+- [リアクション](https://help.line.me/line/smartphone?contentId=20020725&lang=ja)
+- [OpenChat情報の同期](https://help.line.me/line/?contentId=20024116&lang=ja)
+- [サブトークルームの作成と管理](https://help.line.me/line/IOSSecondary/?contentId=20024745&lang=ja)
+- [複数端末の種類と制限](https://help.line.me/line/smartphone?contentId=20000132&lang=ja)
 
 公式資料上の通常サブルームとスレッドは別機能です。Vylineが扱うのは、親メッセージから見つけた`chatThreadMid`によるスレッドのみで、サブルーム階層は未分類です。公式ヘルプのスレッド作成・返信可能期間はUIで強制しておらず、送信可否はサーバー応答が最終判断になります。全スレッド一覧・お気に入りも未実装です。LINEはLIFFアプリをOpenChat内で正式サポートしていないため、OpenChat画面からLIFFを起動する機能は追加しません。
 

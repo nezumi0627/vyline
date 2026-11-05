@@ -483,6 +483,13 @@ export const api = {
         rooms: Array<{ id: string; name?: string; parentSquareId?: string | null }>;
       }>("GET", `/line/${encodeURIComponent(accountId)}/square/overview`),
 
+    squareCreate: (accountId: string, name: string, description: string) =>
+      request<{
+        ok: boolean;
+        square: { mid: string; name: string };
+        room: { id: string; name: string; parentSquareId: string };
+      }>("POST", `/line/${encodeURIComponent(accountId)}/square/create`, { name, description }),
+
     squareSearch: (accountId: string, query: string) =>
       request<{
         ok: boolean;

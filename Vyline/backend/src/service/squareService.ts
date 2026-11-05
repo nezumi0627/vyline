@@ -128,6 +128,59 @@ export function getSquareFeatureStatus(accountId: string) {
   return { ok: true as const, enabled: getSquareStore(accountId).isEnabled() };
 }
 
+export function buildSquareCreateOptions(name: string, displayName: string, description?: string) {
+  const squareName = name.trim();
+  if (!squareName) throw new Error("invalid Square name");
+  return {
+    squareName,
+    displayName: displayName.trim(),
+    ...(description?.trim() ? { description: description.trim() } : {}),
+    searchable: false,
+    squareJoinMethodType: "CODE" as const,
+  };
+}
+
+export async function createPrivateSquare(
+  accountId: string,
+  name: string,
+  description: string,
+  client: VylineClient,
+) {
+  const store = getSquareStore(accountId);
+  return withSquareEnabled(store, async () => {
+    const generation = store.getGeneration();
+    const profile = await client.base.talk.getProfile();
+    if (!profile.displayName?.trim()) throw new Error("LINE profile display name is unavailable");
+    const created = await client.base.square.createSquare(
+      buildSquareCreateOptions(name, profile.displayName, description),
+    );
+    if (!store.isCurrentGeneration(generation)) throw new SquareDisabledError();
+    const square = created.square;
+    const room = created.squareChat;
+    if (!square?.mid || !room?.squareChatMid || room.squareMid !== square.mid) {
+      throw new Error("Square creation response did not include its room");
+    }
+    store.upsertEntity("square", square.mid, square);
+    if (created.creator?.squareMemberMid) {
+      store.upsertEntity("member", created.creator.squareMemberMid, created.creator, square.mid);
+    }
+    store.upsertEntity(
+      "room",
+      room.squareChatMid,
+      {
+        ...room,
+        status: created.squareChatStatus,
+      },
+      square.mid,
+    );
+    return {
+      ok: true as const,
+      square: { mid: square.mid, name: square.name },
+      room: { id: room.squareChatMid, name: room.name, parentSquareId: square.mid },
+    };
+  });
+}
+
 /** Return a stale cache only while the same enabled session is still active. */
 export function readSquareCacheForGeneration(
   store: SquareStore,

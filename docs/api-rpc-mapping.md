@@ -67,7 +67,18 @@ getTargetProfiles
 
 protocol stack HEAD baseline には SquareService `/SQ1` と `getJoinedSquares`, `fetchMyEvents`, `fetchSquareChatEvents`, `sendMessage`, `getSquare`, `getJoinableSquareChats`、create/join/member/admin/thread 系 RPC が存在する。
 
-ただし、現在の worktree で専用の frontend consumer → BFF → backend → SquareService chain を確認できていない。このため API mapping 表に product-level domain/BFF 対応を推測で追加しない。
+2026-11-04のHARでは `/SQ1` 要求を1,088件確認し、44種類のRPCメソッド名をすべて復号した。現在のVylineには `backend/src/api/line.ts` → `backend/src/service/squareService.ts` → `client.base.square.*` → `/SQ1` の専用経路があり、アカウント別 `square.sqlite` とOpenChat UIを使う。HAR観測と実装状況を混同しない。
+
+| 機能 | HAR | Vyline chain |
+| --- | --- | --- |
+| Square作成 | `createSquare` 1回 | `POST /line/:accountId/square/create` → `createPrivateSquare`。検索非表示・参加コード方式に固定 |
+| 参加中一覧 | `getJoinedSquares` 0回、`getJoinedSquareChats` 0回 | 現実装は両RPCを呼ぶ。HARで裏付けられた動作ではない |
+| カタログ検索 | `searchSquares` 0回 | 現実装は同RPC。HARで裏付けられた動作ではない |
+| イベント/履歴 | `fetchMyEvents` 312回、`fetchSquareChatEvents` 482回 | 履歴BFFは後者を使用。初期一覧の完全同期は別途確認が必要 |
+| ルーム/スレッド送信 | `sendMessage` 52回、`sendSquareThreadMessage` 7回 | テキスト送信経路あり。HAR要求形とProtocol型を照合 |
+| その他 | HAR全44メソッドの集計は [OpenChat / Square Beta](./openchat-square.md) | 未接続の操作をProtocolに存在するだけで利用可能とみなさない |
+
+`/sf/main/search` など公開サイトの取得はHAR上 `text/x-component` のNext.js RSC応答であり、安定したJSON APIと扱わない。HAR解析では要求値をレポートへ転記せず、HTTP 200だけでThrift操作成功と判定しない。
 
 ## Unknown handling
 

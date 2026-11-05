@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   buildSquareReadRequest,
   buildSquareReactionRequest,
+  buildSquareCreateOptions,
   buildSquareStickerContent,
   buildSquareThreadTextRequest,
 } from "./squareService.js";
@@ -26,6 +27,22 @@ describe("Square read and reaction request builders", () => {
         threadMid: "thread",
       },
     });
+  });
+});
+
+describe("Square private room creation options", () => {
+  test("trims user input and keeps the test room out of public search", () => {
+    expect(buildSquareCreateOptions("  Vyline test  ", "owner", " private test ")).toEqual({
+      squareName: "Vyline test",
+      displayName: "owner",
+      description: "private test",
+      searchable: false,
+      squareJoinMethodType: "CODE",
+    });
+  });
+
+  test("rejects empty names before a Square creation RPC", () => {
+    expect(() => buildSquareCreateOptions("  ", "owner")).toThrow("invalid Square name");
   });
 });
 

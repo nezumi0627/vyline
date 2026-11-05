@@ -27,6 +27,7 @@ import { recordingRouter } from "./recordings.js";
 import {
   getSquareFeatureStatus,
   getSquareFeatureStore,
+  createPrivateSquare,
   loadSquareThreadContext,
   joinSquareThreadForAccount,
   listSquareMembers,
@@ -241,6 +242,29 @@ lineRouter.get("/:accountId/square/overview", async (c) => {
       }
       throw error;
     }
+  } catch (error) {
+    return handleError(error, c);
+  }
+});
+lineRouter.post("/:accountId/square/create", async (c) => {
+  const accountId = c.req.param("accountId");
+  const body = await c.req
+    .json<{ name?: unknown; description?: unknown }>()
+    .catch((): { name?: unknown; description?: unknown } => ({}));
+  if (
+    typeof body.name !== "string" ||
+    !body.name.trim() ||
+    body.name.trim().length > 100 ||
+    (body.description !== undefined &&
+      (typeof body.description !== "string" || body.description.length > 1000))
+  ) {
+    return c.json({ ok: false, error: "invalid Square name or description" }, 400);
+  }
+  try {
+    if (!getSquareFeatureStatus(accountId).enabled) throw new SquareDisabledError();
+    const client = getClient(accountId);
+    if (!client) return c.json({ ok: false, error: "not logged in" }, 401);
+    return c.json(await createPrivateSquare(accountId, body.name, body.description ?? "", client));
   } catch (error) {
     return handleError(error, c);
   }
