@@ -1,4 +1,5 @@
 import { tr as uiText } from "@/i18n";
+import { ActionFeedback } from "@/components/action-feedback";
 import { useMemo, useState } from "react";
 import { api } from "@/api/client";
 import { IconArrowLeft, IconDownload, IconSpark, IconUsers } from "@/components/icons";
@@ -401,14 +402,7 @@ export function SupportSection() {
         </div>
       )}
 
-      {(error || notice) && (
-        <p
-          role={error ? "alert" : "status"}
-          className={`mt-4 text-sm ${error ? "text-[var(--vy-danger)]" : "text-[var(--vy-accent)]"}`}
-        >
-          {error || notice}
-        </p>
-      )}
+      <ActionFeedback error={error || null} status={notice || null} className="mt-3 text-sm" />
     </section>
   );
 }

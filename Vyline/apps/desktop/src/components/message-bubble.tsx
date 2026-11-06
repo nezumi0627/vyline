@@ -1195,7 +1195,10 @@ export const MessageBubble = memo(
               void retryMessage(message.id);
             }}
           >
-            {uiText("送信失敗 · 再送")}{" "}
+            <span title={message.deliveryError}>
+              {uiText("送信失敗 · 再送")}
+              {message.deliveryError ? ` · ${message.deliveryError}` : ""}
+            </span>{" "}
           </button>
         );
       if (message.status === "uncertain")
@@ -1224,7 +1227,10 @@ export const MessageBubble = memo(
               }
             }}
           >
-            {uiText("送信結果不明 · 履歴を確認")}{" "}
+            <span title={message.deliveryError}>
+              {uiText("送信結果不明 · 履歴を確認")}
+              {message.deliveryError ? ` · ${message.deliveryError}` : ""}
+            </span>{" "}
           </button>
         );
       if (!message.read) return <span className="opacity-60">{uiText("送信済み")}</span>;

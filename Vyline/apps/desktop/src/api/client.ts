@@ -84,7 +84,7 @@ function getSubdeviceInstallationId(): string | null {
   return created;
 }
 
-/** バックエンド未起動時は TypeError(ECONNREFUSED) が飛ぶ → 静かに失敗 */
+/** Backend connectivity failures are reported at the initiating UI action. */
 function isBackendDown(err: unknown): boolean {
   return (
     err instanceof TypeError &&
@@ -124,9 +124,9 @@ async function request<T>(
     });
   } catch (err) {
     if (isBackendDown(err)) {
-      throw new Error("BACKEND_DOWN");
+      throw new Error("Vyline backendに接続できません。起動状態を確認してください。");
     }
-    throw new Error(`backend に接続できません（:3001 が起動しているか確認）: ${String(err)}`);
+    throw new Error("Vyline backendへの通信に失敗しました。ネットワーク状態を確認してください。");
   }
 
   const text = await res.text();
@@ -141,7 +141,7 @@ async function request<T>(
   try {
     return JSON.parse(text) as T;
   } catch {
-    throw new Error(`サーバー応答の解析に失敗しました: ${text.slice(0, 120)}`);
+    throw new Error("サーバー応答を読み取れませんでした。backendのログを確認してください。");
   }
 }
 
@@ -1425,6 +1425,8 @@ export const api = {
           updatedPages: number;
         };
         hint?: string;
+        code?: string;
+        stage?: string;
         error?: string;
       }>("POST", `/line/${accountId}/restore/desktop/history`, { databaseId, acceptedMemoryScan }),
 

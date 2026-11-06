@@ -9,6 +9,7 @@ import { useStore } from "../lib/store.js";
 import { ThemeApplier } from "../components/theme-applier.js";
 import { lineAvatarUrl } from "../utils/lineMedia.js";
 import { getIntlLocale } from "../i18n/index.js";
+import { ActionFeedback } from "../components/action-feedback.js";
 
 type Tab = "email" | "qr" | "token" | "subdevice";
 type QrStatus = "idle" | "waiting" | "completed";
@@ -394,7 +395,7 @@ export function LoginPage() {
                   );
                 })}
               </div>
-              {sessionError && <p className="mt-2 text-xs text-red-300">{sessionError}</p>}
+              <ActionFeedback error={sessionError} />
               <div className="my-5 flex items-center gap-3">
                 <span className="h-px flex-1 bg-[var(--vy-border)]" />
                 <span className="text-[0.7rem] text-[var(--vy-text-dim)]">

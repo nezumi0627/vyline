@@ -2673,18 +2673,15 @@ lineRouter.post("/:accountId/restore/desktop/history", async (c) => {
   } catch (err) {
     // Decryption/SQLite exceptions may include local paths or implementation details.
     // Keep them out of the API response; the user can retry after checking the guidance.
-    log.warn("Desktop history restore failed");
-    const detail = err instanceof Error ? err.message : "";
-    const error = detail.includes("no-process")
-      ? "公式LINE Desktopを1つ起動し、ログインした状態で再試行してください。"
-      : detail.includes("multiple-processes")
-        ? "公式LINE Desktopを1つだけ起動して再試行してください。"
-        : detail.includes("wrong-process")
-          ? "公式LINE Desktopのプロセスを確認できません。公式アプリを起動して再試行してください。"
-          : detail.includes("changed during the read")
-            ? "LINE Desktopのデータが更新中です。しばらく待ってから再試行してください。"
-            : "Desktop履歴を確認できませんでした。LINE Desktopを起動した状態で再試行してください。";
-    return c.json({ ok: false, error }, 422);
+    const { classifyDesktopHistoryRestoreFailure } = await import(
+      "../service/desktopMessagesRestore.js"
+    );
+    const failure = classifyDesktopHistoryRestoreFailure(err);
+    log.warn({ code: failure.code, stage: failure.stage }, "Desktop history restore failed");
+    return c.json(
+      { ok: false, code: failure.code, stage: failure.stage, error: failure.message },
+      422,
+    );
   }
 });
 // kind=route のみ route 返却。start/end/status は /call/start 等。

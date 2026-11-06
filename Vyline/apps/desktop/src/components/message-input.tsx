@@ -23,6 +23,7 @@ import { segmentTextWithSticon, type SticonResource } from "@/utils/lineSticon";
 import { buildMentionMetadata, recomputeMentionsOnEdit } from "@/utils/mention";
 import { mapMember } from "@/lib/mappers";
 import { PlusMenu } from "@/components/plus-menu";
+import { ActionFeedback } from "@/components/action-feedback";
 import type { MessageState } from "@/lib/store-types";
 
 function replyPreviewText(msg: {
@@ -154,6 +155,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
     }>
   >([]);
   const [sendingMediaBatch, setSendingMediaBatch] = useState(false);
+  const [mediaBatchError, setMediaBatchError] = useState<string | null>(null);
   const [agentOpen, setAgentOpen] = useState(false);
 
   // 画像送信中かどうか（楽観メッセージの pending image を検出）
@@ -363,6 +365,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
   async function sendPendingMedia() {
     if (sendingMediaBatch || pendingMedia.length === 0 || !accountId) return;
     setSendingMediaBatch(true);
+    setMediaBatchError(null);
     try {
       const highQuality = useStore.getState().settings.highQualityImages;
       const items = await Promise.all(
@@ -391,13 +394,13 @@ export function MessageInput({ chatId }: { chatId: string }) {
       );
       const res = await api.line.sendMediaBatch(accountId, chatId, items);
       if (!res.ok) {
-        window.alert(res.error ?? uiText("まとめて送信に失敗しました"));
+        setMediaBatchError(res.error ?? uiText("まとめて送信に失敗しました"));
         return;
       }
       clearPendingMedia();
       await useStore.getState().refreshMessages(chatId, { force: true });
     } catch (err) {
-      window.alert(err instanceof Error ? err.message : String(err));
+      setMediaBatchError(err instanceof Error ? err.message : uiText("まとめて送信に失敗しました"));
     } finally {
       setSendingMediaBatch(false);
     }
@@ -755,6 +758,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                   {sendingMediaBatch ? "送信中…" : "まとめて送信"}
                 </button>
               </div>
+              <ActionFeedback error={mediaBatchError} />
             </div>
           )}
           {mentionPicker && mentionOptions.length > 0 && (
