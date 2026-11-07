@@ -2,7 +2,8 @@ import { getIntlLocale } from "@/i18n";
 import { tr as uiText } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
-import { IconBlock, IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
+import { IconCheck, IconHardDrive, IconShield, IconSpark } from "@/components/icons";
+import { ActionFeedback } from "@/components/action-feedback";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
 
 type Device = NonNullable<Awaited<ReturnType<typeof api.line.listIosBackups>>["devices"]>[number];
@@ -258,17 +259,9 @@ export function IosBackupBetaPanel({ accountId }: { accountId: string | null }) 
           {uiText("件")}{" "}
         </p>
       )}
-      {session?.status === "failed" && (
-        <p className="mt-3 flex items-center gap-2 text-xs text-red-400" role="alert">
-          <IconBlock size={14} />
-          {session.error ?? "復元に失敗しました"}
-        </p>
-      )}
-      {message && (
-        <p className="mt-3 text-xs text-red-400" role="alert">
-          {message}
-        </p>
-      )}
+      <ActionFeedback
+        error={session?.status === "failed" ? (session.error ?? "復元に失敗しました") : message}
+      />
       <p className="mt-3 text-[0.65rem] text-[var(--vy-text-dim)]">
         {uiText(
           "Beta：復元処理は既存のiOSバックアップAPIを使用します。元のバックアップは変更しません。",

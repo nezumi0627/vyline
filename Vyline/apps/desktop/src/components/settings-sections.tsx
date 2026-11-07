@@ -22,6 +22,7 @@ import { createSettingsBackup, parseSettingsBackup } from "@/lib/settingsBackup"
 import { betaFeatureIdForSetting, recordBetaFeatureDecision } from "@/lib/betaConsent";
 import { resolveDiagnosticsMid } from "@/lib/diagnosticsMid";
 import { UI_LANGUAGES, changeUiLanguage, getIntlLocale } from "@/i18n";
+import { ActionFeedback } from "@/components/action-feedback";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -1649,6 +1650,7 @@ function AdvancedSection() {
   const [desktopHistoryResult, setDesktopHistoryResult] = useState<DesktopHistoryResult | null>(
     null,
   );
+  const [desktopHistoryLoadError, setDesktopHistoryLoadError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [syncMsg, setSyncMsg] = useState<string | null>(null);
   const [lastSyncAt, setLastSyncAt] = useState<number | null>(null);
@@ -1661,18 +1663,22 @@ function AdvancedSection() {
     }
     try {
       const result = await api.line.getDesktopHistoryOptions(accountId);
+      setDesktopHistoryLoadError(result.ok ? null : (result.error ?? "状態を取得できません"));
       setDesktopHistory(result);
       setDesktopHistoryId((current) =>
         result.databases?.some((database) => database.id === current)
           ? current
           : (result.databases?.[0]?.id ?? ""),
       );
-    } catch {
+    } catch (error) {
+      setDesktopHistoryLoadError(
+        error instanceof Error ? error.message : "Desktop履歴の状態を取得できませんでした",
+      );
       setDesktopHistory({
         ok: false,
         supported: false,
         databases: [],
-        error: "状態を取得できません",
+        error: error instanceof Error ? error.message : "状態を取得できません",
       });
     }
   }, [accountId, demoMode]);
@@ -1887,7 +1893,7 @@ function AdvancedSection() {
                 : uiText("読み込み中…")}
             </p>
           )}
-          {desktopHistoryResult && (
+          {desktopHistoryResult?.ok && (
             <div
               className="mt-3 rounded-lg border border-[var(--vy-border)] p-3 text-xs leading-relaxed"
               role="status"
@@ -1912,11 +1918,17 @@ function AdvancedSection() {
                     {uiText("トーク一覧を更新しました。表示中のトークは開き直すと反映されます。")}
                   </p>
                 </>
-              ) : (
-                <p>{desktopHistoryResult.error ?? uiText("Desktop履歴を復元できませんでした")}</p>
-              )}
+              ) : null}
             </div>
           )}
+          <ActionFeedback
+            error={
+              desktopHistoryResult?.ok === false
+                ? `${desktopHistoryResult.error ?? uiText("Desktop履歴を復元できませんでした")}${desktopHistoryResult.code ? ` (${desktopHistoryResult.code}${desktopHistoryResult.stage ? ` · ${desktopHistoryResult.stage}` : ""})` : ""}`
+                : desktopHistoryLoadError
+            }
+            status={desktopHistoryBusy ? uiText("履歴を確認・取り込み中…") : null}
+          />
         </div>
         <Row
           title={uiText("設定をエクスポート")}

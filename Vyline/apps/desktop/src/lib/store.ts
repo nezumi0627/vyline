@@ -1606,7 +1606,13 @@ export const useStore = create<State>()(
             if (get().accountId !== accountId) return;
             set((st) => ({
               messages: st.messages.map((m) =>
-                m.id === tempId ? { ...m, status: "uncertain" } : m,
+                m.id === tempId
+                  ? {
+                      ...m,
+                      status: "uncertain",
+                      deliveryError: "送信結果を確認できません。トーク履歴を確認してください。",
+                    }
+                  : m,
               ),
             }));
             return;
@@ -1615,7 +1621,14 @@ export const useStore = create<State>()(
           if (!res.ok) {
             set((st) => ({
               messages: st.messages.map((m) =>
-                m.id === tempId ? { ...m, status: sendFailureStatus(res) } : m,
+                m.id === tempId
+                  ? {
+                      ...m,
+                      status: sendFailureStatus(res),
+                      deliveryError:
+                        res.error || "送信に失敗しました。通信状態を確認してください。",
+                    }
+                  : m,
               ),
             }));
             return;

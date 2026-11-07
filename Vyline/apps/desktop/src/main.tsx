@@ -67,6 +67,7 @@ appRoot.render(
 );
 
 const stores = [useAuthStore, useSettingsStore, useDraftStore, useThemeStore, useStore];
+let startupInitializationFailed = false;
 import.meta.hot?.dispose(() => {
   disposed = true;
 });
@@ -76,12 +77,35 @@ void Promise.all(stores.map((store) => Promise.resolve(store.persist.rehydrate()
     await Promise.all([hydrateTosConsent(), hydrateBetaConsent()]);
     await Promise.all([hydrateDismissedChatState(), hydrateHiddenChats()]);
   })
-  .catch(() => undefined)
+  .catch(() => {
+    startupInitializationFailed = true;
+    // Do not log the raw exception: hydration errors may contain local data.
+    console.error("Vyline startup initialization failed");
+  })
   .then(() => {
-    if (!disposed)
-      appRoot.render(
+    if (disposed) return;
+    appRoot.render(
+      startupInitializationFailed ? (
+        <main
+          role="alert"
+          className="flex min-h-screen flex-col items-center justify-center gap-3 bg-background p-6 text-foreground"
+        >
+          <h1 className="text-lg font-semibold">{uiText("Vylineの画面を表示できません")}</h1>
+          <p className="max-w-md text-center text-sm text-muted-foreground">
+            {uiText("再読み込みしても解決しない場合は、ログを確認してください。")}
+          </p>
+          <button
+            type="button"
+            className="rounded-md bg-primary px-4 py-2 text-primary-foreground"
+            onClick={() => window.location.reload()}
+          >
+            {uiText("再読み込み")}{" "}
+          </button>
+        </main>
+      ) : (
         <RootErrorBoundary>
           <App />
-        </RootErrorBoundary>,
-      );
+        </RootErrorBoundary>
+      ),
+    );
   });

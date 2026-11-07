@@ -1,4 +1,5 @@
 import { tr as uiText } from "@/i18n";
+import { ActionFeedback } from "@/components/action-feedback";
 import { useEffect, useState } from "react";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
@@ -226,14 +227,11 @@ export function UpdaterPage() {
               </span>
             </div>
           )}
-          {message && (
-            <p
-              role={messageIsError ? "alert" : "status"}
-              className={`mt-4 break-words text-sm ${messageIsError ? "text-[var(--vy-danger)]" : "text-[var(--vy-text-dim)]"}`}
-            >
-              {message}
-            </p>
-          )}
+          <ActionFeedback
+            error={messageIsError ? message : null}
+            status={!messageIsError ? message : null}
+            className="mt-3 text-sm"
+          />
           <button
             type="button"
             onClick={() => void check()}

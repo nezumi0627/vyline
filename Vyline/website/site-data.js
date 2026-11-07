@@ -15,6 +15,7 @@ export const documents = [
   ["Vyline/docs/guides/vyline-backup-restore.md", "データ", "バックアップと復元", "VylineBackupの保存範囲と復元方式"],
   ["Vyline/docs/guides/ios-backup-restore.md", "データ", "iOSの履歴取り込み", "暗号化ローカルバックアップからの復元"],
   ["docs/setup-account-handoff-debug.md", "データ", "引継ぎと診断", "設定の移行と診断ログ"],
+  ["Vyline/docs/guides/error-handling.md", "運用", "エラーの確認と復旧", "安全なエラー表示と操作ごとの復旧手順"],
   ["docs/user-guide/privacy-and-data.md", "データ", "プライバシー", "保存先、AIへの送信、利用前の注意"],
   ["docs/user-guide/update.md", "運用", "アップデート", "データを守って更新する"],
   ["docs/subdevices.md", "運用", "別の端末で使う", "ペアリングと遠隔アクセス"],

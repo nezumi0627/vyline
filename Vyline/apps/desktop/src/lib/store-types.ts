@@ -119,6 +119,8 @@ export type Message = {
   };
   createdAt: number;
   status: MessageStatus;
+  /** Sanitized failure hint for a user-triggered outbound action. */
+  deliveryError?: string;
   read: boolean;
   readBy?: string[];
   readCount?: number;

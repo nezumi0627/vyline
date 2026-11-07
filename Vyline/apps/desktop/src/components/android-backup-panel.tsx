@@ -2,7 +2,8 @@ import { getIntlLocale } from "@/i18n";
 import { tr as uiText } from "@/i18n";
 import { useEffect, useRef, useState } from "react";
 import { api } from "@/api/client";
-import { IconBlock, IconCheck, IconHardDrive, IconShield } from "@/components/icons";
+import { IconCheck, IconHardDrive, IconShield } from "@/components/icons";
+import { ActionFeedback } from "@/components/action-feedback";
 import { markRestoredChatMids } from "@/utils/dismissedChats";
 
 type Session = NonNullable<Awaited<ReturnType<typeof api.line.getAndroidBackupSession>>["session"]>;
@@ -294,17 +295,13 @@ export function AndroidBackupPanel({ accountId }: { accountId: string | null }) 
         </div>
       )}
 
-      {session?.status === "failed" && (
-        <p className="mt-3 flex items-center gap-2 text-xs text-red-400" role="alert">
-          <IconBlock size={14} />
-          {session.error ?? "Android DBの復元に失敗しました"}
-        </p>
-      )}
-      {message && (
-        <p className="mt-3 text-xs text-red-400" role="alert">
-          {message}
-        </p>
-      )}
+      <ActionFeedback
+        error={
+          session?.status === "failed"
+            ? (session.error ?? "Android DBの復元に失敗しました")
+            : message
+        }
+      />
     </section>
   );
 }

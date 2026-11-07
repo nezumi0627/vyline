@@ -7,6 +7,7 @@
 - [Public API](public-api.md) — アカウント固定のAPIトークンとHTTPS運用
 - [iOSバックアップ復元](guides/ios-backup-restore.md) — Apple Devices / iTunes の暗号化バックアップ
 - [Windows LINE Desktop履歴の取り込み](guides/desktop-history-restore.md) — EDB/WALの扱い、同意、SQLiteへの差分統合
+- [エラー表示と復旧方針](guides/error-handling.md) / [English](guides/error-handling.en.md) — 安全な診断、ユーザー操作のエラー表示、静かなフォールバックの基準
 - [アニメーション設定](animation-modes.md) — モーションの表示モード
 
 ## 運用・開発
