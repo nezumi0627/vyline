@@ -1,4 +1,4 @@
-export const version = "1.1.0";
+export const version = "1.2.3";
 export const repository = "https://github.com/nezumi0627/vyline";
 export const release = `${repository}/releases/tag/v${version}`;
 export const download = (name) => `${repository}/releases/download/v${version}/${name}`;
