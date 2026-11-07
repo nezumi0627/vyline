@@ -32,7 +32,7 @@
 > VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用規約やアカウント、データに関するリスクを理解したうえで使用してください。[プライバシーとデータ](docs/user-guide/privacy-and-data.md)
 
 > [!NOTE]
-> **v1.2.3を現在の安定版・開発の基準点とします。** OpenChat（Square）ベータ、PWA、Stable/Beta更新チャンネルを追加し、チャットの未読・既読同期と一覧表示を改善しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.2.3) · [変更履歴](CHANGELOG.md)
+> **v1.2.3を現在の安定版・開発の基準点とします。** Desktop履歴取り込みの診断と画面内エラー表示を改善し、macOS配布版の署名検証を修正しました。[リリース](https://github.com/nezumi0627/vyline/releases/tag/v1.2.3) · [変更履歴](CHANGELOG.md)
 
 ## Vylineについて
 

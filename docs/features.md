@@ -2,7 +2,7 @@
 
 最終更新: 2026-11-03
 
-安定版 **1.1.0** を使う人向けに、各ガイドの機能案内をこのページへまとめています。
+安定版 **1.2.3** を使う人向けに、各ガイドの機能案内をこのページへまとめています。
 導入手順は[使い始める](./start-here.md)、実装と実LINE環境での検証状態は[機能検証表](./feature-capabilities.md)を参照してください。
 この一覧の掲載は、すべての機能のライブ検証を保証するものではありません。
 
@@ -43,7 +43,7 @@
 - Snapshotの作成・一覧・復元、iOSバックアップからの履歴取り込み。
 - CLIによるセットアップ、環境診断、修復。
 - Dockerセルフホスト、ブラウザからの利用、Bearer token付き公開API。
-- Windows・Linuxの配布版と、Apple Silicon / Intel向けのmacOSアプリZIPがあります。macOS版は未署名・未公証のため、初回起動時にGatekeeperの確認が必要です。
+- Windows・Linuxの配布版と、Apple Silicon / Intel向けのmacOSアプリZIPがあります。macOS版はad-hoc署名されていますがDeveloper ID署名・公証はなく、初回起動時にGatekeeperの確認が必要な場合があります。
 
 ## 保存と移行を使い分ける
 

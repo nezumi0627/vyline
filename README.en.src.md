@@ -29,7 +29,7 @@
 > Vyline is an unofficial client and is not affiliated with LINE Corporation or LY Corporation. Understand the risks to your account and data, as well as LINE's terms, before using it. See [Privacy and Data](docs/user-guide/privacy-and-data.en.md).
 
 > [!NOTE]
-> **v1.2.3 is the current stable release and development baseline.** Adds the OpenChat (Square) beta foundation, PWA support, and separate Stable/Beta update channels, and improves chat read-state synchronization and list previews. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.2.3) · [Changelog](CHANGELOG.md)
+> **v1.2.3 is the current stable release and development baseline.** Improves Desktop history-import diagnostics and actionable error messages, and fixes macOS release signing verification. [Release](https://github.com/nezumi0627/vyline/releases/tag/v1.2.3) · [Changelog](CHANGELOG.md)
 
 ## About Vyline
 

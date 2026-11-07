@@ -9,8 +9,8 @@
 | `Vyline-macos-x64-<version>.zip` | macOS Intel (x64) |
 | `SHA256SUMS.txt` | 配布ファイルのSHA-256確認用 / SHA-256 checksums for downloads |
 
-macOS版は未署名・未公証です。配布元とチェックサムを確認してから初回起動してください。
-The macOS app is unsigned and not notarized. Verify the source and checksum before first launch.
+macOS版はad-hoc署名されていますが、Developer ID署名・公証は行っていません。初回起動時にGatekeeperの確認が出る場合があります。配布元とチェックサムを確認してください。
+The macOS app has an ad-hoc code signature for integrity verification, but it is not signed with a Developer ID or notarized. Gatekeeper may ask for confirmation on first launch. Verify the source and checksum.
 
 チェックサム確認:
 - Linux: `sha256sum -c SHA256SUMS.txt`
