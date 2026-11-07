@@ -2,12 +2,12 @@
 
 Docker EngineまたはDocker Desktopと、Docker Composeを使います。
 公開イメージはamd64とarm64に対応しています。
-安定版のソース基準は **1.1.0** です。
+安定版のソース基準は **1.2.3** です。
 
 ## 起動する
 
 ```bash
-git clone --branch v1.1.0 https://github.com/nezumi0627/vyline.git
+git clone --branch v1.2.3 https://github.com/nezumi0627/vyline.git
 cd vyline
 docker compose pull
 docker compose up -d
@@ -16,7 +16,7 @@ docker compose up -d
 `http://localhost:3000` を開き、[ログインと初回設定](../start-here.md#ログインと初回設定)へ進みます。
 Composeの公開ポートは **3000** です。ソース起動時のバックエンドの3001番とは異なります。
 既定の `VYLINE_IMAGE` は `ghcr.io/nezumi0627/vyline:latest` を指します。
-上のコマンドは1.1.0のCompose定義を使いますが、イメージはpullした時点のlatestです。
+上のコマンドは1.2.3のCompose定義を使いますが、イメージはpullした時点のlatestです。
 特定のイメージへ固定する場合は、公開されたタグまたはdigestを確認して `VYLINE_IMAGE` を指定してください。
 
 ## データを残す

@@ -2,7 +2,7 @@
 
 Last updated: 2026-11-03
 
-This guide brings together the user-facing feature summaries for stable **1.1.0**. See [Getting Started](./start-here.md) for installation. Implementation and live verification against LINE are different things; see the [Capability Matrix](./feature-capabilities.md) for evidence and limitations.
+This guide brings together the user-facing feature summaries for stable **1.2.3**. See [Getting Started](./start-here.md) for installation. Implementation and live verification against LINE are different things; see the [Capability Matrix](./feature-capabilities.md) for evidence and limitations.
 
 ## Accounts and devices
 
@@ -41,7 +41,7 @@ This guide brings together the user-facing feature summaries for stable **1.1.0*
 - Create, list, and restore Snapshots; import chat history from iOS backups.
 - Setup, diagnostics, and repair with the CLI.
 - Docker self-hosting, browser access, and a Bearer-token public API.
-- Standalone Windows and Linux distributions and macOS app ZIPs for Apple Silicon and Intel are available. The macOS app is not signed or notarized, so Gatekeeper confirmation is required on first launch.
+- Standalone Windows and Linux distributions and macOS app ZIPs for Apple Silicon and Intel are available. The macOS app has an ad-hoc signature, but no Developer ID signature or notarization; Gatekeeper may ask for confirmation on first launch.
 
 ## Data and extension guides
 

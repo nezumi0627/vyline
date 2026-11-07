@@ -1,18 +1,18 @@
 # Linuxで使い始める
 
-安定版 **1.1.0** の単体配布版は **x64** 向けです。
+安定版 **1.2.3** の単体配布版は **x64** 向けです。
 Bunの事前インストールは不要です。
 arm64では[Docker](./docker.md)またはソースから起動してください。
 OS標準のコマンドではなく `vyl` で起動する場合は、[Bun + vylの手順](./cli.md)に進んでください。
 
 ## ダウンロードして起動する
 
-1. [Vyline-linux-x64-1.1.0.tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-linux-x64-1.1.0.tar.gz)を保存します。
+1. [Vyline-linux-x64-1.2.3.tar.gz](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/Vyline-linux-x64-1.2.3.tar.gz)を保存します。
 2. 保存したディレクトリで、次を実行します。
 
 ```bash
-tar -xzf Vyline-linux-x64-1.1.0.tar.gz
-cd Vyline-linux-x64-1.1.0
+tar -xzf Vyline-linux-x64-1.2.3.tar.gz
+cd Vyline-linux-x64-1.2.3
 ./install.sh
 ~/.local/bin/vyline
 ```
@@ -22,10 +22,10 @@ cd Vyline-linux-x64-1.1.0
 
 ## 配布物の整合性を確認する
 
-[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/SHA256SUMS.txt)を同じディレクトリに保存します。
+[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/SHA256SUMS.txt)を同じディレクトリに保存します。
 
 ```bash
-sha256sum Vyline-linux-x64-1.1.0.tar.gz
+sha256sum Vyline-linux-x64-1.2.3.tar.gz
 ```
 
 出力をSHA256SUMS.txtの同名ファイルの値と照合してください。

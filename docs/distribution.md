@@ -1,6 +1,6 @@
 # Vyline 配布・更新ガイド（Windows / macOS / Linux / Docker）
 
-安定版は **1.1.0** です。初回導入はOS別ガイドへ進んでください。
+安定版は **1.2.3** です。初回導入はOS別ガイドへ進んでください。
 [Windows](./install/windows.md) / [Linux](./install/linux.md) / [macOS](./install/macos.md) / [Docker](./install/docker.md)
 このページでは配布の仕組みとローカルビルドを扱います。
 
@@ -20,10 +20,10 @@ docker compose up -d
 ## OS別の利用方法
 
 - **Windows**: `VylineSetup-<version>.exe` でインストールするか、`Vyline-portable-<version>.zip` を展開して `Vyline.exe` を実行します。同じAppIdとインストール先を維持し、ユーザーデータ領域を更新対象に含めません。
-- **macOS**: CPUに合わせて `Vyline-macos-arm64-<version>.zip`（Apple Silicon）または `Vyline-macos-x64-<version>.zip`（Intel）を取得し、展開した `Vyline.app` を「アプリケーション」へ移動します。アプリはそのMac内でBackendを起動し、ブラウザで `127.0.0.1` のVylineを開きます。初回起動時に未署名アプリの警告が出た場合は、FinderでアプリをControlクリックして「開く」を選び、表示される確認に進みます。
+- **macOS**: CPUに合わせて `Vyline-macos-arm64-<version>.zip`（Apple Silicon）または `Vyline-macos-x64-<version>.zip`（Intel）を取得し、展開した `Vyline.app` を「アプリケーション」へ移動します。アプリはそのMac内でBackendを起動し、ブラウザで `127.0.0.1` のVylineを開きます。配布版はad-hoc署名されていますがDeveloper ID署名・公証はなく、初回にGatekeeperの確認が出る場合があります。
 - **Linux / Ubuntu x64**: `Vyline-linux-x64-<version>.tar.gz` を展開し、`./install.sh` を実行します。インストールスクリプトは新しいパッケージをステージングしてから切り替え、失敗時は直前の実行ファイルを戻します。
 
-各OSの単体版はそのPC内でBackendを起動します。データはそのPCに保存され、Bunの事前インストールは不要です。macOS版は現時点でApple Developer IDによる署名・公証を行っていません。Gatekeeperの警告が出る場合は、配布元とSHA-256チェックサムを確認してから初回起動してください。
+各OSの単体版はそのPC内でBackendを起動します。データはそのPCに保存され、Bunの事前インストールは不要です。macOS版のad-hoc署名はバイナリの整合性確認用で、Apple Developer IDによる署名・公証ではありません。Gatekeeperの警告が出る場合は、配布元とSHA-256チェックサムを確認してから初回起動してください。
 
 ## ローカルビルド
 

@@ -1,26 +1,26 @@
 # Windowsで使い始める
 
-安定版 **1.1.0** の手順です。
+安定版 **1.2.3** の手順です。
 Windows x64向けのSetupとポータブルZIPを公開しています。
 Bunの事前インストールは不要です。コマンドで使いたい場合は、Windowsでも同じ `vyl` CLIを登録できます。[Bun + vylの手順](./cli.md)を参照してください。
 
 ## インストーラーで導入する
 
-1. [VylineSetup-1.1.0.exe](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/VylineSetup-1.1.0.exe)をダウンロードします。
+1. [VylineSetup-1.2.3.exe](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/VylineSetup-1.2.3.exe)をダウンロードします。
 2. ファイルを開き、インストーラーの案内に従います。
 3. スタートメニューからVylineを起動します。
 4. ブラウザが開いたら、[ログインと初回設定](../start-here.md#ログインと初回設定)へ進みます。
 
-配布元は[Project VylineのRelease](https://github.com/nezumi0627/vyline/releases/tag/v1.1.0)です。
-SHA-256は[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/SHA256SUMS.txt)と照合できます。
+配布元は[Project VylineのRelease](https://github.com/nezumi0627/vyline/releases/tag/v1.2.3)です。
+SHA-256は[SHA256SUMS.txt](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/SHA256SUMS.txt)と照合できます。
 
 ```powershell
-Get-FileHash .\VylineSetup-1.1.0.exe -Algorithm SHA256
+Get-FileHash .\VylineSetup-1.2.3.exe -Algorithm SHA256
 ```
 
 ## インストールせず使う
 
-1. [Vyline-portable-1.1.0.zip](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-portable-1.1.0.zip)をダウンロードします。
+1. [Vyline-portable-1.2.3.zip](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/Vyline-portable-1.2.3.zip)をダウンロードします。
 2. ZIPをフォルダへ展開します。
 3. 展開先の `Vyline.exe` を実行します。ZIPの中から直接実行しないでください。
 

@@ -617,11 +617,12 @@ function messagePreview(m: Message): string {
 
 export const UPDATE_NOTES = {
   version: PRODUCT_VERSION,
-  title: `Vyline ${PRODUCT_VERSION} — OpenChatの招待・アナウンス機能を追加`,
+  title: `Vyline ${PRODUCT_VERSION} — エラー表示と復旧案内を改善`,
   items: [
-    "OpenChat Betaに招待リンクの取得とアナウンスの閲覧・作成・削除を追加",
-    "プライマリデバイス由来の試験実装であり、サブデバイス互換が未検証で利用非推奨であることを明記",
-    "OpenChatの説明更新を記録し、旧version 1同意のアカウントは再同意まで自動でOFF",
+    "Desktop履歴取り込みの失敗段階を安全なコードで表示し、再現時の診断を改善",
+    "起動・ログイン・送信・バックアップなどの失敗を画面内に表示",
+    "通信・応答解析エラーから内部情報が表示されないよう改善",
+    "macOS配布版の署名を修復し、arm64・x64でZIP展開後の検証を追加",
   ],
 };
 

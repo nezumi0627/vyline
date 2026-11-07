@@ -1,20 +1,20 @@
 # macOSで使い始める
 
-安定版 **1.1.0** ではmacOS向けのローカルアプリを配布しています。Apple Siliconはarm64、Intel Macはx64のZIPを選びます。
+安定版 **1.2.3** ではmacOS向けのローカルアプリを配布しています。Apple Siliconはarm64、Intel Macはx64のZIPを選びます。
 
 ## アプリをダウンロードする
 
-- [Apple Silicon（arm64）](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-macos-arm64-1.1.0.zip)
-- [Intel（x64）](https://github.com/nezumi0627/vyline/releases/download/v1.1.0/Vyline-macos-x64-1.1.0.zip)
+- [Apple Silicon（arm64）](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/Vyline-macos-arm64-1.2.3.zip)
+- [Intel（x64）](https://github.com/nezumi0627/vyline/releases/download/v1.2.3/Vyline-macos-x64-1.2.3.zip)
 
-ZIPを展開し、`Vyline.app` を「アプリケーション」へ移動して起動します。初回起動時に未署名アプリの警告が出た場合は、配布元とSHA-256を確認してからFinderでアプリをControlクリックし、「開く」を選んでください。macOS版はDeveloper ID署名・公証を行っていません。
+ZIPを展開し、`Vyline.app` を「アプリケーション」へ移動して起動します。配布版はad-hoc署名されていますが、Developer ID署名・公証は行っていないため、初回起動時にGatekeeperの確認が出る場合があります。配布元とSHA-256を確認してから画面の案内に従ってください。
 
 ## ソースから起動する
 
 開発する場合はGitと **Bun 1.4.0以降** を準備してください。
 
 ```bash
-git clone --recurse-submodules --branch v1.1.0 https://github.com/nezumi0627/vyline.git
+git clone --recurse-submodules --branch v1.2.3 https://github.com/nezumi0627/vyline.git
 cd vyline
 bun install
 bun run vyl register
