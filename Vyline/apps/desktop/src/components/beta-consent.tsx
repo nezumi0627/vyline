@@ -138,15 +138,15 @@ function ThemeEffectsBetaToggle() {
   return (
     <>
       <SettingsRow
-        title={uiText("Acrylic Glass・背景画像（Beta）")}
+        title={uiText("背景画像ぼかし（Beta）")}
         description={uiText(
-          "半透明のガラス効果と、端末内の画像をトーク背景に設定する機能を試験できます。画像はこの端末に保存されます。",
+          "端末内の画像をトーク背景に設定し、背景だけをぼかします。画像はこの端末に保存されます。",
         )}
       >
         <Toggle
           checked={enabled}
           onChange={(value) => void change(value)}
-          label={uiText("Acrylic Glass と背景画像")}
+          label={uiText("背景画像機能を有効化")}
         />
       </SettingsRow>
       {consentPending && (

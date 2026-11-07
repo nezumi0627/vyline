@@ -3,13 +3,8 @@
 @tailwind utilities;
 
 .pr-demo-stage {
-  padding: 18px;
-  background: radial-gradient(
-      circle at 18% 12%,
-      color-mix(in oklab, var(--vy-accent) 34%, transparent),
-      transparent 34%
-    ), radial-gradient(circle at 86% 88%, rgba(34, 197, 94, 0.2), transparent 30%),
-    linear-gradient(145deg, #111827, #0f172a 52%, #172554);
+  padding: 0;
+  background: var(--vy-bg);
 }
 
 .pr-demo-shell > * {
@@ -40,6 +35,7 @@
   --vy-msg-out-text: #ffffff;
   --vy-radius: 0.9rem;
   --vy-chat-bg: #0e1621;
+  --vy-chat-background-blur: 6px;
   --vy-chat-pattern: 1;
 
   /* Legacy aliases (tailwind.config / 既存コンポーネント互換) */
@@ -259,6 +255,8 @@
 
 /* --- Chat surface pattern --- */
 .vy-chat-surface {
+  position: relative;
+  isolation: isolate;
   background-color: var(--vy-chat-bg);
   background-image: radial-gradient(
     circle at 1px 1px,
@@ -271,9 +269,29 @@
   background-image: none;
 }
 .vy-chat-surface[data-image] {
-  background-image: var(--vy-chat-image);
+  background-image: none;
+}
+.vy-chat-background {
+  position: sticky;
+  top: 0;
+  z-index: 0;
+  width: 100%;
+  height: 100%;
+  margin-bottom: -100%;
+  pointer-events: none;
+  background-image: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--vy-chat-bg) 12%, transparent),
+      color-mix(in srgb, var(--vy-chat-bg) 22%, transparent)
+    ), var(--vy-chat-image);
   background-size: cover;
   background-position: center;
+  filter: blur(var(--vy-chat-background-blur, 6px));
+  transform: scale(1.05);
+}
+.vy-chat-message-list {
+  position: relative;
+  z-index: 1;
 }
 
 /* Legacy alias */
@@ -290,29 +308,6 @@
   background-size: var(--vy-chat-bg-image, 22px 22px);
   background-position: center;
   background-repeat: var(--vy-chat-bg-image, repeat);
-}
-
-/* Beta Acrylic Glass: applied only after the user enables the experimental feature. */
-:root[data-vy-acrylic="1"] .vy-chat-sidebar-pane .vy-sidebar {
-  background-color: color-mix(in srgb, var(--vy-sidebar) var(--vy-glass-opacity, 82%), transparent) !important;
-  -webkit-backdrop-filter: blur(var(--vy-glass-blur, 16px));
-  backdrop-filter: blur(var(--vy-glass-blur, 16px));
-}
-
-:root[data-vy-acrylic="1"] .vy-chat-header {
-  background-color: color-mix(in srgb, var(--vy-surface) var(--vy-glass-opacity, 82%), transparent) !important;
-  -webkit-backdrop-filter: blur(var(--vy-glass-blur, 16px));
-  backdrop-filter: blur(var(--vy-glass-blur, 16px));
-}
-
-@supports not ((backdrop-filter: blur(1px))) {
-  :root[data-vy-acrylic="1"] .vy-chat-sidebar-pane .vy-sidebar {
-    background-color: var(--vy-sidebar);
-  }
-
-  :root[data-vy-acrylic="1"] .vy-chat-header {
-    background-color: var(--vy-surface);
-  }
 }
 
 /* --- Motion --- */
@@ -659,74 +654,36 @@ html.vy-compact .vy-chat-messages .mt-0\.5 {
   }
 }
 
-/* Temporary PR demo stage: deterministic backdrop and restrained motion for recording. */
+/* PR demo uses the app's own theme surface with a thin, clearly labeled demo rail. */
 .pr-demo {
   position: relative;
   isolation: isolate;
-  background: radial-gradient(circle at 72% 40%, rgba(42, 171, 238, 0.22), transparent 30%), #09111c;
+  display: flex;
+  flex-direction: column;
+  background: var(--vy-bg);
 }
-.pr-demo::before {
-  content: "";
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  opacity: 0.18;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.04) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.04) 1px, transparent 1px);
-  background-size: 56px 56px;
-  mask-image: linear-gradient(to bottom, black, transparent 80%);
+.pr-demo-rail {
+  display: flex;
+  min-height: 34px;
+  flex: 0 0 34px;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid var(--vy-border);
+  padding: 0 16px;
+  color: var(--vy-text-dim);
+  font-size: 0.7rem;
 }
-.pr-demo-orbit {
-  position: absolute;
-  z-index: -1;
-  width: 36rem;
-  height: 36rem;
-  border: 1px solid rgba(42, 171, 238, 0.14);
-  border-radius: 50%;
-  animation: pr-demo-float 12s ease-in-out infinite;
+.pr-demo-shell {
+  min-height: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  border: 1px solid var(--vy-border);
+  background: var(--vy-bg);
 }
-.pr-demo-orbit-one {
-  right: -14rem;
-  top: 10%;
-}
-.pr-demo-orbit-two {
-  left: -20rem;
-  bottom: -18rem;
-  animation-delay: -5s;
-}
-.pr-demo-copy {
-  animation: pr-demo-copy-in .55s ease both;
-}
-.pr-demo-device {
-  animation: pr-demo-device-in .7s cubic-bezier(0.2, 0.8, 0.2, 1) both;
-}
-@keyframes pr-demo-copy-in {
-  from {
-    opacity: 0;
-    transform: translateY(18px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-@keyframes pr-demo-device-in {
-  from {
-    opacity: 0;
-    transform: translateX(30px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateX(0) scale(1);
-  }
-}
-@keyframes pr-demo-float {
-  0%,
-  100% {
-    transform: translate(0, 0) rotate(0deg);
-  }
-  50% {
-    transform: translate(12px, -18px) rotate(6deg);
+@media (max-width: 640px) {
+  .pr-demo-rail {
+    padding-inline: 10px;
   }
 }
 

@@ -1,6 +1,6 @@
 import { tr as uiText } from "@/i18n";
 import { useRef, useState } from "react";
-import { Button, TextField, Toggle } from "@/components/vy-ui";
+import { Button, TextField } from "@/components/vy-ui";
 import { useStore, THEME_PRESETS, serializeTheme, type VyTheme } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconCopyCode, IconDice } from "@/components/icons";
@@ -165,9 +165,21 @@ export function VyThemePanel() {
 
   function applyImport() {
     try {
-      const parsed = JSON.parse(importText) as VyTheme;
+      const parsed = JSON.parse(importText) as VyTheme & Record<string, unknown>;
       if (!parsed.accent || !parsed.bg) throw new Error("invalid");
-      setTheme({ ...theme, ...parsed, id: "custom" });
+      const importedTheme = Object.fromEntries(
+        Object.entries(parsed).filter(
+          ([key]) => !["acrylic", "acrylicOpacity", "acrylicBlur"].includes(key),
+        ),
+      ) as unknown as VyTheme;
+      if (
+        typeof importedTheme.chatBackgroundBlur !== "number" &&
+        typeof parsed.acrylicBlur === "number" &&
+        Number.isFinite(parsed.acrylicBlur)
+      ) {
+        importedTheme.chatBackgroundBlur = Math.max(0, Math.min(24, parsed.acrylicBlur));
+      }
+      setTheme({ ...theme, ...importedTheme, id: "custom" });
       setImportError(false);
       setImportText("");
       setCodeOpen(false);
@@ -216,6 +228,109 @@ export function VyThemePanel() {
           {uiText("コード")}{" "}
         </Button>
       </div>
+
+      <section className="rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="min-w-0">
+            <h3 className="text-sm font-semibold">{uiText("トーク背景画像")}</h3>
+            <p className="mt-1 max-w-lg text-xs leading-relaxed text-[var(--vy-text-dim)]">
+              {uiText(
+                "画像は端末内に保存され、背景だけをぼかします。メッセージは鮮明に表示します。",
+              )}
+            </p>
+          </div>
+          <div className="relative h-16 w-28 shrink-0 overflow-hidden rounded-lg border border-[var(--vy-border)] bg-[var(--vy-chat-bg)] sm:h-20 sm:w-36">
+            {betaThemeEffects && theme.chatImage ? (
+              <div
+                aria-hidden="true"
+                className="absolute -inset-3"
+                style={{
+                  backgroundImage: `url(${theme.chatImage})`,
+                  backgroundSize: "cover",
+                  backgroundPosition: "center",
+                  filter: `blur(${Math.max(0, Math.min(24, theme.chatBackgroundBlur ?? 6))}px)`,
+                  transform: "scale(1.08)",
+                }}
+              />
+            ) : (
+              <div
+                aria-hidden="true"
+                className="absolute inset-0"
+                style={{
+                  backgroundImage: `radial-gradient(circle at 1px 1px, color-mix(in oklab, ${theme.text} 12%, transparent) 1px, transparent 0)`,
+                  backgroundSize: "14px 14px",
+                }}
+              />
+            )}
+            <div className="absolute inset-0 bg-gradient-to-t from-black/30 to-transparent" />
+          </div>
+        </div>
+        <div className="mt-4 grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+          <TextField
+            value={theme.chatImage ?? ""}
+            onChange={(event) => updateThemeField("chatImage", event.target.value)}
+            placeholder={uiText("背景画像 URL")}
+            aria-label={uiText("背景画像 URL")}
+            disabled={!betaThemeEffects}
+          />
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              ref={fileInput}
+              type="file"
+              accept="image/png,image/jpeg,image/webp,image/avif"
+              className="sr-only"
+              aria-label={uiText("端末から背景画像を選択")}
+              onChange={(event) => void chooseBackground(event.currentTarget.files?.[0])}
+            />
+            <Button
+              size="sm"
+              disabled={!betaThemeEffects || backgroundBusy}
+              onClick={() => fileInput.current?.click()}
+            >
+              {backgroundBusy ? uiText("画像を処理中…") : uiText("画像を選ぶ")}
+            </Button>
+            {theme.chatImage && (
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={backgroundBusy}
+                onClick={() => updateThemeField("chatImage", "")}
+              >
+                {uiText("画像を削除")}
+              </Button>
+            )}
+          </div>
+        </div>
+        <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+          {betaThemeEffects
+            ? uiText("画像は最大1920px・WebPに変換して端末内へ保存します（最大2MB）。")
+            : uiText("背景画像とぼかしは、ベータ機能から同意して有効化できます。")}
+        </p>
+        {backgroundError && (
+          <p className="mt-2 text-xs text-[var(--vy-danger)]" role="alert">
+            {backgroundError}
+          </p>
+        )}
+        <label className="mt-4 block text-xs">
+          <span className="flex justify-between gap-3">
+            <span>{uiText("背景のぼかし")}</span>
+            <span className="text-[var(--vy-text-dim)]">{theme.chatBackgroundBlur ?? 6}px</span>
+          </span>
+          <input
+            type="range"
+            min="0"
+            max="24"
+            step="1"
+            value={theme.chatBackgroundBlur ?? 6}
+            disabled={!betaThemeEffects || !theme.chatImage}
+            onChange={(event) =>
+              updateThemeField("chatBackgroundBlur", Number(event.currentTarget.value))
+            }
+            className="mt-2 w-full accent-[var(--vy-accent)] disabled:opacity-50"
+            aria-label={uiText("背景のぼかし")}
+          />
+        </label>
+      </section>
 
       {codeOpen && (
         <div className="vy-scale-in space-y-3 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-4">
@@ -396,115 +511,6 @@ export function VyThemePanel() {
                 {uiText("なし")}{" "}
               </button>
             </div>
-          </div>
-
-          <div className="py-3">
-            <label className="flex items-center justify-between">
-              <span className="text-sm">{uiText("背景画像 URL")}</span>
-            </label>
-            <TextField
-              value={theme.chatImage ?? ""}
-              onChange={(e) => updateThemeField("chatImage", e.target.value)}
-              placeholder={uiText("https://…（任意）")}
-              aria-label={uiText("背景画像 URL")}
-              className="mt-2"
-            />
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <input
-                ref={fileInput}
-                type="file"
-                accept="image/png,image/jpeg,image/webp,image/avif"
-                className="sr-only"
-                aria-label={uiText("端末から背景画像を選択")}
-                onChange={(event) => void chooseBackground(event.currentTarget.files?.[0])}
-              />
-              <Button
-                size="sm"
-                disabled={!betaThemeEffects || backgroundBusy}
-                onClick={() => fileInput.current?.click()}
-              >
-                {backgroundBusy ? uiText("画像を処理中…") : uiText("端末から画像を選択")}
-              </Button>
-              {theme.chatImage && (
-                <Button
-                  size="sm"
-                  variant="secondary"
-                  disabled={backgroundBusy}
-                  onClick={() => updateThemeField("chatImage", "")}
-                >
-                  {uiText("画像を削除")}
-                </Button>
-              )}
-            </div>
-            <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
-              {betaThemeEffects
-                ? uiText("画像は最大1920px・WebPに変換して端末内へ保存します（最大2MB）。")
-                : uiText("画像選択とアクリル効果は、ベータ機能から同意して有効化できます。")}
-            </p>
-            {backgroundError && (
-              <p className="mt-2 text-xs text-[var(--vy-danger)]" role="alert">
-                {backgroundError}
-              </p>
-            )}
-          </div>
-
-          <div className="border-t border-[var(--vy-border)] py-3">
-            <div className="flex items-center justify-between gap-3">
-              <div>
-                <p className="text-sm">{uiText("Acrylic Glass（Beta）")}</p>
-                <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-                  {uiText("サイドバーとチャットヘッダーを半透明にして背景をぼかします。")}
-                </p>
-              </div>
-              <Toggle
-                checked={betaThemeEffects && theme.acrylic === true}
-                disabled={!betaThemeEffects}
-                label={uiText("Acrylic Glass")}
-                onChange={(value) => setTheme({ ...theme, acrylic: value })}
-              />
-            </div>
-            {betaThemeEffects && theme.acrylic && (
-              <div className="mt-4 space-y-3">
-                <label className="block text-xs">
-                  <span className="flex justify-between">
-                    <span>{uiText("ガラスの透明度")}</span>
-                    <span className="text-[var(--vy-text-dim)]">
-                      {Math.round((theme.acrylicOpacity ?? 0.82) * 100)}%
-                    </span>
-                  </span>
-                  <input
-                    type="range"
-                    min="0.55"
-                    max="0.94"
-                    step="0.01"
-                    value={theme.acrylicOpacity ?? 0.82}
-                    onChange={(event) =>
-                      setTheme({ ...theme, acrylicOpacity: Number(event.currentTarget.value) })
-                    }
-                    className="mt-2 w-full accent-[var(--vy-accent)]"
-                    aria-label={uiText("ガラスの透明度")}
-                  />
-                </label>
-                <label className="block text-xs">
-                  <span className="flex justify-between">
-                    <span>{uiText("ぼかしの強さ")}</span>
-                    <span className="text-[var(--vy-text-dim)]">{theme.acrylicBlur ?? 16}px</span>
-                  </span>
-                  <input
-                    type="range"
-                    min="4"
-                    max="28"
-                    step="1"
-                    value={theme.acrylicBlur ?? 16}
-                    onChange={(event) =>
-                      setTheme({ ...theme, acrylicBlur: Number(event.currentTarget.value) })
-                    }
-                    className="mt-2 w-full accent-[var(--vy-accent)]"
-                    aria-label={uiText("ぼかしの強さ")}
-                  />
-                </label>
-              </div>
-            )}
           </div>
         </div>
       </div>

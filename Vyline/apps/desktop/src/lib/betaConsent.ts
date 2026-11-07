@@ -17,7 +17,7 @@ export function betaFeatureIdForSetting(key: string): string {
     case "betaWindowsLineTokens":
       return "windows-line-token-inspection";
     case "betaThemeEffects":
-      return "theme-acrylic-background";
+      return "theme-chat-background-blur";
     case "betaBlockedListSqliteSync":
       return "blocked-list-sqlite-sync";
     case "betaOpenChatSquare":

@@ -127,6 +127,7 @@ function ChatAreaBase() {
   const streamerMode = streamerSettings.streamerMode;
   const agentEnabled = useStore((s) => s.settings.aiEnabled);
   const theme = useStore((s) => s.theme);
+  const betaThemeEffects = useStore((s) => s.settings.betaThemeEffects);
   const toggleMute = useStore((s) => s.toggleMute);
   const memberProfile = useStore((s) => s.memberProfile);
   const highlightMessageId = useStore((s) => s.highlightMessageId);
@@ -952,10 +953,13 @@ function ChatAreaBase() {
           className="vy-scroll vy-chat-surface vy-chat-messages [overflow-anchor:none] flex-1 overflow-y-auto px-3 py-4 md:px-6"
           style={{ overflowAnchor: "none" }}
           data-pattern={theme.pattern}
-          data-image={theme.chatImage ? "" : undefined}
+          data-image={betaThemeEffects && theme.chatImage ? "" : undefined}
         >
+          {betaThemeEffects && theme.chatImage && (
+            <div className="vy-chat-background" aria-hidden="true" />
+          )}
           <div
-            className="mx-auto flex w-full max-w-3xl flex-col"
+            className="vy-chat-message-list mx-auto flex w-full max-w-3xl flex-col"
             // 未読の先頭を探して古い履歴を読み足している間は、ページが足されるたびに表示が跳ねるので隠す
             style={
               initialChatScrollPending && initialChatScrollUnreadCount > 0

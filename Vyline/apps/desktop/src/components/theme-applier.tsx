@@ -32,21 +32,16 @@ export function ThemeApplier() {
       "--vy-chat-pattern": String(theme.pattern),
     };
     for (const [k, v] of Object.entries(map)) r.style.setProperty(k, v);
-    if (theme.chatImage) {
+    const backgroundEnabled = betaThemeEffects && Boolean(theme.chatImage);
+    if (backgroundEnabled) {
       r.style.setProperty("--vy-chat-image", `url(${theme.chatImage})`);
     } else {
       r.style.removeProperty("--vy-chat-image");
     }
-    const acrylicEnabled = betaThemeEffects && theme.acrylic === true;
-    r.dataset.vyAcrylic = acrylicEnabled ? "1" : "0";
-    const glassOpacity = Number.isFinite(theme.acrylicOpacity)
-      ? Math.max(0.55, Math.min(0.94, theme.acrylicOpacity!))
-      : 0.82;
-    const glassBlur = Number.isFinite(theme.acrylicBlur)
-      ? Math.max(4, Math.min(28, theme.acrylicBlur!))
-      : 16;
-    r.style.setProperty("--vy-glass-opacity", `${glassOpacity * 100}%`);
-    r.style.setProperty("--vy-glass-blur", `${glassBlur}px`);
+    const backgroundBlur = Number.isFinite(theme.chatBackgroundBlur)
+      ? Math.max(0, Math.min(24, theme.chatBackgroundBlur!))
+      : 6;
+    r.style.setProperty("--vy-chat-background-blur", `${backgroundBlur}px`);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", theme.bg);
   }, [theme, betaThemeEffects]);
