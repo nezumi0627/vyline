@@ -99,7 +99,13 @@ jobs:
         run: |
           set -euo pipefail
           version=$(node -p "require('./package.json').version")
-          app="dist/macos/Vyline-macos-${{ matrix.arch }}-${version}/Vyline.app"
+          package="dist/macos/Vyline-macos-${{ matrix.arch }}-${version}"
+          archive="${package}.zip"
+          unpacked="$RUNNER_TEMP/vyline-macos-unpacked"
+          mkdir -p "$unpacked"
+          ditto -x -k "$archive" "$unpacked"
+          app="$unpacked/Vyline-macos-${{ matrix.arch }}-${version}/Vyline.app"
+          codesign --verify --strict --deep "$app"
           executable="$app/Contents/MacOS/Vyline"
           test -x "$executable"
           mkdir -p "$VYLINE_SMOKE_HOME"
