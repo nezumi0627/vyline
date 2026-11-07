@@ -106,6 +106,19 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 </dict></plist>
 `;
 await writeFile(join(contentsDir, "Info.plist"), plist);
+
+// Bun's compiled Mach-O files can carry a linker-generated ad-hoc signature
+// that is invalid for the final packaged app. Re-sign each executable and
+// then seal the completed bundle after all resources and Info.plist are final.
+const backendPath = join(resourcesDir, "VylineBackend");
+const launcherPath = join(macOSDir, "Vyline");
+for (const executable of [backendPath, launcherPath]) {
+  run("codesign", ["--force", "--sign", "-", "--timestamp=none", executable]);
+  run("codesign", ["--verify", "--strict", executable]);
+}
+run("codesign", ["--force", "--sign", "-", "--timestamp=none", appDir]);
+run("codesign", ["--verify", "--strict", "--deep", appDir]);
+
 run("ditto", [
   "-c",
   "-k",
