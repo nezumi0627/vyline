@@ -8,6 +8,7 @@ export function ThemeApplier() {
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
   const animationMode = useStore((s) => s.settings.animationMode);
+  const betaThemeEffects = useStore((s) => s.settings.betaThemeEffects);
 
   useLayoutEffect(() => {
     const r = document.documentElement;
@@ -36,9 +37,19 @@ export function ThemeApplier() {
     } else {
       r.style.removeProperty("--vy-chat-image");
     }
+    const acrylicEnabled = betaThemeEffects && theme.acrylic === true;
+    r.dataset.vyAcrylic = acrylicEnabled ? "1" : "0";
+    const glassOpacity = Number.isFinite(theme.acrylicOpacity)
+      ? Math.max(0.55, Math.min(0.94, theme.acrylicOpacity!))
+      : 0.82;
+    const glassBlur = Number.isFinite(theme.acrylicBlur)
+      ? Math.max(4, Math.min(28, theme.acrylicBlur!))
+      : 16;
+    r.style.setProperty("--vy-glass-opacity", `${glassOpacity * 100}%`);
+    r.style.setProperty("--vy-glass-blur", `${glassBlur}px`);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", theme.bg);
-  }, [theme]);
+  }, [theme, betaThemeEffects]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;

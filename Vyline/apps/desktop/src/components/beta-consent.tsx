@@ -59,6 +59,10 @@ export function BetaSection() {
       </Card>
 
       <Card className="mt-4">
+        <ThemeEffectsBetaToggle />
+      </Card>
+
+      <Card className="mt-4">
         <SettingsRow
           title={uiText("Windows版LINEのトークン確認（Beta）")}
           description={uiText(
@@ -96,6 +100,73 @@ export function BetaSection() {
         <SqliteBlockedListConsent />
       </div>
     </Section>
+  );
+}
+
+function ThemeEffectsBetaToggle() {
+  const enabled = useStore((s) => s.settings.betaThemeEffects);
+  const updateSetting = useStore((s) => s.updateSetting);
+  const [consentPending, setConsentPending] = useState(false);
+  const featureId = betaFeatureIdForSetting("betaThemeEffects");
+
+  const change = async (next: boolean) => {
+    if (next) {
+      if (isBetaFeatureConsentActive(featureId)) {
+        updateSetting("betaThemeEffects", true);
+        return;
+      }
+      setConsentPending(true);
+      return;
+    }
+    updateSetting("betaThemeEffects", false);
+    await recordBetaFeatureDecision(featureId, "withdrawn", {
+      featureVersion: "1",
+      appVersion: UPDATE_NOTES.version,
+    });
+  };
+
+  const agree = async () => {
+    const saved = await recordBetaFeatureDecision(featureId, "accepted", {
+      featureVersion: "1",
+      appVersion: UPDATE_NOTES.version,
+    });
+    if (!saved) return;
+    updateSetting("betaThemeEffects", true);
+    setConsentPending(false);
+  };
+
+  return (
+    <>
+      <SettingsRow
+        title={uiText("Acrylic Glass・背景画像（Beta）")}
+        description={uiText(
+          "半透明のガラス効果と、端末内の画像をトーク背景に設定する機能を試験できます。画像はこの端末に保存されます。",
+        )}
+      >
+        <Toggle
+          checked={enabled}
+          onChange={(value) => void change(value)}
+          label={uiText("Acrylic Glass と背景画像")}
+        />
+      </SettingsRow>
+      {consentPending && (
+        <div className="mt-3 rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs leading-relaxed">
+          <p>
+            {uiText(
+              "このBeta機能は表示を変更します。選んだ背景画像は端末内のVyline設定に保存され、外部へ自動送信されません。設定バックアップを書き出すと画像も含まれます。",
+            )}
+          </p>
+          <div className="mt-3 flex gap-2">
+            <Button variant="primary" size="sm" onClick={() => void agree()}>
+              {uiText("同意して有効化")}
+            </Button>
+            <Button variant="secondary" size="sm" onClick={() => setConsentPending(false)}>
+              {uiText("キャンセル")}
+            </Button>
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 

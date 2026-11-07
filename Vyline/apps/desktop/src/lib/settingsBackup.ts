@@ -132,8 +132,16 @@ export function parseSettingsBackup(
   if (isRecord(raw.theme)) {
     const theme = { ...current.theme } as Record<string, unknown>;
     for (const [key, value] of Object.entries(raw.theme)) {
-      if (!(key in theme)) continue;
-      if (key === "radius") {
+      if (!(key in theme) && !["acrylic", "acrylicOpacity", "acrylicBlur"].includes(key)) continue;
+      if (key === "acrylic") {
+        if (typeof value === "boolean") theme[key] = value;
+      } else if (key === "acrylicOpacity") {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0.55 && value <= 0.94)
+          theme[key] = value;
+      } else if (key === "acrylicBlur") {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 4 && value <= 28)
+          theme[key] = value;
+      } else if (key === "radius") {
         if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 64)
           theme[key] = value;
       } else if (key === "pattern") {

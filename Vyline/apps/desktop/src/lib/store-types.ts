@@ -284,6 +284,8 @@ export type Settings = {
   aiEnabled: boolean;
   /** ベータ: Windows版LINEのメモリから認証候補を確認 */
   betaWindowsLineTokens: boolean;
+  /** ベータ: Acrylic Glass とローカル背景画像を利用可能にする */
+  betaThemeEffects: boolean;
 };
 
 export type SelfProfile = {

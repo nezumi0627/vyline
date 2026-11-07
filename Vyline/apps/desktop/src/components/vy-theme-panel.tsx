@@ -1,6 +1,6 @@
 import { tr as uiText } from "@/i18n";
-import { useState } from "react";
-import { Button, TextField } from "@/components/vy-ui";
+import { useRef, useState } from "react";
+import { Button, TextField, Toggle } from "@/components/vy-ui";
 import { useStore, THEME_PRESETS, serializeTheme, type VyTheme } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { IconCheck, IconCopyCode, IconDice } from "@/components/icons";
@@ -84,16 +84,77 @@ function randomTheme(base: VyTheme): VyTheme {
   };
 }
 
+async function encodeBackgroundImage(file: File): Promise<string> {
+  if (!/^image\/(?:png|jpeg|webp|avif)$/i.test(file.type)) {
+    throw new Error(uiText("PNG、JPEG、WebP、AVIF画像を選択してください"));
+  }
+  if (file.size > 12 * 1024 * 1024) {
+    throw new Error(uiText("画像ファイルは12MB以下にしてください"));
+  }
+  const bitmap = await createImageBitmap(file);
+  try {
+    const scale = Math.min(1, 1920 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+    canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+    const context = canvas.getContext("2d");
+    if (!context) throw new Error(uiText("画像を読み込めませんでした"));
+    context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob(
+        (value) =>
+          value ? resolve(value) : reject(new Error(uiText("画像を変換できませんでした"))),
+        "image/webp",
+        0.82,
+      );
+    });
+    if (blob.size > 2 * 1024 * 1024) {
+      throw new Error(uiText("変換後の画像が大きすぎます。小さい画像を選択してください"));
+    }
+    return await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () =>
+        typeof reader.result === "string"
+          ? resolve(reader.result)
+          : reject(new Error(uiText("画像を読み込めませんでした")));
+      reader.onerror = () => reject(new Error(uiText("画像を読み込めませんでした")));
+      reader.readAsDataURL(blob);
+    });
+  } finally {
+    bitmap.close();
+  }
+}
+
 export function VyThemePanel() {
   const theme = useStore((s) => s.theme);
   const setTheme = useStore((s) => s.setTheme);
   const updateThemeField = useStore((s) => s.updateThemeField);
+  const betaThemeEffects = useStore((s) => s.settings.betaThemeEffects);
+  const fileInput = useRef<HTMLInputElement>(null);
 
   const [expanded, setExpanded] = useState(false);
   const [codeOpen, setCodeOpen] = useState(false);
   const [importText, setImportText] = useState("");
   const [copied, setCopied] = useState(false);
   const [importError, setImportError] = useState(false);
+  const [backgroundError, setBackgroundError] = useState("");
+  const [backgroundBusy, setBackgroundBusy] = useState(false);
+
+  async function chooseBackground(file?: File) {
+    if (!file) return;
+    setBackgroundBusy(true);
+    setBackgroundError("");
+    try {
+      updateThemeField("chatImage", await encodeBackgroundImage(file));
+    } catch (error) {
+      setBackgroundError(
+        error instanceof Error ? error.message : uiText("画像を設定できませんでした"),
+      );
+    } finally {
+      setBackgroundBusy(false);
+      if (fileInput.current) fileInput.current.value = "";
+    }
+  }
 
   function copyCode() {
     const code = serializeTheme(theme);
@@ -348,6 +409,102 @@ export function VyThemePanel() {
               aria-label={uiText("背景画像 URL")}
               className="mt-2"
             />
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <input
+                ref={fileInput}
+                type="file"
+                accept="image/png,image/jpeg,image/webp,image/avif"
+                className="sr-only"
+                aria-label={uiText("端末から背景画像を選択")}
+                onChange={(event) => void chooseBackground(event.currentTarget.files?.[0])}
+              />
+              <Button
+                size="sm"
+                disabled={!betaThemeEffects || backgroundBusy}
+                onClick={() => fileInput.current?.click()}
+              >
+                {backgroundBusy ? uiText("画像を処理中…") : uiText("端末から画像を選択")}
+              </Button>
+              {theme.chatImage && (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={backgroundBusy}
+                  onClick={() => updateThemeField("chatImage", "")}
+                >
+                  {uiText("画像を削除")}
+                </Button>
+              )}
+            </div>
+            <p className="mt-2 text-xs leading-relaxed text-[var(--vy-text-dim)]">
+              {betaThemeEffects
+                ? uiText("画像は最大1920px・WebPに変換して端末内へ保存します（最大2MB）。")
+                : uiText("画像選択とアクリル効果は、ベータ機能から同意して有効化できます。")}
+            </p>
+            {backgroundError && (
+              <p className="mt-2 text-xs text-[var(--vy-danger)]" role="alert">
+                {backgroundError}
+              </p>
+            )}
+          </div>
+
+          <div className="border-t border-[var(--vy-border)] py-3">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p className="text-sm">{uiText("Acrylic Glass（Beta）")}</p>
+                <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
+                  {uiText("サイドバーとチャットヘッダーを半透明にして背景をぼかします。")}
+                </p>
+              </div>
+              <Toggle
+                checked={betaThemeEffects && theme.acrylic === true}
+                disabled={!betaThemeEffects}
+                label={uiText("Acrylic Glass")}
+                onChange={(value) => setTheme({ ...theme, acrylic: value })}
+              />
+            </div>
+            {betaThemeEffects && theme.acrylic && (
+              <div className="mt-4 space-y-3">
+                <label className="block text-xs">
+                  <span className="flex justify-between">
+                    <span>{uiText("ガラスの透明度")}</span>
+                    <span className="text-[var(--vy-text-dim)]">
+                      {Math.round((theme.acrylicOpacity ?? 0.82) * 100)}%
+                    </span>
+                  </span>
+                  <input
+                    type="range"
+                    min="0.55"
+                    max="0.94"
+                    step="0.01"
+                    value={theme.acrylicOpacity ?? 0.82}
+                    onChange={(event) =>
+                      setTheme({ ...theme, acrylicOpacity: Number(event.currentTarget.value) })
+                    }
+                    className="mt-2 w-full accent-[var(--vy-accent)]"
+                    aria-label={uiText("ガラスの透明度")}
+                  />
+                </label>
+                <label className="block text-xs">
+                  <span className="flex justify-between">
+                    <span>{uiText("ぼかしの強さ")}</span>
+                    <span className="text-[var(--vy-text-dim)]">{theme.acrylicBlur ?? 16}px</span>
+                  </span>
+                  <input
+                    type="range"
+                    min="4"
+                    max="28"
+                    step="1"
+                    value={theme.acrylicBlur ?? 16}
+                    onChange={(event) =>
+                      setTheme({ ...theme, acrylicBlur: Number(event.currentTarget.value) })
+                    }
+                    className="mt-2 w-full accent-[var(--vy-accent)]"
+                    aria-label={uiText("ぼかしの強さ")}
+                  />
+                </label>
+              </div>
+            )}
           </div>
         </div>
       </div>

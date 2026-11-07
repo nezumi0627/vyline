@@ -292,6 +292,29 @@
   background-repeat: var(--vy-chat-bg-image, repeat);
 }
 
+/* Beta Acrylic Glass: applied only after the user enables the experimental feature. */
+:root[data-vy-acrylic="1"] .vy-chat-sidebar-pane .vy-sidebar {
+  background-color: color-mix(in srgb, var(--vy-sidebar) var(--vy-glass-opacity, 82%), transparent) !important;
+  -webkit-backdrop-filter: blur(var(--vy-glass-blur, 16px));
+  backdrop-filter: blur(var(--vy-glass-blur, 16px));
+}
+
+:root[data-vy-acrylic="1"] .vy-chat-header {
+  background-color: color-mix(in srgb, var(--vy-surface) var(--vy-glass-opacity, 82%), transparent) !important;
+  -webkit-backdrop-filter: blur(var(--vy-glass-blur, 16px));
+  backdrop-filter: blur(var(--vy-glass-blur, 16px));
+}
+
+@supports not ((backdrop-filter: blur(1px))) {
+  :root[data-vy-acrylic="1"] .vy-chat-sidebar-pane .vy-sidebar {
+    background-color: var(--vy-sidebar);
+  }
+
+  :root[data-vy-acrylic="1"] .vy-chat-header {
+    background-color: var(--vy-surface);
+  }
+}
+
 /* --- Motion --- */
 @keyframes vy-pop-in {
   0% {
