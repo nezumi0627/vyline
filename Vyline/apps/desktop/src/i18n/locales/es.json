@@ -494,6 +494,7 @@
   "共通のグループ (": "grupo común (",
   "内容が長いためURLには埋め込まず、本文をコピーしてGitHubへ貼り付けます。": "Debido a que el contenido es largo, no lo incruste en la URL, copie y pegue el texto en GitHub.",
   "内容を理解し、このPCでのプロセスメモリ走査とトーク履歴の差分取り込みに同意します。": "Entiendo y acepto analizar la memoria del proceso en este PC e importar las diferencias del historial.",
+  "選択したLINE DesktopとVylineが同じLINEアカウントであることを確認しました。": "Confirmo que LINE Desktop y Vyline están conectados a la misma cuenta de LINE.",
   "再検索": "Buscar de nuevo",
   "再現情報を整えてGitHub Issueを作成するか、Discordで連絡できます。": "Puede crear un problema de GitHub con información de reproducción o contactarnos en Discord.",
   "再現手順": "Pasos de reproducción",

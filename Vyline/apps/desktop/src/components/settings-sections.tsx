@@ -1646,6 +1646,7 @@ function AdvancedSection() {
   const [desktopHistory, setDesktopHistory] = useState<DesktopHistoryOptions | null>(null);
   const [desktopHistoryId, setDesktopHistoryId] = useState("");
   const [desktopMemoryConsent, setDesktopMemoryConsent] = useState(false);
+  const [desktopSameAccountConfirmed, setDesktopSameAccountConfirmed] = useState(false);
   const [desktopHistoryBusy, setDesktopHistoryBusy] = useState(false);
   const [desktopHistoryResult, setDesktopHistoryResult] = useState<DesktopHistoryResult | null>(
     null,
@@ -1688,11 +1689,18 @@ function AdvancedSection() {
   }, [loadDesktopHistoryOptions]);
 
   const handleDesktopHistoryRestore = async () => {
-    if (!accountId || !desktopHistoryId || !desktopMemoryConsent || desktopHistoryBusy) return;
+    if (
+      !accountId ||
+      !desktopHistoryId ||
+      !desktopMemoryConsent ||
+      !desktopSameAccountConfirmed ||
+      desktopHistoryBusy
+    )
+      return;
     setDesktopHistoryBusy(true);
     setDesktopHistoryResult(null);
     try {
-      const result = await api.line.restoreDesktopHistory(accountId, desktopHistoryId, true);
+      const result = await api.line.restoreDesktopHistory(accountId, desktopHistoryId, true, true);
       setDesktopHistoryResult(result);
       if (result.ok) await refreshChatsSilently();
     } catch (error) {
@@ -1703,6 +1711,7 @@ function AdvancedSection() {
     } finally {
       setDesktopHistoryBusy(false);
       setDesktopMemoryConsent(false);
+      setDesktopSameAccountConfirmed(false);
       await loadDesktopHistoryOptions();
     }
   };
@@ -1871,11 +1880,29 @@ function AdvancedSection() {
                   )}
                 </span>
               </label>
+              <label className="flex items-start gap-2 text-xs leading-relaxed">
+                <input
+                  type="checkbox"
+                  checked={desktopSameAccountConfirmed}
+                  onChange={(event) => setDesktopSameAccountConfirmed(event.target.checked)}
+                  disabled={desktopHistoryBusy}
+                  className="mt-0.5 accent-[var(--vy-accent)]"
+                />
+                <span>
+                  {uiText(
+                    "選択したLINE DesktopとVylineが同じLINEアカウントであることを確認しました。",
+                  )}
+                </span>
+              </label>
               <button
                 type="button"
                 onClick={() => void handleDesktopHistoryRestore()}
                 disabled={
-                  !accountId || !desktopHistoryId || !desktopMemoryConsent || desktopHistoryBusy
+                  !accountId ||
+                  !desktopHistoryId ||
+                  !desktopMemoryConsent ||
+                  !desktopSameAccountConfirmed ||
+                  desktopHistoryBusy
                 }
                 className="rounded-lg bg-[var(--vy-accent)] px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:cursor-not-allowed disabled:opacity-50"
               >

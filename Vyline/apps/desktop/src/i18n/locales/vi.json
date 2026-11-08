@@ -494,6 +494,7 @@
   "共通のグループ (": "Nhóm chung (",
   "内容が長いためURLには埋め込まず、本文をコピーしてGitHubへ貼り付けます。": "Vì nội dung dài nên đừng nhúng nó vào URL mà hãy sao chép và dán văn bản vào GitHub.",
   "内容を理解し、このPCでのプロセスメモリ走査とトーク履歴の差分取り込みに同意します。": "Tôi hiểu và đồng ý quét bộ nhớ tiến trình trên PC này và nhập phần lịch sử trò chuyện còn thiếu.",
+  "選択したLINE DesktopとVylineが同じLINEアカウントであることを確認しました。": "Tôi xác nhận LINE Desktop và Vyline đang đăng nhập cùng một tài khoản LINE.",
   "再検索": "Tìm kiếm lại",
   "再現情報を整えてGitHub Issueを作成するか、Discordで連絡できます。": "Bạn có thể tạo sự cố GitHub với thông tin sao chép hoặc liên hệ với chúng tôi trên Discord.",
   "再現手順": "Các bước sao chép",

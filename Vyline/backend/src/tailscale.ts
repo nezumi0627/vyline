@@ -12,6 +12,7 @@ async function tryTailscaleCli(): Promise<string | null> {
       stdout: "pipe",
       stderr: "pipe",
       timeout: 2000,
+      windowsHide: true,
     });
     const out = await new Response(proc.stdout).text();
     await proc.exited;
