@@ -27,6 +27,7 @@ export type DesktopHistoryRestoreErrorCode =
   | "DESKTOP_RESTORE_UNSUPPORTED_PLATFORM"
   | "DESKTOP_RESTORE_NOT_LOGGED_IN"
   | "DESKTOP_RESTORE_ACCOUNT_UNAVAILABLE"
+  | "DESKTOP_RESTORE_ACCOUNT_CONFIRMATION_REQUIRED"
   | "DESKTOP_RESTORE_DATABASE_NOT_FOUND"
   | "DESKTOP_RESTORE_PROCESS_NOT_RUNNING"
   | "DESKTOP_RESTORE_MULTIPLE_PROCESSES"
@@ -68,6 +69,11 @@ const DESKTOP_RESTORE_FAILURES: Record<
   DESKTOP_RESTORE_ACCOUNT_UNAVAILABLE: {
     stage: "account-check",
     message: "Vylineのログインアカウントを確認できません。再ログイン後に再試行してください。",
+  },
+  DESKTOP_RESTORE_ACCOUNT_CONFIRMATION_REQUIRED: {
+    stage: "account-confirmation",
+    message:
+      "LINE DesktopとVylineが同じLINEアカウントであることを確認してから、履歴を取り込んでください。",
   },
   DESKTOP_RESTORE_DATABASE_NOT_FOUND: {
     stage: "source-selection",
@@ -228,11 +234,20 @@ export async function restoreDesktopMessages(
   accountId: string,
   databaseId: string,
   acceptedMemoryScan: boolean,
+  confirmedSameAccount: boolean,
 ) {
   if (!acceptedMemoryScan) {
     const failure = DESKTOP_RESTORE_FAILURES.DESKTOP_RESTORE_CONSENT_REQUIRED;
     throw new DesktopHistoryRestoreError(
       "DESKTOP_RESTORE_CONSENT_REQUIRED",
+      failure.stage,
+      failure.message,
+    );
+  }
+  if (!confirmedSameAccount) {
+    const failure = DESKTOP_RESTORE_FAILURES.DESKTOP_RESTORE_ACCOUNT_CONFIRMATION_REQUIRED;
+    throw new DesktopHistoryRestoreError(
+      "DESKTOP_RESTORE_ACCOUNT_CONFIRMATION_REQUIRED",
       failure.stage,
       failure.message,
     );
@@ -272,13 +287,6 @@ export async function restoreDesktopMessages(
     const integrity = db.query("PRAGMA integrity_check").get() as { integrity_check: string };
     if (integrity.integrity_check !== "ok")
       throw classifyDesktopHistoryRestoreFailure(new Error("integrity check failed"));
-
-    const belongsToAccount = db
-      .query("SELECT 1 AS found FROM _contact WHERE _mid=? LIMIT 1")
-      .get(myMid) as { found: number } | null;
-    if (!belongsToAccount) {
-      throw classifyDesktopHistoryRestoreFailure(new Error("account does not match"));
-    }
 
     const existingChats = new Map(
       (await getStoredChats(accountId)).map((chat) => [chat.mid, chat]),

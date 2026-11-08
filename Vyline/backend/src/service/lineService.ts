@@ -422,14 +422,15 @@ async function ensureGroupE2EEKey(
     } catch (err) {
       groupKeyWarmFailed.add(cacheKey);
       const msg = err instanceof Error ? err.message : String(err);
+      const details = protocolErrorText(err);
       // E2EE 未設定グループは NOT_FOUND が正常。WARN 連打を避ける
       const expectedMissing =
-        msg.includes("NOT_FOUND") ||
-        msg.includes("no valid group key") ||
-        msg.includes("there is no valid group key");
-      if (expectedMissing || isRetryPlainError(msg)) {
+        details.includes("NOT_FOUND") ||
+        details.includes("no valid group key") ||
+        details.includes("there is no valid group key");
+      if (expectedMissing || isRetryPlainError(err)) {
         log.debug({ chatMid, err: msg }, "ensureGroupE2EEKey: no group key (skip)");
-        if (isRetryPlainError(msg)) noE2eePeers.add(cacheKey);
+        if (isRetryPlainError(err)) noE2eePeers.add(cacheKey);
       } else {
         log.warn(
           { chatMid, err: msg },
@@ -4529,16 +4530,30 @@ export interface SendMessageOptions {
  * encrypt-then-resend する」実装には依存しない)。失敗した場合は sender key
  * ローテート → プレーンテキストの順にフォールバックする。
  */
-function isSenderKeyError(errMsg: string): boolean {
+function protocolErrorText(error: unknown): string {
+  const message = error instanceof Error ? error.message : String(error);
+  if (!error || typeof error !== "object") return message;
+  const data = (error as { data?: unknown }).data;
+  if (!data || typeof data !== "object") return message;
+  const fields = data as { code?: unknown; reason?: unknown };
+  const code = typeof fields.code === "string" ? fields.code : "";
+  const reason = typeof fields.reason === "string" ? fields.reason : "";
+  return [message, code, reason].filter(Boolean).join(" ");
+}
+
+function isSenderKeyError(error: unknown): boolean {
+  const errMsg = protocolErrorText(error);
   return errMsg.includes("E2EE_UPDATE_SENDER_KEY") || errMsg.includes("invalid sender key");
 }
 
-function isGroupKeyRecreateError(errMsg: string): boolean {
+function isGroupKeyRecreateError(error: unknown): boolean {
+  const errMsg = protocolErrorText(error);
   return errMsg.includes("E2EE_RECREATE_GROUP_KEY") || errMsg.includes("old group key");
 }
 
 /** グループにまだ共有鍵が無い（初回 E2EE 送信前） */
-function isMissingGroupKeyError(errMsg: string): boolean {
+function isMissingGroupKeyError(error: unknown): boolean {
+  const errMsg = protocolErrorText(error);
   const lower = errMsg.toLowerCase();
   return (
     errMsg.includes("no valid group key") ||
@@ -4549,7 +4564,8 @@ function isMissingGroupKeyError(errMsg: string): boolean {
   );
 }
 
-function isRetryPlainError(errMsg: string): boolean {
+function isRetryPlainError(error: unknown): boolean {
+  const errMsg = protocolErrorText(error);
   const lower = errMsg.toLowerCase();
   return errMsg.includes("E2EE_RETRY_PLAIN") || lower.includes("member settings off");
 }
@@ -4579,12 +4595,12 @@ async function ensureGroupKeyReadyForSend(
     return;
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    if (isRetryPlainError(msg)) {
+    if (isRetryPlainError(err)) {
       noE2eePeers.add(cacheKey);
       log.debug({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: retry plain");
       return;
     }
-    if (!isMissingGroupKeyError(msg)) {
+    if (!isMissingGroupKeyError(err)) {
       log.warn({ accountId, chatMid, err: msg }, "ensureGroupKeyReadyForSend: getLast failed");
       throw err;
     }
@@ -4597,7 +4613,8 @@ async function ensureGroupKeyReadyForSend(
   groupKeyWarm.add(cacheKey);
 }
 
-function isE2EESendError(errMsg: string): boolean {
+function isE2EESendError(error: unknown): boolean {
+  const errMsg = protocolErrorText(error);
   return (
     errMsg.includes("E2EE") ||
     errMsg.includes("BAD_DECRYPT") ||
@@ -4611,7 +4628,8 @@ function isE2EESendError(errMsg: string): boolean {
 
 const noE2eePeers = new Set<string>();
 
-function markNoE2eePeer(accountId: string, chatMid: string, errMsg: string): void {
+function markNoE2eePeer(accountId: string, chatMid: string, error: unknown): void {
+  const errMsg = protocolErrorText(error);
   if (
     errMsg.includes("Not support E2EE") ||
     errMsg.includes("NoE2EEKey") ||
@@ -4682,7 +4700,7 @@ export async function sendMessage(
         }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        if (msg.includes("E2EE_RETRY_PLAIN")) {
+        if (isRetryPlainError(err)) {
           // サーバーが「このグループは E2EE 無効なので平文で送れ」と指示している。
           // ensureGroupKeyReadyForSend 内の register で例外になるため、ここで受けて
           // 平文パスへ落とす（以降このグループは noE2eePeers で E2EE をスキップ）。
@@ -4760,9 +4778,9 @@ export async function sendMessage(
       return await finish(sent, true);
     } catch (err) {
       let errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(accountId, chatMid, errMsg);
+      markNoE2eePeer(accountId, chatMid, err);
 
-      if (isSenderKeyError(errMsg)) {
+      if (isSenderKeyError(err)) {
         log.warn(
           { accountId, chatMid, errMsg },
           "invalid sender key — rotating E2EE sender key and retrying",
@@ -4785,12 +4803,12 @@ export async function sendMessage(
           );
           err = retryErr;
           errMsg = retryErr instanceof Error ? retryErr.message : String(retryErr);
-          markNoE2eePeer(accountId, chatMid, errMsg);
+          markNoE2eePeer(accountId, chatMid, retryErr);
         }
       }
 
       if (
-        (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+        (isGroupKeyRecreateError(err) || isMissingGroupKeyError(err)) &&
         (chatMid.startsWith("c") || chatMid.startsWith("r"))
       ) {
         log.warn(
@@ -4818,18 +4836,13 @@ export async function sendMessage(
       }
 
       const finalMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(accountId, chatMid, finalMsg);
-      if (!isE2EESendError(finalMsg) && !isSenderKeyError(errMsg)) {
+      markNoE2eePeer(accountId, chatMid, err);
+      if (!isE2EESendError(err) && !isSenderKeyError(err)) {
         throw err;
       }
 
       // グループ鍵再作成が必要なのに失敗した場合は plain に落とさない（暗号化ポリシー）
-      if (
-        isGroupKeyRecreateError(finalMsg) ||
-        isGroupKeyRecreateError(errMsg) ||
-        isMissingGroupKeyError(finalMsg) ||
-        isMissingGroupKeyError(errMsg)
-      ) {
+      if (isGroupKeyRecreateError(err) || isMissingGroupKeyError(err)) {
         throw err;
       }
 
@@ -5043,7 +5056,7 @@ export async function sendMedia(
       } catch (err) {
         let errMsg = err instanceof Error ? err.message : String(err);
 
-        if (isSenderKeyError(errMsg)) {
+        if (isSenderKeyError(err)) {
           log.warn(
             { accountId, chatMid, errMsg },
             "media send: invalid sender key — rotating and retrying",
@@ -5063,7 +5076,7 @@ export async function sendMedia(
         }
 
         if (
-          (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+          (isGroupKeyRecreateError(err) || isMissingGroupKeyError(err)) &&
           (chatMid.startsWith("c") || chatMid.startsWith("r"))
         ) {
           log.warn(
@@ -5343,7 +5356,7 @@ export async function sendMediaBatch(
         } catch (err) {
           let errMsg = err instanceof Error ? err.message : String(err);
 
-          if (isSenderKeyError(errMsg)) {
+          if (isSenderKeyError(err)) {
             log.warn(
               { accountId, chatMid, errMsg },
               "media batch send: invalid sender key — rotating and retrying",
@@ -5361,7 +5374,7 @@ export async function sendMediaBatch(
           }
 
           if (
-            (isGroupKeyRecreateError(errMsg) || isMissingGroupKeyError(errMsg)) &&
+            (isGroupKeyRecreateError(err) || isMissingGroupKeyError(err)) &&
             (chatMid.startsWith("c") || chatMid.startsWith("r"))
           ) {
             log.warn(
@@ -5685,7 +5698,7 @@ async function sendStickerMessage(
       });
     } catch (err) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      markNoE2eePeer(accountId, chatMid, errMsg);
+      markNoE2eePeer(accountId, chatMid, err);
       log.warn({ accountId, chatMid, errMsg }, "e2ee sticker send failed, trying plain");
       sent = await sendPlain();
     }

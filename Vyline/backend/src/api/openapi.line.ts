@@ -2162,9 +2162,10 @@ const routes: Array<[string, Method, OpSpec]> = [
       summary: "LINE Desktop の履歴を差分復元",
       tags: ["misc"],
       params: [acc],
-      requestBody: body(["databaseId", "acceptedMemoryScan"], {
+      requestBody: body(["databaseId", "acceptedMemoryScan", "confirmedSameAccount"], {
         databaseId: { type: "string" },
         acceptedMemoryScan: { type: "boolean" },
+        confirmedSameAccount: { type: "boolean" },
       }),
       responses: { "200": jsonRes("差分復元結果") },
     },

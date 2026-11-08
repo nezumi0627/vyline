@@ -1411,7 +1411,12 @@ export const api = {
         }>;
         error?: string;
       }>("GET", `/line/${accountId}/restore/desktop/history`),
-    restoreDesktopHistory: (accountId: string, databaseId: string, acceptedMemoryScan: boolean) =>
+    restoreDesktopHistory: (
+      accountId: string,
+      databaseId: string,
+      acceptedMemoryScan: boolean,
+      confirmedSameAccount: boolean,
+    ) =>
       request<{
         ok: boolean;
         importedChats?: number;
@@ -1428,7 +1433,11 @@ export const api = {
         code?: string;
         stage?: string;
         error?: string;
-      }>("POST", `/line/${accountId}/restore/desktop/history`, { databaseId, acceptedMemoryScan }),
+      }>("POST", `/line/${accountId}/restore/desktop/history`, {
+        databaseId,
+        acceptedMemoryScan,
+        confirmedSameAccount,
+      }),
 
     /** iOS 暗号化バックアップのデバイス一覧を取得 */
     listIosBackups: (accountId: string) =>

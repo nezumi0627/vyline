@@ -2660,16 +2660,25 @@ lineRouter.get("/:accountId/restore/desktop/history", async (c) => {
 lineRouter.post("/:accountId/restore/desktop/history", async (c) => {
   const accountId = c.req.param("accountId");
   if (!getClient(accountId)) return c.json({ ok: false, error: "not logged in" }, 401);
-  const body = await c.req.json<{ databaseId?: unknown; acceptedMemoryScan?: unknown }>();
+  const body = await c.req.json<{
+    databaseId?: unknown;
+    acceptedMemoryScan?: unknown;
+    confirmedSameAccount?: unknown;
+  }>();
   if (typeof body.databaseId !== "string" || !/^[0-9a-f]{16}$/.test(body.databaseId)) {
     return c.json({ ok: false, error: "databaseId is invalid" }, 400);
   }
   if (body.acceptedMemoryScan !== true) {
     return c.json({ ok: false, error: "メモリ走査への明示同意が必要です" }, 400);
   }
+  if (body.confirmedSameAccount !== true) {
+    return c.json({ ok: false, error: "LINE DesktopとVylineの同一アカウント確認が必要です" }, 400);
+  }
   try {
     const { restoreDesktopMessages } = await import("../service/desktopMessagesRestore.js");
-    return c.json(await restoreDesktopMessages(accountId, body.databaseId, true));
+    return c.json(
+      await restoreDesktopMessages(accountId, body.databaseId, true, body.confirmedSameAccount),
+    );
   } catch (err) {
     // Decryption/SQLite exceptions may include local paths or implementation details.
     // Keep them out of the API response; the user can retry after checking the guidance.
