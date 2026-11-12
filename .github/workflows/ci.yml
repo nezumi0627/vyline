@@ -125,7 +125,7 @@ jobs:
           }
           trap cleanup EXIT
           backend_url="http://127.0.0.1:18766"
-          HOME="$VYLINE_SMOKE_HOME" PORT=18766 VYLINE_HOST=127.0.0.1 \
+          PORT=18766 VYLINE_HOST=127.0.0.1 \
             VYLINE_CORS_ORIGIN="$backend_url" VYLINE_STATIC_DIR="$resources/web" \
             VYLINE_OPENAPI_PATH="$resources/openapi.yaml" \
             VYLINE_DESKTOP_PROFILE_FALLBACK="$resources/data/desktop-profile.fallback.json" \
@@ -149,8 +149,9 @@ jobs:
           wait "$backend_pid" 2>/dev/null || true
           backend_pid=""
 
-          HOME="$VYLINE_SMOKE_HOME" "$executable" &
-          launcher_pid=$!
+          open -n -a "$app" --env "VYLINE_LAUNCHER_DATA_ROOT=$VYLINE_SMOKE_HOME" \
+            --env VYLINE_LAUNCHER_NO_BROWSER=1
+          launcher_pid=$(pgrep -x Vyline)
           url="http://127.0.0.1:18765"
           for attempt in {1..30}; do
             if curl --fail --silent "$url/healthz" >/dev/null; then break; fi
@@ -162,6 +163,18 @@ jobs:
           done
           curl --fail --silent "$url/healthz" | grep -q '"status":"ready"'
           curl --fail --silent "$url/" | grep -q '/assets/'
+          swift -e 'import AppKit; guard let app = NSRunningApplication(processIdentifier: Int32(CommandLine.arguments[1])!), app.isFinishedLaunching, app.activationPolicy == .regular else { fatalError("Native launcher has not completed launch") }' "$launcher_pid"
+          backend_pid=$(pgrep -P "$launcher_pid" -x VylineBackend)
+          kill -TERM "$launcher_pid"
+          for attempt in {1..10}; do
+            if ! kill -0 "$launcher_pid" 2>/dev/null; then break; fi
+            sleep 1
+          done
+          ! kill -0 "$launcher_pid" 2>/dev/null
+          ! kill -0 "$backend_pid" 2>/dev/null
+          wait "$launcher_pid" 2>/dev/null || true
+          launcher_pid=""
+          backend_pid=""
 
   docker-build:
     name: Docker build + runtime smoke (${{ matrix.platform }})
