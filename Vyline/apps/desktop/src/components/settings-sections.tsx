@@ -1385,8 +1385,11 @@ function Section({
 
 function ThemeSectionWithPreview() {
   const theme = useStore((s) => s.theme);
+  const betaThemeEffects = useStore((s) => s.settings.betaThemeEffects);
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
+  const backgroundEnabled = betaThemeEffects && Boolean(theme.chatImage);
+  const backgroundBlur = Math.max(0, Math.min(24, theme.chatBackgroundBlur ?? 6));
   return (
     <div className="vy-fade-in grid gap-6 lg:grid-cols-[1fr_minmax(280px,320px)]">
       <div>
@@ -1401,23 +1404,34 @@ function ThemeSectionWithPreview() {
           {uiText("ライブプレビュー")}
         </p>
         <div
-          className="sticky top-4 overflow-hidden border border-[var(--vy-border)] shadow-lg"
+          className="relative sticky top-4 overflow-hidden border border-[var(--vy-border)]"
           style={{
-            background: theme.chatImage ? undefined : theme.chatBg,
-            backgroundImage: theme.chatImage
-              ? `linear-gradient(color-mix(in oklab, ${theme.chatBg} 72%, transparent), color-mix(in oklab, ${theme.chatBg} 72%, transparent)), url(${theme.chatImage})`
-              : theme.pattern
+            background: theme.chatBg,
+            backgroundImage:
+              !backgroundEnabled && theme.pattern
                 ? `radial-gradient(circle at 1px 1px, color-mix(in oklab, ${theme.text} 8%, transparent) 1px, transparent 0)`
                 : undefined,
-            backgroundSize: theme.chatImage ? "cover" : theme.pattern ? "14px 14px" : undefined,
-            backgroundPosition: "center",
+            backgroundSize: !backgroundEnabled && theme.pattern ? "14px 14px" : undefined,
             borderRadius: `${theme.radius}rem`,
           }}
         >
+          {backgroundEnabled && (
+            <div
+              aria-hidden="true"
+              className="absolute -inset-4"
+              style={{
+                backgroundImage: `linear-gradient(color-mix(in srgb, ${theme.chatBg} 12%, transparent), color-mix(in srgb, ${theme.chatBg} 22%, transparent)), url(${theme.chatImage})`,
+                backgroundSize: "cover",
+                backgroundPosition: "center",
+                filter: `blur(${backgroundBlur}px)`,
+                transform: "scale(1.06)",
+              }}
+            />
+          )}
           <div
-            className="flex items-center gap-2 border-b px-3 py-2.5 backdrop-blur-sm"
+            className="relative z-10 flex items-center gap-2 border-b px-3 py-2.5"
             style={{
-              background: `color-mix(in oklab, ${theme.surface} 92%, transparent)`,
+              background: theme.surface,
               borderColor: theme.border,
             }}
           >
@@ -1437,7 +1451,7 @@ function ThemeSectionWithPreview() {
             </div>
           </div>
           <div
-            className="space-y-2 p-3"
+            className="relative z-10 space-y-2 p-3"
             style={{
               fontSize: `${0.95 * fontScale}rem`,
               paddingTop: compact ? "0.55rem" : "0.75rem",

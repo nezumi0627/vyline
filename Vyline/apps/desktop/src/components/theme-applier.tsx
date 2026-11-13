@@ -8,6 +8,7 @@ export function ThemeApplier() {
   const fontScale = useStore((s) => s.settings.fontScale);
   const compact = useStore((s) => s.settings.compactDensity);
   const animationMode = useStore((s) => s.settings.animationMode);
+  const betaThemeEffects = useStore((s) => s.settings.betaThemeEffects);
 
   useLayoutEffect(() => {
     const r = document.documentElement;
@@ -31,14 +32,19 @@ export function ThemeApplier() {
       "--vy-chat-pattern": String(theme.pattern),
     };
     for (const [k, v] of Object.entries(map)) r.style.setProperty(k, v);
-    if (theme.chatImage) {
+    const backgroundEnabled = betaThemeEffects && Boolean(theme.chatImage);
+    if (backgroundEnabled) {
       r.style.setProperty("--vy-chat-image", `url(${theme.chatImage})`);
     } else {
       r.style.removeProperty("--vy-chat-image");
     }
+    const backgroundBlur = Number.isFinite(theme.chatBackgroundBlur)
+      ? Math.max(0, Math.min(24, theme.chatBackgroundBlur!))
+      : 6;
+    r.style.setProperty("--vy-chat-background-blur", `${backgroundBlur}px`);
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute("content", theme.bg);
-  }, [theme]);
+  }, [theme, betaThemeEffects]);
 
   useLayoutEffect(() => {
     const root = document.documentElement;

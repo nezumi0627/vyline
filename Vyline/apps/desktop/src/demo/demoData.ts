@@ -280,4 +280,5 @@ export const demoSettings: Settings = {
   betaBlockedListSqliteSync: false,
   aiEnabled: true,
   betaWindowsLineTokens: false,
+  betaThemeEffects: false,
 };

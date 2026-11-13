@@ -16,6 +16,8 @@ export function betaFeatureIdForSetting(key: string): string {
       return "agent-i-assistant";
     case "betaWindowsLineTokens":
       return "windows-line-token-inspection";
+    case "betaThemeEffects":
+      return "theme-chat-background-blur";
     case "betaBlockedListSqliteSync":
       return "blocked-list-sqlite-sync";
     case "betaOpenChatSquare":

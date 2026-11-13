@@ -133,7 +133,10 @@ export function parseSettingsBackup(
     const theme = { ...current.theme } as Record<string, unknown>;
     for (const [key, value] of Object.entries(raw.theme)) {
       if (!(key in theme)) continue;
-      if (key === "radius") {
+      if (key === "chatBackgroundBlur") {
+        if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 24)
+          theme[key] = value;
+      } else if (key === "radius") {
         if (typeof value === "number" && Number.isFinite(value) && value >= 0 && value <= 64)
           theme[key] = value;
       } else if (key === "pattern") {
@@ -147,6 +150,14 @@ export function parseSettingsBackup(
       ) {
         theme[key] = value;
       }
+    }
+    const oldBlur = raw.theme.acrylicBlur;
+    if (
+      !("chatBackgroundBlur" in raw.theme) &&
+      typeof oldBlur === "number" &&
+      Number.isFinite(oldBlur)
+    ) {
+      theme.chatBackgroundBlur = Math.max(0, Math.min(24, oldBlur));
     }
     result.theme = theme as VyTheme;
   }
