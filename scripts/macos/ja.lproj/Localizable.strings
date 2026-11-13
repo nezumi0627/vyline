@@ -1,0 +1,5 @@
+"Open Vyline" = "Vylineを開く";
+"Quit Vyline" = "Vylineを終了";
+"Vyline could not start" = "Vylineを起動できませんでした";
+"The backend could not start. See the log for details:\n%@" = "バックエンドの起動に失敗しました。詳細は次のログで確認できます：\n%@";
+"Quit" = "終了";

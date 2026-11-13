@@ -39,6 +39,11 @@ await mkdir(iconsetDir, { recursive: true });
 run("bun", ["run", "build"]);
 await cp(join(root, "Vyline", "apps", "desktop", "dist"), webDir, { recursive: true });
 await cp(join(root, "openapi.yaml"), join(resourcesDir, "openapi.yaml"));
+await cp(join(root, "LICENSE"), join(resourcesDir, "LICENSE"));
+await cp(join(root, "logo", "LICENCE"), join(resourcesDir, "BRAND-LICENCE"));
+await cp(join(root, "scripts", "macos", "ja.lproj"), join(resourcesDir, "ja.lproj"), {
+  recursive: true,
+});
 const fallbackProfile = join(
   root,
   "Vyline",
@@ -81,14 +86,16 @@ run("bun", [
   join(resourcesDir, "VylineBackend"),
   join(root, "Vyline", "backend", "src", "index.ts"),
 ]);
-run("bun", [
-  "build",
-  "--compile",
-  "--minify",
-  `--target=${target}`,
-  "--outfile",
+run("xcrun", [
+  "swiftc",
+  "-O",
+  "-target",
+  `${arch === "arm64" ? "arm64" : "x86_64"}-apple-macos13.0`,
+  "-framework",
+  "AppKit",
+  "-o",
   join(macOSDir, "Vyline"),
-  join(root, "scripts", "macos-launcher.ts"),
+  join(root, "scripts", "macos-launcher.swift"),
 ]);
 
 const plist = `<?xml version="1.0" encoding="UTF-8"?>
@@ -102,6 +109,8 @@ const plist = `<?xml version="1.0" encoding="UTF-8"?>
 <key>CFBundleExecutable</key><string>Vyline</string>
 <key>CFBundleIconFile</key><string>Vyline.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleDevelopmentRegion</key><string>en</string>
+<key>CFBundleLocalizations</key><array><string>en</string><string>ja</string></array>
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 </dict></plist>
 `;
