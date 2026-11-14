@@ -25,6 +25,7 @@ import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import type { PostNotificationTarget } from "@/components/message-bubble";
 
 type RichInfo = {
+  displayName?: string;
   statusMessage?: string;
   phoneticName?: string;
   musicProfile?: string;
@@ -191,6 +192,7 @@ export function ProfileDrawer({
         };
         if (!r.profile) return;
         setRich({
+          displayName: r.profile.displayName,
           statusMessage: r.profile.statusMessage,
           phoneticName: r.profile.phoneticName,
           musicProfile: r.profile.musicProfile,
@@ -258,6 +260,7 @@ export function ProfileDrawer({
   }, [accountId, chat.id, chat.type, streamerMode, chat.isSelf]);
 
   const name = displayName(chat, streamerMode);
+  const actualName = rich.displayName || chat.name;
   const backgroundUrl =
     chat.backgroundUrl ?? (chat.isSelf ? selfBackgroundUrl : undefined) ?? rich.backgroundUrl;
   const showBackground = Boolean(!streamerMode && settings.showBackground && backgroundUrl);
@@ -284,9 +287,7 @@ export function ProfileDrawer({
         setActionMsg(res.error ?? "表示名の同期に失敗しました（ローカルのみ保存）");
       } else {
         useStore.setState((st) => ({
-          chats: st.chats.map((c) =>
-            c.id === chat.id ? { ...c, name: next, localName: next } : c,
-          ),
+          chats: st.chats.map((c) => (c.id === chat.id ? { ...c, localName: next } : c)),
         }));
         setActionMsg("友だち表示名を更新しました");
       }
@@ -529,19 +530,26 @@ export function ProfileDrawer({
                       </button>
                     </div>
                   ) : (
-                    <div className="mt-3 flex items-center gap-2">
-                      <h2 className="text-xl font-bold">{name}</h2>
-                      {!streamerMode && chat.isOfficial && <OfficialBadge />}
-                      {chat.isSelf && selfPremium && <PremiumBadge size={14} compact />}
-                      {!streamerMode && !chat.isSelf && (
-                        <button
-                          type="button"
-                          onClick={() => setEditing(true)}
-                          aria-label={uiText("表示名を変更")}
-                          className="text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-accent)]"
-                        >
-                          <IconEdit size={16} />
-                        </button>
+                    <div className="mt-3 flex flex-col items-center gap-1">
+                      <div className="flex items-center gap-2">
+                        <h2 className="text-xl font-bold">{name}</h2>
+                        {!streamerMode && chat.isOfficial && <OfficialBadge />}
+                        {chat.isSelf && selfPremium && <PremiumBadge size={14} compact />}
+                        {!streamerMode && !chat.isSelf && (
+                          <button
+                            type="button"
+                            onClick={() => setEditing(true)}
+                            aria-label={uiText("表示名を変更")}
+                            className="text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-accent)]"
+                          >
+                            <IconEdit size={16} />
+                          </button>
+                        )}
+                      </div>
+                      {!streamerMode && !chat.isSelf && actualName && actualName !== name && (
+                        <p className="max-w-full truncate text-sm text-[var(--vy-text-dim)]">
+                          {actualName}
+                        </p>
                       )}
                     </div>
                   )}
