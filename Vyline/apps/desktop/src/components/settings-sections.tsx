@@ -23,6 +23,7 @@ import { betaFeatureIdForSetting, recordBetaFeatureDecision } from "@/lib/betaCo
 import { resolveDiagnosticsMid } from "@/lib/diagnosticsMid";
 import { UI_LANGUAGES, changeUiLanguage, getIntlLocale } from "@/i18n";
 import { ActionFeedback } from "@/components/action-feedback";
+import { ReleaseNotes } from "@/components/release-notes";
 
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
@@ -195,6 +196,40 @@ export function SettingsSections() {
   const [statusDraft, setStatusDraft] = useState(self.status);
   const [profileSaving, setProfileSaving] = useState(false);
   const [profileMsg, setProfileMsg] = useState<string | null>(null);
+  const [profileLoading, setProfileLoading] = useState(false);
+
+  useEffect(() => {
+    if (section !== "profile" || demoMode || !accountId) return;
+    let cancelled = false;
+    setProfileLoading(true);
+    void api.line
+      .getProfile(accountId)
+      .then((result) => {
+        if (cancelled || useStore.getState().accountId !== accountId) return;
+        if (!result.ok || !result.profile)
+          throw new Error(uiText("プロフィールを取得できませんでした"));
+        const profile = result.profile;
+        const currentSelf = useStore.getState().self;
+        updateSelf({
+          mid: profile.mid,
+          name: profile.displayName || currentSelf.name,
+          status: profile.statusMessage ?? "",
+          avatarUrl: profile.thumbnailUrl || currentSelf.avatarUrl,
+          backgroundUrl: profile.backgroundUrl || currentSelf.backgroundUrl,
+        });
+        setNameDraft(profile.displayName || currentSelf.name);
+        setStatusDraft(profile.statusMessage ?? "");
+      })
+      .catch((error) => {
+        if (!cancelled) setProfileMsg(error instanceof Error ? error.message : String(error));
+      })
+      .finally(() => {
+        if (!cancelled) setProfileLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section, accountId, demoMode, updateSelf]);
 
   const saveLineProfile = async () => {
     if (demoMode) {
@@ -385,7 +420,7 @@ export function SettingsSections() {
                 >
                   <div className="mb-4 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)]">
                     <div
-                      className="relative h-28 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
+                      className="relative h-40 sm:h-48 bg-[color-mix(in_oklab,var(--vy-accent)_18%,var(--vy-surface-2))]"
                       style={
                         self.backgroundUrl
                           ? {
@@ -443,6 +478,7 @@ export function SettingsSections() {
                       <label className="text-sm font-medium">{uiText("表示名")}</label>
                       <input
                         value={nameDraft}
+                        disabled={profileLoading}
                         onChange={(e) => setNameDraft(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
@@ -453,6 +489,7 @@ export function SettingsSections() {
                       </label>
                       <input
                         value={statusDraft}
+                        disabled={profileLoading}
                         onChange={(e) => setStatusDraft(e.target.value)}
                         className="mt-2 w-full rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
                       />
@@ -465,7 +502,11 @@ export function SettingsSections() {
                     className="mt-4 rounded-xl px-4 py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
                     style={{ background: "var(--vy-accent)" }}
                   >
-                    {profileSaving ? "保存中…" : "LINE に保存"}
+                    {profileLoading
+                      ? uiText("プロフィール取得中…")
+                      : profileSaving
+                        ? uiText("保存中…")
+                        : uiText("LINE に保存")}
                   </button>
                   {profileMsg && (
                     <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{profileMsg}</p>
@@ -2814,9 +2855,9 @@ function InfoSection() {
                   <summary className="cursor-pointer text-xs font-medium">
                     {uiText("更新内容")}
                   </summary>
-                  <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words font-sans text-xs leading-relaxed text-[var(--vy-text-dim)]">
-                    {updateInfo.body}
-                  </pre>
+                  <div className="mt-2 max-h-64 overflow-auto text-[var(--vy-text-dim)]">
+                    <ReleaseNotes markdown={updateInfo.body} />
+                  </div>
                 </details>
               )}
               {updateInfo.downloadDigest && (
@@ -3184,60 +3225,62 @@ function PrivacySection() {
         </Card>
       </div>
 
-      <div className="mt-4">
-        <Card>
-          <div className="py-3.5">
-            <div className="flex items-center justify-between gap-2">
-              <p className="text-sm font-medium">{uiText("ブロックリスト")}</p>
-              <button
-                type="button"
-                disabled={(!accountId && !demoMode) || blockedLoading}
-                onClick={() => void loadBlocked()}
-                className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
-              >
-                {blockedLoading ? "取得中…" : "取得"}
-              </button>
-            </div>
-            {blocked.length === 0 ? (
-              <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
-                {uiText("未取得、または 0 件")}
-              </p>
-            ) : (
-              <ul className="vy-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">
-                {blocked.map((b) => (
-                  <li
-                    key={b.mid}
-                    className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
-                  >
-                    <Avatar
-                      glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}
-                      color="var(--vy-accent)"
-                      size={32}
-                      imageUrl={b.avatarUrl}
-                    />
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-xs font-medium">
-                        {b.name || `${b.mid.slice(0, 14)}…`}
-                      </p>
-                      <p className="truncate font-mono text-[0.6rem] text-[var(--vy-text-dim)]">
-                        {b.mid}
-                      </p>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={unblocking.has(b.mid)}
-                      onClick={() => void handleUnblock(b.mid)}
-                      className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)] disabled:opacity-40"
+      {!settings.streamerMode && (
+        <div className="mt-4">
+          <Card>
+            <div className="py-3.5">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-sm font-medium">{uiText("ブロックリスト")}</p>
+                <button
+                  type="button"
+                  disabled={(!accountId && !demoMode) || blockedLoading}
+                  onClick={() => void loadBlocked()}
+                  className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
+                >
+                  {blockedLoading ? "取得中…" : "取得"}
+                </button>
+              </div>
+              {blocked.length === 0 ? (
+                <p className="mt-2 text-xs text-[var(--vy-text-dim)]">
+                  {uiText("未取得、または 0 件")}
+                </p>
+              ) : (
+                <ul className="vy-scroll mt-2 max-h-64 space-y-1 overflow-y-auto">
+                  {blocked.map((b) => (
+                    <li
+                      key={b.mid}
+                      className="flex items-center gap-3 rounded-lg px-2 py-1.5 transition-colors hover:bg-[var(--vy-surface-2)]"
                     >
-                      {unblocking.has(b.mid) ? "…" : "解除"}
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-        </Card>
-      </div>
+                      <Avatar
+                        glyph={b.name?.charAt(0)?.toUpperCase() ?? "?"}
+                        color="var(--vy-accent)"
+                        size={32}
+                        imageUrl={b.avatarUrl}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-xs font-medium">
+                          {b.name || `${b.mid.slice(0, 14)}…`}
+                        </p>
+                        <p className="truncate font-mono text-[0.6rem] text-[var(--vy-text-dim)]">
+                          {b.mid}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={unblocking.has(b.mid)}
+                        onClick={() => void handleUnblock(b.mid)}
+                        className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)] disabled:opacity-40"
+                      >
+                        {unblocking.has(b.mid) ? "…" : "解除"}
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </Card>
+        </div>
+      )}
     </Section>
   );
 }

@@ -380,7 +380,7 @@
   "プロキシ・ブロック": "blok proksi",
   "プロフィール": "Profil",
   "プロフィールに戻る": "Kembali ke profil",
-  "プロフィールを取得できませんでした": "Tidak dapat mengambil profil",
+  "プロフィールを取得できませんでした": "Profil tidak dapat dimuat",
   "プロフィール画像など": "Gambar profil dll.",
   "プロフィール設定": "Pengaturan profil",
   "ベータ機能": "Fitur beta",
@@ -815,5 +815,9 @@
   "アナウンスはありません": "アナウンスはありません",
   "このアナウンスの本文は表示できません": "このアナウンスの本文は表示できません",
   "アナウンスに設定": "アナウンスに設定",
-  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。"
+  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。",
+  "セットアップ状態を確認しています…": "Memeriksa status penyiapan…",
+  "ログインアカウントのプロフィールを確認できません。ネットワークを確認して再読み込みしてください。": "Profil akun yang masuk tidak dapat diverifikasi. Periksa jaringan lalu muat ulang.",
+  "プロフィール取得中…": "Memuat profil…",
+  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "Status penyiapan tidak dapat diverifikasi. Periksa jaringan lalu muat ulang."
 }

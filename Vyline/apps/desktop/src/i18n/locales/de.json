@@ -380,7 +380,7 @@
   "プロキシ・ブロック": "Proxy-Block",
   "プロフィール": "Profil",
   "プロフィールに戻る": "Zurück zum Profil",
-  "プロフィールを取得できませんでした": "Profil konnte nicht abgerufen werden",
+  "プロフィールを取得できませんでした": "Profil konnte nicht geladen werden",
   "プロフィール画像など": "Profilbild usw.",
   "プロフィール設定": "Profileinstellungen",
   "ベータ機能": "Beta-Funktionen",
@@ -815,5 +815,9 @@
   "アナウンスはありません": "アナウンスはありません",
   "このアナウンスの本文は表示できません": "このアナウンスの本文は表示できません",
   "アナウンスに設定": "アナウンスに設定",
-  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。"
+  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。",
+  "セットアップ状態を確認しています…": "Einrichtungsstatus wird überprüft…",
+  "ログインアカウントのプロフィールを確認できません。ネットワークを確認して再読み込みしてください。": "Das Profil des angemeldeten Kontos konnte nicht geprüft werden. Netzwerk prüfen und neu laden.",
+  "プロフィール取得中…": "Profil wird geladen…",
+  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "Einrichtungsstatus konnte nicht geprüft werden. Netzwerk prüfen und neu laden."
 }
