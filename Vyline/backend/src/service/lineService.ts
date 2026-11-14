@@ -3890,7 +3890,9 @@ async function processSingleOperation(
       const chatMid = chatMidFromRaw(raw, myMid);
       let message = mapDecodedRawToMessage(raw, myMid);
       try {
-        if (raw.contentMetadata && (raw.contentMetadata as Record<string, unknown>).e2eeVersion) {
+        // e2eeVersion が省略された暗号化Operationも復号関数内の既定値で処理する。
+        // chunks があるのにversionだけを理由に飛ばすと E2EE_UNAVAILABLE が永続化される。
+        if (Array.isArray(raw.chunks) && raw.chunks.length > 0) {
           const decrypted = await decryptE2EEMessageSafe(client, accountId, chatMid, raw);
           if (decrypted) message = decrypted;
         }
@@ -4288,11 +4290,6 @@ async function fetchMessagesInner(
           setBoundedCacheEntry(boxCursorCache, cacheKey, { at: now, endMessageId }, 2_048);
         } else {
           setBoundedCacheEntry(boxCursorMiss, cacheKey, now, 2_048);
-          const cached = await getStoredMessages(accountId, chatMid, limit);
-          if (cached.length > 0) {
-            log.debug({ accountId, chatMid, count: cached.length }, "messages from cache (no box)");
-            return cached;
-          }
           // box が無い/取得失敗でも chatMid を boxId にした合成カーソルで最新を取得（空表示を防ぐ）
           boxId = chatMid;
           endMessageId = {
