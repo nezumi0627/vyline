@@ -12,6 +12,7 @@ import {
   type UpdateInfo,
 } from "@/lib/updater";
 import { IconUpdate, IconCheck } from "@/components/icons";
+import { ReleaseNotes } from "@/components/release-notes";
 
 export function UpdaterPage() {
   const updateSettings = useStore((s) => s.settings);
@@ -156,9 +157,9 @@ export function UpdaterPage() {
                 </div>
               </div>
               {info.body && (
-                <pre className="mt-5 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-xl bg-[var(--vy-surface-2)] p-4 font-sans text-sm leading-relaxed">
-                  {info.body}
-                </pre>
+                <div className="mt-5 max-h-80 overflow-auto rounded-xl bg-[var(--vy-surface-2)] p-4">
+                  <ReleaseNotes markdown={info.body} />
+                </div>
               )}
               {info.downloadDigest && (
                 <p className="mt-4 break-all font-mono text-[0.68rem] text-[var(--vy-text-dim)]">

@@ -32,6 +32,7 @@ export type DesktopHistoryRestoreErrorCode =
   | "DESKTOP_RESTORE_PROCESS_NOT_RUNNING"
   | "DESKTOP_RESTORE_MULTIPLE_PROCESSES"
   | "DESKTOP_RESTORE_WRONG_PROCESS"
+  | "DESKTOP_RESTORE_PROCESS_ACCESS_DENIED"
   | "DESKTOP_RESTORE_KEY_SCAN_FAILED"
   | "DESKTOP_RESTORE_KEY_NOT_FOUND"
   | "DESKTOP_RESTORE_SOURCE_CHANGED"
@@ -92,6 +93,11 @@ const DESKTOP_RESTORE_FAILURES: Record<
     stage: "process-scan",
     message: "公式LINE Desktopのプロセスを確認できません。公式アプリを起動して再試行してください。",
   },
+  DESKTOP_RESTORE_PROCESS_ACCESS_DENIED: {
+    stage: "process-access",
+    message:
+      "LINE Desktopは起動していますが、復号鍵の読み取り権限がありません。LINEとVylineを同じWindowsユーザーで起動し、管理者権限の差がない状態で再試行してください。",
+  },
   DESKTOP_RESTORE_KEY_SCAN_FAILED: {
     stage: "key-scan",
     message:
@@ -133,6 +139,8 @@ export function classifyDesktopHistoryRestoreFailure(error: unknown): DesktopHis
     code = "DESKTOP_RESTORE_MULTIPLE_PROCESSES";
   else if (detail.includes("key scan failed: wrong-process"))
     code = "DESKTOP_RESTORE_WRONG_PROCESS";
+  else if (detail.includes("key scan failed: access-denied"))
+    code = "DESKTOP_RESTORE_PROCESS_ACCESS_DENIED";
   else if (detail.includes("key scan failed")) code = "DESKTOP_RESTORE_KEY_SCAN_FAILED";
   else if (detail.includes("No local Desktop key matched")) code = "DESKTOP_RESTORE_KEY_NOT_FOUND";
   else if (detail.includes("changed during the read")) code = "DESKTOP_RESTORE_SOURCE_CHANGED";

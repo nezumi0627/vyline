@@ -380,7 +380,7 @@
   "プロキシ・ブロック": "proxy block",
   "プロフィール": "Profile",
   "プロフィールに戻る": "Return to profile",
-  "プロフィールを取得できませんでした": "Could not retrieve profile",
+  "プロフィールを取得できませんでした": "Could not load the profile",
   "プロフィール画像など": "Profile image etc.",
   "プロフィール設定": "Profile settings",
   "ベータ機能": "Beta features",
@@ -818,5 +818,9 @@
   "アナウンスはありません": "No announcements.",
   "このアナウンスの本文は表示できません": "Announcement text is unavailable.",
   "アナウンスに設定": "Pin as announcement",
-  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。"
+  "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。": "OpenChatの説明が更新されたためOFFにしました。内容を確認して再度有効にしてください。",
+  "セットアップ状態を確認しています…": "Checking setup status…",
+  "ログインアカウントのプロフィールを確認できません。ネットワークを確認して再読み込みしてください。": "Could not verify the signed-in profile. Check your network and reload.",
+  "プロフィール取得中…": "Loading profile…",
+  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "Could not verify setup status. Check your network and reload."
 }
