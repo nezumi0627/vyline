@@ -1,5 +1,5 @@
 import { tr as uiText } from "@/i18n";
-import { lazy, Suspense, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import { Navigate, useNavigate } from "react-router-dom";
 import { useAuthStore } from "../stores/authStore.js";
 import { useStore } from "../lib/store.js";
@@ -29,6 +29,7 @@ export function VylineApp() {
   const loading = useAuthStore((s) => s.loading);
   const error = useAuthStore((s) => s.error);
   const accounts = useAuthStore((s) => s.accounts);
+  const activeAccountId = useAuthStore((s) => s.activeAccountId);
   const bootstrap = useAuthStore((s) => s.bootstrap);
   const screen = useStore((s) => s.screen);
   const setScreen = useStore((s) => s.setScreen);
@@ -40,12 +41,12 @@ export function VylineApp() {
   const mid = useStore((s) => s.self.mid);
   const profileName = useStore((s) => s.self.name);
   const accountId = useStore((s) => s.accountId);
+  const setupAccountId = accountId ?? activeAccountId;
   const [consented, setConsented] = useState(() => hasTosConsent());
   const [setupDone, setSetupDone] = useState(false);
-  // アプリの画面を一度出した後に mid が判明した場合（設定の「引継ぎ・診断」など）、
-  // いきなり VylineSetup に差し替えると開いている画面が作り直される。裏で確かめてから出す。
-  const appShown = useRef(false);
   const [setupNeeded, setSetupNeeded] = useState(false);
+  const [setupChecked, setSetupChecked] = useState<string | null>(null);
+  const [setupCheckError, setSetupCheckError] = useState(false);
 
   useEffect(() => {
     void bootstrap();
@@ -72,22 +73,37 @@ export function VylineApp() {
   }, [screen, setScreen, navigate]);
 
   useEffect(() => {
-    if (setupDone || !appShown.current || !mid || !/^u[0-9a-f]{32}$/i.test(mid)) return;
+    if (!setupAccountId) return;
     let cancelled = false;
-    void api.settings
-      .account(mid)
-      .then((result) => {
-        if (cancelled) return;
-        if (result.ok && result.settings.setup.completed) setSetupDone(true);
-        else setSetupNeeded(true);
-      })
-      .catch(() => {
-        if (!cancelled) setSetupNeeded(true);
-      });
+    setSetupDone(false);
+    setSetupNeeded(false);
+    setSetupCheckError(false);
+    setSetupChecked(null);
+    void (async () => {
+      let resolvedMid = accountId === setupAccountId ? (mid ?? "") : "";
+      if (!/^u[0-9a-f]{32}$/i.test(resolvedMid)) {
+        const profile = await api.line.getProfile(setupAccountId);
+        resolvedMid = profile.ok ? (profile.profile?.mid ?? "") : "";
+        if (resolvedMid)
+          useStore.setState((state) => ({ self: { ...state.self, mid: resolvedMid } }));
+      }
+      if (!/^u[0-9a-f]{32}$/i.test(resolvedMid)) throw new Error("account MID unavailable");
+      const result = await api.settings.account(resolvedMid);
+      if (!result.ok) throw new Error("setup status unavailable");
+      if (cancelled) return;
+      setSetupDone(Boolean(result.settings.setup.completed));
+      setSetupNeeded(!result.settings.setup.completed);
+      setSetupChecked(setupAccountId);
+    })().catch(() => {
+      if (!cancelled) {
+        setSetupCheckError(true);
+        setSetupChecked(setupAccountId);
+      }
+    });
     return () => {
       cancelled = true;
     };
-  }, [mid, setupDone]);
+  }, [setupAccountId, accountId, mid]);
 
   if (!initialized || loading) {
     return (
@@ -122,18 +138,47 @@ export function VylineApp() {
     );
   }
 
-  if (!setupDone && mid && /^u[0-9a-f]{32}$/i.test(mid) && (!appShown.current || setupNeeded)) {
+  if (setupChecked !== setupAccountId && setupAccountId) {
+    return (
+      <main className="flex min-h-dvh items-center justify-center bg-[var(--vy-bg)] text-[var(--vy-text)]">
+        <ThemeApplier />
+        <p className="text-sm text-[var(--vy-text-dim)]">
+          {uiText("セットアップ状態を確認しています…")}
+        </p>
+      </main>
+    );
+  }
+
+  if (setupChecked === setupAccountId && setupCheckError) {
+    return (
+      <main className="flex min-h-dvh flex-col items-center justify-center gap-3 bg-[var(--vy-bg)] px-6 text-center text-[var(--vy-text)]">
+        <ThemeApplier />
+        <p role="alert" className="text-sm">
+          {uiText(
+            "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。",
+          )}
+        </p>
+        <button
+          type="button"
+          onClick={() => window.location.reload()}
+          className="rounded-xl bg-[var(--vy-accent)] px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)]"
+        >
+          {uiText("再読み込み")}
+        </button>
+      </main>
+    );
+  }
+
+  if (!setupDone && setupNeeded && mid && /^u[0-9a-f]{32}$/i.test(mid)) {
     return (
       <VylineSetup
         mid={mid}
-        accountId={accountId}
+        accountId={setupAccountId}
         profileName={profileName}
         onComplete={() => setSetupDone(true)}
       />
     );
   }
-
-  appShown.current = true;
   return (
     <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />

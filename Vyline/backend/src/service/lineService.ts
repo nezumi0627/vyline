@@ -3890,7 +3890,9 @@ async function processSingleOperation(
       const chatMid = chatMidFromRaw(raw, myMid);
       let message = mapDecodedRawToMessage(raw, myMid);
       try {
-        if (raw.contentMetadata && (raw.contentMetadata as Record<string, unknown>).e2eeVersion) {
+        // E2EE messages can omit e2eeVersion; decryptE2EEMessageSafe applies LINE's
+        // compatibility default. Gate on encrypted chunks, not optional metadata.
+        if (Array.isArray(raw.chunks) && raw.chunks.length > 0) {
           const decrypted = await decryptE2EEMessageSafe(client, accountId, chatMid, raw);
           if (decrypted) message = decrypted;
         }
