@@ -151,16 +151,14 @@ function ChatShellBase() {
             className="hidden flex-1 items-center justify-center bg-[var(--vy-chat-bg)] md:flex"
             data-pattern="0"
           >
-            <div className="flex flex-col items-center gap-3 text-center">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-3xl opacity-60">
-                {uiText("💬")}{" "}
-              </span>
+            <div className="nez-empty-state flex flex-col items-center gap-4 px-6 text-center">
+              <span className="nez-mark" aria-hidden="true">V</span>
               <div>
-                <p className="text-sm font-medium text-[var(--vy-text-dim)]">
-                  {uiText("チャットを選択してください")}{" "}
+                <p className="text-sm font-medium text-[var(--vy-text)]">
+                  {uiText("チャットを選択してください")}
                 </p>
-                <p className="mt-1 text-xs text-[var(--vy-text-dim)] opacity-60">
-                  {uiText("左のリストからトークを開くか、新しい会話を始めましょう")}{" "}
+                <p className="mt-2 max-w-xs text-xs leading-relaxed text-[var(--vy-text-dim)]">
+                  {uiText("左のリストから会話を選ぶと、ここにメッセージが表示されます")}
                 </p>
               </div>
             </div>

@@ -24,33 +24,35 @@
 :root {
   color-scheme: dark;
 
-  --vy-bg: #0e1621;
-  --vy-surface: #17212b;
-  --vy-surface-2: #202b36;
-  --vy-sidebar: #17212b;
-  --vy-text: #eef3f8;
-  --vy-text-dim: #7f91a4;
-  --vy-accent: #2aabee;
-  --vy-accent-contrast: #ffffff;
-  --vy-border: rgba(255, 255, 255, 0.07);
+  --vy-bg: #070707;
+  --vy-surface: #0d0d0e;
+  --vy-surface-2: #151516;
+  --vy-sidebar: #0b0b0c;
+  --vy-text: #f5f5f3;
+  --vy-text-dim: #8f8f91;
+  --vy-accent: #f5f5f3;
+  --vy-accent-contrast: #080808;
+  --vy-border: rgba(255, 255, 255, 0.095);
   --vy-danger: #e5484d;
   --vy-msg-in: #182533;
   --vy-msg-out: #2b5278;
   --vy-msg-in-text: #eef3f8;
   --vy-msg-out-text: #ffffff;
   --vy-radius: 0.9rem;
-  --vy-chat-bg: #0e1621;
-  --vy-chat-pattern: 1;
+  --vy-chat-bg: #080808;
+  --vy-chat-pattern: 0;
+  --nez-shadow: 0 24px 80px rgba(0, 0, 0, 0.42);
+  --nez-focus: 0 0 0 3px rgba(255, 255, 255, 0.16);
 
   /* Legacy aliases (tailwind.config / 既存コンポーネント互換) */
   --vy-accent-primary: var(--vy-accent);
-  --vy-accent-secondary: #229ed9;
-  --vy-accent-hover: #3bb8f5;
-  --vy-accent-muted: rgba(42, 171, 238, 0.15);
+  --vy-accent-secondary: #d7d7d2;
+  --vy-accent-hover: #ffffff;
+  --vy-accent-muted: rgba(255, 255, 255, 0.08);
   --vy-surface-0: var(--vy-bg);
   --vy-surface-1: var(--vy-surface);
-  --vy-surface-3: #2c3949;
-  --vy-surface-active: #2b5278;
+  --vy-surface-3: #242424;
+  --vy-surface-active: #303030;
   --vy-bg-primary: var(--vy-bg);
   --vy-bg-secondary: var(--vy-surface);
   --vy-bg-tertiary: var(--vy-surface-2);
@@ -270,6 +272,44 @@
 .vy-chat-surface[data-pattern="0"] {
   background-image: none;
 }
+
+/* NezUI: quiet surfaces, deliberate hierarchy, no decorative noise. */
+.nez-empty-state {
+  animation: vy-screen-in 260ms var(--vy-ease-ui) both;
+}
+.nez-mark {
+  display: grid;
+  place-items: center;
+  width: 3.5rem;
+  height: 3.5rem;
+  border: 1px solid var(--vy-border);
+  border-radius: 1.25rem;
+  background: linear-gradient(145deg, #1b1b1c, #0d0d0e);
+  color: var(--vy-text);
+  font-size: 1.25rem;
+  font-weight: 650;
+  letter-spacing: -0.08em;
+  box-shadow: var(--nez-shadow);
+}
+.vy-chat-shell,
+.vy-chat-pane,
+.vy-chat-sidebar-pane {
+  background: var(--vy-bg);
+}
+.vy-chat-header {
+  background: color-mix(in srgb, var(--vy-surface) 92%, transparent);
+  backdrop-filter: blur(18px);
+}
+.vy-chat-sidebar-pane {
+  border-right: 1px solid var(--vy-border);
+}
+.vy-chat-shell button:focus-visible,
+.vy-chat-shell [role="button"]:focus-visible,
+.vy-chat-shell input:focus-visible,
+.vy-chat-shell textarea:focus-visible {
+  box-shadow: var(--nez-focus);
+}
+
 .vy-chat-surface[data-image] {
   background-image: var(--vy-chat-image);
   background-size: cover;

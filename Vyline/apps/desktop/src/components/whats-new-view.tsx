@@ -106,9 +106,9 @@ export function WhatsNewView({ mode }: WhatsNewViewProps) {
         </header>
 
         <section className="mt-10 md:mt-14">
-          <span className="inline-flex items-center gap-2 rounded-full bg-[var(--vy-surface-2)] px-3 py-1 text-xs font-medium text-[var(--vy-text-dim)]">
-            <IconSpark size={14} />
-            {uiText("What's New")}
+          <span className="inline-flex items-center gap-2 rounded-full border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-1 text-xs font-medium text-[var(--vy-text-dim)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--vy-text)]" aria-hidden="true" />
+            {uiText("アップデート")}
           </span>
           <div className="mt-4 flex flex-wrap items-center gap-3">
             <h1 id="whats-new-title" className="text-3xl font-bold tracking-tight md:text-4xl">
@@ -126,7 +126,7 @@ export function WhatsNewView({ mode }: WhatsNewViewProps) {
           </p>
         </section>
 
-        <section className="mt-7 overflow-hidden rounded-3xl border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-xl">
+        <section className="mt-7 overflow-hidden rounded-[1.75rem] border border-[var(--vy-border)] bg-[var(--vy-surface)] shadow-[var(--nez-shadow)]">
           <div className="flex items-center gap-3 px-5 py-4 md:px-6">
             <span
               className="flex h-10 w-10 items-center justify-center rounded-xl text-[var(--vy-accent-contrast)]"

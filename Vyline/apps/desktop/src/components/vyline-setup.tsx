@@ -138,8 +138,8 @@ export function VylineSetup({
       step === 0 && !settings.displayName ? { ...settings, displayName } : settings,
     );
   return (
-    <main className="flex min-h-dvh items-center justify-center bg-[var(--vy-bg)] px-6 py-8 text-[var(--vy-text)]">
-      <section className="w-full max-w-2xl rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-6 shadow-xl sm:p-8">
+    <main className="nez-setup flex min-h-dvh items-center justify-center bg-[var(--vy-bg)] px-5 py-8 text-[var(--vy-text)] sm:px-8">
+      <section className="w-full max-w-2xl rounded-[1.75rem] border border-[var(--vy-border)] bg-[var(--vy-surface)] p-6 shadow-[var(--nez-shadow)] sm:p-10">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-[var(--vy-accent)]">
           {uiText("Vyline Setup ·")} {step + 1}
           {uiText("/")}

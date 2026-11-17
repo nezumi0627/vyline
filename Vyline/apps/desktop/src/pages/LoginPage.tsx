@@ -341,7 +341,7 @@ export function LoginPage() {
                       className="flex items-center gap-3 rounded-xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-3 py-2.5"
                     >
                       <div
-                        className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-[var(--vy-accent-contrast)]"
+                        className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full text-sm font-bold text-[#f8fafc]"
                         style={{ background: "var(--vy-accent)" }}
                       >
                         {thumb ? (
@@ -377,7 +377,7 @@ export function LoginPage() {
                             ? prepareReauth(s.accountId)
                             : void handleRestore(s.accountId)
                         }
-                        className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                        className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-semibold text-[#f8fafc] disabled:opacity-50"
                         style={{ background: "var(--vy-accent)" }}
                       >
                         {busy ? "復元中…" : s.reauthRequired ? "再認証" : "続行"}
@@ -414,7 +414,7 @@ export function LoginPage() {
                   type="button"
                   onClick={() => setTab(t)}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    tab === t ? "text-[var(--vy-accent-contrast)]" : "text-[var(--vy-text-dim)]"
+                    tab === t ? "text-[#f8fafc]" : "text-[var(--vy-text-dim)]"
                   }`}
                   style={tab === t ? { background: "var(--vy-accent)" } : undefined}
                 >
@@ -427,7 +427,7 @@ export function LoginPage() {
               onClick={() => setTab("subdevice")}
               className={`w-full rounded-xl py-2.5 text-sm font-semibold transition-colors ${
                 tab === "subdevice"
-                  ? "text-[var(--vy-accent-contrast)]"
+                  ? "text-[#f8fafc]"
                   : "bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)]"
               }`}
               style={tab === "subdevice" ? { background: "var(--vy-accent)" } : undefined}
@@ -466,7 +466,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                className="w-full py-2.5 rounded-xl text-sm font-medium text-[#f8fafc] disabled:opacity-50"
                 style={{ background: "var(--vy-accent)" }}
               >
                 {loading ? "ログイン中..." : "ログイン"}
@@ -494,7 +494,7 @@ export function LoginPage() {
                   type="button"
                   onClick={() => void startQrLogin()}
                   disabled={loading}
-                  className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)]"
+                  className="w-full py-2.5 rounded-xl text-sm font-medium text-[#f8fafc]"
                   style={{ background: "var(--vy-accent)" }}
                 >
                   {uiText("QR コードを生成")}{" "}
@@ -516,7 +516,7 @@ export function LoginPage() {
                     <button
                       type="button"
                       onClick={() => void startQrLogin()}
-                      className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)]"
+                      className="w-full py-2.5 rounded-xl text-sm font-medium text-[#f8fafc]"
                       style={{ background: "var(--vy-accent)" }}
                     >
                       {uiText("QR コードを再生成")}{" "}
@@ -565,7 +565,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                className="w-full py-2.5 rounded-xl text-sm font-medium text-[#f8fafc] disabled:opacity-50"
                 style={{ background: "var(--vy-accent)" }}
               >
                 {loading ? "ログイン中..." : "ログイン"}
@@ -610,7 +610,7 @@ export function LoginPage() {
               <button
                 type="submit"
                 disabled={subdevicePending}
-                className="w-full py-2.5 rounded-xl text-sm font-medium text-[var(--vy-accent-contrast)] disabled:opacity-50"
+                className="w-full py-2.5 rounded-xl text-sm font-medium text-[#f8fafc] disabled:opacity-50"
                 style={{ background: "var(--vy-accent)" }}
               >
                 {subdevicePending ? "接続中…" : "この端末を接続"}
