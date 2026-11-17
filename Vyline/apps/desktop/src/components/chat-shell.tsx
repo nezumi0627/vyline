@@ -3,7 +3,7 @@ import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
 import { cn } from "@/lib/utils";
-import { IconPanelLeft } from "@/components/icons";
+import { IconChat, IconPanelLeft } from "@/components/icons";
 import { UpdaterPage } from "@/components/updater-page";
 
 const ChatArea = lazy(() =>
@@ -90,7 +90,9 @@ function ChatShellBase() {
         className={cn(
           "vy-chat-sidebar-pane h-full shrink-0 md:w-[var(--sb-w)]",
           collapsed
-            ? "hidden"
+            ? activeChatId || squareRoom
+              ? "hidden"
+              : "block w-full md:hidden"
             : activeChatId || squareRoom
               ? "hidden w-full md:block"
               : "block w-full",
@@ -104,7 +106,26 @@ function ChatShellBase() {
         <div
           role="separator"
           aria-orientation="vertical"
-          aria-label={uiText("サイドバーの幅を調整（ダブルクリックでリセット）")}
+          aria-label={uiText("サイドバーの幅を調整（矢印キーで変更、ダブルクリックでリセット）")}
+          aria-valuemin={260}
+          aria-valuemax={520}
+          aria-valuenow={sidebarWidth}
+          tabIndex={0}
+          onKeyDown={(event) => {
+            if (event.key === "ArrowLeft") {
+              event.preventDefault();
+              setSidebarWidth(sidebarWidth - 24);
+            } else if (event.key === "ArrowRight") {
+              event.preventDefault();
+              setSidebarWidth(sidebarWidth + 24);
+            } else if (event.key === "Home") {
+              event.preventDefault();
+              setSidebarWidth(260);
+            } else if (event.key === "End") {
+              event.preventDefault();
+              setSidebarWidth(520);
+            }
+          }}
           onMouseDown={() => setDragging(true)}
           onTouchStart={() => setDragging(true)}
           onDoubleClick={() => setSidebarWidth(360)}
@@ -152,8 +173,8 @@ function ChatShellBase() {
             data-pattern="0"
           >
             <div className="flex flex-col items-center gap-3 text-center">
-              <span className="flex h-16 w-16 items-center justify-center rounded-full bg-[var(--vy-surface-2)] text-3xl opacity-60">
-                {uiText("💬")}{" "}
+              <span className="vy-empty-chat-mark flex h-16 w-16 items-center justify-center rounded-2xl bg-[var(--vy-surface-2)] text-[var(--vy-accent)]">
+                <IconChat size={28} aria-hidden />
               </span>
               <div>
                 <p className="text-sm font-medium text-[var(--vy-text-dim)]">

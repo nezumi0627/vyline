@@ -141,7 +141,7 @@ export function WhatsNewView({ mode }: WhatsNewViewProps) {
           </div>
           <ul className="space-y-3 px-5 pb-5 md:px-6">
             {UPDATE_NOTES.items.map((item, index) => (
-              <li key={`${index}-${item}`} className="flex gap-3 text-sm leading-relaxed">
+              <li key={`${index}-${item}`} className="vy-release-item flex gap-3 text-sm leading-relaxed">
                 <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-[var(--vy-accent)]" />
                 <span>{item}</span>
               </li>

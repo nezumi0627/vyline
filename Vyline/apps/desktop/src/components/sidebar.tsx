@@ -825,10 +825,10 @@ function SidebarBase() {
             className={cn(
               "shrink-0 rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
               tab === t.key
-                ? "text-[var(--vy-accent-contrast)]"
+                ? "text-[var(--vy-accent)]"
                 : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
             )}
-            style={tab === t.key ? { background: "var(--vy-accent)" } : undefined}
+            data-selected={tab === t.key || undefined}
           >
             {t.label}
           </button>
@@ -1195,10 +1195,11 @@ const ChatRow = memo(function ChatRow({
         onTouchEnd={onTouchEnd}
         className={cn(
           "vy-sidebar-row relative flex w-full items-center gap-3 rounded-md px-2.5 py-2.5 text-left transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
-          active ? "text-[var(--vy-accent-contrast)]" : "hover:bg-[var(--vy-surface-2)]",
+          active ? "text-[var(--vy-text)]" : "hover:bg-[var(--vy-surface-2)]",
           draggable && "cursor-grab active:cursor-grabbing",
         )}
-        style={active ? { background: "var(--vy-accent)" } : undefined}
+        data-active={active || undefined}
+        aria-current={active ? "page" : undefined}
       >
         <Avatar
           glyph={shouldMaskStreamerAvatars(streamerMode) ? "•" : chat.avatar}

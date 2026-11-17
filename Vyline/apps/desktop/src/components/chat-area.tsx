@@ -785,12 +785,14 @@ function ChatAreaBase() {
           <HeaderButton
             label={canCall ? "音声通話" : directCallHint()}
             onClick={() => void handleStartCall("voice")}
+            compactHide
           >
             <IconPhone size={19} />
           </HeaderButton>
           <HeaderButton
             label={canCall ? "ビデオ通話" : directCallHint()}
             onClick={() => void handleStartCall("video")}
+            compactHide
           >
             <IconVideo size={19} />
           </HeaderButton>
@@ -1105,11 +1107,13 @@ function HeaderButton({
   label,
   onClick,
   active,
+  compactHide,
 }: {
   children: React.ReactNode;
   label: string;
   onClick?: () => void;
   active?: boolean;
+  compactHide?: boolean;
 }) {
   return (
     <button
@@ -1122,6 +1126,7 @@ function HeaderButton({
         active
           ? "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
           : "text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] hover:text-[var(--vy-text)]",
+        compactHide && "vy-chat-action-optional",
       )}
     >
       {children}

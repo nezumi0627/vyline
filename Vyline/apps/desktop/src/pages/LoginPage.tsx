@@ -98,7 +98,7 @@ export function LoginPage() {
       await onLoginSuccess(loggedInAccountId);
       const showNote = useStore.getState().showUpdateNote;
       setScreen(showNote ? "home" : "chat");
-      navigate("/");
+      navigate(import.meta.env.DEV ? "/app" : "/");
     },
     [onLoginSuccess, setScreen, navigate],
   );
@@ -116,7 +116,7 @@ export function LoginPage() {
     if (initialized && accounts.length > 0 && loginMode === "auto") {
       const showNote = useStore.getState().showUpdateNote;
       setScreen(showNote ? "home" : "chat");
-      navigate("/", { replace: true });
+      navigate(import.meta.env.DEV ? "/app" : "/", { replace: true });
     }
   }, [initialized, accounts.length, loginMode, setScreen, navigate]);
 
@@ -124,7 +124,7 @@ export function LoginPage() {
     if (accounts.length === 0) return;
     setPendingLogin(null);
     setScreen("chat");
-    navigate("/");
+    navigate(import.meta.env.DEV ? "/app" : "/");
   };
 
   const handleRestore = async (id: string) => {
@@ -235,7 +235,7 @@ export function LoginPage() {
       localStorage.setItem("vyline:subdevice-session", result.sessionToken);
       setStoreAccountId(result.device.accountId);
       setScreen("chat");
-      navigate("/", { replace: true });
+      navigate(import.meta.env.DEV ? "/app" : "/", { replace: true });
     } catch (error) {
       setSubdeviceMessage(
         error instanceof Error ? error.message : "サブデバイス接続に失敗しました。",

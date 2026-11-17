@@ -15,6 +15,9 @@ const PrDemoPage = lazy(() =>
 const UiCatalogPage = lazy(() =>
   import("./pages/UiCatalogPage.js").then((module) => ({ default: module.UiCatalogPage })),
 );
+const LayoutPreviewPage = lazy(() =>
+  import("./pages/LayoutPreviewPage.js").then((module) => ({ default: module.LayoutPreviewPage })),
+);
 
 export function App() {
   // Subscribe once at the router root so non-hook leaf components also refresh
@@ -24,10 +27,13 @@ export function App() {
     <BrowserRouter>
       <Suspense fallback={null}>
         <Routes>
+          {import.meta.env.DEV && <Route path="/" element={<LayoutPreviewPage />} />}
+          {import.meta.env.DEV && <Route path="/layout-preview" element={<LayoutPreviewPage />} />}
           <Route path="/pr-demo" element={<PrDemoPage />} />
           <Route path="/ui-catalog" element={<UiCatalogPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/subdevice" element={<SubdevicePage />} />
+          <Route path="/app/*" element={<VylineApp />} />
           <Route path="/*" element={<VylineApp />} />
         </Routes>
       </Suspense>

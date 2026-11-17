@@ -581,7 +581,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
 
   return (
     <div
-      className="relative px-3 pb-3 pt-1 md:px-5 md:pb-5"
+      className="vy-composer-shell relative px-3 pb-3 pt-1 md:px-5 md:pb-5"
       onDragOver={(e) => e.preventDefault()}
       onDrop={(e) => {
         // スタンプ画像等のドロップでブラウザがナビゲート/URL挿入するのを防ぐ

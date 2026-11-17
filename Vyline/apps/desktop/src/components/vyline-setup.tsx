@@ -145,15 +145,25 @@ export function VylineSetup({
           {uiText("/")}
           {TOTAL_STEPS}
         </p>
-        <div className="mt-5 flex gap-2">
+        <div
+          className="vy-setup-progress mt-5 flex gap-2"
+          role="progressbar"
+          aria-label={uiText("セットアップの進捗")}
+          aria-valuemin={1}
+          aria-valuemax={TOTAL_STEPS}
+          aria-valuenow={step + 1}
+          aria-valuetext={`${step + 1} / ${TOTAL_STEPS}`}
+        >
           {Array.from({ length: TOTAL_STEPS }, (_, index) => (
             <span
               key={index}
-              className={`h-1.5 flex-1 rounded-full ${index <= step ? "bg-[var(--vy-accent)]" : "bg-[var(--vy-border)]"}`}
+              aria-hidden="true"
+              data-complete={index <= step || undefined}
+              className="vy-setup-progress-segment h-1.5 flex-1 rounded-full"
             />
           ))}
         </div>
-        <div className="mt-8 space-y-4">
+        <div key={step} className="vy-setup-step vy-section-enter mt-8 space-y-4">
           {step === 0 && (
             <>
               <h1 className="text-2xl font-semibold">
@@ -303,8 +313,16 @@ export function VylineSetup({
             </>
           )}
         </div>
-        {message && <p className="mt-5 text-sm text-[var(--vy-accent)]">{message}</p>}
-        {error && <p className="mt-5 text-sm text-red-300">{error}</p>}
+        {message && (
+          <p role="status" aria-live="polite" className="mt-5 text-sm text-[var(--vy-accent)]">
+            {message}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="mt-5 text-sm text-red-300">
+            {error}
+          </p>
+        )}
         <div className="mt-8 flex justify-between gap-3">
           <Button
             variant="secondary"

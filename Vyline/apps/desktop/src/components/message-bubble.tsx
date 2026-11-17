@@ -661,7 +661,11 @@ function stickerAnimationUrl(url?: string): string {
 
 function isStickerImageSrc(src?: string): boolean {
   return Boolean(
-    src && (src.startsWith("http") || src.startsWith("/api/") || src.startsWith("data:")),
+    src &&
+      (src.startsWith("http") ||
+        src.startsWith("/api/") ||
+        src.startsWith("/demo/") ||
+        src.startsWith("data:")),
   );
 }
 

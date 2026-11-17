@@ -102,7 +102,7 @@ export function UpdaterPage() {
   };
 
   return (
-    <section className="vy-scroll h-full flex-1 overflow-y-auto bg-[var(--vy-bg)] px-5 py-8 md:px-10">
+    <section className="vy-updater-page vy-scroll h-full flex-1 overflow-y-auto bg-[var(--vy-bg)] px-5 py-8 md:px-10">
       <div className="mx-auto max-w-2xl">
         <p className="text-xs font-medium uppercase tracking-[0.18em] text-[var(--vy-accent)]">
           {uiText("Vyline updater")}{" "}
@@ -112,7 +112,7 @@ export function UpdaterPage() {
           {uiText("現在のバージョン")} {formatBuildVersion(currentVersion(), BUILD_COMMIT_SHA)}
         </p>
 
-        <div className="mt-7 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-5 md:p-7">
+        <div className="vy-update-card mt-7 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-5 md:p-7">
           {checking ? (
             <p className="text-sm text-[var(--vy-text-dim)]">
               {uiText(
