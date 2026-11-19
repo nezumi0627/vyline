@@ -82,5 +82,6 @@ tools/data/
 # ── Backend runtime caches (never commit) ────────────────────────
 Vyline/backend/storage/cache/
 Vyline/backend/storage/saved-media/
+Vyline/backend/storage/call-recordings/
 
 dist-api-docs/
