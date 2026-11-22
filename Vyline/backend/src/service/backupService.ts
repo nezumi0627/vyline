@@ -13,13 +13,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { childLogger } from "../logger.js";
-import {
-  exportChatDb,
-  mergeImportedChatDb,
-  listChatsWithCounts,
-  type StoredChat,
-  type StoredMessage,
-} from "../storage/chatStore.js";
+import { exportChatDb, mergeImportedChatDb, listChatsWithCounts } from "../storage/chatStore.js";
+import type { StoredChat, StoredMessage } from "../storage/chatStoreTypes.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { safePathComponent, writeTextAtomic } from "../storage/safeFile.js";
 import { getDataDir } from "../storage/dataDir.js";
@@ -37,21 +32,21 @@ const MAX_BACKUP_BYTES = 512 * 1024 * 1024;
 /** メディアを持ち得る contentType（E2EE で text/chunks に分解される前の分類） */
 const MEDIA_CONTENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE", "RICH"]);
 
-export interface BackupOptions {
+interface BackupOptions {
   /** 指定時はそのチャットのみ。未指定＝全チャット */
   chatMids?: string[];
   /** メディア（画像/動画/音声/ファイル）を base64 同梱する */
   includeMedia: boolean;
 }
 
-export interface RestoreOptions {
+interface RestoreOptions {
   /** 指定時はそのチャットのみ。未指定＝全チャット */
   chatMids?: string[];
   /** true なら同梱メディアも復元 */
   includeMedia: boolean;
 }
 
-export interface BackupSummary {
+interface BackupSummary {
   id: string;
   createdAt: string;
   accountId: string;
@@ -210,7 +205,7 @@ function normalizeSnapshot(input: unknown, accountId: string): Snapshot | null {
   };
 }
 
-export async function ensureBackupDir(): Promise<void> {
+async function ensureBackupDir(): Promise<void> {
   await mkdir(backupDir(), { recursive: true });
 }
 

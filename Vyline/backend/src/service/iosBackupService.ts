@@ -10,18 +10,14 @@ import {
   type ExtractedFile,
 } from "@vyline/ios-backup";
 import type { MessageContentMeta } from "@vyline/types";
-import {
-  flushAccountChatDb,
-  mergeImportedChatDb,
-  type StoredChat,
-  type StoredMessage,
-} from "../storage/chatStore.js";
+import { flushAccountChatDb, mergeImportedChatDb } from "../storage/chatStore.js";
+import type { StoredChat, StoredMessage } from "../storage/chatStoreTypes.js";
 import { childLogger } from "../logger.js";
 import { writeMediaStorage } from "../storage/mediaStorage.js";
 
 const log = childLogger("ios-backup");
 
-export interface IosBackupDevice {
+interface IosBackupDevice {
   udid: string;
   name: string;
   iOSVersion: string;
@@ -32,7 +28,7 @@ export interface IosBackupDevice {
   modifiedAt: string;
 }
 
-export interface IosBackupProgress {
+interface IosBackupProgress {
   stage: string;
   current: number;
   total: number;
@@ -40,7 +36,7 @@ export interface IosBackupProgress {
   file?: string;
 }
 
-export interface IosBackupSession {
+interface IosBackupSession {
   id: string;
   accountId: string;
   status: "pending" | "running" | "completed" | "failed";

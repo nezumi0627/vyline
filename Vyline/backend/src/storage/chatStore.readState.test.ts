@@ -9,8 +9,8 @@ import {
   getStoredMessages,
   getChatCacheStats,
   releaseAccountChatCache,
-  type StoredMessage,
 } from "./chatStore.js";
+import type { StoredMessage } from "./chatStoreTypes.js";
 import { accountDir } from "./accountDirs.js";
 
 describe("mergeStoredReadState", () => {

@@ -30,11 +30,6 @@ import {
 } from "../storage/tokenStore.js";
 import { ProtocolSqliteStorage } from "../storage/protocolSqliteStorage.js";
 import { getVylineProfile } from "../vyline/profileBridge.js";
-import {
-  warmLineCache,
-  detachFetchOps,
-  clearAccountRuntimeCaches,
-} from "../service/lineService.js";
 import { releaseAccountChatCache } from "../storage/chatStore.js";
 import { releaseMediaStorageCache } from "../storage/mediaStorage.js";
 import { releaseAccountMessageLog } from "../storage/messageLog.js";
@@ -404,6 +399,27 @@ function startTalkListeners(client: VylineClient, accountId: string): void {
   opsListenerStartTimers.set(accountId, timer);
 }
 
+type FetchedOperation = {
+  type?: string | number;
+  param1?: string;
+  param2?: string;
+  param3?: string;
+  message?: unknown;
+  revision?: number | bigint;
+};
+/** line 層から呼ぶ service 層の処理。service 層が登録し、line 層は service 層を import しない。 */
+export interface SessionServiceHooks {
+  processOperations(accountId: string, ops: FetchedOperation[]): Promise<void>;
+  warmCache(accountId: string): Promise<void>;
+  detachFetchOps(accountId: string): void;
+  clearRuntimeCaches(accountId: string): Promise<void>;
+}
+let sessionHooks: SessionServiceHooks | undefined;
+
+export function registerSessionServiceHooks(hooks: SessionServiceHooks): void {
+  sessionHooks = hooks;
+}
+
 function startFetchOpsLoop(client: VylineClient, accountId: string): void {
   opsAbortByAccount.get(accountId)?.abort();
   const abort = new AbortController();
@@ -444,8 +460,8 @@ function startFetchOpsLoop(client: VylineClient, accountId: string): void {
           async () => {
             if (ops.length === 0) return;
             log.debug({ accountId, count: ops.length }, "ops received");
-            const { processFetchedOperations } = await import("../service/lineService.js");
-            await processFetchedOperations(accountId, ops);
+            if (!sessionHooks) throw new Error("session service hooks are not registered");
+            await sessionHooks.processOperations(accountId, ops);
           },
           () => !abort.signal.aborted && opsAbortByAccount.get(accountId) === abort,
         );
@@ -648,7 +664,7 @@ export async function loginWithEmail(
   );
 
   watchAuthToken(client, accountId);
-  void warmLineCache(accountId).catch(() => undefined);
+  void sessionHooks?.warmCache(accountId).catch(() => undefined);
   clients.set(accountId, {
     client,
     accountId,
@@ -725,7 +741,7 @@ export async function loginWithQRCode(
     managed.pincode = null;
     managed.loggedInAt = Date.now();
     watchAuthToken(client, accountId);
-    void warmLineCache(accountId).catch(() => undefined);
+    void sessionHooks?.warmCache(accountId).catch(() => undefined);
     log.info({ accountId }, "QR login success");
     return client;
   } catch (err) {
@@ -780,7 +796,7 @@ async function loginWithTokenImpl(accountId: string): Promise<VylineClient> {
     pincode: null,
     loggedInAt: Date.now(),
   });
-  void warmLineCache(accountId).catch(() => undefined);
+  void sessionHooks?.warmCache(accountId).catch(() => undefined);
   log.info({ accountId }, "token login success");
   return client;
 }
@@ -826,7 +842,7 @@ export async function loginWithAuthToken(
     pincode: null,
     loggedInAt: Date.now(),
   });
-  void warmLineCache(accountId).catch(() => undefined);
+  void sessionHooks?.warmCache(accountId).catch(() => undefined);
   log.info({ accountId }, "authToken login success");
   return client;
 }
@@ -1066,7 +1082,7 @@ export async function removeClient(accountId: string): Promise<void> {
     opsListenerStartTimers.delete(accountId);
   }
   stopFetchOpsLoop(accountId);
-  detachFetchOps(accountId);
+  sessionHooks?.detachFetchOps(accountId);
   resetIncomingCalls(accountId);
   await endManagedCallsForAccount(accountId).catch((err) => {
     log.warn({ accountId, err }, "account calls could not be ended during client removal");
@@ -1080,7 +1096,7 @@ export async function removeClient(accountId: string): Promise<void> {
   contentClients.delete(accountId);
   contentQrState.delete(accountId);
   resetAgentISession(accountId);
-  await clearAccountRuntimeCaches(accountId).catch((err) => {
+  await sessionHooks?.clearRuntimeCaches(accountId).catch((err) => {
     log.warn({ accountId, err }, "account runtime caches could not be released");
   });
   await deactivatePluginsForAccount(accountId).catch((err) => {

@@ -6,8 +6,8 @@ import {
   rebuildChatDbRecords,
   shouldPreserveResolvedLastMessagePreview,
   type ChatDbRecords,
-  type StoredMessage,
 } from "./chatStore.js";
+import type { StoredMessage } from "./chatStoreTypes.js";
 
 describe("chat preview preservation", () => {
   test("keeps a decrypted preview for the same encrypted message", () => {

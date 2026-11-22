@@ -1,5 +1,5 @@
 import type { Chat } from "@vyline/types";
-import type { StoredChat, StoredMessage } from "../storage/chatStore.js";
+import type { StoredChat, StoredMessage } from "../storage/chatStoreTypes.js";
 
 export interface DesktopMessageRow {
   _chatId: unknown;
