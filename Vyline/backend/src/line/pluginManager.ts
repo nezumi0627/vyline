@@ -3,7 +3,7 @@
  *
  * マニフェスト検出 + アカウント単位の有効/無効状態の永続化 + 実行ランタイムの起動。
  * プラグインの実行詳細は pluginRuntime.ts、
- * ユーザー向けガイドは docs/developer-guide/plugin-system.md を参照。
+ * ユーザー向けガイドは docs/developers/plugin-system.md を参照。
  */
 
 import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
@@ -36,7 +36,7 @@ function statesPath(): string {
   return join(getDataDir(), "plugin-states.json");
 }
 
-export interface PluginEntry extends PluginManifest {
+interface PluginEntry extends PluginManifest {
   /** プラグインディレクトリ名（= manifest の置かれたフォルダ） */
   dir: string;
   /** エントリファイルが存在し実行可能か */
