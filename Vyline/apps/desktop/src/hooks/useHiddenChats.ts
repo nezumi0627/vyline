@@ -11,7 +11,7 @@ const STORAGE_KEY = "vyline:hiddenChatsByAccount";
 const CHANGE_EVENT = "vyline:hidden-chats-changed";
 let hiddenCache: Record<string, string[]> | undefined;
 
-export function loadHiddenChats(): Record<string, string[]> {
+function loadHiddenChats(): Record<string, string[]> {
   if (hiddenCache) return hiddenCache;
   try {
     const raw = typeof localStorage === "undefined" ? null : localStorage.getItem(STORAGE_KEY);
@@ -22,7 +22,7 @@ export function loadHiddenChats(): Record<string, string[]> {
   }
 }
 
-export function saveHiddenChats(data: Record<string, string[]>): void {
+function saveHiddenChats(data: Record<string, string[]>): void {
   hiddenCache = data;
   void setPersistedValue(STORAGE_KEY, data);
   window.dispatchEvent(new Event(CHANGE_EVENT));

@@ -5,8 +5,8 @@
  * 非画像・GIF（アニメ）・デコード失敗時は元ファイルのまま返す。
  */
 
-export const IMAGE_MAX_DIMENSION = 2048;
-export const IMAGE_QUALITY = 0.85;
+const IMAGE_MAX_DIMENSION = 2048;
+const IMAGE_QUALITY = 0.85;
 
 export async function compressImageFile(
   file: File,

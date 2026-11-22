@@ -1,20 +1,6 @@
 /** LINE Flex Message / RICH Message の表示用型（Messaging API 準拠） */
 
-export type FlexSizeKeyword =
-  | "xxs"
-  | "xs"
-  | "sm"
-  | "md"
-  | "lg"
-  | "xl"
-  | "xxl"
-  | "3xl"
-  | "4xl"
-  | "5xl"
-  | "full"
-  | "none";
-
-export type FlexBubbleSize = "nano" | "micro" | "kilo" | "mega" | "giga" | "hecto" | "deca";
+type FlexBubbleSize = "nano" | "micro" | "kilo" | "mega" | "giga" | "hecto" | "deca";
 
 export type FlexAction = {
   type?: string;

@@ -8,7 +8,7 @@ import { childLogger } from "./logger.js";
 
 const log = childLogger("proxy");
 
-export type ProxyConfig = {
+type ProxyConfig = {
   enabled: boolean;
   url: string;
 };

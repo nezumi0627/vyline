@@ -155,28 +155,3 @@ export async function readRecentMessageLog(
     return [];
   }
 }
-
-/** 起動時などに未ログ分を再スキャンして追記（履歴同期の取りこぼし補填） */
-export async function replayMissingLogs(accountId: string, knownIds: Set<string>): Promise<number> {
-  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
-  if (!existsSync(p)) return 0;
-  try {
-    const raw = await readFile(p, "utf8");
-    const lines = raw.split("\n").filter((l) => l.trim());
-    let added = 0;
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line) as MessageLogEntry & { messageId?: string };
-        if (entry.messageId && !knownIds.has(entry.messageId)) {
-          knownIds.add(entry.messageId);
-          added++;
-        }
-      } catch {
-        /* skip */
-      }
-    }
-    return added;
-  } catch {
-    return 0;
-  }
-}

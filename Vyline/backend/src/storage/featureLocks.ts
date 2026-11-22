@@ -17,7 +17,7 @@ const DATA_DIR = getDataDir();
 const LOCKS_FILE = join(DATA_DIR, "feature-locks.json");
 let writeQueue: Promise<void> = Promise.resolve();
 
-export type AccountFeatureLocks = {
+type AccountFeatureLocks = {
   /** createChat(GROUP) 永久禁止（ABUSE_BLOCK 検知後） */
   createGroupBanned?: boolean;
   createGroupBannedAt?: string;

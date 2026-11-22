@@ -207,6 +207,7 @@ import {
   createChatRoomAnnouncement,
   removeChatRoomAnnouncement,
 } from "../service/lineService.js";
+import type { CredentialHandoffBundle } from "../storage/tokenStore.js";
 
 const log = childLogger("bff:line");
 export const lineRouter = new Hono();
@@ -3345,7 +3346,7 @@ lineRouter.post("/:accountId/credentials/handoff/import", async (c) => {
   const accountId = c.req.param("accountId");
   const body = await c.req.json<{
     passphrase: string;
-    bundle: import("../storage/tokenStore.js").CredentialHandoffBundle;
+    bundle: CredentialHandoffBundle;
   }>();
   try {
     const { importCredentialHandoff } = await import("../storage/tokenStore.js");

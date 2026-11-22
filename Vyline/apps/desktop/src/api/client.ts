@@ -32,9 +32,6 @@ import type {
   AccountSettings,
 } from "@vyline/types";
 
-// re-export for convenience
-export type { LineProfile } from "@vyline/types";
-
 export interface Announcement {
   announcementSeq: string;
   text: string;
@@ -43,7 +40,7 @@ export interface Announcement {
   createdTime: number;
 }
 
-export interface AgentIHistoryItem {
+interface AgentIHistoryItem {
   role: "user" | "assistant";
   text: string;
 }

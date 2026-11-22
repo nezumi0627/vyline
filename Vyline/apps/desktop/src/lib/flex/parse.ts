@@ -9,7 +9,7 @@ import type { FlexContainer, RichMarkup } from "./types.js";
 const jsonParseCache = new Map<string, unknown>();
 const JSON_CACHE_MAX = 500;
 
-export function parseJsonField(raw: unknown): unknown {
+function parseJsonField(raw: unknown): unknown {
   if (raw == null || raw === "") return null;
   if (typeof raw === "object") return raw;
   if (typeof raw !== "string") return null;
@@ -101,21 +101,4 @@ export function richDownloadUrl(meta?: Record<string, unknown> | null): string |
   const url = metaGet(meta, "DOWNLOAD_URL", "downloadUrl", "download_url");
   if (typeof url === "string" && /^https?:\/\//i.test(url)) return url;
   return undefined;
-}
-
-/** チャット一覧・プレビュー用 */
-export function flexRichPreviewLabel(
-  contentType: string | number | undefined,
-  meta?: Record<string, unknown> | null,
-  text?: string | null,
-): string {
-  const alt = altTextFromMeta(meta);
-  if (alt) return alt.length > 60 ? `${alt.slice(0, 60)}…` : alt;
-  if (text?.trim() && !text.trim().startsWith("{")) {
-    const t = text.trim();
-    return t.length > 60 ? `${t.slice(0, 60)}…` : t;
-  }
-  if (isFlexContentType(contentType)) return "Flexメッセージ";
-  if (isRichContentType(contentType)) return "リッチメッセージ";
-  return "";
 }

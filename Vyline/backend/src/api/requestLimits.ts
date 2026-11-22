@@ -12,7 +12,7 @@ export const MAX_RAW_MEDIA_BYTES = Number(
   process.env.VYLINE_MAX_RAW_MEDIA_BYTES ?? 16 * 1024 * 1024,
 );
 
-export function contentLength(c: Context): number | null {
+function contentLength(c: Context): number | null {
   const raw = c.req.header("content-length");
   if (raw === undefined) return null;
   const value = Number(raw);

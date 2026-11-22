@@ -156,7 +156,7 @@ export async function extractBackup(options: ExtractOptions): Promise<ExtractedB
   }
 }
 
-export interface FileRow {
+interface FileRow {
   fileID: string;
   domain: string;
   relativePath: string;

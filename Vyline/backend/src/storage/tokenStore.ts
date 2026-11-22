@@ -40,7 +40,7 @@ const PRIVATE_FILE_MODE = 0o600;
 const credentialMutationTails = new Map<string, Promise<void>>();
 const credentialDeletionGeneration = new Map<string, number>();
 
-export function assertSafeAccountId(accountId: string): string {
+function assertSafeAccountId(accountId: string): string {
   if (
     typeof accountId !== "string" ||
     accountId.length < 1 ||
@@ -126,7 +126,7 @@ export function storagePathForAccount(accountId: string): string {
   return join(accountDir(accountId), "protocol.json");
 }
 
-export interface TokenEntry {
+interface TokenEntry {
   authToken: string;
   authTokenProtected?: string;
   /** VylineFileStorage のパス */
@@ -149,9 +149,9 @@ export interface TokenEntry {
   };
 }
 
-export type TokenMap = Record<string, TokenEntry>;
+type TokenMap = Record<string, TokenEntry>;
 
-export type SessionMeta = {
+type SessionMeta = {
   storageFile?: string;
   mid?: string;
   displayName?: string;

@@ -17,7 +17,7 @@ export type SticonResource = {
   alt?: string;
 };
 
-export type SticonReplace = {
+type SticonReplace = {
   sticon?: { resources?: SticonResource[] };
 };
 
@@ -40,9 +40,7 @@ export function parseSticonReplace(
   }
 }
 
-export type TextSegment =
-  | { type: "text"; value: string }
-  | { type: "sticon"; url: string; alt: string };
+type TextSegment = { type: "text"; value: string } | { type: "sticon"; url: string; alt: string };
 
 /**
  * REPLACE の S/E は UTF-16 インデックス。無い場合は先頭から順に 1 文字置換を仮定。
@@ -102,7 +100,7 @@ export function segmentTextWithSticon(text: string, resources: SticonResource[])
 // Unicode 絵文字の判定（1F000-1FAFF / 2600-27BF + VS16 + ZWJ 連結）
 const EMOJI_RE = /(\p{Emoji_Presentation}|\p{Emoji}️)(?:‍(?:\p{Emoji_Presentation}|\p{Emoji}️))*/gu;
 
-export type RichTextSegment = { type: "text"; value: string } | { type: "emoji"; value: string };
+type RichTextSegment = { type: "text"; value: string } | { type: "emoji"; value: string };
 
 /** テキストを Unicode 絵文字 / 通常文字に分割（絵文字は一貫サイズで描画するため） */
 export function segmentUnicodeEmoji(text: string): RichTextSegment[] {

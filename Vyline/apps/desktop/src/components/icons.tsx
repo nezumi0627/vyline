@@ -269,23 +269,6 @@ export const IconPanelLeft = (p: IconProps) => (
   </svg>
 );
 
-export const IconGrip = (p: IconProps) => (
-  <svg {...base(p)}>
-    <circle cx="9" cy="6" r="1" fill="currentColor" stroke="none" />
-    <circle cx="15" cy="6" r="1" fill="currentColor" stroke="none" />
-    <circle cx="9" cy="12" r="1" fill="currentColor" stroke="none" />
-    <circle cx="15" cy="12" r="1" fill="currentColor" stroke="none" />
-    <circle cx="9" cy="18" r="1" fill="currentColor" stroke="none" />
-    <circle cx="15" cy="18" r="1" fill="currentColor" stroke="none" />
-  </svg>
-);
-
-export const IconArrowUp = (p: IconProps) => (
-  <svg {...base(p)}>
-    <path d="M12 20V5m0 0-6 6m6-6 6 6" />
-  </svg>
-);
-
 export const IconArrowDown = (p: IconProps) => (
   <svg {...base(p)}>
     <path d="M12 4v15m0 0 6-6m-6 6-6-6" />

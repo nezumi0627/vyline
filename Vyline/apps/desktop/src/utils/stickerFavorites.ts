@@ -1,7 +1,7 @@
 /**
  * スタンプ / 絵文字のお気に入り（IndexedDB 永続）
  */
-import { getPersistedValue, setPersistedValue } from "../lib/indexedDbStorage.js";
+import { setPersistedValue } from "../lib/indexedDbStorage.js";
 
 export type StickerFavorite = {
   type: "sticker" | "emoji";
@@ -29,17 +29,7 @@ export function loadStickerFavorites(accountId: string): StickerFavorite[] {
   }
 }
 
-export async function hydrateStickerFavorites(accountId: string): Promise<void> {
-  if (!accountId || memory.has(accountId)) return;
-  try {
-    const parsed = await getPersistedValue<unknown>(KEY(accountId));
-    if (Array.isArray(parsed)) memory.set(accountId, parsed as StickerFavorite[]);
-  } catch {
-    /* Keep the localStorage compatibility path. */
-  }
-}
-
-export function saveStickerFavorites(accountId: string, favs: StickerFavorite[]): void {
+function saveStickerFavorites(accountId: string, favs: StickerFavorite[]): void {
   memory.set(accountId, favs);
   try {
     void setPersistedValue(KEY(accountId), favs);

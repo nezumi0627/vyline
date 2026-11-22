@@ -2,9 +2,9 @@ import type { VylineClient } from "@vyline/protocol";
 
 type CallRoute = Awaited<ReturnType<VylineClient["call"]["acquireRoute"]>>;
 
-export type IncomingCallKind = "audio" | "video";
+type IncomingCallKind = "audio" | "video";
 
-export interface IncomingCallInfo {
+interface IncomingCallInfo {
   callMid: string;
   chatMid: string;
   callerMid: string;
@@ -153,10 +153,6 @@ export function rememberIncomingCall(
   pending.set(call.callMid, call);
   pendingByAccount.set(accountId, pending);
   return true;
-}
-
-export function findIncomingCall(accountId: string, callMid: string): IncomingCallInfo | null {
-  return pendingByAccount.get(accountId)?.get(callMid) ?? null;
 }
 
 export function finishIncomingCall(

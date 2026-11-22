@@ -5,7 +5,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 const MAX_OUTPUT_BYTES = 16 * 1024 * 1024;
 
-export type WindowsLineTokenKind = "access" | "refresh" | "unknown";
+type WindowsLineTokenKind = "access" | "refresh" | "unknown";
 
 export interface WindowsLineTokenCandidate {
   token: string;
@@ -26,9 +26,9 @@ export interface WindowsLineTokenInventory {
   pairs: WindowsLineTokenPair[];
 }
 
-export type WindowsLineTokenStatus = "usable" | "unusable";
+type WindowsLineTokenStatus = "usable" | "unusable";
 
-export interface WindowsLineTokenView {
+interface WindowsLineTokenView {
   index: number;
   kind: WindowsLineTokenKind;
   status: WindowsLineTokenStatus;
@@ -60,7 +60,7 @@ function decodeJwtPayload(token: string): JwtPayload | undefined {
   }
 }
 
-export function classifyWindowsLineJwt(token: string): WindowsLineTokenCandidate | undefined {
+function classifyWindowsLineJwt(token: string): WindowsLineTokenCandidate | undefined {
   const payload = decodeJwtPayload(token);
   if (
     !payload ||
@@ -122,7 +122,7 @@ export function classifyWindowsLineTokenSet(tokens: string[]): WindowsLineTokenI
   return { candidates, pairs: pairWindowsLineTokens(candidates) };
 }
 
-export function describeWindowsLineToken(
+function describeWindowsLineToken(
   candidate: WindowsLineTokenCandidate,
   index: number,
   pairedIndex?: number,
@@ -213,7 +213,7 @@ public static class VylineWindowsLineTokenScanner {
 }`;
 }
 
-export async function extractWindowsLineTokens(): Promise<string[]> {
+async function extractWindowsLineTokens(): Promise<string[]> {
   if (process.platform !== "win32")
     throw new Error("Windows LINE token extraction is only available on Windows");
   const script = `Add-Type -TypeDefinition @'\n${windowsScannerSource()}\n'@ -Language CSharp; [VylineWindowsLineTokenScanner]::Scan()`;

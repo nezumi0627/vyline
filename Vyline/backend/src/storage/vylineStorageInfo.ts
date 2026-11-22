@@ -24,10 +24,10 @@ async function streamToText(stream: ReadableStream<Uint8Array>): Promise<string>
   return Buffer.concat(chunks).toString("utf-8");
 }
 
-export const VYLINE_DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const VYLINE_DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
 export const VYLINE_STORAGE_DIR =
   process.env.VYLINE_STORAGE_DIR ?? join(_dir, "..", "..", "storage");
-export const VYLINE_CACHE_DIR = join(VYLINE_STORAGE_DIR, "cache");
+const VYLINE_CACHE_DIR = join(VYLINE_STORAGE_DIR, "cache");
 export const VYLINE_SAVED_MEDIA_DIR =
   process.env.VYLINE_MEDIA_STORAGE_DIR ??
   process.env.VYLINE_MEDIA_CACHE_DIR ??
@@ -43,7 +43,7 @@ const MEDIA_TYPE_DIRS = {
   file: join(VYLINE_SAVED_MEDIA_DIR, "files"),
 } as const;
 
-export async function dirSize(target: string): Promise<number> {
+async function dirSize(target: string): Promise<number> {
   if (!existsSync(target)) return 0;
   let total = 0;
   try {

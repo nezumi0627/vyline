@@ -1,7 +1,7 @@
 import { getPersistedValue, setPersistedValue } from "./indexedDbStorage.js";
 
 const CONSENT_KEY = "vyline:beta-feature-consent-v1";
-export const BETA_CONSENT_TERMS_VERSION = "2026-11-01";
+const BETA_CONSENT_TERMS_VERSION = "2026-11-01";
 
 export type BetaConsentDecision = "accepted" | "declined" | "withdrawn" | "disabled_by_restore";
 export function betaFeatureIdForSetting(key: string): string {
@@ -152,22 +152,4 @@ export async function recordBetaFeatureDecision(
   ledger = next;
   if (typeof window !== "undefined") window.dispatchEvent(new Event("vyline:beta-consent-updated"));
   return true;
-}
-
-/** Backward-compatible entry point for callers that only record acceptance. */
-export function recordBetaFeatureConsent(featureId: string): Promise<boolean> {
-  return recordBetaFeatureDecision(featureId, "accepted");
-}
-
-export async function disableEnabledBetaSettingsForRestore(
-  settings: object,
-  disable: (key: string) => void,
-  appVersion?: string,
-): Promise<void> {
-  for (const [key, value] of Object.entries(settings as Record<string, unknown>)) {
-    if (!/^beta[A-Z]/.test(key) || value !== true) continue;
-    const featureId = key === "betaBlockedListSqliteSync" ? "blocked-list-sqlite-sync" : key;
-    await recordBetaFeatureDecision(featureId, "disabled_by_restore", { appVersion });
-    disable(key);
-  }
 }

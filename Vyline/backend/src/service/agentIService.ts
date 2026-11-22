@@ -11,7 +11,7 @@ const REQUEST_TIMEOUT_MS = 30_000;
 const MAX_CACHED_ACCOUNTS = 64;
 
 export type AgentIHistoryItem = { role: "user" | "assistant"; text: string };
-export type AgentIAuthMode = "anonymous" | "authenticated";
+type AgentIAuthMode = "anonymous" | "authenticated";
 
 type AgentIChatMessage = {
   id: string;
@@ -19,7 +19,7 @@ type AgentIChatMessage = {
   contents: [{ type: "text"; text: string }];
 };
 
-export type AgentIBody = {
+type AgentIBody = {
   chats: AgentIChatMessage[];
   context: {
     agentMode: "multi";

@@ -2,7 +2,7 @@ import type { Message } from "../types/index.js";
 
 export const HISTORY_PAGE_SIZE = 100;
 export const MAX_LOCAL_HISTORY_LIMIT = 10_000;
-export const HISTORY_CACHE_MESSAGE_BUDGET = 20_000;
+const HISTORY_CACHE_MESSAGE_BUDGET = 20_000;
 
 export type ChatHistoryWindow = {
   messages: Message[];
@@ -21,7 +21,7 @@ function compareMessageIds(left: string, right: string): number {
   }
 }
 
-export function compareHistoryMessagesOldestFirst(left: Message, right: Message): number {
+function compareHistoryMessagesOldestFirst(left: Message, right: Message): number {
   const byTime = left.createdTime - right.createdTime;
   return byTime || compareMessageIds(left.id, right.id);
 }

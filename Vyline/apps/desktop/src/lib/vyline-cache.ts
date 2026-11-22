@@ -5,7 +5,7 @@
 
 import { looksLikeMid, type ContactInfo } from "./mappers.js";
 
-export type VylineClientProfile = {
+type VylineClientProfile = {
   mid: string;
   displayName: string;
   thumbnailUrl?: string;
@@ -29,7 +29,7 @@ function empty(): VylineClientDb {
   return { version: 1, profiles: {} };
 }
 
-export function vylineClientLoad(accountId: string): VylineClientDb {
+function vylineClientLoad(accountId: string): VylineClientDb {
   if (!accountId || typeof localStorage === "undefined") return empty();
   try {
     const raw = localStorage.getItem(key(accountId));
@@ -42,7 +42,7 @@ export function vylineClientLoad(accountId: string): VylineClientDb {
   }
 }
 
-export function vylineClientSave(accountId: string, db: VylineClientDb): void {
+function vylineClientSave(accountId: string, db: VylineClientDb): void {
   if (!accountId || typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(key(accountId), JSON.stringify(db));
@@ -112,29 +112,4 @@ export function vylineClientToContactMap(accountId: string): Map<string, Contact
     }
   }
   return out;
-}
-
-export function parseMusicProfile(raw: string | undefined | null): {
-  title?: string;
-  artist?: string;
-  raw: string;
-} | null {
-  if (!raw?.trim()) return null;
-  const s = raw.trim();
-  try {
-    const j = JSON.parse(s) as Record<string, unknown>;
-    return {
-      title:
-        typeof j.title === "string" ? j.title : typeof j.name === "string" ? j.name : undefined,
-      artist:
-        typeof j.artist === "string"
-          ? j.artist
-          : typeof j.artistName === "string"
-            ? j.artistName
-            : undefined,
-      raw: s,
-    };
-  } catch {
-    return { raw: s, title: s.length > 40 ? `${s.slice(0, 40)}…` : s };
-  }
 }

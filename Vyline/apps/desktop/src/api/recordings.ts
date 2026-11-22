@@ -7,7 +7,7 @@ import type {
 } from "@vyline/types";
 import { captureBackendFetch } from "./client";
 
-export type RecordingSettingsResponse = {
+type RecordingSettingsResponse = {
   preferences: RecordingPreferences;
   targets: RecordingTarget[];
   roots: Array<{ path: string; available: boolean; freeBytes: number }>;
@@ -20,9 +20,6 @@ export class RecordingRequestError extends Error {
   ) {
     super(message);
   }
-}
-export function recordingFileUrl(owner: string, id: string, download = false) {
-  return `/api/line/${encodeURIComponent(owner)}/recordings/${encodeURIComponent(id)}/file${download ? "?download=1" : ""}`;
 }
 export function recordingClient(owner: string) {
   const fetch = captureBackendFetch();

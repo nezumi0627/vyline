@@ -75,7 +75,7 @@ function resolveSystemLanguage(): ResolvedUiLanguage {
   return "ja";
 }
 
-export function getResolvedLanguage(language: UiLanguage): ResolvedUiLanguage {
+function getResolvedLanguage(language: UiLanguage): ResolvedUiLanguage {
   return language === "system" ? resolveSystemLanguage() : language;
 }
 
@@ -116,5 +116,3 @@ export function tr(source: string, values?: Record<string, unknown>): string {
   if (!i18n.isInitialized) return source;
   return i18n.t(source, { defaultValue: source, ...values });
 }
-
-export { i18n };

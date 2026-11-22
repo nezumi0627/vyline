@@ -1,4 +1,4 @@
-import type { CallRecording, RecordingKind } from "@vyline/types";
+import type { RecordingKind } from "@vyline/types";
 import type { CallSessionSnapshot } from "../call/callManager.js";
 import {
   getCallRecordingStore,
@@ -100,7 +100,7 @@ export function requestCallRecordingTransfer(owner: string, id: string) {
   void retryCallRecordingTransfer(owner, id).catch(() => {});
   return { ...row, transfer: "pending" as const };
 }
-export async function retryCallRecordingTransfer(owner: string, id: string) {
+async function retryCallRecordingTransfer(owner: string, id: string) {
   if (transferring)
     throw new RecordingError("別の記録を転送中です。しばらくしてから再試行してください", 429);
   transferring = true;
@@ -165,4 +165,3 @@ export async function maintainCallRecordings() {
     maintenanceRunning = false;
   }
 }
-export type { CallRecording };

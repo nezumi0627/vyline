@@ -2,7 +2,7 @@ import type { Settings, VyTheme } from "@/lib/store-types";
 import type { VyThemeId, VyThemeTokens } from "@/stores/themeStore";
 import { betaFeatureIdForSetting } from "@/lib/betaConsent";
 
-export type SettingsBackup = {
+type SettingsBackup = {
   format: "vyline-settings-backup";
   version: 2;
   exportedAt: string;
@@ -17,7 +17,7 @@ export type SettingsBackup = {
   sidebarWidth?: number;
 };
 
-export type ParsedSettingsBackup = Partial<SettingsBackup> & {
+type ParsedSettingsBackup = Partial<SettingsBackup> & {
   disabledBetaFeatureIds?: string[];
 };
 

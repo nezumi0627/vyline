@@ -1,4 +1,4 @@
-export type MarkReadRetry = (() => Promise<void>) & { cancel: () => void };
+type MarkReadRetry = (() => Promise<void>) & { cancel: () => void };
 
 export function createMarkReadRetry(
   isVisible: () => boolean,

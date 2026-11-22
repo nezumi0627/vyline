@@ -152,5 +152,3 @@ export const useThemeStore = create<ThemeState>()(
     },
   ),
 );
-
-export const VY_THEME_PRESETS = PRESETS;

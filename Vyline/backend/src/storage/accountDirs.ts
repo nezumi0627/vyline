@@ -21,7 +21,7 @@ const DATA_DIR = getDataDir();
 const ACCOUNTS_ROOT = join(DATA_DIR, "accounts");
 const REGISTRY_PATH = join(DATA_DIR, "accounts.json");
 
-export interface AccountRegistryEntry {
+interface AccountRegistryEntry {
   accountId: string;
   dirName: string;
   registeredAt: string;

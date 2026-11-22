@@ -18,9 +18,8 @@ export type UiLanguage =
 import type { RetryIntent } from "@vyline/types";
 
 export type { VyTheme } from "@vyline/themes";
-export type { RetryIntent };
 
-export type MessageReaction = {
+type MessageReaction = {
   fromMid: string;
   atMillis: number;
   /** MessageReactionType: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7 */
@@ -28,7 +27,7 @@ export type MessageReaction = {
 };
 
 /** LINE メンション（contentMetadata.MENTION） */
-export type MentionInfo = {
+type MentionInfo = {
   /** 対象 mid（@ALL のときは undefined） */
   mid?: string;
   /** true なら @ALL */
@@ -69,7 +68,7 @@ export type CallMessageMeta = {
   outcome: "ended" | "missed" | "declined" | "busy";
 };
 
-export type LinkPreview = {
+type LinkPreview = {
   url: string;
   title: string;
   description: string;
@@ -177,7 +176,7 @@ export type Member = {
   color: string;
 };
 
-export type ChatType = "friend" | "group";
+type ChatType = "friend" | "group";
 
 export type Chat = {
   id: string;

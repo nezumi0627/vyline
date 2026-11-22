@@ -37,13 +37,6 @@ export function lineStickerUrl(stickerId: string): string {
   );
 }
 
-/** アニメーションがある場合の APNG */
-export function lineStickerAnimationUrl(stickerId: string): string {
-  return lineCdnProxy(
-    `https://stickershop.line-scdn.net/stickershop/v1/sticker/${stickerId}/ANDROID/sticker_animation.png`,
-  );
-}
-
 export function extractStickerId(
   meta: Record<string, string | undefined> | null | undefined,
 ): string | null {

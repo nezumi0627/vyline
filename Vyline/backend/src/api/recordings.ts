@@ -54,7 +54,7 @@ async function jsonBody<T>(request: Request): Promise<T> {
 }
 let receiving = 0;
 let mutating = 0;
-export function createRecordingRouter(operations = service) {
+function createRecordingRouter() {
   const router = new Hono();
   router.use("*", async (c, next) => {
     const body = ["POST", "PUT", "PATCH"].includes(c.req.method);
@@ -66,7 +66,7 @@ export function createRecordingRouter(operations = service) {
     if (body) receiving++;
     if (mutation) mutating++;
     try {
-      await operations.initializeCallRecordings();
+      await service.initializeCallRecordings();
       await next();
     } finally {
       if (body) receiving--;
@@ -160,7 +160,7 @@ export function createRecordingRouter(operations = service) {
     c.json(
       {
         ok: true,
-        recording: await operations.startCallRecording(
+        recording: await service.startCallRecording(
           c.req.param("accountId")!,
           await jsonBody(c.req.raw),
         ),
@@ -174,7 +174,7 @@ export function createRecordingRouter(operations = service) {
       throw new RecordingError("記録の送信位置が正しくありません");
     return c.json({
       ok: true,
-      recording: await operations.appendCallRecording(
+      recording: await service.appendCallRecording(
         c.req.param("accountId")!,
         c.req.param("id"),
         Number(offset),
@@ -188,7 +188,7 @@ export function createRecordingRouter(operations = service) {
       throw new RecordingError("記録の終了状態が正しくありません");
     return c.json({
       ok: true,
-      recording: await operations.finishCallRecording(
+      recording: await service.finishCallRecording(
         c.req.param("accountId")!,
         c.req.param("id"),
         input.durationMs,
@@ -200,7 +200,7 @@ export function createRecordingRouter(operations = service) {
     c.json(
       {
         ok: true,
-        recording: operations.requestCallRecordingTransfer(
+        recording: service.requestCallRecordingTransfer(
           c.req.param("accountId")!,
           c.req.param("id"),
         ),
@@ -215,7 +215,7 @@ export function createRecordingRouter(operations = service) {
     }),
   );
   router.delete("/:id", async (c) => {
-    await operations.removeCallRecording(c.req.param("accountId")!, c.req.param("id"));
+    await service.removeCallRecording(c.req.param("accountId")!, c.req.param("id"));
     return c.json({ ok: true });
   });
   router.on(["GET", "HEAD"], "/:id/file", async (c) => {
