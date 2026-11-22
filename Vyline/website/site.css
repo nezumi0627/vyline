@@ -2010,6 +2010,25 @@ hr {
   .site-header nav.is-open {
     display: flex;
   }
+  html:not(.js) .site-header {
+    height: auto;
+    flex-wrap: wrap;
+    gap: 20px;
+    padding-block: 20px;
+  }
+  html:not(.js) .menu-button {
+    display: none;
+  }
+  html:not(.js) .site-header nav {
+    display: flex;
+    position: static;
+    width: 100%;
+    flex-wrap: wrap;
+    padding: 0;
+    border: 0;
+    background: none;
+    gap: 8px 20px;
+  }
   .site-header nav a {
     padding: 12px 8px;
     font-size: 13px;

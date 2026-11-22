@@ -37,6 +37,7 @@ document.addEventListener("keydown", (event) => {
     menu.focus();
   }
 });
+document.documentElement.classList.add("js");
 if ($(".landing-page")) {
   const aliases = {
     home: "main",
@@ -112,6 +113,7 @@ if (search) {
     $("#search-empty").hidden = count > 0;
     if (updateUrl) {
       const url = new URL(location.href);
+      url.hash = "docs";
       search.value.trim()
         ? url.searchParams.set("q", search.value.trim())
         : url.searchParams.delete("q");
@@ -306,6 +308,9 @@ document.addEventListener("keydown", (event) => {
     return;
   if (search) {
     event.preventDefault();
+    const url = new URL(location.href);
+    url.hash = "docs";
+    history.replaceState(null, "", url);
     search.focus();
   } else if (searchDialog && !searchDialog.open) {
     event.preventDefault();
