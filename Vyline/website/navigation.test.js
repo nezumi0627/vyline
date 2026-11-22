@@ -23,4 +23,10 @@ describe("documentation discovery", () => {
     expect(searchExcerpt("テーマ 見た目を変える", "テーマ", 4)).toBe("");
     expect(searchExcerpt("テーマ 見た目を変える", "missing", 4)).toBe("");
   });
+  test("finds body matches even when a query term also matches the title", () => {
+    const prefix = "Docker 導入ガイド ";
+    expect(searchExcerpt(`${prefix}composeで起動する手順`, "Docker compose", prefix.length)).toContain("compose");
+    expect(searchExcerpt(`${prefix}Dockerをインストール`, "Docker", prefix.length)).toContain("docker");
+    expect(searchExcerpt(`${prefix}別の内容`, "Docker", prefix.length)).toBe("");
+  });
 });

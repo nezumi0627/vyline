@@ -13,11 +13,11 @@ export function matchesDocument(doc, query, category = "all") {
 }
 
 export function searchExcerpt(content, query, prefixLength = 0) {
-  const normalized = normalizeSearch(content);
-  const term = normalizeSearch(query).trim().split(/\s+/).find(Boolean);
+  const body = normalizeSearch(content.slice(prefixLength));
+  const terms = normalizeSearch(query).trim().split(/\s+/).filter(Boolean);
+  const term = terms.find((term) => body.includes(term));
   if (!term) return "";
-  const index = normalized.indexOf(term);
-  if (index < prefixLength) return "";
-  const start = Math.max(prefixLength, index - 35);
-  return `${start > prefixLength ? "…" : ""}${normalized.slice(start, index + term.length + 65).replace(/\s+/g, " ")}…`;
+  const index = body.indexOf(term);
+  const start = Math.max(0, index - 35);
+  return `${start > 0 ? "…" : ""}${body.slice(start, index + term.length + 65).replace(/\s+/g, " ")}…`;
 }
