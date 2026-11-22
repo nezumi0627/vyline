@@ -32,7 +32,8 @@ Vyline の文書は「現在仕様」「調査記録」「作業計画」を混�
 ## フォルダの役割
 
 - `user-guide/`: 一般利用者の具体的な操作。
-- `developers/`, `developer-guide/`: 開発者向け導線と実装ガイド。
+- `developers/`: 開発者向け導線、実装ガイド、CLI。
+- `design/`, `superpowers/`: 設計メモと実装計画。現在仕様の正本にはしない。
 - `api/`, `protocol/`: 公開 API と LINE protocol/RPC。
 - `security/`: 現在の threat model と監査結果。
 - `deployment/`: 配備手順。

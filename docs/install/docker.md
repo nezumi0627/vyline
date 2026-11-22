@@ -23,7 +23,7 @@ Composeの公開ポートは **3000** です。ソース起動時のバックエ
 
 履歴とログイン情報はホスト側の `./data/`、メディアは `./storage/` に保存します。
 コンテナを再作成するときも、この2つのディレクトリを保持してください。
-バックアップは[VylineBackup](../../Vyline/docs/guides/vyline-backup-restore.md)を使い、保存範囲を確認します。
+バックアップは[VylineBackup](../user-guide/vyline-backup-restore.md)を使い、保存範囲を確認します。
 
 ## 別端末から接続する
 

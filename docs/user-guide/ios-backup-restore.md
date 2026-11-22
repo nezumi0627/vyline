@@ -151,5 +151,5 @@ bun run vyl snapshot restore snapshots/xxx.tar.gz --force
 
 ## 関連ドキュメント
 
-- [vyl CLI と Snapshot](../vyl-cli.md)
-- [技術解説と履歴取り出しの全経緯](../../../docs/analysis/ios-backup-history-extraction.md)
+- [vyl CLI と Snapshot](../developers/vyl-cli.md)
+- [技術解説と履歴取り出しの全経緯](../analysis/ios-backup-history-extraction.md)

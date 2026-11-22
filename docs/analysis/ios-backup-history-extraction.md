@@ -2,7 +2,7 @@
 
 最終更新: 2026-11-03
 
-> この文書は抽出方式の調査記録です。2026-08 時点の「未実装」「今後の計画」は当時の記録で、現行状態ではありません。現在の導入方法と制限は [利用ガイド](../../Vyline/docs/guides/ios-backup-restore.md) を参照してください。
+> この文書は抽出方式の調査記録です。2026-08 時点の「未実装」「今後の計画」は当時の記録で、現行状態ではありません。現在の導入方法と制限は [利用ガイド](../user-guide/ios-backup-restore.md) を参照してください。
 
 ## 現行の実装状況（2026-11-03）
 
@@ -191,7 +191,7 @@
 
 ### Phase 4: ドキュメント整備
 
-- [x] `Vyline/docs/guides/ios-backup-restore.md` — ユーザー向け手順書
+- [x] `docs/user-guide/ios-backup-restore.md` — ユーザー向け手順書
 - [x] `docs/analysis/ios-backup-history-extraction.md` — 技術解説
 - [x] `docs/README.md` と `docs/analysis/README.md` の索引更新
 - [ ] `CHANGELOG.md` エントリ追加
@@ -248,7 +248,7 @@ Vyline/backend/src/api/line.ts                 # iOS ルート未実装
 Vyline/apps/desktop/src/components/settings-sections.tsx
 Vyline/apps/desktop/src/components/IosBackupWizard.tsx
 Vyline/apps/desktop/src/api/client.ts
-Vyline/docs/guides/ios-backup-restore.md
+docs/user-guide/ios-backup-restore.md
 docs/analysis/ios-backup-history-extraction.md
 ```
 
@@ -261,7 +261,7 @@ docs/analysis/ios-backup-history-extraction.md
 3. Vyline GUI から「iTunesから履歴を復元」ウィザードが完走し、チャット一覧に履歴が表示される
 4. 復元後、自動で `vylineCache` / E2EE 鍵 / メッセージログ / ストアが更新される
 5. 「メディアの復元は Coming Soon」が GUI とドキュメントに明記されている
-6. ユーザー向け手順書が `Vyline/docs/guides/ios-backup-restore.md` にある
+6. ユーザー向け手順書が `docs/user-guide/ios-backup-restore.md` にある
 7. バックエンド抽出サービスと BFF ルートが実装されるまで、GUI の復元操作は未提供として扱う
 
 ---
