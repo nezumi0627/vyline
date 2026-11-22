@@ -15,6 +15,7 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
+import { AuthService } from "../auth/mod.js";
 import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
@@ -1255,8 +1256,7 @@ async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
 /** 自分のプロフィール取得（メモリ / base.profile / Vyline 優先、RPC は短タイムアウト） */
 export async function fetchProfile(accountId: string): Promise<LineProfile> {
   // Refresh token before making profile requests to ensure it's valid
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const now = Date.now();
   const mem = myProfileCache.get(accountId);
@@ -1591,8 +1591,7 @@ export async function fetchContactsBatch(
   mids: string[],
 ): Promise<Map<string, LineProfile>> {
   // Refresh token before making contact requests to ensure it's valid
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const unique = [...new Set(mids.filter((m) => m.startsWith("u")))];
   const out = new Map<string, LineProfile>();
@@ -1763,8 +1762,7 @@ export async function fetchContactsBatch(
  */
 async function applyVylineCacheToChats(accountId: string, chats: Chat[]): Promise<Chat[]> {
   // Refresh token before making cache operations to ensure it's valid
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const { profiles: profileMap, groups: groupMap } = await vylineGetChatCacheEntries(
     accountId,
@@ -1844,8 +1842,7 @@ export async function fetchChatMembersDetailed(
   fromCache?: boolean;
 }> {
   // Refresh token before making member list request
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const cached = await vylineGetGroup(accountId, chatMid);
   if (cached && !vylineGroupNeedsRefresh(cached) && cached.members.length > 0) {
@@ -2328,8 +2325,7 @@ export async function markAsRead(
   lastMessageId?: string,
 ): Promise<string | undefined> {
   // Refresh token before making read request
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const client = requireClient(accountId);
   let messageId = lastMessageId?.trim() || "";
@@ -2741,8 +2737,7 @@ async function getReadWatermarksForChat(
   opts?: { force?: boolean },
 ): Promise<ReadWatermarksResult> {
   try {
-    const authService = require("../auth/mod.js").AuthService;
-    await authService.tryRefreshToken(accountId);
+    await AuthService.tryRefreshToken(accountId);
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
     let ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
@@ -6445,8 +6440,7 @@ export async function setNotificationsEnabled(
   accountId: string,
   enablement: boolean,
 ): Promise<{ userFlag: boolean; masterEnable: boolean }> {
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const client = requireClient(accountId);
   const mid = client.base.profile?.mid;
