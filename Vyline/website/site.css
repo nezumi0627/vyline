@@ -166,6 +166,10 @@ svg {
   height: 30px;
   object-fit: contain;
 }
+.brand img,
+.app-rail img {
+  filter: brightness(0) invert(1);
+}
 .site-header nav {
   display: flex;
   align-items: center;
