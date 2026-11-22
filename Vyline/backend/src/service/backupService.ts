@@ -27,10 +27,7 @@ import { getDataDir } from "../storage/dataDir.js";
 const log = childLogger("vyline-backup");
 
 function backupDir(): string {
-  return (
-    process.env.VYLINE_BACKUP_DIR ??
-    join(getDataDir(), "backups")
-  );
+  return process.env.VYLINE_BACKUP_DIR ?? join(getDataDir(), "backups");
 }
 
 const SCHEMA = "vyline-backup";

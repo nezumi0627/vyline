@@ -635,3 +635,25 @@ export function buildMembersFromMessages(
   }
   return [...map.values()];
 }
+
+export type CommonGroupSummary = { chatMid: string; name: string; thumbnailUrl?: string };
+
+/** 共通グループ API の結果を、ローカルのチャット名・色を優先して UI の Chat に変換する。 */
+export function mapCommonGroups(groups: CommonGroupSummary[], chats: Chat[]): Chat[] {
+  const byId = new Map(chats.map((c) => [c.id, c]));
+  return groups.map((g) => {
+    const local = byId.get(g.chatMid);
+    const name = local?.name && !looksLikeMid(local.name) ? local.name : g.name;
+    const initial = (name || "G").trim().charAt(0).toUpperCase();
+    return {
+      id: g.chatMid,
+      type: "group",
+      name,
+      avatar: looksLikeMid(initial) ? "G" : initial,
+      avatarUrl: g.thumbnailUrl || local?.avatarUrl,
+      color: local?.color ?? "#7c5cff",
+      status: "グループ",
+      unread: 0,
+    };
+  });
+}

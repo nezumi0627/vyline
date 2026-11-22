@@ -15,7 +15,10 @@ export type UiLanguage =
   | "vi"
   | "th";
 
+import type { RetryIntent } from "@vyline/types";
+
 export type { VyTheme } from "@vyline/themes";
+export type { RetryIntent };
 
 export type MessageReaction = {
   fromMid: string;
@@ -165,20 +168,6 @@ export type Message = {
 };
 
 export type MessageSnapshot = Omit<Message, "history" | "revokedSnapshot">;
-
-export type RetryIntent =
-  | {
-      kind: "text";
-      text: string;
-      relatedMessageId?: string;
-      contentMetadata?: Record<string, string>;
-    }
-  | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
-  | {
-      kind: "combinationSticker";
-      items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
-    }
-  | { kind: "emoji"; packageId: string; sticonId: string };
 
 export type Member = {
   id: string;

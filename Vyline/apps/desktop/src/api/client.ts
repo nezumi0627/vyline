@@ -1118,23 +1118,6 @@ export const api = {
         error?: string;
       }>("GET", `/line/${accountId}/getChatMembers/${encodeURIComponent(chatMid)}`),
 
-    getCommonGroupIds: (accountId: string, targetMid: string, excludeChatId?: string) =>
-      request<{
-        ok: boolean;
-        groups?: Array<{
-          chatMid: string;
-          name: string;
-          thumbnailUrl?: string;
-          memberMids: string[];
-        }>;
-        error?: string;
-      }>(
-        "GET",
-        `/line/${accountId}/getCommonGroupIds/${encodeURIComponent(targetMid)}${
-          excludeChatId ? `?exclude=${encodeURIComponent(excludeChatId)}` : ""
-        }`,
-      ),
-
     updateProfileAttributes: (
       accountId: string,
       body: {

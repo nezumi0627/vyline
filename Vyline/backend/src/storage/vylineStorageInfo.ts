@@ -43,7 +43,7 @@ const MEDIA_TYPE_DIRS = {
   file: join(VYLINE_SAVED_MEDIA_DIR, "files"),
 } as const;
 
-async function dirSize(target: string): Promise<number> {
+export async function dirSize(target: string): Promise<number> {
   if (!existsSync(target)) return 0;
   let total = 0;
   try {

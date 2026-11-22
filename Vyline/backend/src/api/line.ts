@@ -1227,18 +1227,19 @@ lineRouter.put("/:accountId/chat-locks/:chatMid", async (c) => {
     return handleError(err, c);
   }
 });
-// ─── helpers ─────────────────────────────
 
-function isLiffError(res: unknown): { statusCode: number; statusMessage: string } | null {
-  if (res && typeof res === "object" && "statusCode" in res && "statusMessage" in res) {
-    const code = (res as any).statusCode;
-    if (typeof code === "number" && code >= 400) return res as any;
-    if (typeof code === "string" && /^(4|5)\d\d$/.test(code)) return res as any;
+type LiffError = { statusCode: number | string; statusMessage: string };
+
+function isLiffError(res: unknown): LiffError | null {
+  if (!res || typeof res !== "object" || !("statusCode" in res) || !("statusMessage" in res)) {
+    return null;
   }
+  const error = res as LiffError;
+  const code = error.statusCode;
+  if (typeof code === "number" && code >= 400) return error;
+  if (typeof code === "string" && /^(4|5)\d\d$/.test(code)) return error;
   return null;
 }
-
-// ─── error helper ─────────────────────────────
 
 function handleError(err: unknown, c: Context<any, any, any>) {
   if (err instanceof SquareDisabledError) {

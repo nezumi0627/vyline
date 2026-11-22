@@ -11,32 +11,9 @@ import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
+import { dirSize } from "./vylineStorageInfo.js";
 
 const log = childLogger("cdn-cache");
-
-async function dirSize(target: string): Promise<number> {
-  if (!existsSync(target)) return 0;
-  let total = 0;
-  try {
-    const entries = await readdir(target, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join(target, e.name);
-      if (e.isDirectory()) {
-        total += await dirSize(p);
-      } else {
-        try {
-          const s = await stat(p);
-          total += s.size;
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  } catch (err) {
-    log.debug({ err, target }, "dirSize failed");
-  }
-  return total;
-}
 
 const ALLOWED_HOSTS = new Set([
   "stickershop.line-scdn.net",

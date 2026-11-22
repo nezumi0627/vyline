@@ -19,7 +19,7 @@ import {
   IconMemo,
 } from "@/components/icons";
 import { AlbumModal, NoteModal } from "@/components/plus-menu";
-import { looksLikeMid, mapMember } from "@/lib/mappers";
+import { looksLikeMid, mapCommonGroups, mapMember } from "@/lib/mappers";
 import { dismissChatMid } from "@/utils/dismissedChats";
 import { AgentIActionDialog } from "@/components/agent-i-action-dialog";
 import type { PostNotificationTarget } from "@/components/message-bubble";
@@ -81,26 +81,10 @@ export function ProfileDrawer({
     if (!accountId || chat.type !== "friend" || streamerMode || chat.isSelf) return;
     let cancelled = false;
     void api.line
-      .getCommonGroupIds(accountId, chat.id)
+      .commonGroups(accountId, chat.id)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
-        const byId = new Map(chats.map((c) => [c.id, c]));
-        const built = res.groups.map((g) => {
-          const local = byId.get(g.chatMid);
-          const name = local?.name && !looksLikeMid(local.name) ? local.name : g.name;
-          const initial = (name || "G").trim().charAt(0).toUpperCase();
-          return {
-            id: g.chatMid,
-            type: "group" as const,
-            name,
-            avatar: looksLikeMid(initial) ? "G" : initial,
-            avatarUrl: g.thumbnailUrl || local?.avatarUrl,
-            color: local?.color ?? "#7c5cff",
-            status: "グループ",
-            unread: 0,
-          } satisfies Chat;
-        });
-        setApiCommonGroups(built);
+        setApiCommonGroups(mapCommonGroups(res.groups, chats));
       })
       .catch(() => undefined);
     return () => {

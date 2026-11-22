@@ -26,7 +26,6 @@ import { getDataDir } from "../storage/dataDir.js";
 
 const log = childLogger("service:restore-desktop");
 
-
 function vylineProfileCachePath(accountId: string): string {
   // Desktop profileはアカウント固有。共通ファイルだと複数アカウントの
   // 復元順序によって別アカウントのUA/ヘッダーが混ざる。
