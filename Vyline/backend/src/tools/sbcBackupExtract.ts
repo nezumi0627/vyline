@@ -26,6 +26,8 @@ import { existsSync } from "node:fs";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { loginWithToken } from "../line/clientManager.js";
+// Registers the session hooks clientManager uses to process fetched operations.
+import "../service/lineService.js";
 import { getToken } from "../storage/tokenStore.js";
 import { initVylineProfile } from "../vyline/profileBridge.js";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
