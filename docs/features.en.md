@@ -47,9 +47,9 @@ This guide brings together the user-facing feature summaries for stable **1.2.3*
 
 | Goal | Feature | Guide |
 | --- | --- | --- |
-| Save and restore chats and saved media | VylineBackup, with per-chat and text-only restore options | [Backup and restore](../Vyline/docs/guides/vyline-backup-restore.md) |
+| Save and restore chats and saved media | VylineBackup, with per-chat and text-only restore options | [Backup and restore](user-guide/vyline-backup-restore.md) |
 | Move settings to another environment | Settings handoff ZIP, excluding authentication tokens and E2EE keys | [Settings handoff](./setup-account-handoff-debug.md) |
-| Import local iPhone history | Encrypted iOS backup import, subject to documented limitations | [iOS backup import](../Vyline/docs/guides/ios-backup-restore.md) |
+| Import local iPhone history | Encrypted iOS backup import, subject to documented limitations | [iOS backup import](user-guide/ios-backup-restore.md) |
 | Update the application | Update notices and release downloads | [Update guide](./user-guide/update.md) |
 
 For appearance, see [VyTheme](./user-guide/themes.md). For developer extensions and permissions, see [Plugins](./developers/plugin-system.md). The unpublished plugin UI was removed in 1.0.2; this is a developer reference, not a promise of an available in-app plugin catalogue.

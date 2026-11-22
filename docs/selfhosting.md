@@ -75,7 +75,7 @@ tar czf vyline-backup-$(date +%Y%m%d).tar.gz data storage
 
 Vyline バックエンドは起動時および 30 秒ごとに Tailscale IP を検出し、候補 URL をログに出力します。Docker ではホスト側の bind とファイアウォール設定が別途必要です。
 
-```
+```text
 Tailscale detected — Vyline accessible via Tailscale {"tailscaleIp":"100.x.y.z","url":"http://100.x.y.z:3000"}
 ```
 
@@ -121,9 +121,11 @@ Cloudflare Access を使う場合も、Vyline のサブデバイス認証を有�
    - Zero Trust → Networks → Tunnels → Create a tunnel → **Cloudflared** を選択
    - 公開ホスト名: `vyline.example.com` → Service: ホスト上で動く場合は `http://localhost:3000`。Cloudflare Tunnel をコンテナで動かす場合は同じ Docker ネットワーク内の Vyline サービス名を指定
    - 表示されるインストールコマンドを**自宅サーバー（Docker ホスト）**で実行:
+
      ```bash
      sudo cloudflared service install <トークン>
      ```
+
      （または docker-compose に cloudflared コンテナを追加しても可）
 5. **Access Application** を設定
    - Zero Trust → Access → Applications → Add an application → **Self-hosted**
@@ -134,7 +136,7 @@ Cloudflare Access を使う場合も、Vyline のサブデバイス認証を有�
 
 ### 完成系
 
-```
+```text
 スマホ・PC ブラウザ
    │ https://vyline.example.com
    ▼

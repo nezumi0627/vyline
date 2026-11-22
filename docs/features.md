@@ -49,9 +49,9 @@
 
 | やりたいこと | 使う機能 | 詳しい手順 |
 | --- | --- | --- |
-| 履歴と保存済みメディアを退避、復元する | VylineBackup。チャット選択とテキストのみの復元に対応 | [バックアップと復元](../Vyline/docs/guides/vyline-backup-restore.md) |
+| 履歴と保存済みメディアを退避、復元する | VylineBackup。チャット選択とテキストのみの復元に対応 | [バックアップと復元](user-guide/vyline-backup-restore.md) |
 | 設定を別環境へ引き継ぐ | 設定引継ぎZIP。認証情報とE2EE鍵は含めない | [設定引継ぎ](./setup-account-handoff-debug.md) |
-| iPhoneのローカル履歴を取り込む | 暗号化iOSバックアップからの取り込み。対応範囲に制限あり | [iOSバックアップ取り込み](../Vyline/docs/guides/ios-backup-restore.md) |
+| iPhoneのローカル履歴を取り込む | 暗号化iOSバックアップからの取り込み。対応範囲に制限あり | [iOSバックアップ取り込み](user-guide/ios-backup-restore.md) |
 | アプリを更新する | 更新案内と配布物のダウンロード | [アップデート](./user-guide/update.md) |
 
 ## 自分の環境へ広げる

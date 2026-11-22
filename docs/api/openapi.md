@@ -23,9 +23,9 @@ GET /openapi/v1.yaml /openapi.yaml へのリダイレクト
 
 ## GitHub Pages
 
-- **Swagger UI**: **https://nezumi0627.github.io/vyline-api/**
+- **Swagger UI**: **<https://nezumi0627.github.io/vyline-api/>**
   （`nezumi0627/vyline-api` リポジトリが毎日 03:00 UTC + 手動実行で本リポジトリの main から生成）
-- **ランディングページ**: https://nezumi0627.github.io/vyline/（`pages.yml` + `scripts/build-landing.ts`）
+- **ランディングページ**: <https://nezumi0627.github.io/vyline/>（`pages.yml` + `scripts/build-landing.ts`）
 
 生成: `bun scripts/build-api-docs.ts <outdir>`（BFF spec を TS から JSON 化 + ルート `openapi.yaml` をコピー）
 

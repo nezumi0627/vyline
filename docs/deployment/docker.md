@@ -16,10 +16,15 @@ docker compose up -d
 
 ## 更新
 
+配布イメージを使う場合は、タグを新しいバージョンへ変えて取り直します。
+
 ```bash
-git pull
-docker compose up -d --build
+export VYLINE_IMAGE=ghcr.io/nezumi0627/vyline:v<新しいバージョン>
+docker compose pull
+docker compose up -d
 ```
+
+ソースからビルドして動かす場合だけ `git pull` の後に `docker compose up -d --build` を使います。
 
 更新前に `data/` のバックアップを推奨（VylineBackup またはディレクトリコピー）。
 

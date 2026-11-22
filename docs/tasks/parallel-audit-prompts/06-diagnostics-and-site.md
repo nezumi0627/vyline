@@ -4,7 +4,7 @@
 
 最初に `AGENTS.md` と diagnostics/logging 関連コード、既存サイト構成を調査する。必要な Skill は `observability-and-instrumentation`, `frontend-ui-engineering`, `design`, `common-web-visual-testing`, `ponytail`, `minimize-cursor-cost`。
 
-# Part A — Debug Log / Issue Reporting UX
+## Part A — Debug Log / Issue Reporting UX
 
 現状の UI:
 
@@ -53,22 +53,22 @@ GitHub URL に巨大 JSON を query で詰め込む設計は長さ制限も検�
 
 clean start からログが記録され、ON/OFF、再起動後設定、sanitization、削除、export、Issue導線をテストできる。秘密情報が fixture を使ったテストで漏れないことを確認する。
 
-# Part B — Vyline Page
+## Part B — Vyline Page
 
 Vyline のための高品質な公開ページを作る。テンプレートをAIに埋めさせたようなサイトは禁止。
 
 参考:
 
-- https://x.com/alextalksai/status/2093583622691283018?s=20
-- https://beautifului.dev/
-- https://beui.dev/
-- https://rareui.com/
-- https://transitions.dev/
-- https://ui.shadcn.com/
-- https://ui-skills.com/
-- https://coss.com/ui
-- https://designsystemchecklist.com/
-- https://reui.io/components
+- <https://x.com/alextalksai/status/2093583622691283018?s=20>
+- <https://beautifului.dev/>
+- <https://beui.dev/>
+- <https://rareui.com/>
+- <https://transitions.dev/>
+- <https://ui.shadcn.com/>
+- <https://ui-skills.com/>
+- <https://coss.com/ui>
+- <https://designsystemchecklist.com/>
+- <https://reui.io/components>
 
 必要なら X / design community の現在の Web design trend も調査する。ただし流行をそのまま全部盛りしない。
 

@@ -82,8 +82,6 @@ A. まず `domain/`、次に `lineService`、最後に `api/line.ts`。辞書も
 **Q. 通話は？**  
 A. `useCall` から backend の managed call session / WebSocket PCM まで接続済み。まだ実験的で、実 LINE 環境の E2E 成功確認は継続中。
 
-
-
 ---
 
 ## 完了の定義（オンボーディング）

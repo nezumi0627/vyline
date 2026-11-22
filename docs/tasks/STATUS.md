@@ -136,7 +136,7 @@ UI は現行 Vyline の実装を維持し、バックエンド・ストレージ
 
 ## アーキテクチャ（現行）
 
-```
+```text
 desktop (React + Vite) ──HTTP──► backend (Hono on Bun)
                                       │
                                       ▼

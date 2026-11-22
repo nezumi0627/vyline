@@ -146,7 +146,7 @@
 
 ### 互換レイヤの関係
 
-```
+```text
 VylineClient → patchDesktopTransport / patchDesktopLogin（DESKTOPWIN 時）
           → letterSealing + groupE2EE（自前 E2EE）
           → stack talk/obs/e2ee（vendored RPC 本体）

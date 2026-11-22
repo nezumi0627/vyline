@@ -36,7 +36,7 @@ identity 文字列・（E2EE 鍵抽出時は）keychain 相当は **プロセス
 - Desktop はメモリ上の keychain に **複数世代の自己鍵** を保持する。
 - 抽出結果は次の形で保存する（パス固定）:
 
-```
+```text
 Vyline/backend/data/desktop-e2ee-keys.json
 ```
 
@@ -72,14 +72,14 @@ Windows バイナリ・メモリではヘッダが UTF-16 で残ることがあ�
 
 区切りは **TAB (`0x09`)**。ドット表示は誤読しやすい。
 
-```
+```text
 x-line-application: DESKTOPWIN\t{appVer}\tWINDOWS\t{sysVer}-{ntSuffix}
 user-agent: DESKTOP:WINDOWS:{sysVer}-{ntSuffix}({appVer})
 ```
 
 例（バージョンは環境依存）:
 
-```
+```text
 DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT
 ```
 

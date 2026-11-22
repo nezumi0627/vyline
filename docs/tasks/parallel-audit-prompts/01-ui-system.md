@@ -17,18 +17,18 @@
 
 必ず実際に確認して、丸写しではなく Vyline に合う原則だけ抽出する。
 
-- https://developer.apple.com/jp/design/human-interface-guidelines/
-- https://x.com/alextalksai/status/2093583622691283018?s=20
-- https://beautifului.dev/
-- https://beui.dev/
-- https://rareui.com/
-- https://transitions.dev/
-- https://ui.shadcn.com/
-- https://ui-skills.com/
-- https://coss.com/ui
-- https://designsystemchecklist.com/
-- https://reui.io/components
-- https://emilkowal.ski/ui/you-dont-need-animations
+- <https://developer.apple.com/jp/design/human-interface-guidelines/>
+- <https://x.com/alextalksai/status/2093583622691283018?s=20>
+- <https://beautifului.dev/>
+- <https://beui.dev/>
+- <https://rareui.com/>
+- <https://transitions.dev/>
+- <https://ui.shadcn.com/>
+- <https://ui-skills.com/>
+- <https://coss.com/ui>
+- <https://designsystemchecklist.com/>
+- <https://reui.io/components>
+- <https://emilkowal.ski/ui/you-dont-need-animations>
 
 トレンドを追う場合も、「AI生成っぽいグラデーション・過剰glass・無意味なanimation」を追加することが目的ではない。自然で落ち着きがあり、触った瞬間に用途が分かる UI を優先する。
 

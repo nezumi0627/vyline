@@ -26,7 +26,7 @@ Get-FileHash .\VylineSetup-1.2.3.exe -Algorithm SHA256
 
 ポータブル版でも利用データは `%APPDATA%\Vyline\` に保存します。
 アプリのフォルダを移動するだけでは、別PCへログイン状態や履歴は移りません。
-移行前に[バックアップと復元](../../Vyline/docs/guides/vyline-backup-restore.md)を確認してください。
+移行前に[バックアップと復元](../user-guide/vyline-backup-restore.md)を確認してください。
 
 ## 起動しないとき
 
