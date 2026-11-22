@@ -7,4 +7,6 @@ exclude_path = [
   "Vyline/packages/protocol",
   "Vyline/packages/plugin",
   "Vyline/packages/themes",
+  # Blog posts link to the published site with root-relative /vyline/ paths.
+  "Vyline/website/blog",
 ]

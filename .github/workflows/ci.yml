@@ -22,6 +22,7 @@ jobs:
       - run: npx --yes markdownlint-cli2@0.17.2 "**/*.md"
       - uses: lycheeverse/lychee-action@v2
         with:
+          lycheeVersion: v0.18.1
           args: --config lychee.toml --offline --include-fragments "**/*.md"
           fail: true
 
