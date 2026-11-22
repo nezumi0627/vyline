@@ -166,6 +166,147 @@ svg {
   height: 30px;
   object-fit: contain;
 }
+/* Markdown diagrams share the same layout on every generated article. */
+.article-content .architecture-map {
+  margin: 28px 0;
+  padding: 24px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+.architecture-map figcaption {
+  margin-bottom: 20px;
+  color: var(--ink);
+  font-weight: 600;
+}
+.architecture-layer {
+  display: grid;
+  gap: 10px;
+  max-width: 700px;
+  margin-inline: auto;
+}
+.architecture-node {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 16px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+.architecture-node small {
+  color: var(--accent);
+  font: 11px var(--mono);
+  letter-spacing: .06em;
+}
+.architecture-node strong,
+.architecture-branches strong {
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+.architecture-node span,
+.architecture-branches span {
+  color: var(--muted);
+  font-size: 13px;
+  overflow-wrap: anywhere;
+}
+.architecture-connector,
+.architecture-down {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.architecture-down {
+  flex-direction: column;
+  gap: 0;
+  margin-block: 10px;
+}
+.architecture-connector b,
+.architecture-down b {
+  color: var(--accent);
+  font-size: 20px;
+}
+.architecture-flow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr);
+  gap: 12px;
+}
+.architecture-layer > .architecture-connector {
+  flex-direction: column;
+  gap: 0;
+}
+.architecture-protocol {
+  display: grid;
+  gap: 12px;
+  min-width: 0;
+  padding: 14px;
+  border: 1px solid var(--line);
+}
+.architecture-protocol .protocol-title {
+  align-items: center;
+  text-align: center;
+}
+.architecture-branches {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.architecture-branches > div {
+  display: flex;
+  min-width: 0;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px;
+  border-top: 1px solid var(--line);
+}
+.directory-groups {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+}
+.directory-group {
+  min-width: 0;
+  padding: 16px;
+  border: 1px solid var(--line);
+  border-top-color: var(--accent);
+}
+.article-content .directory-group h3 {
+  margin: 0 0 12px;
+  font-size: 17px;
+}
+.directory-entry {
+  display: grid;
+  gap: 4px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line);
+}
+.directory-entry code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.directory-entry span {
+  color: var(--muted);
+  font-size: 13px;
+}
+@media (max-width: 760px) {
+  .article-content .architecture-map {
+    padding: 14px;
+  }
+  .architecture-flow,
+  .architecture-branches,
+  .directory-groups {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .architecture-flow > .architecture-connector {
+    flex-direction: column;
+    gap: 0;
+  }
+  .architecture-flow > .architecture-connector b {
+    transform: rotate(90deg);
+  }
+}
 .brand img,
 .app-rail img {
   filter: brightness(0) invert(1);
