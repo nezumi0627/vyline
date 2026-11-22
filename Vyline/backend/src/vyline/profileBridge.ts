@@ -6,18 +6,17 @@
 
 import { createVylineUpdater, type DesktopProfile, type VylineUpdater } from "@vyline/protocol";
 import { existsSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { childLogger } from "../logger.js";
+import { getDataDir } from "../storage/dataDir.js";
 
 const log = childLogger("vyline");
-const _dir = dirname(fileURLToPath(import.meta.url));
 
 let updater: VylineUpdater | null = null;
 let profile: DesktopProfile | null = null;
 
 function dataDir(): string {
-  const root = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
+  const root = getDataDir();
   const modern = join(root, "vyline");
   const legacy = join(root, "nezuline");
   // 旧ブランド (nezuline) キャッシュがあれば引き続き使う

@@ -30,9 +30,10 @@ import { getToken } from "../storage/tokenStore.js";
 import { initVylineProfile } from "../vyline/profileBridge.js";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { RestoreClaim, type RestoreClaimV3, createFromPassword } from "@vyline/protocol/sbc";
+import { getDataDir } from "../storage/dataDir.js";
 
 const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "..", "data");
+const DATA_DIR = getDataDir();
 
 const { values } = parseArgs({
   args: Bun.argv.slice(2),

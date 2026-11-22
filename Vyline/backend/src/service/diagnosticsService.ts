@@ -6,14 +6,14 @@ import { loadAccountSettings, saveAccountSettings } from "./accountSettingsServi
 import { anonymousId, redactForDiagnostics } from "./redaction.js";
 import { safePathComponent } from "../storage/safeFile.js";
 import { listSavedSessions } from "../storage/tokenStore.js";
+import { getDataDir } from "../storage/dataDir.js";
 
 const MAX_LOG_BYTES = 1024 * 1024;
 const MAX_ROTATED_ENTRIES = 500;
 const LEVEL_WEIGHT: Record<LogLevel, number> = { error: 0, warn: 1, info: 2, debug: 3 };
 
 function logDir(): string {
-  const dataDir = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
-  return process.env.VYLINE_LOG_DIR ?? join(dataDir, "logs");
+  return process.env.VYLINE_LOG_DIR ?? join(getDataDir(), "logs");
 }
 
 function logPath(mid: string): string {

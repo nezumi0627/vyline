@@ -5,11 +5,10 @@
 import { createHash, randomBytes, timingSafeEqual } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { readFile, rename, rm, writeFile } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
+import { getDataDir } from "./dataDir.js";
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 const TOKEN_FILE = join(DATA_DIR, "api-tokens.json");
 const VALID_SCOPES = new Set(["read", "write"]);
 const LAST_USED_PERSIST_INTERVAL_MS = 60_000;

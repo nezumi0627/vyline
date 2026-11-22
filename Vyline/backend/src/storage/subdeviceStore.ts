@@ -3,8 +3,9 @@ import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { writeJsonAtomic } from "./safeFile.js";
+import { getDataDir } from "./dataDir.js";
 
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 const FILE = join(DATA_DIR, "subdevices.json");
 const PAIRING_TTL_MS = 2 * 60_000;
 const INSTALLATION_ID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;

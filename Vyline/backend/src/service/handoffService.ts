@@ -13,11 +13,12 @@ import { accountFile, accountDir } from "../storage/accountDirs.js";
 import { safePathComponent, writeJsonAtomic } from "../storage/safeFile.js";
 import { loadAccountSettings, withAccountSettingsWrite } from "./accountSettingsService.js";
 import { anonymousId } from "./redaction.js";
+import { getDataDir } from "../storage/dataDir.js";
 
 const MAX_ARCHIVE_BYTES = 5 * 1024 * 1024;
 const MAX_EXTRACTED_BYTES = 5 * 1024 * 1024;
 const MAX_ARCHIVE_ENTRIES = 16;
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 
 function sha256(data: Uint8Array): string {
   return createHash("sha256").update(data).digest("hex");

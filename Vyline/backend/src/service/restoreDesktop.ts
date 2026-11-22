@@ -6,8 +6,7 @@
  */
 
 import { existsSync, readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import {
   type DesktopProfile,
   ensureValidE2EEIdentity,
@@ -23,14 +22,10 @@ import { getClient } from "../line/clientManager.js";
 import { refreshVylineProfile } from "../vyline/profileBridge.js";
 import { accountFile } from "../storage/accountDirs.js";
 import { writeJsonAtomic } from "../storage/safeFile.js";
+import { getDataDir } from "../storage/dataDir.js";
 
 const log = childLogger("service:restore-desktop");
-const _dir = dirname(fileURLToPath(import.meta.url));
 
-function backendDataDir(): string {
-  if (process.env.VYLINE_DATA_DIR) return process.env.VYLINE_DATA_DIR;
-  return join(_dir, "../../data");
-}
 
 function vylineProfileCachePath(accountId: string): string {
   // Desktop profileはアカウント固有。共通ファイルだと複数アカウントの
@@ -43,7 +38,7 @@ function resolveDesktopKeysPath(): string | null {
     join(process.cwd(), "source", "desktop", "e2ee", "desktop-e2ee-keys.json"),
     join(process.cwd(), "Vyline", "backend", "data", "desktop-e2ee-keys.json"),
     join(process.cwd(), "data", "desktop-e2ee-keys.json"),
-    join(backendDataDir(), "desktop-e2ee-keys.json"),
+    join(getDataDir(), "desktop-e2ee-keys.json"),
   ];
   for (const p of candidates) {
     if (existsSync(p)) return p;
@@ -67,7 +62,7 @@ function resolveSbcKeysDirs(): string[] {
   return [
     join(process.cwd(), "Vyline", "data", "sbc-extract"),
     join(process.cwd(), "data", "sbc-extract"),
-    join(backendDataDir(), "sbc-extract"),
+    join(getDataDir(), "sbc-extract"),
   ];
 }
 

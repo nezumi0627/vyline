@@ -11,8 +11,7 @@
 import { existsSync } from "node:fs";
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { childLogger } from "../logger.js";
 import {
   exportChatDb,
@@ -23,15 +22,14 @@ import {
 } from "../storage/chatStore.js";
 import { readMediaStorage, writeMediaStorage } from "../storage/mediaStorage.js";
 import { safePathComponent, writeTextAtomic } from "../storage/safeFile.js";
+import { getDataDir } from "../storage/dataDir.js";
 
 const log = childLogger("vyline-backup");
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DATA_DIR = join(_dir, "../../data");
 function backupDir(): string {
   return (
     process.env.VYLINE_BACKUP_DIR ??
-    join(process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR, "backups")
+    join(getDataDir(), "backups")
   );
 }
 

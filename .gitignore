@@ -84,3 +84,7 @@ Vyline/backend/storage/cache/
 Vyline/backend/storage/saved-media/
 
 dist-api-docs/
+
+# Python
+__pycache__/
+*.pyc

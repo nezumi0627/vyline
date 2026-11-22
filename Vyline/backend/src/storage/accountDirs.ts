@@ -15,8 +15,9 @@ import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { writeJsonAtomic } from "./safeFile.js";
+import { getDataDir } from "./dataDir.js";
 
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(import.meta.dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 const ACCOUNTS_ROOT = join(DATA_DIR, "accounts");
 const REGISTRY_PATH = join(DATA_DIR, "accounts.json");
 

@@ -1,15 +1,14 @@
 import { Database } from "bun:sqlite";
 import { chmodSync, mkdirSync } from "node:fs";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { getSqliteDurability } from "./sqliteConfig.js";
+import { getDataDir } from "./dataDir.js";
 
-const dir = dirname(fileURLToPath(import.meta.url));
 let connection: Database | undefined;
 let connectionPath: string | undefined;
 
 function getDatabase(): Database {
-  const dataDir = process.env.VYLINE_DATA_DIR ?? join(dir, "..", "..", "data");
+  const dataDir = getDataDir();
   const path = join(dataDir, "vyline.sqlite");
   if (connection) {
     if (connectionPath !== path)
