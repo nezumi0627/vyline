@@ -56,7 +56,7 @@
     "docs:site:preview": "bun run Vyline/website/preview.ts",
     "docs:readme": "bun scripts/generate-readmes.ts",
     "docs:readme:check": "bun scripts/generate-readmes.ts --check",
-    "docs:lint": "markdownlint-cli2 \"**/*.md\"",
+    "docs:lint": "bunx markdownlint-cli2@0.17.2 \"**/*.md\"",
     "docs:links": "lychee --config lychee.toml --offline --include-fragments \"**/*.md\"",
     "postinstall": "git config core.hooksPath .githooks"
   },
