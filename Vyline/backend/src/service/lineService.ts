@@ -15,6 +15,7 @@ import type {
   LineBirthday,
   CallRoute,
 } from "@vyline/types";
+import { AuthService } from "../auth/mod.js";
 import { canUnsendMessage } from "@vyline/types";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 import { childLogger } from "../logger.js";
@@ -28,6 +29,7 @@ import {
   runTalkFetchUrgent,
   runTalkRpcImmediate,
   runSendRpc,
+  registerSessionServiceHooks,
 } from "../line/clientManager.js";
 import {
   drainTalkEvents,
@@ -112,8 +114,8 @@ import {
   isUnresolvedLastMessagePreview,
   callPreviewLabel,
   type BootstrapPayload,
-  type StoredChat,
 } from "../storage/chatStore.js";
+import type { StoredChat } from "../storage/chatStoreTypes.js";
 
 export { restoreRevokedMessage, getMessageHistory } from "../storage/chatStore.js";
 import { CallNotAllowedError, callAllowlistHint, isAllowedCallTarget } from "../call/allowlist.js";
@@ -123,7 +125,6 @@ import { dispatchPluginMessage } from "../line/pluginRuntime.js";
 import { isChatLocked, loadLockedChats, setChatLocked } from "../storage/chatLockStore.js";
 
 export { CallNotAllowedError, callAllowlistHint };
-export type { CallSessionSnapshot } from "../call/callManager.js";
 
 export class ChatLockedError extends Error {
   readonly code = "CHAT_LOCKED";
@@ -179,7 +180,7 @@ type CombinationStickerStickerData = {
 
 // ─── helpers ──────────────────────────────────
 
-export function detectChatKind(mid: string): Chat["kind"] {
+function detectChatKind(mid: string): Chat["kind"] {
   if (mid.startsWith("c")) return "group";
   if (mid.startsWith("r")) return "room";
   if (mid.startsWith("u")) return "direct";
@@ -191,7 +192,7 @@ export function detectChatKind(mid: string): Chat["kind"] {
  * 空・未設定なら null を返す。
  * すでに https:// で始まる場合はそのまま返す。
  */
-export function pictureStatusToUrl(s: string | undefined | null): string | null {
+function pictureStatusToUrl(s: string | undefined | null): string | null {
   if (!s || s.trim() === "") return null;
   if (s.startsWith("https://") || s.startsWith("http://")) return s;
   const cleaned = s.startsWith("/") ? s.slice(1) : s;
@@ -199,7 +200,7 @@ export function pictureStatusToUrl(s: string | undefined | null): string | null 
 }
 
 /** プロフィール背景（OBS myhome / cover） */
-export function backgroundObjToUrl(objId: string | undefined | null): string | null {
+function backgroundObjToUrl(objId: string | undefined | null): string | null {
   if (!objId || !String(objId).trim()) return null;
   const s = String(objId).trim();
   if (s.startsWith("https://") || s.startsWith("http://")) return s;
@@ -358,7 +359,7 @@ function formatBirthdayDisplay(b: {
 }
 
 /** contentMetadata を string map に正規化（FLEX_JSON が object のとき stringify） */
-export function normalizeContentMetadata(meta: unknown): MessageContentMeta | null {
+function normalizeContentMetadata(meta: unknown): MessageContentMeta | null {
   if (!meta || typeof meta !== "object") return null;
   const out: MessageContentMeta = {};
   for (const [k, v] of Object.entries(meta as Record<string, unknown>)) {
@@ -864,7 +865,7 @@ function deleteAccountPrefixed(
 }
 
 /** アカウント切替・ログアウト時に揮発キャッシュをまとめて解放する。 */
-export async function clearAccountRuntimeCaches(accountId: string): Promise<void> {
+async function clearAccountRuntimeCaches(accountId: string): Promise<void> {
   deleteAccountPrefixed(homeBackgroundCache, accountId);
   deleteAccountPrefixed(readRangeBgAt, accountId);
   chatsCache.delete(accountId);
@@ -1195,7 +1196,7 @@ export class NotLoggedInError extends Error {
   }
 }
 
-export class ProtectedContactDeleteError extends Error {
+class ProtectedContactDeleteError extends Error {
   readonly code = "PROTECTED_CONTACT_DELETE";
 
   constructor() {
@@ -1255,8 +1256,7 @@ async function fetchPremiumStatus(accountId: string): Promise<PremiumStatus> {
 /** 自分のプロフィール取得（メモリ / base.profile / Vyline 優先、RPC は短タイムアウト） */
 export async function fetchProfile(accountId: string): Promise<LineProfile> {
   // Refresh token before making profile requests to ensure it's valid
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const now = Date.now();
   const mem = myProfileCache.get(accountId);
@@ -1591,8 +1591,7 @@ export async function fetchContactsBatch(
   mids: string[],
 ): Promise<Map<string, LineProfile>> {
   // Refresh token before making contact requests to ensure it's valid
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const unique = [...new Set(mids.filter((m) => m.startsWith("u")))];
   const out = new Map<string, LineProfile>();
@@ -1761,10 +1760,9 @@ export async function fetchContactsBatch(
 /**
  * チャット一覧の mid を VylineCache で即解決し、不足分を裏でバッチ取得。
  */
-export async function applyVylineCacheToChats(accountId: string, chats: Chat[]): Promise<Chat[]> {
+async function applyVylineCacheToChats(accountId: string, chats: Chat[]): Promise<Chat[]> {
   // Refresh token before making cache operations to ensure it's valid
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const { profiles: profileMap, groups: groupMap } = await vylineGetChatCacheEntries(
     accountId,
@@ -1844,8 +1842,7 @@ export async function fetchChatMembersDetailed(
   fromCache?: boolean;
 }> {
   // Refresh token before making member list request
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const cached = await vylineGetGroup(accountId, chatMid);
   if (cached && !vylineGroupNeedsRefresh(cached) && cached.members.length > 0) {
@@ -1958,7 +1955,7 @@ export async function fetchChatMembersDetailed(
   return result;
 }
 
-export type CommonGroupInfo = {
+type CommonGroupInfo = {
   chatMid: string;
   name: string;
   thumbnailUrl?: string;
@@ -2328,8 +2325,7 @@ export async function markAsRead(
   lastMessageId?: string,
 ): Promise<string | undefined> {
   // Refresh token before making read request
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const client = requireClient(accountId);
   let messageId = lastMessageId?.trim() || "";
@@ -2384,7 +2380,7 @@ export function rethrowReadReceiptFailure(err: unknown, accountId: string, chatM
   throw err;
 }
 
-export type ReadTarget = { chatMid: string; lastMessageId: string };
+type ReadTarget = { chatMid: string; lastMessageId: string };
 
 /** getMessageBoxes の結果から通常トークの既読送信対象を抽出する。 */
 export function readTargetsFromMessageBoxes(
@@ -2640,7 +2636,7 @@ export function attachGroupReadReceipts(
 }
 
 /** 既読レンジをメッセージ配列に適用（DM seen / グループ readBy） */
-export function applyReadReceiptsToMessages(
+function applyReadReceiptsToMessages(
   messages: Message[],
   ranges: Array<{ chatId?: string; ranges?: unknown }>,
   chatMid: string,
@@ -2720,7 +2716,7 @@ export async function fetchChatMemberMids(accountId: string, chatMid: string): P
 }
 
 /** 軽量既読更新（ポーリング用） — 失敗時は空を返し HTTP 500 にしない */
-export type ReadReceiptsResult = {
+type ReadReceiptsResult = {
   /** メッセージID → 既読状態 */
   receipts: Record<string, { seen?: boolean; readCount?: number; readBy?: string[] }>;
   /** DM: 相手が既読した自分のメッセージID の最大値（これを超えない id は全て既読） */
@@ -2731,21 +2727,17 @@ export type ReadReceiptsResult = {
   readSnapshotV4?: ReturnType<typeof getReadSnapshotV4>;
 };
 
-export type ReadWatermarksResult = Pick<
-  ReadReceiptsResult,
-  "peerReadUpTo" | "memberReadWatermarks"
-> & {
+type ReadWatermarksResult = Pick<ReadReceiptsResult, "peerReadUpTo" | "memberReadWatermarks"> & {
   readSnapshotV4?: NonNullable<ReadReceiptsResult["readSnapshotV4"]>;
 };
 
-export async function getReadWatermarksForChat(
+async function getReadWatermarksForChat(
   accountId: string,
   chatMid: string,
   opts?: { force?: boolean },
 ): Promise<ReadWatermarksResult> {
   try {
-    const authService = require("../auth/mod.js").AuthService;
-    await authService.tryRefreshToken(accountId);
+    await AuthService.tryRefreshToken(accountId);
     const client = requireClient(accountId);
     const myMid = await resolveMyMid(client, accountId);
     let ranges = await fetchReadRanges(accountId, chatMid, { force: opts?.force === true });
@@ -3021,7 +3013,7 @@ export async function fetchBootstrap(accountId: string): Promise<BootstrapPayloa
   return payload;
 }
 
-export async function warmLineCache(accountId: string): Promise<void> {
+async function warmLineCache(accountId: string): Promise<void> {
   // セッション/プロフィール等の軽量キャッシュだけを温める。
   // メッセージ履歴の一括インデックスは暗黙実行しない。
   await warmAccountCache(accountId);
@@ -3645,7 +3637,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
 }
 
 /** 復号済み Thrift メッセージ → API Message */
-export function mapDecodedRawToMessage(msg: Record<string, unknown>, myMid: string): Message {
+function mapDecodedRawToMessage(msg: Record<string, unknown>, myMid: string): Message {
   const hasChunks = Array.isArray(msg.chunks) && msg.chunks.length > 0;
   const rawText = msg.text;
   const text = typeof rawText === "string" ? rawText : rawText == null ? null : String(rawText);
@@ -3825,7 +3817,7 @@ function logMessageAsync(accountId: string, chatMid: string, message: Message): 
 }
 
 /** fetchOps で取得した Operation を全て処理してバッファへ流す */
-export async function processFetchedOperations(
+async function processFetchedOperations(
   accountId: string,
   ops: Array<{
     type?: string | number;
@@ -4065,7 +4057,7 @@ async function processSingleOperation(
   }
 }
 
-export function detachFetchOps(accountId: string): void {
+function detachFetchOps(accountId: string): void {
   clearTalkEvents(accountId);
 }
 
@@ -4513,7 +4505,7 @@ async function fetchMessagesInner(
   return out;
 }
 
-export interface SendMessageOptions {
+interface SendMessageOptions {
   /** 返信先メッセージ ID。指定すると LINE の「返信」機能として送られる (見た目だけの引用ではない) */
   relatedMessageId?: string;
   /** REPLACE（絵文字）等の本文置換メタデータ */
@@ -4866,8 +4858,8 @@ export async function sendMessage(
   });
 }
 
-export type MediaSendType = "image" | "video" | "audio" | "file" | "gif";
-export type MediaBatchItem = {
+type MediaSendType = "image" | "video" | "audio" | "file" | "gif";
+type MediaBatchItem = {
   dataBase64: string;
   mimeType?: string;
   filename?: string;
@@ -6184,9 +6176,9 @@ export async function getBlockedContactIds(accountId: string): Promise<string[]>
   return task;
 }
 
-export type BlockVerificationStatus = "blocked" | "not_blocked" | "skipped" | "unknown";
+type BlockVerificationStatus = "blocked" | "not_blocked" | "skipped" | "unknown";
 
-export type BlockVerificationResult = {
+type BlockVerificationResult = {
   mid: string;
   status: BlockVerificationStatus;
   reason: string;
@@ -6338,7 +6330,7 @@ export async function verifyFriendBlockStatus(
   return task;
 }
 
-export function invalidateBlockedCache(accountId: string): void {
+function invalidateBlockedCache(accountId: string): void {
   blockedCache.delete(accountId);
 }
 
@@ -6448,8 +6440,7 @@ export async function setNotificationsEnabled(
   accountId: string,
   enablement: boolean,
 ): Promise<{ userFlag: boolean; masterEnable: boolean }> {
-  const authService = require("../auth/mod.js").AuthService;
-  await authService.tryRefreshToken(accountId);
+  await AuthService.tryRefreshToken(accountId);
 
   const client = requireClient(accountId);
   const mid = client.base.profile?.mid;
@@ -6747,7 +6738,7 @@ export async function acquireGroupCallRoute(
   return route as unknown as CallRoute;
 }
 
-export type GroupCallStatus = {
+type GroupCallStatus = {
   online: boolean;
   chatMid: string;
   hostMid?: string;
@@ -6828,7 +6819,7 @@ export async function getGroupCallStatus(
 }
 
 /** セッションログアウト時などに通話状態キャッシュを破棄 */
-export function clearGroupCallStatus(accountId: string): void {
+function clearGroupCallStatus(accountId: string): void {
   for (const key of groupCallStatusCache.keys()) {
     if (key.startsWith(`${accountId}:`)) groupCallStatusCache.delete(key);
   }
@@ -7233,7 +7224,7 @@ function guessMediaMime(contentType: string): string {
 
 // ─── Stickers / LINE emoji (sticon) catalog ───────────────────────────────
 
-export type CatalogStickerItem = {
+type CatalogStickerItem = {
   id: string;
   url: string;
   alt?: string;
@@ -7241,7 +7232,7 @@ export type CatalogStickerItem = {
   animated?: boolean;
 };
 
-export type CatalogPack = {
+type CatalogPack = {
   packageId: string;
   name: string;
   type: "sticker" | "emoji";
@@ -7249,7 +7240,7 @@ export type CatalogPack = {
   items: CatalogStickerItem[];
 };
 
-export type StickersCatalog = {
+type StickersCatalog = {
   premium: {
     active: boolean;
     planType?: string | number;
@@ -7514,3 +7505,10 @@ export async function fetchStickersCatalog(
 
   return result;
 }
+
+registerSessionServiceHooks({
+  processOperations: processFetchedOperations,
+  warmCache: warmLineCache,
+  detachFetchOps,
+  clearRuntimeCaches: clearAccountRuntimeCaches,
+});

@@ -1,4 +1,4 @@
-export type MessageTextPart =
+type MessageTextPart =
   | { type: "text"; value: string }
   | { type: "url"; value: string; href: string };
 

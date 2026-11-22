@@ -6,7 +6,7 @@ import { create } from "zustand";
 import { persist } from "zustand/middleware";
 import { indexedDbPersistStorage } from "../lib/indexedDbStorage.js";
 
-export type SettingsState = {
+type SettingsState = {
   /** チャットを開いたら自動既読（相手へ既読を送る） */
   autoMarkAsRead: boolean;
   /** 自分の送信に既読表示 */

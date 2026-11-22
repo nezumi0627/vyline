@@ -10,7 +10,7 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("note");
 
-export type NoteContentInput = {
+type NoteContentInput = {
   text?: string;
   sharedPostId?: string;
   stickerIds?: string[];

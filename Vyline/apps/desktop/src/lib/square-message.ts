@@ -1,4 +1,4 @@
-export type SquareStickerInput = {
+type SquareStickerInput = {
   contentType?: string | number;
   contentMetadata?: Record<string, string> | null;
 };

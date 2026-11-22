@@ -5,7 +5,7 @@
 
 import { looksLikeMid, type ContactInfo } from "./mappers.js";
 
-export type VylineClientProfile = {
+type VylineClientProfile = {
   mid: string;
   displayName: string;
   thumbnailUrl?: string;
@@ -29,7 +29,7 @@ function empty(): VylineClientDb {
   return { version: 1, profiles: {} };
 }
 
-export function vylineClientLoad(accountId: string): VylineClientDb {
+function vylineClientLoad(accountId: string): VylineClientDb {
   if (!accountId || typeof localStorage === "undefined") return empty();
   try {
     const raw = localStorage.getItem(key(accountId));
@@ -42,7 +42,7 @@ export function vylineClientLoad(accountId: string): VylineClientDb {
   }
 }
 
-export function vylineClientSave(accountId: string, db: VylineClientDb): void {
+function vylineClientSave(accountId: string, db: VylineClientDb): void {
   if (!accountId || typeof localStorage === "undefined") return;
   try {
     localStorage.setItem(key(accountId), JSON.stringify(db));
@@ -51,14 +51,13 @@ export function vylineClientSave(accountId: string, db: VylineClientDb): void {
   }
 }
 
-export function vylineClientPut(
-  accountId: string,
-  entry: Omit<VylineClientProfile, "updatedAt"> & { updatedAt?: number },
-): void {
-  const db = vylineClientLoad(accountId);
-  const prev = db.profiles[entry.mid];
+function mergeProfile(
+  prev: VylineClientProfile | undefined,
+  entry: Omit<VylineClientProfile, "updatedAt">,
+  updatedAt: number,
+): VylineClientProfile {
   const name = entry.displayName?.trim() ?? "";
-  db.profiles[entry.mid] = {
+  return {
     mid: entry.mid,
     displayName:
       name && !looksLikeMid(name)
@@ -71,8 +70,20 @@ export function vylineClientPut(
     musicProfile: entry.musicProfile !== undefined ? entry.musicProfile : prev?.musicProfile,
     birthday: entry.birthday !== undefined ? entry.birthday : prev?.birthday,
     backgroundUrl: entry.backgroundUrl !== undefined ? entry.backgroundUrl : prev?.backgroundUrl,
-    updatedAt: entry.updatedAt ?? Date.now(),
+    updatedAt,
   };
+}
+
+export function vylineClientPut(
+  accountId: string,
+  entry: Omit<VylineClientProfile, "updatedAt"> & { updatedAt?: number },
+): void {
+  const db = vylineClientLoad(accountId);
+  db.profiles[entry.mid] = mergeProfile(
+    db.profiles[entry.mid],
+    entry,
+    entry.updatedAt ?? Date.now(),
+  );
   vylineClientSave(accountId, db);
 }
 
@@ -85,23 +96,7 @@ export function vylineClientPutMany(
   const now = Date.now();
   for (const entry of entries) {
     if (!entry.mid) continue;
-    const prev = db.profiles[entry.mid];
-    const name = entry.displayName?.trim() ?? "";
-    db.profiles[entry.mid] = {
-      mid: entry.mid,
-      displayName:
-        name && !looksLikeMid(name)
-          ? name
-          : prev?.displayName && !looksLikeMid(prev.displayName)
-            ? prev.displayName
-            : name || entry.mid,
-      thumbnailUrl: entry.thumbnailUrl || prev?.thumbnailUrl,
-      statusMessage: entry.statusMessage !== undefined ? entry.statusMessage : prev?.statusMessage,
-      musicProfile: entry.musicProfile !== undefined ? entry.musicProfile : prev?.musicProfile,
-      birthday: entry.birthday !== undefined ? entry.birthday : prev?.birthday,
-      backgroundUrl: entry.backgroundUrl !== undefined ? entry.backgroundUrl : prev?.backgroundUrl,
-      updatedAt: now,
-    };
+    db.profiles[entry.mid] = mergeProfile(db.profiles[entry.mid], entry, now);
   }
   vylineClientSave(accountId, db);
 }
@@ -117,29 +112,4 @@ export function vylineClientToContactMap(accountId: string): Map<string, Contact
     }
   }
   return out;
-}
-
-export function parseMusicProfile(raw: string | undefined | null): {
-  title?: string;
-  artist?: string;
-  raw: string;
-} | null {
-  if (!raw?.trim()) return null;
-  const s = raw.trim();
-  try {
-    const j = JSON.parse(s) as Record<string, unknown>;
-    return {
-      title:
-        typeof j.title === "string" ? j.title : typeof j.name === "string" ? j.name : undefined,
-      artist:
-        typeof j.artist === "string"
-          ? j.artist
-          : typeof j.artistName === "string"
-            ? j.artistName
-            : undefined,
-      raw: s,
-    };
-  } catch {
-    return { raw: s, title: s.length > 40 ? `${s.slice(0, 40)}…` : s };
-  }
 }

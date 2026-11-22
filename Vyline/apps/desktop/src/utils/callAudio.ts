@@ -63,7 +63,7 @@ export function resampleLinearPcm16(
   return out;
 }
 
-export interface AudioJitterBufferOptions {
+interface AudioJitterBufferOptions {
   sampleRate?: number;
   /** プリバッファ目標ミリ秒（デフォルト 80ms） */
   prebufferMs?: number;

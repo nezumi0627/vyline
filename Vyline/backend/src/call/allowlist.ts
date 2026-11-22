@@ -12,10 +12,6 @@ export function isAllowedCallTarget(toMid: string): boolean {
   return toMid.startsWith("u");
 }
 
-export function isGroupCallTarget(mid: string): boolean {
-  return /^c[0-9a-f]{32}$/.test(mid);
-}
-
 export function callAllowlistHint(): string {
   return "1:1 通話は DM（u*）のみ対応しています。";
 }

@@ -1,4 +1,4 @@
-export type InitialChatScrollPosition = "latest" | "target" | "waiting" | "missing";
+type InitialChatScrollPosition = "latest" | "target" | "waiting" | "missing";
 
 export function resolveInitialChatScrollPosition(
   targetMessageId: string | null,

@@ -39,7 +39,7 @@ export function calculateVisibleRange(
  * メッセージの行（mt-3）の margin の分だけ余白の計算が実際より短くなる。端の行が出入りするたびに
  * 全体の高さが変わり、最下部で位置が押し戻されて出入りを繰り返す（表示が小刻みに跳ねる）。
  */
-export function outerHeight(el: HTMLElement): number {
+function outerHeight(el: HTMLElement): number {
   const style = getComputedStyle(el);
   const top = Number.parseFloat(style.marginTop) || 0;
   const bottom = Number.parseFloat(style.marginBottom) || 0;

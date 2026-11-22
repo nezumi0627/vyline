@@ -1,6 +1,6 @@
-import { getPersistedValue, setPersistedValue } from "../lib/indexedDbStorage.js";
+import { setPersistedValue } from "../lib/indexedDbStorage.js";
 
-export type CombinationStickerItem = {
+type CombinationStickerItem = {
   packageId: string;
   stickerId: string;
   url: string;
@@ -49,17 +49,6 @@ function savePreviewStore(accountId: string, store: Record<string, string>): voi
     void setPersistedValue(STORAGE_KEY(accountId), store);
   } catch {
     /* ignore quota/private mode */
-  }
-}
-
-export async function hydrateCombinationStickerPreviews(accountId: string): Promise<void> {
-  if (!accountId || previewMemory.has(accountId)) return;
-  try {
-    const parsed = await getPersistedValue<unknown>(STORAGE_KEY(accountId));
-    if (parsed && typeof parsed === "object")
-      previewMemory.set(accountId, parsed as Record<string, string>);
-  } catch {
-    /* Keep the legacy synchronous fallback available. */
   }
 }
 

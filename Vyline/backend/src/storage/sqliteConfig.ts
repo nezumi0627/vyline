@@ -1,4 +1,4 @@
-export type SqliteDurability = {
+type SqliteDurability = {
   journalMode: "WAL" | "DELETE";
   synchronous: "NORMAL" | "FULL";
 };

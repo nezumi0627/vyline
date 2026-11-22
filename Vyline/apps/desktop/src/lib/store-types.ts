@@ -15,9 +15,11 @@ export type UiLanguage =
   | "vi"
   | "th";
 
+import type { RetryIntent } from "@vyline/types";
+
 export type { VyTheme } from "@vyline/themes";
 
-export type MessageReaction = {
+type MessageReaction = {
   fromMid: string;
   atMillis: number;
   /** MessageReactionType: NICE=2 LOVE=3 FUN=4 AMAZING=5 SAD=6 OMG=7 */
@@ -25,7 +27,7 @@ export type MessageReaction = {
 };
 
 /** LINE メンション（contentMetadata.MENTION） */
-export type MentionInfo = {
+type MentionInfo = {
   /** 対象 mid（@ALL のときは undefined） */
   mid?: string;
   /** true なら @ALL */
@@ -66,7 +68,7 @@ export type CallMessageMeta = {
   outcome: "ended" | "missed" | "declined" | "busy";
 };
 
-export type LinkPreview = {
+type LinkPreview = {
   url: string;
   title: string;
   description: string;
@@ -166,20 +168,6 @@ export type Message = {
 
 export type MessageSnapshot = Omit<Message, "history" | "revokedSnapshot">;
 
-export type RetryIntent =
-  | {
-      kind: "text";
-      text: string;
-      relatedMessageId?: string;
-      contentMetadata?: Record<string, string>;
-    }
-  | { kind: "sticker"; packageId: string; stickerId: string; isPremium?: boolean }
-  | {
-      kind: "combinationSticker";
-      items: Array<{ packageId: string; stickerId: string; x?: number; y?: number; size?: number }>;
-    }
-  | { kind: "emoji"; packageId: string; sticonId: string };
-
 export type Member = {
   id: string;
   name: string;
@@ -188,7 +176,7 @@ export type Member = {
   color: string;
 };
 
-export type ChatType = "friend" | "group";
+type ChatType = "friend" | "group";
 
 export type Chat = {
   id: string;

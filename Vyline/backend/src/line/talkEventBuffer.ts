@@ -49,10 +49,6 @@ export function pushTalkEvent(accountId: string, payload: TalkPollEventPayload):
   return buf.seq;
 }
 
-export function currentTalkEventSequence(accountId: string): number {
-  return buffers.get(accountId)?.seq ?? 0;
-}
-
 export function pushTalkEventAtSequence(
   accountId: string,
   payload: TalkPollEventPayload,

@@ -1,6 +1,6 @@
 import { createHash, timingSafeEqual } from "node:crypto";
 
-export type ApiScope = "read" | "write";
+type ApiScope = "read" | "write";
 
 const LINE_MEDIA_HOSTS = new Set([
   "obs.line-scdn.net",

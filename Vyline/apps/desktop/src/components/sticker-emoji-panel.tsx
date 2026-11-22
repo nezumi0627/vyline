@@ -1,5 +1,5 @@
 import { tr as uiText } from "@/i18n";
-import { memo, useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { DragEvent, PointerEvent as ReactPointerEvent } from "react";
 import { api } from "@/api/client";
 import { cn } from "@/lib/utils";
@@ -16,6 +16,8 @@ import {
   getCachedStickersCatalog,
   isStickersCatalogFresh,
   setCachedStickersCatalog,
+  type CatalogItem,
+  type CatalogPack,
   type StickersCatalogCache,
 } from "@/lib/stickerCatalogCache";
 import {
@@ -24,15 +26,6 @@ import {
   COMBO_ITEM_MIN_SIZE,
   type CombinationStickerPlacement,
 } from "@/utils/combinationStickers";
-
-export type CatalogItem = { id: string; url: string; alt?: string };
-export type CatalogPack = {
-  packageId: string;
-  name: string;
-  type: "sticker" | "emoji";
-  tabUrl: string;
-  items: CatalogItem[];
-};
 
 type Catalog = StickersCatalogCache;
 type Tab = "sticker" | "emoji" | "favorite";
@@ -825,5 +818,3 @@ export function StickerEmojiPanel({
     </div>
   );
 }
-
-export const StickerEmojiPanelMemo = memo(StickerEmojiPanel);

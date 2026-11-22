@@ -58,9 +58,6 @@ export type {
   Message,
   Member,
   VyTheme,
-  Settings,
-  Screen,
-  MessageState,
 } from "./store-types.js";
 
 /** 一覧の最後の時刻が履歴の最新よりこれ以上新しければ、履歴に出てこないメッセージがあるとみなす。 */

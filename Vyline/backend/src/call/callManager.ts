@@ -470,7 +470,7 @@ export function attachCallWebSocket(ws: ServerWebSocket<CallWsData>) {
 }
 
 /** ブラウザからの PCM Int16LE mono @48kHz */
-export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
+function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
   const call = sessions.get(sessionId);
   if (!call || call.session.state !== "in-call") return;
   if (data.byteLength === 0 || data.byteLength > MAX_PCM_FRAME_BYTES || data.byteLength % 2 !== 0)
@@ -483,7 +483,7 @@ export function ingestCallMicPcm(sessionId: string, data: ArrayBuffer) {
  * ブラウザからのVP8映像フレームを検証して、同じ通話の映像socketへ中継する。
  * フレームをキューイング・蓄積せず、遅い受信者はWebSocket側のbackpressureに任せる。
  */
-export function ingestCallVideoPacket(ws: ServerWebSocket<CallWsData>, data: ArrayBuffer): void {
+function ingestCallVideoPacket(ws: ServerWebSocket<CallWsData>, data: ArrayBuffer): void {
   if (ws.data.media !== "video") return;
   const call = sessions.get(ws.data.sessionId);
   if (!call || call.accountId !== ws.data.accountId || call.session.state !== "in-call") return;

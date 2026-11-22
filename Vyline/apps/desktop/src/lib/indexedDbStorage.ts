@@ -141,7 +141,9 @@ export async function setPersistedValue<T>(key: string, value: T): Promise<boole
   }
 }
 
-/** Async Zustand storage; localStorage is read only for one-time legacy import. */
+/** Async Zustand storage; localStorage is read only for one-time legacy import.
+ * @public
+ */
 export const indexedDbStateStorage: StateStorage = {
   async getItem(key) {
     return getPersistedRaw(key);

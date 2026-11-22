@@ -33,6 +33,8 @@
     "test": "bun run scripts/test.ts",
     "typecheck": "bun run --cwd Vyline/packages/protocol typecheck && bun run --cwd Vyline/backend typecheck && bun run --cwd Vyline/apps/desktop typecheck && bun run --cwd Vyline/packages/cli typecheck && bun run --cwd Vyline/packages/create-plugin typecheck && bun run --cwd Vyline/packages/vyl typecheck && bun run --cwd Vyline/packages/ios-backup typecheck && bun run --cwd tools typecheck",
     "lint": "biome check Vyline/apps Vyline/backend Vyline/packages/cli Vyline/packages/create-plugin Vyline/packages/vyl Vyline/packages/ios-backup Vyline/packages/line-types Vyline/packages/loose-types Vyline/packages/plugin Vyline/packages/themes Vyline/packages/types tools",
+    "check:unused": "knip",
+    "check:deps": "depcruise Vyline/backend/src",
     "test:tooling": "bun test Vyline/packages/create-plugin/src/index.test.ts Vyline/packages/cli/src/snapshotSecurity.test.ts Vyline/backend/src/line/pluginManager.manifest.test.ts Vyline/packages/ios-backup/src",
     "vyline:delta": "bun Vyline/packages/protocol/src/tools/reportDesktopDelta.ts",
     "vyline:find-native": "bun tools/src/findNativeSymbol.ts",
@@ -63,7 +65,9 @@
   "devDependencies": {
     "@biomejs/biome": "^1.9.4",
     "@types/bun": "^1.4.0",
-    "concurrently": "^9.1.2"
+    "dependency-cruiser": "18",
+    "knip": "5",
+    "typescript": "5"
   },
   "overrides": {
     "@babel/core": "^7.29.6",

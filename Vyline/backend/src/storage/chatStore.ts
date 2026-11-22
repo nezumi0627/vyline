@@ -11,7 +11,6 @@ import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { Database } from "bun:sqlite";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import type {
   Chat,
   Message,
@@ -21,6 +20,7 @@ import type {
 } from "@vyline/types";
 import { childLogger } from "../logger.js";
 import { accountFile, ensureAccount } from "./accountDirs.js";
+import type { StoredChat, StoredMessage } from "./chatStoreTypes.js";
 import {
   deleteStoredMessage,
   deleteOperationInboxBatch,
@@ -59,10 +59,10 @@ import {
   encodeOperationBatch,
   operationBatchId,
 } from "./operationInboxCodec.js";
+import { getDataDir } from "./dataDir.js";
 
 const log = childLogger("chatStore");
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CHATDB_SAVE_MS ?? 400);
 const BOOTSTRAP_TOP_CHATS = Number(process.env.VYLINE_BOOTSTRAP_TOP_CHATS ?? 12);
@@ -76,50 +76,6 @@ const MAX_CACHED_ACCOUNTS = Math.max(
   1,
   Number.parseInt(process.env.VYLINE_CHAT_CACHE_ACCOUNTS ?? "1", 10) || 1,
 );
-
-export interface StoredChat {
-  mid: string;
-  name: string;
-  kind: Chat["kind"];
-  hasMessages: boolean;
-  lastMessageTime?: number | undefined;
-  lastMessageId?: string | undefined;
-  lastMessagePreview?: string | undefined;
-  thumbnailUrl?: string;
-  unreadCount?: number;
-  isOfficial?: boolean;
-  /** 外部バックアップから復元された履歴を持つ。退出済みグループも履歴として表示するために使う。 */
-  restoredHistory?: boolean;
-  updatedAt: string;
-}
-
-export interface StoredMessage {
-  id: string;
-  chatMid: string;
-  from: string;
-  to: string;
-  text: string | null;
-  contentType: string;
-  createdTime: number;
-  isMyMessage: boolean;
-  contentMetadata?: MessageContentMeta | null;
-  readCount?: number;
-  readBy?: string[];
-  seen?: boolean;
-  relatedMessageId?: string | null;
-  stickerAnimated?: boolean;
-  stickerSticky?: boolean;
-  reactions?: MessageReaction[];
-  savedAt: string;
-  messageState?: Message["messageState"];
-  history?: Message["history"];
-  revokedSnapshot?: MessageSnapshot;
-  /** UIからは通常隠すが、復元のためレコード自体はSQLiteに残す。 */
-  isDeleted?: boolean;
-  deletedAt?: string | null;
-  /** reader MID → 既読になった時刻。readBy/readCountとの互換用。 */
-  readAtBy?: Record<string, string>;
-}
 
 interface ChatDbMeta {
   /** getMessageBoxes の lastOpRevision（差分同期用・将来） */
@@ -147,7 +103,7 @@ export interface ChatDbRecords {
   messages: Record<string, Record<string, StoredMessage>>;
 }
 
-export interface ChatDbMergeResult {
+interface ChatDbMergeResult {
   importedChats: number;
   skippedChats: number;
   importedMessages: number;
@@ -172,7 +128,7 @@ export function compareMessagesNewestFirst(left: MessageCursor, right: MessageCu
   return byTime || -compareMessageIdsAscending(left.id, right.id);
 }
 
-export function compareMessagesOldestFirst(left: MessageCursor, right: MessageCursor): number {
+function compareMessagesOldestFirst(left: MessageCursor, right: MessageCursor): number {
   const byTime = left.createdTime - right.createdTime;
   return byTime || compareMessageIdsAscending(left.id, right.id);
 }
@@ -237,7 +193,7 @@ export function previewForMessage(message: StoredMessage): string {
   }
 }
 
-export const ENCRYPTED_LAST_MESSAGE_PREVIEW = "暗号化メッセージ";
+const ENCRYPTED_LAST_MESSAGE_PREVIEW = "暗号化メッセージ";
 
 export function isUnresolvedLastMessagePreview(value: string | null | undefined): boolean {
   const normalized = value?.trim().toUpperCase();
@@ -2074,6 +2030,7 @@ export async function getCacheMeta(accountId: string): Promise<ChatDbMeta> {
   return { ...meta };
 }
 
+/** @public */
 export async function getOperationSyncCursor(accountId: string): Promise<
   | {
       revision: string;
@@ -2086,6 +2043,7 @@ export async function getOperationSyncCursor(accountId: string): Promise<
   return readStoredOperationSyncCursor(accountId);
 }
 
+/** @public */
 export async function saveOperationSyncCursor(
   accountId: string,
   cursor: { revision: string; globalRevision: string; individualRevision: string },
@@ -2109,6 +2067,7 @@ export async function saveOperationSyncCursor(
   if (db) db.meta.lastOpRevision = cursor.revision;
 }
 
+/** @public */
 export async function stageOperationInboxBatch<T>(
   accountId: string,
   startCursor: { revision: string; globalRevision: string; individualRevision: string },
@@ -2124,6 +2083,7 @@ export async function stageOperationInboxBatch<T>(
   return batchId;
 }
 
+/** @public */
 export async function getPendingOperationInboxBatches<T>(accountId: string): Promise<
   Array<{
     batchId: string;
@@ -2139,6 +2099,7 @@ export async function getPendingOperationInboxBatches<T>(accountId: string): Pro
   }));
 }
 
+/** @public */
 export async function completeOperationInboxBatch(
   accountId: string,
   batchId: string,
@@ -2207,13 +2168,6 @@ export async function getTalkEventOutbox<T>(
   };
 }
 
-export function messageSyncAgeMs(meta: ChatDbMeta, chatMid: string): number | null {
-  const iso = meta.messagesSyncedAt?.[chatMid];
-  if (!iso) return null;
-  const t = Date.parse(iso);
-  return Number.isFinite(t) ? Date.now() - t : null;
-}
-
 export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promise<void> {
   if (!dirty.has(accountId)) {
     await ensureChatDbImported(accountId);
@@ -2227,7 +2181,9 @@ export async function saveBoxOrder(accountId: string, boxOrder: string[]): Promi
   scheduleSave(accountId, { meta: true });
 }
 
-/** Flushes pending writes and guarantees the relational backup source is ready. */
+/** Flushes pending writes and guarantees the relational backup source is ready.
+ * @public
+ */
 export async function prepareChatDbBackup(accountId: string): Promise<void> {
   await flushDb(accountId);
   if (dirty.has(accountId)) throw new Error("chat database could not be flushed before backup");
@@ -2235,7 +2191,9 @@ export async function prepareChatDbBackup(accountId: string): Promise<void> {
   memory.delete(accountId);
 }
 
-/** VylineBackup: 復元（マージ書き込み）。新規端末なら空 DB への上書きと同義 */
+/** VylineBackup: 復元（マージ書き込み）。新規端末なら空 DB への上書きと同義
+ * @public
+ */
 export async function importChatDb(
   accountId: string,
   data: Pick<ChatDb, "meta" | "chats" | "messages">,
@@ -2293,125 +2251,6 @@ export async function importChatDb(
     .immediate();
   memory.delete(accountId);
   return { chats: chatCount, messages: messageCount };
-}
-
-/** Import a relational SQLite backup without materializing the target history in memory. */
-export async function importChatDbFromSqlite(
-  accountId: string,
-  backupPath: string,
-  selectedChatMids?: string[],
-): Promise<{ chats: number; messages: number }> {
-  await flushDb(accountId);
-  if (dirty.has(accountId)) throw new Error("chat database could not be flushed before restore");
-  await ensureChatDbImported(accountId);
-  const alias = `vyline_restore_${randomUUID().replaceAll("-", "")}`;
-  sqlite.query(`ATTACH DATABASE ? AS ${alias}`).run(backupPath);
-  try {
-    const info = sqlite
-      .query(`SELECT schema_name,version,account_id FROM ${alias}.backup_info LIMIT 1`)
-      .get() as { schema_name: string; version: number; account_id: string } | null;
-    if (
-      info?.schema_name !== "vyline-backup" ||
-      info.version !== 1 ||
-      info.account_id !== accountId
-    ) {
-      throw new Error("backup database is not compatible with this account");
-    }
-
-    const picks = selectedChatMids?.length ? [...new Set(selectedChatMids)] : [];
-    const pickClause = (column: string, aliasName = "source") =>
-      picks.length ? ` AND ${aliasName}.${column} IN (${picks.map(() => "?").join(",")})` : "";
-    const pickArgs = picks;
-    const notDeleted = ` AND NOT EXISTS (SELECT 1 FROM main.chat_message_tombstones_v2 tombstone
-      WHERE tombstone.account_id=source.account_id AND tombstone.chat_mid=source.chat_mid
-        AND tombstone.message_id=source.message_id)`;
-    const chats = (
-      sqlite
-        .query(
-          `SELECT source.mid FROM ${alias}.chat_records_v2 source WHERE source.account_id=?${pickClause("mid")}`,
-        )
-        .all(accountId, ...pickArgs) as Array<{ mid: string }>
-    ).map((row) => row.mid);
-    const messageCount = (
-      sqlite
-        .query(`SELECT COUNT(*) AS count FROM ${alias}.chat_messages_v2 source
-      WHERE source.account_id=?${pickClause("chat_mid")}${notDeleted}`)
-        .get(accountId, ...pickArgs) as { count: number }
-    ).count;
-    const tables = [
-      "chat_records_v2",
-      "chat_messages_v2",
-      "chat_message_snapshots_v2",
-      "chat_message_metadata_v2",
-      "chat_message_readers_v2",
-      "chat_message_reactions_v2",
-      "chat_message_history_v2",
-    ] as const;
-    const relationTables = [
-      "chat_message_snapshots_v2",
-      "chat_message_metadata_v2",
-      "chat_message_readers_v2",
-      "chat_message_reactions_v2",
-      "chat_message_history_v2",
-    ] as const;
-
-    sqlite
-      .transaction(() => {
-        for (const table of relationTables) {
-          sqlite
-            .query(`DELETE FROM main.${table} WHERE account_id=? AND EXISTS (
-          SELECT 1 FROM ${alias}.chat_messages_v2 source
-          WHERE source.account_id=? AND source.chat_mid=main.${table}.chat_mid
-            AND source.message_id=main.${table}.message_id${pickClause("chat_mid")})`)
-            .run(accountId, accountId, ...pickArgs);
-        }
-        for (const table of tables) {
-          const columns = sqlite.query(`PRAGMA main.table_info('${table}')`).all() as Array<{
-            name: string;
-          }>;
-          const columnList = columns.map(({ name }) => `"${name}"`).join(",");
-          const projection = columns
-            .map(({ name }) => (name === "account_id" ? "? AS account_id" : `source."${name}"`))
-            .join(",");
-          const filterColumn = table === "chat_records_v2" ? "mid" : "chat_mid";
-          sqlite
-            .query(`INSERT OR REPLACE INTO main.${table} (${columnList})
-          SELECT ${projection} FROM ${alias}.${table} source
-          WHERE source.account_id=?${pickClause(filterColumn)}${table === "chat_records_v2" ? "" : notDeleted}`)
-            .run(accountId, accountId, ...pickArgs);
-        }
-        for (const chatMid of chats) {
-          const localReadId = readLocalReadPosition(accountId, chatMid)?.messageId;
-          if (localReadId && /^\d+$/.test(localReadId)) {
-            const readCursor = localReadId.replace(/^0+/, "") || "0";
-            sqlite
-              .query(`UPDATE main.chat_messages_v2 SET seen=1
-            WHERE account_id=? AND chat_mid=? AND is_my_message=0
-              AND message_id != '' AND message_id NOT GLOB '*[^0-9]*'
-              AND (length(CASE WHEN ltrim(message_id,'0')='' THEN '0' ELSE ltrim(message_id,'0') END)<length(?)
-                OR (length(CASE WHEN ltrim(message_id,'0')='' THEN '0' ELSE ltrim(message_id,'0') END)=length(?)
-                  AND CASE WHEN ltrim(message_id,'0')='' THEN '0' ELSE ltrim(message_id,'0') END<=?))`)
-              .run(accountId, chatMid, readCursor, readCursor, readCursor);
-          }
-          const latest = readLatestStoredMessage(accountId, chatMid);
-          const chat = readStoredChatById(accountId, chatMid);
-          if (latest && chat)
-            writeStoredChat(accountId, {
-              ...chat,
-              hasMessages: true,
-              lastMessageTime: latest.createdTime,
-              lastMessageId: latest.id,
-              lastMessagePreview: previewForMessage(latest),
-            });
-          else if (chat) writeStoredChat(accountId, withoutDeletedPreview(accountId, chat));
-        }
-      })
-      .immediate();
-    memory.delete(accountId);
-    return { chats: chats.length, messages: messageCount };
-  } finally {
-    sqlite.exec(`DETACH DATABASE ${alias}`);
-  }
 }
 
 /** 外部履歴を追加専用でマージする。既存メッセージは上書きしないため再実行できる。 */

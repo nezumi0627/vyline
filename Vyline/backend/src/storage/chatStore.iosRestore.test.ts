@@ -4,9 +4,8 @@ import {
   mergeChatDbRecords,
   rebuildChatDbRecords,
   type ChatDbRecords,
-  type StoredChat,
-  type StoredMessage,
 } from "./chatStore.js";
+import type { StoredChat, StoredMessage } from "./chatStoreTypes.js";
 
 function chat(mid: string, name: string, lastMessageTime = 100): StoredChat {
   return {

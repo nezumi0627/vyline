@@ -1,6 +1,6 @@
 import { isDeepStrictEqual } from "node:util";
 import type { MessageContentMeta, MessageReaction, MessageSnapshot } from "@vyline/types";
-import type { StoredChat, StoredMessage } from "./chatStore.js";
+import type { StoredChat, StoredMessage } from "./chatStoreTypes.js";
 import { migrateOnce, sqlite } from "./sqlite.js";
 import { ensureReadEngineV4Schema } from "./readEngineV4.js";
 
@@ -56,13 +56,13 @@ type MessageRow = {
 type Owner = "main" | "snapshot";
 let messageFtsReady = false;
 
-export type OperationSyncCursor = {
+type OperationSyncCursor = {
   revision: string;
   globalRevision: string;
   individualRevision: string;
 };
 
-export type StoredOperationInboxBatch = {
+type StoredOperationInboxBatch = {
   accountId: string;
   batchId: string;
   payload: string;
@@ -224,7 +224,7 @@ export function ensureRelationalChatSchema(): void {
   ensureReadEngineV4Schema();
 }
 
-export type MessageSearchRow = { message_id: string; text: string | null };
+type MessageSearchRow = { message_id: string; text: string | null };
 
 export function searchStoredMessageRows(
   accountId: string,

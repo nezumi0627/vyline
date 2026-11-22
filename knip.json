@@ -1,0 +1,30 @@
+{
+  "$schema": "https://unpkg.com/knip@5/schema.json",
+  "bun": false,
+  "ignoreBinaries": ["lychee"],
+  "ignore": ["Vyline/packages/protocol/**", "tools/**", "Vyline/cloudflare/**"],
+  "workspaces": {
+    ".": {
+      "entry": [
+        "scripts/*.ts",
+        "examples/**/*.ts",
+        "Vyline/packages/plugin/examples/**/*.ts",
+        "Vyline/website/*.js"
+      ],
+      "ignoreDependencies": ["@vyline/plugin-sdk"]
+    },
+    "Vyline/backend": {
+      "entry": ["src/tools/*.ts", "src/**/*.test.ts", "src/**/*.fixture.ts"],
+      "ignoreDependencies": ["pino-pretty"]
+    },
+    "Vyline/apps/desktop": {
+      "entry": ["scripts/*.ts", "src/**/*.test.{ts,tsx}"]
+    },
+    "Vyline/packages/*": {
+      "entry": ["src/**/*.test.ts"]
+    },
+    "Vyline/packages/vyl": {
+      "ignoreDependencies": ["@vyline/cli"]
+    }
+  }
+}

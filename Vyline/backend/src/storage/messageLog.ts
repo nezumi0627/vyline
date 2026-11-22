@@ -9,15 +9,14 @@
 
 import { createWriteStream, existsSync, mkdirSync, type WriteStream } from "node:fs";
 import { readFile, rename, stat } from "node:fs/promises";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import { childLogger } from "../logger.js";
 import { accountDir, ensureAccount } from "./accountDirs.js";
+import { getDataDir } from "./dataDir.js";
 
 const log = childLogger("message-log");
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "../../data");
+const DATA_DIR = getDataDir();
 const LOG_DIR = process.env.VYLINE_LOG_DIR ?? join(DATA_DIR, "logs");
 const ROTATE_BYTES = Number(process.env.VYLINE_MESSAGE_LOG_MAX_BYTES ?? 10 * 1024 * 1024);
 
@@ -154,30 +153,5 @@ export async function readRecentMessageLog(
     return out;
   } catch {
     return [];
-  }
-}
-
-/** 起動時などに未ログ分を再スキャンして追記（履歴同期の取りこぼし補填） */
-export async function replayMissingLogs(accountId: string, knownIds: Set<string>): Promise<number> {
-  const p = existsSync(logPath(accountId)) ? logPath(accountId) : legacyLogPath(accountId);
-  if (!existsSync(p)) return 0;
-  try {
-    const raw = await readFile(p, "utf8");
-    const lines = raw.split("\n").filter((l) => l.trim());
-    let added = 0;
-    for (const line of lines) {
-      try {
-        const entry = JSON.parse(line) as MessageLogEntry & { messageId?: string };
-        if (entry.messageId && !knownIds.has(entry.messageId)) {
-          knownIds.add(entry.messageId);
-          added++;
-        }
-      } catch {
-        /* skip */
-      }
-    }
-    return added;
-  } catch {
-    return 0;
   }
 }

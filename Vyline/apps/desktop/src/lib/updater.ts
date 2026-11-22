@@ -10,7 +10,7 @@ import { UPDATE_NOTES } from "./store";
 const REPO_OWNER = "nezumi0627";
 const REPO_NAME = "Vyline";
 const RELEASES_API = `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases`;
-export const UPDATE_CHECK_TIMEOUT_MS = 8_000;
+const UPDATE_CHECK_TIMEOUT_MS = 8_000;
 const UPDATE_CHECK_CACHE_MS = 5 * 60_000;
 
 const cachedUpdates = new Map<UpdateChannel, { at: number; info: UpdateInfo }>();
@@ -36,7 +36,7 @@ export interface UpdateInfo {
 export type UpdatePlatform = "windows" | "linux" | "macos" | "unknown";
 export type UpdateArchitecture = "x64" | "arm64" | "unknown";
 export type UpdateChannel = "stable" | "beta";
-export type ReleaseChannel = "Alpha" | "Beta" | "RC" | "Pre-release" | null;
+type ReleaseChannel = "Alpha" | "Beta" | "RC" | "Pre-release" | null;
 
 export function getUpdateChannel(receiveBetaUpdates: boolean): UpdateChannel {
   return receiveBetaUpdates ? "beta" : "stable";
@@ -67,7 +67,7 @@ interface ReleaseAsset {
   digest?: string;
 }
 
-export interface ReleaseMetadata {
+interface ReleaseMetadata {
   tag_name?: unknown;
   html_url?: unknown;
   body?: unknown;

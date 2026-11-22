@@ -3,27 +3,6 @@
  */
 
 import type { MessageContentMeta } from "../types/index.js";
-import { getIntlLocale } from "../i18n/index.js";
-
-/** Unix ミリ秒を「今日なら HH:MM、それ以外は M/D HH:MM」に変換 */
-export function formatTime(ms: number): string {
-  const d = new Date(ms);
-  const now = new Date();
-  const isToday =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-
-  if (isToday) {
-    return d.toLocaleTimeString(getIntlLocale(), { hour: "2-digit", minute: "2-digit" });
-  }
-  return d.toLocaleDateString(getIntlLocale(), {
-    month: "numeric",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
 const STICKER_TYPES = new Set(["STICKER", "7", "STICKER_IMAGE"]);
 const SYSTEM_TYPES = new Set(["CHATEVENT", "SERVICE", "INFO", "POSTNOTIFICATION", "16"]);
@@ -108,42 +87,6 @@ export function systemEventLabel(contentType: string, meta?: MessageContentMeta 
   return contentTypeLabel(contentType);
 }
 
-/** 1 grapheme が絵文字（ZWJ シーケンス・国旗・キーキャップ含む）か */
-const EMOJI_GRAPHEME_RE =
-  /^(?:(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\p{Emoji_Modifier})?(?:\u200D(?:\p{Extended_Pictographic}|\p{Emoji_Presentation})(?:\uFE0F|\p{Emoji_Modifier})?)*|[\u{1F1E6}-\u{1F1FF}]{2}|[\d#*]\uFE0F?\u20E3)$/u;
-
-/**
- * 絵文字のみメッセージか（空白除去後 1〜3 grapheme、かつ絵文字構成のみ）。
- * Telegram Desktop の「大きな絵文字」表示用。
- */
-export function isEmojiOnlyText(text: string): boolean {
-  const trimmed = text.trim();
-  if (!trimmed) return false;
-
-  let segments: string[];
-  try {
-    const IntlWithSeg = Intl as typeof Intl & {
-      Segmenter?: new (
-        locales?: string | string[],
-        options?: { granularity?: string },
-      ) => { segment: (input: string) => Iterable<{ segment: string }> };
-    };
-    if (typeof IntlWithSeg.Segmenter === "function") {
-      const segmenter = new IntlWithSeg.Segmenter(undefined, {
-        granularity: "grapheme",
-      });
-      segments = [...segmenter.segment(trimmed)].map((s) => s.segment);
-    } else {
-      segments = [...trimmed];
-    }
-  } catch {
-    segments = [...trimmed];
-  }
-
-  if (segments.length < 1 || segments.length > 3) return false;
-  return segments.every((g) => EMOJI_GRAPHEME_RE.test(g));
-}
-
 /** contentType を人間が読める文字列に変換 */
 export function contentTypeLabel(contentType: string): string {
   switch (String(contentType)) {
@@ -191,49 +134,4 @@ export function contentTypeLabel(contentType: string): string {
     default:
       return `(${contentType})`;
   }
-}
-
-/**
- * 送信取り消し判定。
- * - contentType / meta の明示フラグ
- * - または空 NONE + chunks 無し + メディア meta 無し（サーバが空にした取り消し）
- */
-export function isUnsentMessage(
-  contentType: string,
-  text: string | null | undefined,
-  meta?: MessageContentMeta | null,
-  hasChunks = false,
-): boolean {
-  const u = String(contentType).toUpperCase();
-  if (u === "UNSENT" || u === "UNSEND") return true;
-  if (meta?.UNSENT || meta?.UNSEND) return true;
-  if (
-    String(meta?.REPLACE ?? "")
-      .toUpperCase()
-      .includes("UNSEND")
-  )
-    return true;
-  if (hasChunks) return false;
-  if (text?.trim()) return false;
-  if (u !== "NONE" && u !== "0") return false;
-  if (meta?.STKID || meta?.OID || meta?.DOWNLOAD_URL || meta?.SID) return false;
-  // 取り消し後にサーバが空 NONE だけ残すケース
-  return true;
-}
-
-/** チャット一覧用の短いプレビュー文言 */
-export function messagePreviewText(
-  text: string | null | undefined,
-  contentType: string | number | undefined,
-  meta?: MessageContentMeta | null,
-): string {
-  const alt = meta?.ALT_TEXT?.trim();
-  if (alt) {
-    return alt.length > 60 ? `${alt.slice(0, 60)}…` : alt;
-  }
-  const trimmed = (text ?? "").trim();
-  if (trimmed) {
-    return trimmed.length > 60 ? `${trimmed.slice(0, 60)}…` : trimmed;
-  }
-  return contentTypeLabel(String(contentType ?? "NONE"));
 }

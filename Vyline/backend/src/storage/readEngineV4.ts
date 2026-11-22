@@ -1,6 +1,6 @@
 import { migrateOnce, sqlite } from "./sqlite.js";
 
-export type ReadIntervalV4 = {
+type ReadIntervalV4 = {
   readerMid: string;
   startMessageId: string;
   endMessageId: string;
@@ -8,7 +8,7 @@ export type ReadIntervalV4 = {
   endTime?: string | undefined;
 };
 
-export type ReadSnapshotV4 = {
+type ReadSnapshotV4 = {
   version: number;
   observedAt: string;
   attemptedAt: string;
@@ -24,7 +24,7 @@ type IndexedReaderRanges = Map<string, { starts: bigint[]; prefixMaxEnds: bigint
 const MAX_INT64 = 9_223_372_036_854_775_807n;
 
 /** Sorts positive Thrift Int64 message IDs without lossy JS number conversion. */
-export function readMessageOrderKeyV4(id: string): string | undefined {
+function readMessageOrderKeyV4(id: string): string | undefined {
   if (!/^\d{1,19}$/.test(id)) return undefined;
   let value: bigint;
   try {
@@ -545,20 +545,4 @@ export function readRangesFromSnapshotV4(
     });
   }
   return [{ chatId: chatMid, ranges }];
-}
-
-export function readersForMessageV4(
-  accountId: string,
-  chatMid: string,
-  messageId: string,
-): string[] {
-  const key = readMessageOrderKeyV4(messageId);
-  if (!key) return [];
-  ensureReadEngineV4Schema();
-  return (
-    sqlite
-      .query(`SELECT DISTINCT reader_mid FROM read_interval_v4
-    WHERE account_id=? AND chat_mid=? AND start_order_key<=? AND end_order_key>=?`)
-      .all(accountId, chatMid, key, key) as Array<{ reader_mid: string }>
-  ).map((row) => row.reader_mid);
 }

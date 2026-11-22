@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite";
 import { createHash, randomUUID } from "node:crypto";
-import { chmodSync, existsSync, mkdirSync } from "node:fs";
+import { chmodSync, mkdirSync } from "node:fs";
 import { lstat, mkdir, open, realpath, rm } from "node:fs/promises";
-import { join, resolve, dirname } from "node:path";
+import { join, resolve } from "node:path";
 import type { CallRecording, RecordingKind } from "@vyline/types";
 import { VYLINE_STORAGE_DIR } from "./vylineStorageInfo.js";
 
@@ -392,13 +392,5 @@ export class CallRecordingStore {
 }
 
 let shared: CallRecordingStore | undefined;
-export function getCallRecordingStorageUsage(owner: string) {
-  // Reading the existing backup quota must not create/open a recording DB on accounts
-  // that have never recorded anything (also keeps other storage lifecycles independent).
-  if (!shared && !existsSync(join(VYLINE_STORAGE_DIR, "call-recordings", "index.sqlite"))) {
-    return { recordingBytes: 0, recordingReservedBytes: 0 };
-  }
-  return getCallRecordingStore().usage(owner);
-}
 export const getCallRecordingStore = () =>
   (shared ??= new CallRecordingStore(join(VYLINE_STORAGE_DIR, "call-recordings")));

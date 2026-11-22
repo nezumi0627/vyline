@@ -6,6 +6,8 @@
  */
 import { initVylineProfile } from "../vyline/profileBridge.js";
 import { loginWithToken } from "../line/clientManager.js";
+// Registers the session hooks clientManager uses to process fetched operations.
+import "../service/lineService.js";
 import { RestoreClaim } from "@vyline/protocol/sbc";
 import { LINEStruct } from "@vyline/protocol/stack/thrift";
 

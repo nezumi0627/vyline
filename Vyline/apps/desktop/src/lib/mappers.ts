@@ -260,7 +260,7 @@ function messageKind(m: LineMessage): MessageKind {
  * CHATEVENT の LOC_KEY / LOC_ARGS を日本語テキストに変換する。
  * 例: C_ML → 「れんやさんが退出しました」 / C_MI → 「れんやさん、○○さんが参加しました」
  */
-export function chatEventText(
+function chatEventText(
   contentType: string,
   meta?: Record<string, unknown> | null,
   resolveName?: (mid: string) => string | undefined,
@@ -634,4 +634,26 @@ export function buildMembersFromMessages(
     );
   }
   return [...map.values()];
+}
+
+type CommonGroupSummary = { chatMid: string; name: string; thumbnailUrl?: string };
+
+/** 共通グループ API の結果を、ローカルのチャット名・色を優先して UI の Chat に変換する。 */
+export function mapCommonGroups(groups: CommonGroupSummary[], chats: Chat[]): Chat[] {
+  const byId = new Map(chats.map((c) => [c.id, c]));
+  return groups.map((g) => {
+    const local = byId.get(g.chatMid);
+    const name = local?.name && !looksLikeMid(local.name) ? local.name : g.name;
+    const initial = (name || "G").trim().charAt(0).toUpperCase();
+    return {
+      id: g.chatMid,
+      type: "group",
+      name,
+      avatar: looksLikeMid(initial) ? "G" : initial,
+      avatarUrl: g.thumbnailUrl || local?.avatarUrl,
+      color: local?.color ?? "#7c5cff",
+      status: "グループ",
+      unread: 0,
+    };
+  });
 }

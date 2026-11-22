@@ -10,9 +10,9 @@ import {
   getStoredChats,
   flushAccountChatDb,
   insertRestoredMessages,
-  type StoredMessage,
   upsertChats,
 } from "../storage/chatStore.js";
+import type { StoredMessage } from "../storage/chatStoreTypes.js";
 import {
   mapDesktopMessageRow,
   mergeRestoredDesktopChat,
@@ -22,7 +22,7 @@ import {
 
 const MESSAGE_BATCH_SIZE = 500;
 
-export type DesktopHistoryRestoreErrorCode =
+type DesktopHistoryRestoreErrorCode =
   | "DESKTOP_RESTORE_CONSENT_REQUIRED"
   | "DESKTOP_RESTORE_UNSUPPORTED_PLATFORM"
   | "DESKTOP_RESTORE_NOT_LOGGED_IN"
@@ -39,7 +39,7 @@ export type DesktopHistoryRestoreErrorCode =
   | "DESKTOP_RESTORE_ACCOUNT_MISMATCH"
   | "DESKTOP_RESTORE_IMPORT_FAILED";
 
-export class DesktopHistoryRestoreError extends Error {
+class DesktopHistoryRestoreError extends Error {
   constructor(
     readonly code: DesktopHistoryRestoreErrorCode,
     readonly stage: string,
@@ -151,7 +151,7 @@ export function classifyDesktopHistoryRestoreFailure(error: unknown): DesktopHis
   return new DesktopHistoryRestoreError(code, failure.stage, failure.message);
 }
 
-export interface DesktopHistoryDatabaseOption {
+interface DesktopHistoryDatabaseOption {
   id: string;
   sizeBytes: number;
   modifiedAt: string;

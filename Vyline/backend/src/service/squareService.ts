@@ -99,14 +99,6 @@ export function buildSquareReactionRequest(
   };
 }
 
-function toJson(value: unknown): string {
-  const result = JSON.stringify(value, (_name, item) =>
-    typeof item === "bigint" ? item.toString() : item,
-  );
-  if (typeof result !== "string") throw new Error("Square data is not serializable");
-  return result;
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -884,16 +876,4 @@ export async function loadSquareMediaPreview(
       mediaType,
     };
   });
-}
-
-export function readSquareCache(accountId: string, roomId?: string) {
-  const store = getSquareStore(accountId);
-  if (!store.isEnabled()) throw new SquareDisabledError();
-  return roomId
-    ? { ok: true as const, messages: store.listMessages(roomId, 100) }
-    : {
-        ok: true as const,
-        squares: store.listEntities<LINE.Square>("square"),
-        rooms: store.listRooms(),
-      };
 }

@@ -3,7 +3,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { createHash } from "node:crypto";
 
-export type LinkPreviewData = {
+type LinkPreviewData = {
   title: string;
   description: string;
   site: string;

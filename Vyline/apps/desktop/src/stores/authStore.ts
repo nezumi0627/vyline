@@ -9,6 +9,7 @@
  */
 
 import { create } from "zustand";
+import type { StoreApi } from "zustand";
 import { persist } from "zustand/middleware";
 import { api } from "../api/client.js";
 import type { SavedSession } from "@vyline/types";
@@ -71,6 +72,36 @@ function isBackendStartupError(err: unknown): boolean {
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+type ActionResult = { ok: boolean; error?: string };
+
+/** バックエンドでセッションを有効化し、成功したらアカウント一覧を更新して切り替える。 */
+async function activateAccount(
+  set: StoreApi<AuthState>["setState"],
+  get: StoreApi<AuthState>["getState"],
+  accountId: string,
+  request: () => Promise<ActionResult>,
+  fallbackError: string,
+): Promise<ActionResult> {
+  set({ loading: true, error: null });
+  try {
+    const res = await request();
+    if (!res.ok) {
+      const message = res.error ?? fallbackError;
+      set({ error: message });
+      return { ok: false, error: message };
+    }
+    await get().refreshAccounts();
+    set({ activeAccountId: normalizeAccountId(accountId) });
+    return { ok: true };
+  } catch (err) {
+    const message = String(err);
+    set({ error: message });
+    return { ok: false, error: message };
+  } finally {
+    set({ loading: false });
+  }
 }
 
 export const useAuthStore = create<AuthState>()(
@@ -200,68 +231,20 @@ export const useAuthStore = create<AuthState>()(
         }
       },
 
-      loginToken: async (accountId, authToken) => {
-        set({ loading: true, error: null });
-        try {
-          const res = await api.auth.loginToken({ accountId, authToken });
-          if (!res.ok) {
-            const message = res.error ?? "token login failed";
-            set({ error: message });
-            return { ok: false, error: message };
-          }
-          await get().refreshAccounts();
-          set({ activeAccountId: normalizeAccountId(accountId) });
-          return { ok: true };
-        } catch (err) {
-          const message = String(err);
-          set({ error: message });
-          return { ok: false, error: message };
-        } finally {
-          set({ loading: false });
-        }
-      },
+      loginToken: (accountId, authToken) =>
+        activateAccount(
+          set,
+          get,
+          accountId,
+          () => api.auth.loginToken({ accountId, authToken }),
+          "token login failed",
+        ),
 
-      restore: async (accountId) => {
-        set({ loading: true, error: null });
-        try {
-          const res = await api.auth.restore(accountId);
-          if (!res.ok) {
-            const message = res.error ?? "restore failed";
-            set({ error: message });
-            return { ok: false, error: message };
-          }
-          await get().refreshAccounts();
-          set({ activeAccountId: normalizeAccountId(accountId) });
-          return { ok: true };
-        } catch (err) {
-          const message = String(err);
-          set({ error: message });
-          return { ok: false, error: message };
-        } finally {
-          set({ loading: false });
-        }
-      },
+      restore: (accountId) =>
+        activateAccount(set, get, accountId, () => api.auth.restore(accountId), "restore failed"),
 
-      switchAccount: async (accountId) => {
-        set({ loading: true, error: null });
-        try {
-          const res = await api.auth.switch_(accountId);
-          if (!res.ok) {
-            const message = res.error ?? "switch failed";
-            set({ error: message });
-            return { ok: false, error: message };
-          }
-          await get().refreshAccounts();
-          set({ activeAccountId: normalizeAccountId(accountId) });
-          return { ok: true };
-        } catch (err) {
-          const message = String(err);
-          set({ error: message });
-          return { ok: false, error: message };
-        } finally {
-          set({ loading: false });
-        }
-      },
+      switchAccount: (accountId) =>
+        activateAccount(set, get, accountId, () => api.auth.switch_(accountId), "switch failed"),
 
       deleteSession: async (accountId) => {
         await api.auth.deleteSession(accountId, { logout: true });

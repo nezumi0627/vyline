@@ -12,7 +12,7 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("VylineCache");
 
-export type VylineProfileLite = {
+type VylineProfileLite = {
   mid: string;
   displayName: string;
   thumbnailUrl?: string;
@@ -25,13 +25,13 @@ export type VylineProfileLite = {
   updatedAt: number;
 };
 
-export type VylineMemberLite = {
+type VylineMemberLite = {
   mid: string;
   displayName: string;
   thumbnailUrl?: string;
 };
 
-export type VylineGroupLite = {
+type VylineGroupLite = {
   chatMid: string;
   name: string;
   thumbnailUrl?: string;
@@ -69,7 +69,7 @@ function pickStr(v: string | undefined | null): string | undefined {
   return v;
 }
 
-export type VylineProfileInput = {
+type VylineProfileInput = {
   mid: string;
   displayName: string;
   thumbnailUrl?: string;
@@ -81,7 +81,7 @@ export type VylineProfileInput = {
   updatedAt?: number;
 };
 
-export type VylineGroupInput = {
+type VylineGroupInput = {
   chatMid: string;
   name: string;
   thumbnailUrl?: string;
@@ -129,29 +129,6 @@ export async function vylineGetChatCacheEntries(
     if (group) groups.set(mid, group);
   }
   return { profiles, groups };
-}
-
-/** 表示名が使えるエントリだけ（mid 生出し回避用） */
-export async function vylineResolvedNameMap(
-  accountId: string,
-): Promise<Map<string, { name: string; thumbnailUrl?: string }>> {
-  const db = await storage.load(accountId);
-  const out = new Map<string, { name: string; thumbnailUrl?: string }>();
-  for (const [mid, p] of Object.entries(db.profiles)) {
-    if (p.displayName && !looksLikeMid(p.displayName)) {
-      const hit: { name: string; thumbnailUrl?: string } = { name: p.displayName };
-      if (p.thumbnailUrl) hit.thumbnailUrl = p.thumbnailUrl;
-      out.set(mid, hit);
-    }
-  }
-  for (const [mid, g] of Object.entries(db.groups)) {
-    if (g.name && !looksLikeMid(g.name)) {
-      const hit: { name: string; thumbnailUrl?: string } = { name: g.name };
-      if (g.thumbnailUrl) hit.thumbnailUrl = g.thumbnailUrl;
-      out.set(mid, hit);
-    }
-  }
-  return out;
 }
 
 function mergeProfile(
@@ -264,10 +241,6 @@ export function vylineGroupNeedsRefresh(entry: VylineGroupLite | null | undefine
     return true;
   }
   return !isFresh(entry.updatedAt, GROUP_TTL_MS);
-}
-
-export async function vylineFlush(accountId: string): Promise<void> {
-  await storage.flush(accountId);
 }
 
 /** Flush and release the account-scoped profile/group cache on logout. */

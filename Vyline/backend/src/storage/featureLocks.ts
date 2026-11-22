@@ -5,20 +5,19 @@
  * 保存先: <backend>/data/feature-locks.json
  */
 
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { readFile } from "node:fs/promises";
-import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import { writeJsonAtomic } from "./safeFile.js";
+import { getDataDir } from "./dataDir.js";
 
 const log = childLogger("featureLocks");
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 const LOCKS_FILE = join(DATA_DIR, "feature-locks.json");
 let writeQueue: Promise<void> = Promise.resolve();
 
-export type AccountFeatureLocks = {
+type AccountFeatureLocks = {
   /** createChat(GROUP) 永久禁止（ABUSE_BLOCK 検知後） */
   createGroupBanned?: boolean;
   createGroupBannedAt?: string;

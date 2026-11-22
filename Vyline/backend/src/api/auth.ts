@@ -157,10 +157,7 @@ authRouter.post("/windows-line-tokens/import", async (c) => {
   }
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/login/email
-// body: { accountId, email, password }
-// ─────────────────────────────────────────────
 authRouter.post("/login/email", async (c) => {
   const body = await c.req.json<{
     accountId: string;
@@ -241,10 +238,7 @@ authRouter.get("/login/email/:id", (c) => {
   });
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/login/qr
-// body: { accountId }
-// ─────────────────────────────────────────────
 authRouter.post("/login/qr", async (c) => {
   const body = await c.req.json<{ accountId: string }>();
   if (!body.accountId) {
@@ -269,11 +263,7 @@ authRouter.post("/login/qr", async (c) => {
   });
 });
 
-// ─────────────────────────────────────────────
 // GET /auth/login/qr/:id
-// QR 状態をポーリングで取得する
-// status: "idle" | "waiting" | "pending" | "expired" | "completed" | "failed"
-// ─────────────────────────────────────────────
 authRouter.get("/login/qr/:id", (c) => {
   const accountId = c.req.param("id");
   const { url, expired, pincode, inProgress, error } = getQrState(accountId);
@@ -312,10 +302,7 @@ authRouter.get("/login/qr/:id", (c) => {
   });
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/content/qr
-// Note / Album 用の ANDROIDSECONDARY セッションを正式登録する
-// ─────────────────────────────────────────────
 authRouter.post("/content/qr", async (c) => {
   const body = await c.req.json<{ accountId: string }>();
   if (!body.accountId) {
@@ -357,10 +344,7 @@ authRouter.get("/content/qr/:id", (c) => {
   });
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/restore
-// body: { accountId }  — 保存済みトークンで復元
-// ─────────────────────────────────────────────
 authRouter.post("/restore", async (c) => {
   const body = await c.req.json<{ accountId: string }>();
   if (!body.accountId) {
@@ -390,10 +374,7 @@ authRouter.post("/restore", async (c) => {
   }
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/login/token
-// body: { accountId, authToken }  — トークン直接指定でログイン
-// ─────────────────────────────────────────────
 authRouter.post("/login/token", async (c) => {
   const body = await c.req.json<{ accountId: string; authToken: string; deviceMode?: string }>();
   if (!body.accountId || !body.authToken) {
@@ -426,10 +407,7 @@ authRouter.post("/login/token", async (c) => {
   }
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/switch/:id
-// 未ログインなら restore → ログイン済みならそのまま active 切替
-// ─────────────────────────────────────────────
 authRouter.post("/switch/:id", async (c) => {
   const accountId = c.req.param("id");
   if (!accountId) {
@@ -455,9 +433,7 @@ authRouter.post("/switch/:id", async (c) => {
   }
 });
 
-// ─────────────────────────────────────────────
 // GET /auth/accounts
-// ─────────────────────────────────────────────
 authRouter.get("/accounts", async (c) => {
   await waitForSessionRestore();
   const active = listAccounts();
@@ -471,9 +447,7 @@ authRouter.get("/accounts", async (c) => {
   });
 });
 
-// ─────────────────────────────────────────────
 // GET /auth/token/:id — 現在の authToken 取得（PCローカルのみ）
-// ─────────────────────────────────────────────
 authRouter.get("/token/:id", async (c) => {
   if (c.req.header("x-vyline-local-request") !== "1") {
     return c.json({ ok: false, error: "local request required" }, 403);
@@ -486,9 +460,7 @@ authRouter.get("/token/:id", async (c) => {
   return c.json({ ok: true, token });
 });
 
-// ─────────────────────────────────────────────
 // GET /auth/sessions — 保存済みセッション詳細
-// ─────────────────────────────────────────────
 authRouter.get("/sessions", async (c) => {
   const active = new Set(listAccounts());
   const sessions = (await listSavedSessions()).map((s) => ({
@@ -498,9 +470,7 @@ authRouter.get("/sessions", async (c) => {
   return c.json({ ok: true, sessions });
 });
 
-// ─────────────────────────────────────────────
 // POST /auth/logout/:id — この端末のセッションだけ終了
-// ─────────────────────────────────────────────
 // 通常のログアウトでは保存済み資格情報を残し、次回のアカウント切替・復元に使えるようにする。
 authRouter.post("/logout/:id", async (c) => {
   const accountId = c.req.param("id");
@@ -508,10 +478,7 @@ authRouter.post("/logout/:id", async (c) => {
   return c.json({ ok: true, accountId });
 });
 
-// ─────────────────────────────────────────────
 // DELETE /auth/sessions/:id — 保存セッションのみ削除（メモリは維持可）
-// query: ?logout=1 でメモリ上のクライアントも破棄
-// ─────────────────────────────────────────────
 authRouter.delete("/sessions/:id", async (c) => {
   const accountId = c.req.param("id");
   const alsoLogout = c.req.query("logout") === "1" || c.req.query("logout") === "true";
@@ -521,9 +488,7 @@ authRouter.delete("/sessions/:id", async (c) => {
   return c.json({ ok: true, accountId });
 });
 
-// ─────────────────────────────────────────────
 // DELETE /auth/accounts/:id
-// ─────────────────────────────────────────────
 authRouter.delete("/accounts/:id", async (c) => {
   const accountId = c.req.param("id");
   await removeClient(accountId);

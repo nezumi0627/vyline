@@ -14,30 +14,6 @@ import { childLogger } from "../logger.js";
 
 const log = childLogger("cdn-cache");
 
-async function dirSize(target: string): Promise<number> {
-  if (!existsSync(target)) return 0;
-  let total = 0;
-  try {
-    const entries = await readdir(target, { withFileTypes: true });
-    for (const e of entries) {
-      const p = join(target, e.name);
-      if (e.isDirectory()) {
-        total += await dirSize(p);
-      } else {
-        try {
-          const s = await stat(p);
-          total += s.size;
-        } catch {
-          /* ignore */
-        }
-      }
-    }
-  } catch (err) {
-    log.debug({ err, target }, "dirSize failed");
-  }
-  return total;
-}
-
 const ALLOWED_HOSTS = new Set([
   "stickershop.line-scdn.net",
   "shop.line-scdn.net",
@@ -46,11 +22,6 @@ const ALLOWED_HOSTS = new Set([
 ]);
 
 const ICON_HOSTS = new Set(["profile.line-scdn.net"]);
-const CDN_HOSTS = new Set([
-  "stickershop.line-scdn.net",
-  "shop.line-scdn.net",
-  "static.line-scdn.net",
-]);
 const CDN_REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const MAX_CDN_REDIRECTS = 3;
 
@@ -199,9 +170,9 @@ async function fetchAllowedLineCdn(url: string): Promise<Response> {
 }
 
 function diskPath(url: string, contentType?: string): string {
+  const root = cacheRootForUrl(url);
   const h = hashKey(url);
   const ext = contentType ? extFromContentType(contentType, url) : "";
-  const root = cacheRootForUrl(url);
   return join(root, h.slice(0, 2), `${h}${ext || ""}`);
 }
 
@@ -235,7 +206,6 @@ async function readDisk(url: string): Promise<{ buf: Uint8Array; contentType: st
 
 async function writeDisk(url: string, buf: Uint8Array, contentType: string): Promise<void> {
   const path = diskPath(url, contentType);
-  const root = cacheRootForUrl(url);
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, buf);
 }
@@ -326,14 +296,6 @@ export async function ensureCdnCacheDir(): Promise<void> {
   }
 }
 
-export async function getCdnCacheSize(): Promise<number> {
-  return dirSize(CACHE_ROOT);
-}
-
-export async function getIconCacheSize(): Promise<number> {
-  return dirSize(ICON_ROOT);
-}
-
 export async function clearCdnCache(): Promise<number> {
   memory.clear();
   memoryBytes = 0;
@@ -347,7 +309,7 @@ export async function clearIconCache(): Promise<number> {
 async function clearDir(root: string): Promise<number> {
   let removed = 0;
   try {
-    const { readdir, rm, stat } = await import("node:fs/promises");
+    const { readdir, rm } = await import("node:fs/promises");
     await mkdir(root, { recursive: true });
     const entries = await readdir(root, { withFileTypes: true });
     for (const e of entries) {

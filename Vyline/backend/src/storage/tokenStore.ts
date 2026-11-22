@@ -7,7 +7,7 @@
  * 旧 data/tokens.json は読み込み・移行互換のみ。
  */
 
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import {
   chmod,
   copyFile,
@@ -19,24 +19,19 @@ import {
   writeFile,
 } from "node:fs/promises";
 import { existsSync, type Dirent } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { createCipheriv, createDecipheriv, pbkdf2Sync, randomBytes, randomUUID } from "node:crypto";
 import { childLogger } from "../logger.js";
 import { protectSecret, unprotectSecret } from "./secureStore.js";
 import { writeJsonAtomic } from "./safeFile.js";
+import { getDataDir } from "./dataDir.js";
 
 const log = childLogger("tokenStore");
 
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_DATA_DIR = join(_dir, "..", "..", "data");
-function dataDir(): string {
-  return process.env.VYLINE_DATA_DIR ?? DEFAULT_DATA_DIR;
-}
 function tokensFile(): string {
-  return join(dataDir(), "tokens.json");
+  return join(getDataDir(), "tokens.json");
 }
 function accountsDir(): string {
-  return join(dataDir(), "accounts");
+  return join(getDataDir(), "accounts");
 }
 const HANDOFF_SCHEMA = "vyline-credential-handoff";
 const HANDOFF_VERSION = 1;
@@ -45,7 +40,7 @@ const PRIVATE_FILE_MODE = 0o600;
 const credentialMutationTails = new Map<string, Promise<void>>();
 const credentialDeletionGeneration = new Map<string, number>();
 
-export function assertSafeAccountId(accountId: string): string {
+function assertSafeAccountId(accountId: string): string {
   if (
     typeof accountId !== "string" ||
     accountId.length < 1 ||
@@ -131,7 +126,7 @@ export function storagePathForAccount(accountId: string): string {
   return join(accountDir(accountId), "protocol.json");
 }
 
-export interface TokenEntry {
+interface TokenEntry {
   authToken: string;
   authTokenProtected?: string;
   /** VylineFileStorage のパス */
@@ -154,9 +149,9 @@ export interface TokenEntry {
   };
 }
 
-export type TokenMap = Record<string, TokenEntry>;
+type TokenMap = Record<string, TokenEntry>;
 
-export type SessionMeta = {
+type SessionMeta = {
   storageFile?: string;
   mid?: string;
   displayName?: string;
@@ -202,7 +197,7 @@ async function hardenCredentialFile(path: string, required = false): Promise<voi
 }
 
 async function ensureDataDir(): Promise<void> {
-  const root = dataDir();
+  const root = getDataDir();
   const created = !existsSync(root);
   await ensurePrivateDirectory(root);
   if (created) {

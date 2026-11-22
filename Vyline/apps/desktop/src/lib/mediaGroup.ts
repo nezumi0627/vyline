@@ -1,6 +1,6 @@
 import type { Message } from "./store-types.js";
 
-export type ImageMediaGroup = NonNullable<Message["mediaGroup"]>;
+type ImageMediaGroup = NonNullable<Message["mediaGroup"]>;
 
 function parseInteger(value: unknown): number | undefined {
   if (typeof value !== "string" && typeof value !== "number") return undefined;

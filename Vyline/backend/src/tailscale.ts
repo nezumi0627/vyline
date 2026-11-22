@@ -42,7 +42,7 @@ function tailscaleIpFromInterfaces(): string | null {
   return null;
 }
 
-export async function detectTailscaleIp(): Promise<string | null> {
+async function detectTailscaleIp(): Promise<string | null> {
   const cli = await tryTailscaleCli();
   if (cli) return cli;
   return tailscaleIpFromInterfaces();

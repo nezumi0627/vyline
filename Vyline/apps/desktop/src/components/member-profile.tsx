@@ -10,7 +10,7 @@ import {
   type Chat,
 } from "@/lib/store";
 import { api } from "@/api/client";
-import { looksLikeMid } from "@/lib/mappers";
+import { looksLikeMid, mapCommonGroups } from "@/lib/mappers";
 import { Avatar } from "@/components/vy-ui";
 import { useCall } from "@/hooks/useCall";
 import { canDirectCall } from "@/utils/callAllowlist";
@@ -107,24 +107,7 @@ export function MemberProfilePopover({ chat }: { chat: Chat }) {
       .commonGroups(accountId, memberId)
       .then((res) => {
         if (cancelled || !res.ok || !res.groups) return;
-        const byId = new Map(useStore.getState().chats.map((c) => [c.id, c]));
-        setApiCommonGroups(
-          res.groups.map((g) => {
-            const local = byId.get(g.chatMid);
-            const name = local?.name && !looksLikeMid(local.name) ? local.name : g.name;
-            const initial = (name || "G").trim().charAt(0).toUpperCase();
-            return {
-              id: g.chatMid,
-              type: "group" as const,
-              name,
-              avatar: looksLikeMid(initial) ? "G" : initial,
-              avatarUrl: g.thumbnailUrl || local?.avatarUrl,
-              color: local?.color ?? "#7c5cff",
-              status: "グループ",
-              unread: 0,
-            } satisfies Chat;
-          }),
-        );
+        setApiCommonGroups(mapCommonGroups(res.groups, useStore.getState().chats));
       })
       .catch(() => undefined);
     return () => {

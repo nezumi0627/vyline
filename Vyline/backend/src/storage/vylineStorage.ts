@@ -8,14 +8,13 @@
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
 import { childLogger } from "../logger.js";
 import { accountDir, readAccountJson } from "./accountDirs.js";
 import { writeTextAtomic } from "./safeFile.js";
+import { getDataDir } from "./dataDir.js";
 
 const log = childLogger("VylineStorage");
-const _dir = dirname(fileURLToPath(import.meta.url));
-const DATA_DIR = process.env.VYLINE_DATA_DIR ?? join(_dir, "..", "..", "data");
+const DATA_DIR = getDataDir();
 
 const SAVE_DEBOUNCE_MS = Number(process.env.VYLINE_CACHE_SAVE_MS ?? 350);
 

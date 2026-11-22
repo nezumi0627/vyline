@@ -11,9 +11,8 @@ import {
   flushAccountChatDb,
   mergeImportedChatDb,
   type ChatDbRecords,
-  type StoredChat,
-  type StoredMessage,
 } from "../storage/chatStore.js";
+import type { StoredChat, StoredMessage } from "../storage/chatStoreTypes.js";
 import { writeMediaStorage } from "../storage/mediaStorage.js";
 import { getToken } from "../storage/tokenStore.js";
 
@@ -36,7 +35,7 @@ const SQLITE_MAGIC = "SQLite format 3\u0000";
 const MEDIA_CONTENT_TYPES = new Set(["IMAGE", "VIDEO", "AUDIO", "FILE"]);
 const UNSENT_HISTORY_TYPES = new Set([27, 28, 38]);
 
-export interface AndroidBackupProgress {
+interface AndroidBackupProgress {
   stage: string;
   current: number;
   total: number;
@@ -44,7 +43,7 @@ export interface AndroidBackupProgress {
   file?: string;
 }
 
-export interface AndroidBackupSession {
+interface AndroidBackupSession {
   id: string;
   accountId: string;
   sourceName: string;
@@ -86,7 +85,7 @@ interface AndroidMediaRef {
   contentType: string;
 }
 
-export interface ParsedAndroidDatabase {
+interface ParsedAndroidDatabase {
   records: ChatDbRecords;
   mediaRefs: AndroidMediaRef[];
   databaseVersion: number;
