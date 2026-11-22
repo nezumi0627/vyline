@@ -9,7 +9,7 @@
 Vyline は **外部 LINE.js に依存しない**。  
 ただし開発時は LINE.js / stack の **メソッド名** を手がかりに、Desktop `LINE.exe` 内の同名 Thrift / C++ を特定し、**実際の動きは Desktop を正**とする。
 
-```
+```text
 やりたい機能
   → LINE.js / stack の関数名（辞書）
   → bun run vyline:find-native -- <名前>

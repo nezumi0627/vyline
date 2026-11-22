@@ -197,7 +197,7 @@ bun run build
 
 ## Phase 間の依存関係
 
-```
+```text
 Phase0 (docs kickoff)
    └─► Phase2 (tasks/analysis 整備) ── 並行可
    └─► Phase3 (Vyline / Desktop)

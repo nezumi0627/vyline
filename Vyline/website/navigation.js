@@ -8,9 +8,9 @@ export function routeFromHash(hash) {
 export const guideIntents = {
   appearance: { question: "見た目を、自分好みに。", description: "アプリのテーマ、文字サイズ、表示密度の設定から始めます。テーマの仕組みやプリセットを作る方法も、このガイドにまとめています。", path: "docs/user-guide/themes.md", title: "テーマと表示のガイド" },
   data: { question: "何を、残したい？", choices: [
-    ["会話の履歴とメディア", "VylineBackupで、チャットを選んで保存・復元する", "Vyline/docs/guides/vyline-backup-restore.md"],
+    ["会話の履歴とメディア", "VylineBackupで、チャットを選んで保存・復元する", "docs/user-guide/vyline-backup-restore.md"],
     ["見た目などの設定", "設定引継ぎZIPを使う。ログイン情報は含めません", "docs/setup-account-handoff-debug.md"],
-    ["iPhoneにある過去の履歴", "暗号化ローカルバックアップの対応範囲を確認する", "Vyline/docs/guides/ios-backup-restore.md"],
+    ["iPhoneにある過去の履歴", "暗号化ローカルバックアップの対応範囲を確認する", "docs/user-guide/ios-backup-restore.md"],
   ] },
   help: { question: "どこで、困っている？", choices: [
     ["ログイン・初回設定", "QRコードとスマホ側の承認から確認する", "docs/start-here.md"],

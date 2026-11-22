@@ -88,7 +88,7 @@ bun run vyline:find-native -- updateChat --list-only --skip-setup
 
 ### 3. domain facade に薄いメソッドを足す
 
-```
+```text
 Vyline/packages/protocol/src/domain/
   profile.ts   # 自分
   chat.ts      # グループ
@@ -99,7 +99,7 @@ Vyline/packages/protocol/src/domain/
 
 ### 4. backend service + BFF
 
-```
+```text
 Vyline/backend/src/service/lineService.ts  # ビジネス
 Vyline/backend/src/api/line.ts             # HTTP のみ
 ```

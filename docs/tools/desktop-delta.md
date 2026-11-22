@@ -15,7 +15,7 @@ bun run vyline:delta
 
 Markdown レポートの構造:
 
-```
+```text
 ## Summary
 - installedVersion: 26.x.x
 - cachedVersion:    25.x.x

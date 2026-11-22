@@ -1,0 +1,25 @@
+{
+  // bun run docs:lint
+  "config": {
+    "default": true,
+    "MD013": false,
+    "MD033": false,
+    "MD024": { "siblings_only": true },
+    "MD028": false,
+    "MD029": false,
+    "MD036": false,
+    "MD041": false,
+    "MD049": false,
+    "MD060": false
+  },
+  "ignores": [
+    "**/node_modules/**",
+    "dist-landing/**",
+    "tools/**",
+    "Vyline/packages/protocol/**",
+    "Vyline/packages/plugin/**",
+    "Vyline/packages/themes/**",
+    "README.md",
+    "README.en.md"
+  ]
+}

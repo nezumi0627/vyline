@@ -97,7 +97,7 @@ bun run vyline:focus-recovered -- sendMessage
 
 `bun run dev:backend` で定期的に出る `VylineUpdater` ログはエラーではなく正常動作。
 
-```
+```text
 [backend] INFO  [VylineUpdater] refreshed Desktop profile 26.4.2.3954 via scan
 [backend] WARN  LINE Desktop updated — Vyline profile refreshed reason="ini-changed" appVersion="26.4.2.3954" xLineApplication="DESKTOPWIN\t26.4.2.3954\tWINDOWS\t10.0.26100-11NT"
 ```

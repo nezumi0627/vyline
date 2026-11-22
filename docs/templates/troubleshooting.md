@@ -49,5 +49,5 @@ bun run vyl snapshot create before-fix
 
 ## 関連ドキュメント
 
-- [vyl CLI](../../Vyline/docs/vyl-cli.md)
+- [vyl CLI](../developers/vyl-cli.md)
 - [開発ガイド](../development.md)

@@ -4,7 +4,7 @@
 
 ## エンドポイント
 
-```
+```text
 POST /line/{accountId}/send-media-batch
 ```
 

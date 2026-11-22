@@ -37,7 +37,7 @@ sha256sum Vyline-linux-x64-1.2.3.tar.gz
 ディスプレイのないサーバー用途には[Docker](./docker.md)が適しています。
 
 データの保存先は `${XDG_DATA_HOME:-~/.local/share}/Vyline/` です。
-更新前は[バックアップ](../../Vyline/docs/guides/vyline-backup-restore.md)を作成します。
+更新前は[バックアップ](../user-guide/vyline-backup-restore.md)を作成します。
 
 ## 次に読む
 

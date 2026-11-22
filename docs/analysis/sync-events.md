@@ -8,7 +8,7 @@ LINE Desktop / Mobile とのリアルタイム同期には2つの経路が存在
 
 Vyline の主要な受信パス。
 
-```
+```text
 GET /line/:accountId/fetchOperations?cursor=N
 ```
 

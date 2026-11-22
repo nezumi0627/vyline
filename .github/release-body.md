@@ -13,6 +13,7 @@ macOS版はad-hoc署名されていますが、Developer ID署名・公証は行
 The macOS app has an ad-hoc code signature for integrity verification, but it is not signed with a Developer ID or notarized. Gatekeeper may ask for confirmation on first launch. Verify the source and checksum.
 
 チェックサム確認:
+
 - Linux: `sha256sum -c SHA256SUMS.txt`
 - macOS: `shasum -a 256 -c SHA256SUMS.txt`
 - Windows PowerShell: `Get-FileHash <file> -Algorithm SHA256` の結果を `SHA256SUMS.txt` と照合

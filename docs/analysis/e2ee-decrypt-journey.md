@@ -31,7 +31,7 @@ Vyline が必要とするのは:
 
 ## Vyline 取り込みフロー
 
-```
+```text
 LINE.exe (running)
     │ メモリ抽出（手順は desktop-reverse-methods.md）
     ▼

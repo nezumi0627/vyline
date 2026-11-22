@@ -1,6 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@5/schema.json",
   "bun": false,
+  "ignoreBinaries": ["lychee"],
   "ignore": ["Vyline/packages/protocol/**", "tools/**", "Vyline/cloudflare/**"],
   "workspaces": {
     ".": {

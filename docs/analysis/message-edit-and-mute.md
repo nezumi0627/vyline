@@ -2,7 +2,7 @@
 
 最終更新: 2026-11-03
 
-`editMessage` / `getMessageEditNotice` と、`mute` (`NOTIFICATION_DISABLED`) の現在の実装経路をまとめます。システム全体の層構造は[アーキテクチャ](./architecture.md)、API の一覧は[OpenAPI ガイド](./api/openapi.md)を参照してください。
+`editMessage` / `getMessageEditNotice` と、`mute` (`NOTIFICATION_DISABLED`) の現在の実装経路をまとめます。システム全体の層構造は[アーキテクチャ](../architecture.md)、API の一覧は[OpenAPI ガイド](../api/openapi.md)を参照してください。
 
 ---
 
@@ -11,13 +11,15 @@
 LINE プロトコルにおける「ミュート送信」は、プッシュ通知を発生させずに相手にメッセージを届ける機能です。
 
 ### 仕組み
+
 - メッセージ送信時に、`contentMetadata` (キー・値のメタデータテーブル) に対して以下のペアを付与します。
   - キー: `NOTIFICATION_DISABLED`
   - 値: `"true"`
 - 送信API (`lineRouter.post("/:accountId/sendMessage")`) のリクエストボディに `mute: true` を指定することで、この値が内部の `sendMessage` に渡されます。
 
 ### データフロー
-```
+
+```text
 [Frontend / Client] ──(mute: true)──> [BFF (api/line.ts)] ──> [service/lineService.ts]
                                                                      │
                                                            NOTIFICATION_DISABLED="true"
@@ -36,6 +38,7 @@ LINE プロトコルにおける「ミュート送信」は、プッシュ通知
 LINE Desktop クライアントでサポートされている「メッセージ送信後の内容編集」を Vyline から実行する機能です。
 
 ### 仕組み
+
 - LINE の `TalkService` に用意されている `editMessage` RPC を呼び出します。
 - `editMessage` のリクエストパラメータ:
   - `seq`: リクエストシーケンス番号 (自動生成)
@@ -46,6 +49,7 @@ LINE Desktop クライアントでサポートされている「メッセージ�
 - サーバーからのレスポンスには、編集後のメッセージオブジェクト (`LINETypes.Message`) が含まれます。
 
 ### データフローとDB同期
+
 1. フロントエンドまたはスクリプトが `/line/:accountId/edit` に対して `{ chatMid, messageId, text }` を送信。
 2. BFF `lineService.editMessage` が `client.base.talk.editMessage` RPC を呼ぶ。
 3. 取得した `LINETypes.Message` (生 Thrift 構造) を `mapDecodedRawToMessage` にて Vyline 標準の `Message` 型にマッピング。
@@ -59,6 +63,7 @@ LINE Desktop クライアントでサポートされている「メッセージ�
 チャット内で誰かがメッセージを編集した際の編集通知情報（件数と最終更新日時）を監視・取得する機能です。
 
 ### 仕組み
+
 - `TalkService` の `getMessageEditNotice` RPC を呼び出します。
   - 引数: `chatMid` (対象のチャットMID)
   - 戻り値: `{ count: number, updatedTime: number }`
@@ -66,7 +71,9 @@ LINE Desktop クライアントでサポートされている「メッセージ�
     - `updatedTime`: 最終編集時の Unix タイムスタンプ (ミリ秒)
 
 ### BFF での整形
+
 - 生の Unix タイムスタンプ (`number`) は、BFF 層で扱いやすいように ISO 8601 文字列形式 (`updatedTime: string`) に変換されて API から返却されます。
+
   ```typescript
   const updatedTime = typeof res.updatedTime === "number" 
     ? new Date(res.updatedTime).toISOString() 
@@ -80,6 +87,7 @@ LINE Desktop クライアントでサポートされている「メッセージ�
 開発・デバッグ用途として、コマンドラインからメッセージ編集の実行と、編集通知の取得を行い JSON で結果を出力するスクリプトが用意されています。
 
 ### 使用方法
+
 ```bash
 # メッセージの編集と通知情報の取得を同時に行う
 bun run vyline:get-edited-json -a main -c <chatMid> -m <messageId> -t "編集後のテキスト"

@@ -8,7 +8,7 @@
 
 ## QR ログインフロー
 
-```
+```text
 1. createSession()
    POST /acct/lgn/sq/v1
    → { sessionId: "SQ..." }
@@ -35,7 +35,7 @@
 
 ## メールログイン E2EE フロー
 
-```
+```text
 1. Curve25519 鍵ペア生成 (secretKey, publicKey)
 
 2. e2eeData = AES-ECB(SHA256("114514"), publicKey)
@@ -75,7 +75,7 @@
 Vyline / VylineUpdater が Desktop 実体から追従する形式。
 `X-Line-Application` の区切りは **TAB (0x09)**（表示上ドットに見えることがある）。
 
-```
+```text
 user-agent: DESKTOP:WINDOWS:10.0.26100-11NT(26.3.0.3916)
 x-line-application: DESKTOPWIN\t26.3.0.3916\tWINDOWS\t10.0.26100-11NT
 x-lal: ja_JP
@@ -120,7 +120,7 @@ Host: legy-jp.line-apps.com
 
 旧実装で確認済みの仕様。linejs が内部で処理するため通常は意識不要。
 
-```
+```text
 [0x82] [type<<5 | version=1] [seq_id zigzag varint] [name_len varint] [name]
 フィールド: [(delta<<4 | type)] または [0x00, fid zigzag varint, type]
 文字列: [len varint] [data]

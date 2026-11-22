@@ -242,7 +242,7 @@ backend/data/
 - `POST /line/:accountId/credentials/handoff/import`
 - `POST /line/:accountId/credentials/channel/:channelId/reissue`
 
-## Security notes
+## Credential storage security notes
 
 - raw token、refresh token、certificate、E2EE key をログへ出さない。
 - Windows の primary access token は DPAPI CurrentUser で保護する。

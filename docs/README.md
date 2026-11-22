@@ -1,136 +1,101 @@
 # Vyline ドキュメント索引
 
-最終更新: 2026-11-03
+最終更新: 2026-11-23
 
-一般ユーザーは **[start-here.md](./start-here.md)**、人間の開発者は **[developers/index.md](./developers/index.md)** から始めてください。
-エージェントは **[../AGENTS.md](../AGENTS.md)** を最初に読み、その後 **[developers/for-ai.md](./developers/for-ai.md)** を router として使ってください。
+Vyline のドキュメントはすべてこの `docs/` にあります。入口は読む人ごとに分かれています。
 
-文書の正本と各フォルダの役割は **[DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md)** にまとめています。
+- 使う人: [start-here.md](./start-here.md)
+- 開発者: [developers/index.md](./developers/index.md)
+- AI エージェント: [../AGENTS.md](../AGENTS.md)、続けて [developers/for-ai.md](./developers/for-ai.md)
 
-安定版は **1.2.3** です。[導入ツアーと検索できるドキュメント](https://nezumi0627.github.io/Vyline/)からも読めます。
-OS別手順：[Windows](./install/windows.md) / [Linux](./install/linux.md) / [macOS](./install/macos.md) / [Docker](./install/docker.md)。
-コマンドで起動する場合は、全OS共通の [Bun + vyl CLI](./install/cli.md) を使えます。
-機能の要約は[機能ガイド](./features.md)へ統合し、操作の詳細は分野別の正本へリンクしています。
+どの文書が何の正本かは [DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md)、書き方は [DOCS_FORMAT.md](./DOCS_FORMAT.md) にあります。公開サイトは <https://nezumi0627.github.io/vyline/> で、掲載するページは `Vyline/website/site-data.js` で選びます。
 
-## 利用者向けガイド
+## 使う
 
 | ドキュメント | 内容 |
 | --- | --- |
-| [features.md](./features.md) / [features.en.md](./features.en.md) | v1.2.3の機能案内、制限、分野別ガイドへの入口 |
-| [install/cli.md](./install/cli.md) | Bunを使った `vyl` の登録、起動、登録解除（Windows / macOS / Linux） |
-| [history/releases.md](./history/releases.md) | 安定版の基準とリリース履歴 |
-| [maintainers.md](./maintainers.md) / [maintainers.en.md](./maintainers.en.md) | メンテナー募集、協力、支援 |
-| [user-guide/privacy-and-data.en.md](./user-guide/privacy-and-data.en.md) | Privacy and data (English) |
-| [user-guide/privacy-and-data.md](./user-guide/privacy-and-data.md) | データ保存、AI、サポートログの注意 |
-| [i18n.md](./i18n.md) / [i18n.en.md](./i18n.en.md) | Desktop UI localization, supported languages, Japanese fallback, and contribution workflow |
-| [openchat-square.md](./openchat-square.md) / [openchat-square.en.md](./openchat-square.en.md) | OpenChat / Square Beta opt-in, separate API and SQLite, current support, and unverified capabilities |
+| [start-here.md](./start-here.md) | 導入から最初の設定まで |
+| [install/windows.md](./install/windows.md) / [linux.md](./install/linux.md) / [macos.md](./install/macos.md) | OS 別の導入 |
+| [install/docker.md](./install/docker.md) | Docker でサーバーを立ててブラウザで使う |
+| [install/cli.md](./install/cli.md) | Bun と `vyl` で起動する（全 OS 共通） |
+| [features.md](./features.md) / [features.en.md](./features.en.md) | 機能の案内と制限 |
+| [feature-capabilities.md](./feature-capabilities.md) | 機能ごとの実装・検証状況 |
+| [user-guide/update.md](./user-guide/update.md) | アップデート |
+| [user-guide/themes.md](./user-guide/themes.md) | テーマの作り方 |
+| [user-guide/animation-modes.md](./user-guide/animation-modes.md) | アニメーションモード |
+| [user-guide/safe-sending.md](./user-guide/safe-sending.md) | 送信結果が不明・拒否・制限のときの扱い |
+| [user-guide/vyline-backup-restore.md](./user-guide/vyline-backup-restore.md) | VylineBackup の保存と復元 |
+| [user-guide/ios-backup-restore.md](./user-guide/ios-backup-restore.md) | iOS の暗号化バックアップから履歴を取り込む |
+| [user-guide/desktop-history-restore.md](./user-guide/desktop-history-restore.md) | Windows LINE Desktop の履歴を取り込む |
+| [user-guide/error-handling.md](./user-guide/error-handling.md) / [English](./user-guide/error-handling.en.md) | エラー表示と復旧 |
+| [user-guide/privacy-and-data.md](./user-guide/privacy-and-data.md) / [English](./user-guide/privacy-and-data.en.md) | データ保存、AI、サポートログの注意 |
+| [user-guide/custom-client.md](./user-guide/custom-client.md) | カスタムクライアントの作り方 |
+| [setup-account-handoff-debug.md](./setup-account-handoff-debug.md) | Setup、設定の引継ぎ、診断ログ |
+| [subdevices.md](./subdevices.md) | サブデバイス接続 |
+| [openchat-square.md](./openchat-square.md) / [English](./openchat-square.en.md) | OpenChat / Square（Beta） |
+| [ai-agent-beta.md](./ai-agent-beta.md) | Agent I（Beta） |
+| [i18n.md](./i18n.md) / [English](./i18n.en.md) | UI の多言語対応 |
+| [history/releases.md](./history/releases.md) / [English](./history/releases.en.md) | リリース履歴と基準版 |
+| [maintainers.md](./maintainers.md) / [English](./maintainers.en.md) | メンテナーと支援 |
 
-### ベータ機能
+## 運用する
 
-Desktop の設定には、全体の利用規約同意とは別に機能単位の追加同意を求める「ベータ機能」タブがあります。
-同意ログとベータ機能の処理結果は端末内で扱い、メッセージ本文や確認結果を Vyline の外部サービスへ送信しません。
-LINE との通常の通信は発生します。これは法的助言ではありません。
+| ドキュメント | 内容 |
+| --- | --- |
+| [selfhosting.md](./selfhosting.md) | セルフホストとデータ永続化 |
+| [deployment/docker.md](./deployment/docker.md) | Docker Compose の環境変数と更新 |
+| [deployment/container-builds.md](./deployment/container-builds.md) | コンテナイメージの CI |
+| [distribution.md](./distribution.md) | 配布、アップデーター、リリース手順 |
+| [versioning.md](./versioning.md) | プロダクトと workspace のバージョン |
+| [security/threat-model.md](./security/threat-model.md) | 信頼境界と攻撃面 |
+| [security/findings-2026-08-31.md](./security/findings-2026-08-31.md) | 2026-08-31 のセキュリティ監査結果 |
 
-ドキュメントの形式・更新日・廃止判断は **[DOCS_FORMAT.md](./DOCS_FORMAT.md)** に統一しています。
-新規ドキュメントや大きめの改修では **[templates/](./templates/)** の薄いテンプレートを使ってください。
+## API
 
----
+| ドキュメント | 内容 |
+| --- | --- |
+| [api/openapi.md](./api/openapi.md) | OpenAPI / Swagger |
+| [api/public-api.md](./api/public-api.md) | アカウント固定の API トークンと HTTPS 運用 |
+| [api/mcp.md](./api/mcp.md) | 読み取り専用の MCP Server |
+| [api/media-batch.md](./api/media-batch.md) | 複数メディアの一括送信 |
+| [api-rpc-mapping.md](./api-rpc-mapping.md) | BFF API と LINE RPC の対応 |
+| [plugin-api.md](./plugin-api.md) | ローカルプラグイン API（Beta） |
+| [theme-api.md](./theme-api.md) | VyTheme API |
 
-## API / デプロイ / 開発者ガイド
+## 開発する
 
-| ドキュメント                                            | 内容                                                     |
-| ------------------------------------------------------- | -------------------------------------------------------- |
-| [api/openapi.md](./api/openapi.md)                      | OpenAPI / Swagger ルートと仕様の管理方法                 |
-| [api/media-batch.md](./api/media-batch.md)              | 複数メディア一括送信 API                                 |
-| [deployment/docker.md](./deployment/docker.md)          | Docker / Docker Compose デプロイ                         |
-| [developers/index.md](./developers/index.md)                             | 開発者ガイド（読む順序・人間向け入口）     |
-| [developers/for-ai.md](./developers/for-ai.md)                           | AI エージェント向け指示書                 |
-| [developers/plugin-system.md](./developers/plugin-system.md)              | プラグインシステム（ユーザーガイド）       |
-| [user-guide/update.md](./user-guide/update.md)                            | アップデート方法                          |
-| [user-guide/custom-client.md](./user-guide/custom-client.md)              | カスタムクライアントの作り方               |
-| [user-guide/themes.md](./user-guide/themes.md)                            | テーマの作り方                            |
-| [developer-guide/multi-account.md](./developer-guide/multi-account.md) | マルチアカウントデータ分離の現状と計画     |
-| [setup-account-handoff-debug.md](./setup-account-handoff-debug.md) | Vyline Setup、設定引継ぎ、診断ログの仕様 |
+| ドキュメント | 内容 |
+| --- | --- |
+| [developers/index.md](./developers/index.md) | 開発者向けの読む順序 |
+| [onboarding.md](./onboarding.md) | 初日のチェックリスト |
+| [architecture.md](./architecture.md) | 層構造とデータフロー |
+| [CONTRIBUTING.md](./CONTRIBUTING.md) | 機能追加の流れ（辞書 → Desktop → domain → BFF） |
+| [development.md](./development.md) | 開発コマンドと環境変数 |
+| [development-worktrees.md](./development-worktrees.md) | 1 task = 1 branch = 1 git worktree |
+| [performance.md](./performance.md) | 起動時間・CPU・メモリの計測 |
+| [login-flow.md](./login-flow.md) | QR / Email E2EE ログイン |
+| [developers/multi-account.md](./developers/multi-account.md) | 複数アカウントのデータ分離 |
+| [developers/plugin-system.md](./developers/plugin-system.md) | プラグインシステム |
+| [developers/vyl-cli.md](./developers/vyl-cli.md) | `vyl` CLI |
+| [developers/backend-cli.md](./developers/backend-cli.md) | GUI なしでアカウント・履歴・既読を操作する `bun run cli` |
+| [protocol/dictionary.md](./protocol/dictionary.md) | RPC 辞書と Desktop 検証表 |
+| [tools/vyline-search.md](./tools/vyline-search.md) | Desktop 解析ツール（[免責](./tools/DISCLAIMER.md)、[unpack](./tools/unpack.md)、[find-native](./tools/find-native-symbol.md)、[delta](./tools/desktop-delta.md)） |
+| [templates/](./templates/) | 新規ドキュメントの雛形 |
+| [../CHANGELOG.md](../CHANGELOG.md) | 変更履歴 |
 
----
+パッケージごとの説明は各パッケージの README にあります: [protocol](../Vyline/packages/protocol/README.md)、[plugin](../Vyline/packages/plugin/README.md)、[themes](../Vyline/packages/themes/README.md)、[cli](../Vyline/packages/cli/README.md)、[Cloudflare 構成](../Vyline/cloudflare/README.md)。
 
-## はじめに
+## 記録（現在の仕様の正本ではない）
 
-| ドキュメント                         | 内容                                                               |
-| ------------------------------------ | ------------------------------------------------------------------ |
-| [start-here.md](./start-here.md)     | **一般ユーザー向け入口**（Install / Update / Backup / Diagnostics） |
-| [../AGENTS.md](../AGENTS.md)         | **エージェント向け全体ガイド**（検索ツール・linejs参照・最新修正） |
-| [DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md) | 文書分類・ownership・source-of-truth map                         |
-| [onboarding.md](./onboarding.md)     | 初日チェックリスト（環境・コード地図・Desktop ツール）             |
-| [CONTRIBUTING.md](./CONTRIBUTING.md) | 機能追加フロー（辞書 → Desktop → domain → BFF）                    |
-| [development.md](./development.md)   | 開発コマンド・環境変数                                             |
-| [development-worktrees.md](./development-worktrees.md) | **推奨: 1 task = 1 branch = 1 git worktree** の並行開発フロー |
-| [performance.md](./performance.md)   | 起動時間・CPU・メモリ計測と Bun/Vite 最適化                       |
-| [architecture.md](./architecture.md) | 層構造・データフロー                                               |
-| [distribution.md](./distribution.md) | Windows / macOS / Linux 配布・アップデーター / リリース手順                        |
-| [selfhosting.md](./selfhosting.md)   | Docker セルフホスト・Cloudflare Access・データ永続化               |
-| [security/threat-model.md](./security/threat-model.md) | 信頼境界・攻撃面・セキュリティ設計                         |
-| [security/findings-2026-08-31.md](./security/findings-2026-08-31.md) | 2026-08-31 Security / CVE / Threat 監査結果        |
-| [templates/](./templates/)           | 新規ドキュメント作成用の薄いテンプレート                           |
-| [../CHANGELOG.md](../CHANGELOG.md)   | 変更履歴                                                           |
+ここにある文書は、その時点での調査・計画・作業の記録です。現在の挙動の根拠にするときは、コードで確かめ直してください。
 
-## 次の大きな機能
-
-| ドキュメント                         | 内容                                          |
-| ------------------------------------ | --------------------------------------------- |
-| [plugin-api.md](./plugin-api.md)     | ローカルプラグイン API（Beta、権限とサンプル） |
-| [tasks/STATUS.md](./tasks/STATUS.md) | Phase とオープンチャット統合の進捗 |
-
----
-
-## プロトコル・LINE 連携
-
-| ドキュメント                                       | 内容                               |
-| -------------------------------------------------- | ---------------------------------- |
-| [protocol/dictionary.md](./protocol/dictionary.md) | RPC 辞書・Desktop 検証表・API 早見 |
-| [login-flow.md](./login-flow.md)                   | QR / Email E2EE ログインフロー     |
-| [analysis/README.md](./analysis/README.md)         | 機能別解析メモ索引                 |
-| [analysis/liff.md](./analysis/liff.md)             | LIFF token / share / sender helper |
-| [analysis/note-album.md](./analysis/note-album.md) | Note/Album ChannelToken・CRUD・OBS  |
-| [analysis/stickers.md](./analysis/stickers.md)     | スタンプ/絵文字 API 解析           |
-| [analysis/line-emoji.md](./analysis/line-emoji.md) | LINE 絵文字 (sticon) 解析          |
-| [analysis/stability-read-revoke-multi-account.md](./analysis/stability-read-revoke-multi-account.md) | 取消・既読者・複数アカウント・MID検索の安定化 |
-
-## 検索・参照ツール
-
-| リソース                                                                                                     | 内容                                                          |
-| ------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------- |
-| [tools/vyline-search.md](./tools/vyline-search.md)                                                           | **vyline-search ツールキット** — unpack・find-native・delta 概要 |
-| [tools/find-native-symbol.md](./tools/find-native-symbol.md)                                                 | Desktop LINE.exe 内 RPC 名検索 (`bun run vyline:find-native`) |
-| `@evex/linejs`                                                                                               | **参考元**（外部依存なし）。メソッド名・構造パターンのみ参照  |
-
----
-
-## タスク・進捗
-
-| ドキュメント                         | 内容                       |
-| ------------------------------------ | -------------------------- |
-| [tasks/STATUS.md](./tasks/STATUS.md) | マスター進捗ボード         |
-| [tasks/PHASES.md](./tasks/PHASES.md) | フェーズ目標・受け入れ条件 |
-
----
-
-## ツール
-
-| ドキュメント                                                         | 内容                         |
-| -------------------------------------------------------------------- | ---------------------------- |
-| [tools/find-native-symbol.md](./tools/find-native-symbol.md)         | Desktop 内 RPC 名検索        |
-| [tools/desktop-delta.md](./tools/desktop-delta.md)                   | Desktop 更新時の差分調査     |
-
----
-
----
-
-## 読む順（おすすめ）
-
-```
-AGENTS.md → onboarding → architecture → CONTRIBUTING → protocol/dictionary
-  → protocol/src/dictionary/rpcMap.ts（検索ツール）
-  → 担当機能の docs/analysis/<feature>.md
-  → protocol/src/modules.map.ts（機能→ファイル地図）
-```
+| 場所 | 内容 |
+| --- | --- |
+| [analysis/](./analysis/README.md) | 機能別の解析メモ |
+| [design/](./design/) | 設計メモと監査 |
+| [superpowers/](./superpowers/) | 実装計画（plans）と設計（specs） |
+| [tasks/STATUS.md](./tasks/STATUS.md) / [PHASES.md](./tasks/PHASES.md) | 進捗ボードとフェーズの受け入れ条件 |
+| [tasks/](./tasks/) | 個別の計画と残作業 |
+| [sessions/](./sessions/) | 作業セッションの記録 |
+| [reports/](./reports/README.md) | `bun run vyline:delta` の出力先 |
+| [history/v0.5.0.md](./history/v0.5.0.md) | v0.5.0-beta からの移行メモ |

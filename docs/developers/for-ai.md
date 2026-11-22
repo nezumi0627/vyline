@@ -81,18 +81,21 @@ docs/
 ## 7. 変更種別ごとの手順
 
 ### BFF エンドポイント追加
+
 1. `backend/src/service/<name>Service.ts` にロジック（api 層は入出力のみ）
 2. `backend/src/api/line.ts` にルート（`handleError` を使用）
 3. `backend/src/api/openapi.line.ts` に spec 追加（Redocly valid 維持）
 4. 型は `@vyline/line-types` の Thrift Request に合わせる
 
 ### プラグイン関連
+
 - SDK・サンプル: **vyline-plugin サブモジュール** (`Vyline/packages/plugin`) 内で変更 → コミット & push → 本 repo でポインタ更新
 - ランタイム: `backend/src/line/pluginRuntime.ts`
 - レジストリ: `pluginManager.ts`（manifest 検出・状態永続化）
 - 権限を増やす場合は SDK の `PluginPermission` と runtime の強制を両方更新
 
 ### プロトコル変更
+
 - **vyline-api サブモジュール内でコミット & push** → 本 repo でポインタ更新をコミット
 - 新 RPC は `stack/base/service/*/mod.ts` に薄いラッパーとして追加
 - 未ラップ RPC は `LINEStruct.<method>_args` 経由の汎用呼び出しも可
