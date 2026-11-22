@@ -88,4 +88,4 @@ bun run vyline:find-native -- sendMessage --list-only
 ## 関連
 
 - [find-native-symbol.md](./find-native-symbol.md) — unpack 後のシンボル検索
-- 上流: https://github.com/ergrelet/unlicense
+- 上流: <https://github.com/ergrelet/unlicense>

@@ -19,7 +19,7 @@
 - `VYLINE_CALL_DESKTOP_WIRE=1` で副端末ログイン時も Desktop Planet UA を強制（Windows + 公式 Desktop 併用時の調査用）
 - **`client.listen()`** で `NOTIFIED_RECEIVED_CALL` / `CANCEL_CALL` を受信（着信ログ）
 
-```
+```text
 backend/sessionFactory → pickCallTransportForClient (protocol/call/context)
   acquireRoute(fromEnvInfo: devname=iPad|Windows|Android)
   PlanetTransport(userAgent=端末一致, appReleaseInfo=x-line-application 相当)

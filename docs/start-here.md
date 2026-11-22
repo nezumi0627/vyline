@@ -4,7 +4,7 @@
 
 このページは、Vylineを初めて使う人向けの入口です。
 現在の安定版は **1.2.3** です。
-[操作できる導入ツアー](https://nezumi0627.github.io/Vyline/#start)でも手順を確認できます。
+[操作できる導入ツアー](https://nezumi0627.github.io/vyline/#start)でも手順を確認できます。
 VylineはLINE非公式のクライアントです。利用前に[プライバシーとデータ](./user-guide/privacy-and-data.md)を確認してください。
 
 ## 環境を選ぶ
@@ -61,6 +61,6 @@ QRコードの期限が切れた場合は、VylineでQRコードを再発行し�
 
 いいえ。外部 LINE runtime を必要とする多くの機能は、実装 chain が確認できても live E2E 未検証のため `partial` 扱いです。現在の根拠は [Feature Capability Matrix](./feature-capabilities.md) を参照してください。
 
-### 開発に参加したいです。
+### 開発に参加したいです
 
 [開発者向け入口](./developers/index.md) から始めてください。AI エージェントへ作業を任せる場合は [AI Entry](./developers/for-ai.md) を使います。

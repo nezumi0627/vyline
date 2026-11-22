@@ -60,6 +60,7 @@
 以下は実装着手前の計画です。完了状況は冒頭の現行実装状況を参照してください。
 
 ### 1. 独立パッケージ化・サブモジュール化
+
 - **パッケージ名**: `@vyline/ios-backup`
 - **配置**: `Vyline/packages/ios-backup/` （Git Submodule として管理）
 - **公開 API**:
@@ -68,11 +69,13 @@
   - `restoreToVyline(history: ChatHistory, options: RestoreOptions): Promise<void>`
 
 ### 2. Vyline GUI 統合
+
 - **タブ名**: `バックアップ` → `iTunesから履歴を復元（iOSのみ現在対応）`
 - **フロー**: バックアップ選択 → パスワード入力 → 進捗表示 → 完了 → 自動 DB/E2EE 更新
 - **メディア復元**: **Coming Soon** と明記（GUI・ドキュメント両方）
 
 ### 3. 外部スクリプト依存の完全排除（TypeScript 実装）
+
 | 必要モジュール | 実装方針 | 行数目安 |
 |---------------|----------|----------|
 | RFC3394 AES-Key-Unwrap | `node:crypto` で自前実装 | ~40 行 |
@@ -83,6 +86,7 @@
 | **合計** | | **~300 行** |
 
 ### 4. 復元後の自動更新項目
+
 | 対象 | 更新内容 |
 |------|----------|
 | `vylineCache` | プロフィール・グループ・メンバー情報の再構築 |
@@ -114,12 +118,14 @@
 ### Step 2: PC 側（Windows）
 
 #### 2-1. ソフトウェア準備
+
 - **Apple Devices** または **iTunes（Microsoft Store 版推奨）** をインストール
   - Apple Devices: `https://apps.microsoft.com/detail/9ng5wzg8w2d4`
   - iTunes: `https://apps.microsoft.com/detail/9PB2MZ1ZMB1S`
 - 初回セットアップで iPhone を信頼・ペアリング
 
 #### 2-2. 暗号化バックアップ作成
+
 1. iPhone を USB ケーブルで PC に接続
 2. Apple Devices / iTunes を起動 → デバイスアイコン選択
 3. **「バックアップを暗号化」** にチェック ✅
@@ -130,6 +136,7 @@
 7. **Apple Devices / iTunes を完全終了**（タスクマネージャでプロセスキル推奨）
 
 > 📂 バックアップ保存先（参考）
+>
 > - Apple Devices: `%USERPROFILE%\Apple\MobileSync\Backup\`
 > - iTunes (Store 版): `%USERPROFILE%\Apple\MobileSync\Backup\`
 > - iTunes (Win32 版): `%APPDATA%\Apple Computer\MobileSync\Backup\`
@@ -155,6 +162,7 @@
 ## 🏗️ 実装タスク分解
 
 ### Phase 1: `@vyline/ios-backup` パッケージ
+
 - [x] `packages/ios-backup/` の `package.json`、`tsconfig.json`、`src/` を作成
 - [x] `src/keybag.ts` — 鍵袋 TLV パーサ + RFC3394 unwrap
 - [x] `src/manifest.ts` — Manifest.db 復号（AES-CBC iv=0）
@@ -166,12 +174,14 @@
 - [ ] Git Submodule 化（現状は本リポジトリ内の通常パッケージ）
 
 ### Phase 2: Vyline Backend 統合
+
 - [ ] `backend/src/tools/iosLineExtract.ts` — CLI エントリ（現状は不存在）
 - [ ] `backend/src/service/iosBackupService.ts` — サービス層（現状は不存在）
 - [ ] `backend/src/api/line.ts` — iOS バックアップ BFF ルート（現状は不存在）
 - [ ] 進捗 WebSocket / SSE 通知（フロント表示用）
 
 ### Phase 3: Vyline Frontend 統合
+
 - [x] `apps/desktop/src/components/IosBackupWizard.tsx` — ウィザード UI
 - [x] `apps/desktop/src/api/client.ts` — iOS バックアップ API クライアント定義
 - [ ] `apps/desktop/src/components/settings-sections.tsx` — 設定画面への接続確認
@@ -180,6 +190,7 @@
 - [ ] 完了後の自動リフレッシュ（`hydrateLineData` / `pollMessagesDelta` 再実行）
 
 ### Phase 4: ドキュメント整備
+
 - [x] `Vyline/docs/guides/ios-backup-restore.md` — ユーザー向け手順書
 - [x] `docs/analysis/ios-backup-history-extraction.md` — 技術解説
 - [x] `docs/README.md` と `docs/analysis/README.md` の索引更新
@@ -203,7 +214,8 @@
 ## 📁 関連ファイル一覧（実装参照用）
 
 ### A. 既存実装（PR 対象候補・protocol 側）
-```
+
+```text
 Vyline/packages/protocol/src/sbc/mod.ts
 Vyline/packages/protocol/src/sbc/msgpack.ts
 Vyline/packages/protocol/src/sbc/crosscheck.ts
@@ -219,14 +231,16 @@ docs/analysis/edb-decrypt.md
 ```
 
 ### B. 現行 Python ツール（参考・後で削除）
-```
+
+```text
 %TEMP%\ios_line_extract.py
 %TEMP%\ios_line_dump.py
 %TEMP%\iosb-venv\iOSbackup.py
 ```
 
 ### C. 新規作成対象
-```
+
+```text
 Vyline/packages/ios-backup/                    # 本リポジトリ内のパッケージ
 Vyline/backend/src/tools/iosLineExtract.ts     # 未実装
 Vyline/backend/src/service/iosBackupService.ts # 未実装

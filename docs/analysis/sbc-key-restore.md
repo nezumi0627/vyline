@@ -53,7 +53,7 @@ SBC 自体はトーク復元を行わない。全体像は次の 4 段階:
 
 ## 鍵取り出しフロー（PIN 経路・v2 claim）
 
-```
+```text
 mid, PIN, 証明書PEM
   → RestoreClaim.createFromPin(mid, pin, certPem)      … src/sbc/mod.ts
   → restoreE2EEKeyBackup({request:{restoreClaim}}) on /EKBS4
@@ -117,6 +117,7 @@ password 経路（v3 claim）: `createFromPassword(mid, password).claim(cert)` �
 → 現状、SBC 復元鍵をそのまま v1 E2EE（Curve25519）として使うことはできない。
 `normalizeDesktopE2EEKey` は 32 バイト Curve25519 以外を安全にスキップする。
 LKBS4 lifetime backup の payload 復号と合わせ、今後の解析課題。
+
 - LKBS4 `restoreLifetimeKeyBackupHeader` → **`NO_BACKUP` ("no backup")**
   - claim 認証は通っている（AUTHENTICATION_FAILED ではない）ため、
     当該アカウントにはサーバー側トーク履歴バックアップ（lifetime backup）が存在しないことが確定

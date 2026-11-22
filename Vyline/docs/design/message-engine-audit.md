@@ -158,6 +158,7 @@ VylineはLINE /SYNC4のOperationをBackendで処理し、正規化・復号後�
 主要型: Thrift Operation line_types.ts:12095-12107、Message line_types.ts:11490+、共有Message packages/types/src/index.ts:142+。message IDは文字列化Int64系、chat/accountで分離。created/delivered/observedAtは別概念。JS Number変換の精度境界を確認すること。SQLite主キーはaccount/chat/message。Zustand persist対象に本文履歴は含まれない。
 
 Schema:
+
 - chat_message_tombstones_v2(account,chat,message)
 - chat_records_v2(account,mid)
 - chat_messages_v2(account,chat,message)、created-time/ID order index
@@ -336,4 +337,3 @@ Receive latency: Operation受信→Backend認識。Persist:受信→SQLite commi
 - Desktop: apps/desktop/src/lib/store.ts, hooks/useLineData.ts, hooks/useVylineSync.ts, components/chat-area.tsx, hooks/useVirtualList.ts, lib/indexedDbStorage.ts
 - Types: packages/types/src/index.ts, packages/line-types/line_types.ts, packages/protocol/stack/base/service/talk/mod.ts
 - Tests inspected but not run: chatStore.sqlite.test.ts, chatStore.readState.test.ts, lineService.readReceipts.test.ts, store.sync.test.ts, indexedDbStorage.test.ts.
-

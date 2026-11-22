@@ -62,4 +62,3 @@
 - [ ] `ffprobe`でcodec、解像度、fps、bitrateを検査する
 - [ ] 代表フレームを目視確認する
 - [ ] `docs/pr-demo-tella.md`の一覧と実際の成果物を一致させる
-

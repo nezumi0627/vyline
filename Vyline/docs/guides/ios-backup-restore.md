@@ -72,10 +72,12 @@ bun run vyl snapshot restore snapshots/xxx.tar.gz --force
 ### Step 2: PC 側（Windows）
 
 #### 2-1. ソフトウェア準備
+
 - Apple Devices または iTunes（Microsoft Store 版推奨）をインストール
 - 初回セットアップで iPhone を信頼・ペアリング
 
 #### 2-2. 暗号化バックアップ作成
+
 1. iPhone を USB ケーブルで PC に接続
 2. Apple Devices / iTunes を起動 → デバイスアイコン選択
 3. **「バックアップを暗号化」** にチェック ✅
@@ -86,6 +88,7 @@ bun run vyl snapshot restore snapshots/xxx.tar.gz --force
 7. **Apple Devices / iTunes を完全終了**（タスクマネージャでプロセスキル推奨）
 
 > 📂 バックアップ保存先（参考）
+>
 > - Apple Devices: `%USERPROFILE%\Apple\MobileSync\Backup\`
 > - iTunes (Store 版): `%USERPROFILE%\Apple\MobileSync\Backup\`
 > - iTunes (Win32 版): `%APPDATA%\Apple Computer\MobileSync\Backup\`
@@ -108,21 +111,27 @@ bun run vyl snapshot restore snapshots/xxx.tar.gz --force
 ## よくある質問
 
 ### Q. 「暗号化済み」じゃないとダメ？
+
 **はい**。暗号化なしのバックアップには LINE の SQLite ファイルが含まれません。必ず「バックアップを暗号化」にチェックして作成してください。
 
 ### Q. パスワードを忘れた
+
 復元できません。iTunes/Apple Devices でパスワードを変更してから再度バックアップを作成してください。
 
 ### Q. サブデバイス（iPad など）でバックアップ作成できる？
+
 **できません**。LINE の仕様で「トークのバックアップ」はプライマリデバイス（メインの iPhone）でのみ実行可能です。
 
 ### Q. メディア（画像・動画など）も復元される？
+
 取り出せたファイルをメッセージの識別情報と照合して取り込みます。対応するファイルが見つからない場合や形式を判定できない場合はスキップされ、完了表示に復元・スキップ件数が出ます。
 
 ### Q. 以前の端末のバックアップがあるが使える？
+
 そのバックアップが **暗号化されており、パスワードが分かっていれば** 使えます。UDID（デバイス識別子）が異なる場合は手動で選択してください。
 
 ### Q. 復元に失敗する
+
 - パスワードが正しいか確認
 - バックアップが暗号化済みか確認（暗号化なしは不可）
 - Apple Devices / iTunes が完全に終了しているか確認（ロックされてると読めない）

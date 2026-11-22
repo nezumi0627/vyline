@@ -13,10 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          submodules: recursive
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: "1.4.0"
       - run: bun run docs:readme:check
+      - run: npx --yes markdownlint-cli2@0.17.2 "**/*.md"
+      - uses: lycheeverse/lychee-action@v2
+        with:
+          args: --config lychee.toml --offline --include-fragments "**/*.md"
+          fail: true
 
   typecheck:
     name: TypeScript

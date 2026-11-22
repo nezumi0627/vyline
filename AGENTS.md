@@ -1,6 +1,6 @@
 # AGENTS.md — Vyline エージェント向けガイド
 
-最終更新: 2026-11-03
+最終更新: 2026-11-23
 
 このファイルは AI エージェントが Vyline プロジェクトを理解しタスクを実行するための包括的なガイドです。
 
@@ -93,41 +93,7 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 | 5     | Quality / perf                        | in progress |
 | 6     | Beta 公開準備                         | in progress |
 
-### 最近の主な変更 (2026-08-27)
-
-- **Vyline Setup / アカウント設定**: 初回 3 ステップ設定、MID ごとの設定スキーマ、原子的 JSON 保存、進捗の復元を追加
-- **引継ぎ / 診断**: 設定のみを含む SHA-256 検証 ZIP の import/export、サニタイズ済み診断ログの確認・出力・削除、GitHub Issue 作成導線を追加
-- **セッション保護**: Windows のトークンを DPAPI(CurrentUser) で保護。サブデバイスをブラウザごとのランダムなインストール ID に結び付け、端末固有情報を保存しない
-- **同期と表示**: 既読反映・未読位置・仮想リストのスクロールを安定化。アカウント切替時に前アカウントの UI 状態を残さない
-- **遠隔利用**: LAN 公開を既定で無効にし、Tailscale の検出と URL 表示を追加
-
-### 最近の主な変更 (2026-08-18)
-
-- **リブランディング**: `@vyline/nezuline` → `@vyline/protocol`、`Nezu*` → `Vyline*`。旧 `nezu-*.json` / `nezuline` データディレクトリからの自動移行
-- **VylineBackup**: 設定 > VylineBackup からトーク履歴・メディアのスナップショットを作成/復元/削除（`data/backups/`）。復元は「すべて / チャット選択」「メディア含む / テキストのみ」を選択可
-- **チャット詳細ログ**: 送受信・アナウンス（CHATEVENT）をタイミング付き JSONL で記録（`data/logs/`）。画像・動画・音声・ファイル・スタンプのメディア情報も記録。設定 > 詳細・復元 > デバッグログで閲覧
-- **高画質送信**: 表示タブに「高画質で画像送信」トグル（圧縮せず元画質で送信）
-- **useVirtualList**: 実測高さ変更時にオフセットを再計算するよう修正
-- **ブロックリスト**: キャッシュ + background キュー + 8s タイムアウトで 504 回避
-
-### 最近の主な変更 (2026-08-17)
-
-- **メンション**: `@ALL` / `@名前` 送受信（`contentMetadata.MENTION` の `MENTIONEES` 形式、Desktop 準拠）。入力時 `@` で候補ピッカー、表示はハイライト + アイコン
-- **LINE 絵文字**: チャット一覧・返信引用で `￼` プレースホルダが表示される問題を修正
-- **Flex**: カルーセルのマウスドラッグ、wrap テキストのクリップ修正
-- **画像送信**: クライアント側で 2048px JPEG 圧縮。E2EE 鍵整備のキャッシュ化 + メディア送信 90s タイムアウト。`isMissingGroupKeyError` の判定追加
-- **画像表示**: 自送信 E2EE メディアを `contentMetadata.keyMaterial` で直接復号する高速パス（履歴 RPC を飛ばす）
-- **設定**: 詳細・復元に「設定を初期化」（ログイン状態・履歴は保持）
-
-### 過去の変更 (2026-07-31)
-
-- プロフィール/メンバー表示: API タイムアウト追加、MID短縮表示、空配列上書き防止、キャッシュ汚染防止
-- グループ作成: 禁止解除オプション追加 (自己責任)
-- チャット同期: 手動同期ボタン追加、visibility change 時自動差分同期
-- E2EE/メディア: グループ鍵不在時 E2EE スキップ、重複呼び出し抑止、USER chat 誤呼び出し防止
-- スタンプ表示: プロキシURL判別修正
-- 招待: u* MID 検証・フィルタリング
-- スタンプ/絵文字: 複数レスポンス形式対応
+変更履歴は [CHANGELOG.md](CHANGELOG.md) を正本とし、ここには書かない。
 
 解析メモ索引: **[docs/analysis/README.md](docs/analysis/README.md)**  
 新規参入: **[docs/onboarding.md](docs/onboarding.md)** / 索引: **[docs/README.md](docs/README.md)**
@@ -145,10 +111,12 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 | `agent-skills-standard` 系 | 必要なときだけ必要な skill を階層ロード（一括読込禁止） |
 | `api-and-interface-design` など addyosmani/agent-skills 系 | 本番級レビュー・perf・API 設計（必要時のみ） |
 | `minimize-cursor-cost` (~/.agents/skills) | 再読込禁止・並列ツール呼び出し・無駄検証禁止 |
+| `.devin/skills/`（`writing-for-agents`、`code-review` など） | この repository 同梱の skill。AGENTS.md や docs を書く前に `writing-for-agents` を読む |
 
 優先順位: ユーザー指示 > セキュリティ > プライバシー > データ保護 > 既存機能互換 > 実リポジトリ挙動 > テスト結果 > Ponytail > 各skill推奨 > トークン削減。
 
 大型タスク開始時は最初の報告に Skill Bootstrap 表を含めること。
+
 ## 開発哲学 (最重要)
 
 **最大反復速度 (Maximum Iteration Speed)** を最優先とする。
@@ -197,7 +165,7 @@ RPC_DICTIONARY の `linejsName` フィールドが linejs との対応を示し�
 
 ## アーキテクチャ (最新)
 
-```
+```text
 ┌─ Frontend (React + Vite) ─────────────────────────────┐
 │  apps/desktop/src/                                      │
 │  ├── lib/store.ts        Zustand persist ストア (正本)   │
@@ -267,7 +235,7 @@ const groupKeyWarmInflight = new Map<string, Promise<void>>();
 
 **メディアダウンロードのフォールバック:**
 
-```
+```text
 groupKeyMissing? → E2EE skip → OBS plain
 E2EE decrypt → fail → OBS plain → fail
   → (gk && e2eeFailed) → clear keys → retry
@@ -275,7 +243,7 @@ E2EE decrypt → fail → OBS plain → fail
 
 **メンバー名解決とキャッシュ汚染防止:**
 
-```
+```text
 fetchChatMemberMids → fetchContactsBatch → individual fallback
 → 全失敗時はMIDのまま → vylinePutGroup で skip (allUnresolved)
 → vylineGroupNeedsRefresh がMIDキャッシュを検出して再取得
@@ -379,7 +347,7 @@ bun run version:check                     # package / notes / changelog / README
 - `main` は Branch Protection Rules により保護されており、直接 push はブロックされる（`Cannot update this protected ref.`）
 - フローは次のとおり:
 
-```
+```text
 1. origin/main から作業branch + worktreeを作る
    git fetch origin
    git worktree add -b feature/<名前> E:\projects\Vyline-worktrees\<名前> origin/main
@@ -438,4 +406,3 @@ bun run version:check                     # package / notes / changelog / README
 - 再配布・改変・紹介時には、可能であれば原作者 **nezumi0627** および Project Vyline へのクレジット表記をお願いする。ただし、これはライセンス上の追加義務ではない。
 - MIT License が要求する著作権表示および許諾表示の保持は必要。
 - `logo/` 以下のブランド資産にはこの扱いを適用せず、必ず `logo/LICENCE` の CC BY 4.0 条件に従う。
-

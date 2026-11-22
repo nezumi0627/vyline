@@ -28,7 +28,7 @@
 
 ## ワークフロー
 
-```
+```text
 0. bun run vyline:update -- --unpack   → LINE を最新化 + unpack まで一括
 1. bun run vyline:check                → バージョン確認（現在 vs 最新）
 2. bun run vyline:unpack               → data/unpacked_LINE.exe
@@ -133,7 +133,7 @@ bun run vyline:focus-recovered -- --group storage=Storage|Index  # グループ�
 
 ## データディレクトリ構造
 
-```
+```text
 data/
 ├── unpacked_LINE.exe               # unpack 済みバイナリ
 ├── unpack-meta.json                # unpack メタ情報

@@ -13,7 +13,7 @@ Rebuild the GitHub Pages documentation without opening or reading the old websit
 - Signature: one continuous signal line joins the conversation, Vyline and the available environments. Buttons use a precise light-on-dark hierarchy, with distinct hover, pressed, focus and selected states.
 - Type: system sans with Japanese fallbacks and system mono for coordinates and commands. The top route fits one viewport; longer tour and article screens earn their scroll space.
 
-Unslop by Damir Sokolovsky: https://github.com/heydamir/unslop/tree/main/skills/unslop (CC BY 4.0). Applied principles: quiet chrome, deliberate spacing, product-specific moments, no fake metrics, no gradient typography or redundant feature cards. Existing-site visual audit intentionally omitted at the user's request. Black/white, orbit geometry, and varied control shapes are deliberate user-requested exceptions to generic anti-slop prescriptions.
+Unslop by Damir Sokolovsky: <https://github.com/heydamir/unslop/tree/main/skills/unslop> (CC BY 4.0). Applied principles: quiet chrome, deliberate spacing, product-specific moments, no fake metrics, no gradient typography or redundant feature cards. Existing-site visual audit intentionally omitted at the user's request. Black/white, orbit geometry, and varied control shapes are deliberate user-requested exceptions to generic anti-slop prescriptions.
 
 ## Architecture and content
 

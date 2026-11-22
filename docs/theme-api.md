@@ -4,7 +4,7 @@
 
 ## 概要
 
-Vyline のテーマは `@vyline/themes` が定義する `VyTheme` オブジェクトです。CSS custom properties を直接編集する旧仕様ではありません。ユーザー向けの設定手順は[テーマガイド](../Vyline/docs/user-guide/themes.md)を参照してください。
+Vyline のテーマは `@vyline/themes` が定義する `VyTheme` オブジェクトです。CSS custom properties を直接編集する旧仕様ではありません。ユーザー向けの設定手順は[テーマガイド](user-guide/themes.md)を参照してください。
 
 ## 型
 

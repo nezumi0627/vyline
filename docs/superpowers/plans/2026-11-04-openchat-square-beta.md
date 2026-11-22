@@ -34,6 +34,7 @@
 ### Task 1: Sanitized protocol evidence and API inventory
 
 **Files:**
+
 - Modify: `docs/api-rpc-mapping.md`
 - Modify: `docs/analysis/evidence-first-audit.md`
 - Create: `docs/analysis/openchat-square-evidence.md`
@@ -48,6 +49,7 @@
 ### Task 2: Feature gate, account config, and isolated SQLite
 
 **Files:**
+
 - Create: `Vyline/backend/src/storage/squareStore.ts`
 - Create: `Vyline/backend/src/storage/squareStore.test.ts`
 - Create: `Vyline/backend/src/service/squareFeatureGate.ts`
@@ -64,6 +66,7 @@
 ### Task 3: Square service and BFF routes
 
 **Files:**
+
 - Create: `Vyline/backend/src/service/squareService.ts`
 - Create: `Vyline/backend/src/service/squareService.test.ts`
 - Create: `Vyline/backend/src/api/square.ts`
@@ -81,6 +84,7 @@
 ### Task 4: Shared types and dedicated UI path
 
 **Files:**
+
 - Modify: `Vyline/packages/types/src/index.ts`
 - Modify: `Vyline/apps/desktop/src/lib/store-types.ts`
 - Modify: `Vyline/apps/desktop/src/lib/store.ts`
@@ -99,6 +103,7 @@
 ### Task 5: Notes, search, media, and capability-gated extras
 
 **Files:**
+
 - Modify: Square service/store/routes and dedicated Square UI from Tasks 2–4
 - Create: focused tests for each evidence-confirmed capability
 
@@ -111,6 +116,7 @@
 ### Task 6: Documentation, tests, review, and PRs
 
 **Files:**
+
 - Create: `docs/openchat-square.md`
 - Create: `docs/openchat-square.en.md`
 - Modify: `docs/README.md`, `docs/README.en.md`, `docs/feature-capabilities.md`, `docs/api-rpc-mapping.md`, `docs/analysis/evidence-first-audit.md`

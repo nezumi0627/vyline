@@ -7,7 +7,7 @@
 
 文書の正本と各フォルダの役割は **[DOCS_OWNERSHIP.md](./DOCS_OWNERSHIP.md)** にまとめています。
 
-安定版は **1.2.3** です。[導入ツアーと検索できるドキュメント](https://nezumi0627.github.io/Vyline/)からも読めます。
+安定版は **1.2.3** です。[導入ツアーと検索できるドキュメント](https://nezumi0627.github.io/vyline/)からも読めます。
 OS別手順：[Windows](./install/windows.md) / [Linux](./install/linux.md) / [macOS](./install/macos.md) / [Docker](./install/docker.md)。
 コマンドで起動する場合は、全OS共通の [Bun + vyl CLI](./install/cli.md) を使えます。
 機能の要約は[機能ガイド](./features.md)へ統合し、操作の詳細は分野別の正本へリンクしています。
@@ -90,6 +90,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | [protocol/dictionary.md](./protocol/dictionary.md) | RPC 辞書・Desktop 検証表・API 早見 |
 | [login-flow.md](./login-flow.md)                   | QR / Email E2EE ログインフロー     |
 | [analysis/README.md](./analysis/README.md)         | 機能別解析メモ索引                 |
+| [analysis/message-edit-and-mute.md](./analysis/message-edit-and-mute.md) | メッセージ編集・ミュート送信の実装メモ |
 | [analysis/liff.md](./analysis/liff.md)             | LIFF token / share / sender helper |
 | [analysis/note-album.md](./analysis/note-album.md) | Note/Album ChannelToken・CRUD・OBS  |
 | [analysis/stickers.md](./analysis/stickers.md)     | スタンプ/絵文字 API 解析           |
@@ -112,6 +113,8 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 | ------------------------------------ | -------------------------- |
 | [tasks/STATUS.md](./tasks/STATUS.md) | マスター進捗ボード         |
 | [tasks/PHASES.md](./tasks/PHASES.md) | フェーズ目標・受け入れ条件 |
+| [tasks/chat-lock-and-settings.md](./tasks/chat-lock-and-settings.md) | チャットロック・設定・メディア拡張の計画と残作業 |
+| [sessions/frontend-render-windowing-pr74.md](./sessions/frontend-render-windowing-pr74.md) | PR #74 フロントエンド描画改善の作業記録 |
 
 ---
 
@@ -128,7 +131,7 @@ LINE との通常の通信は発生します。これは法的助言ではあり
 
 ## 読む順（おすすめ）
 
-```
+```text
 AGENTS.md → onboarding → architecture → CONTRIBUTING → protocol/dictionary
   → protocol/src/dictionary/rpcMap.ts（検索ツール）
   → 担当機能の docs/analysis/<feature>.md

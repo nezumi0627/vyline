@@ -1,0 +1,10 @@
+# bun run docs:links — shared settings; docs:links adds --offline --include-fragments.
+no_progress = true
+exclude_path = [
+  "node_modules",
+  "dist-landing",
+  "tools",
+  "Vyline/packages/protocol",
+  "Vyline/packages/plugin",
+  "Vyline/packages/themes",
+]

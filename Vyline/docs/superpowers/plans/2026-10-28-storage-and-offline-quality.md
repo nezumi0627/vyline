@@ -86,4 +86,3 @@
 
 - Browser runtime behavior has no available browser automation in this environment; Vite production build and adapter tests are the current offline gates.
 - Desktop `tsc -b` is blocked by the ignored local file `apps/desktop/src/newui/data/themePacks.ts` importing missing `../types/settings`; do not edit ignored user data.
-
