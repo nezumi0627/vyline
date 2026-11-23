@@ -1,19 +1,20 @@
 # Vyline を使い始める
 
-最終更新: 2026-11-03
+最終更新: 2026-11-23
 
 このページは、Vylineを初めて使う人向けの入口です。
 現在の安定版は **1.2.3** です。
-[操作できる導入ツアー](https://nezumi0627.github.io/vyline/#start)でも手順を確認できます。
+[導入・インストールの一覧](https://nezumi0627.github.io/vyline/install/)から、環境に合う手順を選べます。
 VylineはLINE非公式のクライアントです。利用前に[プライバシーとデータ](./user-guide/privacy-and-data.md)を確認してください。
 
 ## 環境を選ぶ
 
 | 環境 | 導入方法 | 手順 |
 | --- | --- | --- |
+| Bun + vyl | Windows・macOS・Linux共通のソース起動 | [Bunとvyl CLI](./install/cli.md) |
 | Windows x64 | SetupまたはポータブルZIP。Bun不要 | [Windows](./install/windows.md) |
 | Linux x64 | tar.gzを展開しinstall.shを実行。Bun不要 | [Linux](./install/linux.md) |
-| macOS | ソース起動またはブラウザ接続。専用インストーラーなし | [macOS](./install/macos.md) |
+| macOS | Apple Silicon / Intel向けローカルアプリのZIP | [macOS](./install/macos.md) |
 | Docker / Web | amd64またはarm64サーバーで起動 | [Docker](./install/docker.md) |
 
 ## ログインと初回設定
