@@ -2,10 +2,82 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { runInNewContext } from "node:vm";
 import { findMatch, matchRanges } from "./search-text.js";
 import { parseBlogPost } from "./blog-meta.ts";
 
 const root = resolve(import.meta.dir, "../..");
+
+test("theme follows the OS until overridden and remains usable with blocked storage", async () => {
+  const script = await Bun.file(join(import.meta.dir, "theme.js")).text();
+  function boot(initial: string | null, dark: boolean, blocked = false) {
+    let saved = initial;
+    const events = new Map<string, (event?: unknown) => void>();
+    const dataset: Record<string, string> = {};
+    const media = {
+      matches: dark,
+      addEventListener: (_: string, listener: () => void) => events.set("system", listener),
+    };
+    const select = {
+      value: "system",
+      addEventListener: (_: string, listener: (event: unknown) => void) =>
+        events.set("select", listener),
+    };
+    const storage = {
+      getItem: () => {
+        if (blocked) throw new Error("Storage disabled");
+        return saved;
+      },
+      setItem: (_: string, value: string) => {
+        if (blocked) throw new Error("Storage disabled");
+        saved = value;
+      },
+      removeItem: () => {
+        if (blocked) throw new Error("Storage disabled");
+        saved = null;
+      },
+    };
+    runInNewContext(script, {
+      document: {
+        documentElement: { dataset, classList: { add() {} } },
+        querySelector: (selector: string) =>
+          selector === "[data-theme-select]" ? select : { setAttribute() {} },
+        addEventListener: (name: string, listener: () => void) => events.set(name, listener),
+      },
+      window: {
+        matchMedia: () => media,
+        addEventListener: (name: string, listener: () => void) => events.set(name, listener),
+      },
+      localStorage: storage,
+    });
+    return { events, dataset, media, select, saved: () => saved };
+  }
+  const page = boot(null, true);
+  expect(page.dataset.theme).toBe("dark"); // Applies before DOMContentLoaded / first paint.
+  page.events.get("DOMContentLoaded")!();
+  page.events.get("select")!({ target: { value: "light" } });
+  expect(page.dataset.theme).toBe("light");
+  expect(page.saved()).toBe("light");
+  expect(boot(page.saved(), true).dataset.theme).toBe("light");
+  page.events.get("system")!();
+  expect(page.dataset.theme).toBe("light");
+  page.events.get("select")!({ target: { value: "system" } });
+  expect(page.saved()).toBeNull();
+  expect(page.dataset.theme).toBe("dark");
+  page.media.matches = false;
+  page.events.get("system")!();
+  expect(page.dataset.theme).toBe("light");
+  page.events.get("storage")!({ key: "vyline-docs-theme", newValue: "dark" });
+  expect(page.dataset.theme).toBe("dark");
+  expect(page.select.value).toBe("dark");
+  page.events.get("storage")!({ key: null, newValue: null });
+  expect(page.select.value).toBe("system");
+  const restricted = boot(null, true, true);
+  restricted.events.get("DOMContentLoaded")!();
+  expect(() => restricted.events.get("select")!({ target: { value: "light" } })).not.toThrow();
+  expect(restricted.dataset.theme).toBe("light");
+  expect(boot("invalid", true).dataset.theme).toBe("dark");
+});
 
 test("invalid blog metadata fails instead of silently hiding a post", () => {
   const valid =
