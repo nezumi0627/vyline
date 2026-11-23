@@ -4,7 +4,7 @@
 
 このページは、Vylineを初めて使う人向けの入口です。
 現在の安定版は **1.2.3** です。
-[操作できる導入ツアー](https://nezumi0627.github.io/vyline/#start)でも手順を確認できます。
+[OS別のダウンロードと導入手順](https://nezumi0627.github.io/vyline/#download)から環境に合った手順を確認できます。
 VylineはLINE非公式のクライアントです。利用前に[プライバシーとデータ](./user-guide/privacy-and-data.md)を確認してください。
 
 ## 環境を選ぶ

@@ -1,14 +1,15 @@
 import { resolve, relative, isAbsolute, sep, join } from "node:path";
 const root = resolve(import.meta.dir, "../../dist-landing");
+const base = "/vyline/";
 const server = Bun.serve({
   hostname: "127.0.0.1",
   port: Number(process.env.SITE_PORT ?? 4187),
   async fetch(request) {
     const url = new URL(request.url);
-    if (url.pathname === "/") return Response.redirect(new URL("/Vyline/", url), 302);
-    if (!url.pathname.startsWith("/Vyline/")) return new Response("Not found", { status: 404 });
+    if (url.pathname === "/") return Response.redirect(new URL(base, url), 302);
+    if (!url.pathname.startsWith(base)) return new Response("Not found", { status: 404 });
     let path: string;
-    try { path = decodeURIComponent(url.pathname.slice("/Vyline/".length)); }
+    try { path = decodeURIComponent(url.pathname.slice(base.length)); }
     catch { return new Response("Invalid path", { status: 400 }); }
     const target = resolve(root, path || "index.html");
     const within = relative(root, target);
@@ -17,4 +18,4 @@ const server = Bun.serve({
     return await file.exists() ? new Response(file) : new Response("Not found", { status: 404 });
   },
 });
-console.log(`Documentation preview: ${server.url}Vyline/`);
+console.log(`Documentation preview: ${server.url}${base}`);
