@@ -370,7 +370,7 @@ await page(
     "更新情報",
     "Vylineのリリースとプロジェクトからのお知らせ。",
     "blog",
-    `${crumbs("blog")}${heading("更新情報", "リリースと、プロジェクトからのお知らせ。")}${posts.map((post) => `<a class="blog-entry" href="${post.url}"><time>${escapeHtml(post.date)}</time><h2>${escapeHtml(post.title)}</h2><p>${escapeHtml(post.summary)}</p></a>`).join("")}<p class="muted">最新の配布版とすべての変更履歴は <a href="${repository}/releases">GitHub Releases</a> で確認できます。</p>`,
+    `${crumbs("blog")}${heading("更新情報", "リリースと、プロジェクトからのお知らせ。")}${posts.map((post) => `<a class="blog-entry" href="${post.url}"><time>${escapeHtml(post.date)}</time><h2>${escapeHtml(post.title)}</h2><p>${escapeHtml(post.summary)}</p></a>`).join("")}<p class="muted">最新の配布版とすべての変更履歴は <a href="${repository}/releases">GitHub Releases</a> で確認できます。</p><p><a class="text-link" href="${base}blog/write/">ブログの書き方を見る ${icon("chevron")}</a></p>`,
     { wide: true },
   ),
 );

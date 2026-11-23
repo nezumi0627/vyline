@@ -64,6 +64,7 @@ test("publishes the unified entry points and all registered source articles", as
   ])
     expect(pages.has(join(output, path))).toBe(true);
   const index = await Bun.file(join(output, "search.json")).json();
+  expect(pages.get(join(output, "blog/index.html"))!.html).toContain('href="/vyline/blog/write/"');
   for (const item of index) {
     const path = item.url.slice("/vyline/".length);
     expect(pages.has(join(output, path.endsWith("/") ? `${path}index.html` : path))).toBe(true);
