@@ -37,6 +37,8 @@ jobs:
       - uses: oven-sh/setup-bun@v2
       - name: Build landing page
         run: bun scripts/build-landing.ts dist-landing
+      - name: Test generated documentation and internal links
+        run: bun test --cwd Vyline/website ./site.test.ts
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist-landing
