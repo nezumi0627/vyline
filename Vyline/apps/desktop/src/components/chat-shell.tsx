@@ -3,7 +3,6 @@ import { lazy, memo, Suspense, useCallback, useEffect, useRef, useState } from "
 import { useStore } from "@/lib/store";
 import { Sidebar } from "@/components/sidebar";
 import { cn } from "@/lib/utils";
-import { IconPanelLeft } from "@/components/icons";
 import { UpdaterPage } from "@/components/updater-page";
 
 const ChatArea = lazy(() =>
@@ -22,7 +21,6 @@ function ChatShellBase() {
   const sidebarWidth = useStore((s) => s.sidebarWidth);
   const setSidebarWidth = useStore((s) => s.setSidebarWidth);
   const collapsed = useStore((s) => s.sidebarCollapsed);
-  const toggleSidebar = useStore((s) => s.toggleSidebar);
 
   const [dragging, setDragging] = useState(false);
   const [squareRoom, setSquareRoom] = useState<SquareRoomSelection | null>(null);
@@ -123,15 +121,6 @@ function ChatShellBase() {
           activeChatId || squareRoom ? "flex" : "hidden md:flex",
         )}
       >
-        {/* collapse / expand toggle */}
-        <button
-          type="button"
-          onClick={toggleSidebar}
-          aria-label={collapsed ? "サイドバーを開く" : "サイドバーを閉じる"}
-          className="absolute left-2 top-3 z-20 hidden h-8 w-8 items-center justify-center rounded-lg bg-[var(--vy-surface-2)] text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:flex"
-        >
-          <IconPanelLeft size={17} />
-        </button>
         {screen === "updater" ? (
           <UpdaterPage />
         ) : squareRoom ? (
