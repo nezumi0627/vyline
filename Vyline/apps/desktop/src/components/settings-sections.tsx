@@ -497,7 +497,7 @@ export function SettingsSections() {
                   </Card>
                   <button
                     type="button"
-                    disabled={profileSaving}
+                    disabled={profileLoading || profileSaving}
                     onClick={() => void saveLineProfile()}
                     className="mt-4 rounded-xl px-4 py-2.5 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
                     style={{ background: "var(--vy-accent)" }}

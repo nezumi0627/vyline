@@ -822,5 +822,6 @@
   "セットアップ状態を確認しています…": "Checking setup status…",
   "ログインアカウントのプロフィールを確認できません。ネットワークを確認して再読み込みしてください。": "Could not verify the signed-in profile. Check your network and reload.",
   "プロフィール取得中…": "Loading profile…",
-  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "Could not verify setup status. Check your network and reload."
+  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "Could not verify setup status. Check your network and reload.",
+  "LINE に保存": "Save to LINE"
 }

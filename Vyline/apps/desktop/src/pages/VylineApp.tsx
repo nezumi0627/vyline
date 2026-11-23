@@ -73,21 +73,19 @@ export function VylineApp() {
   }, [screen, setScreen, navigate]);
 
   useEffect(() => {
-    if (!setupAccountId) return;
+    if (!setupAccountId || !consented) return;
     let cancelled = false;
     setSetupDone(false);
     setSetupNeeded(false);
     setSetupCheckError(false);
     setSetupChecked(null);
     void (async () => {
-      let resolvedMid = accountId === setupAccountId ? (mid ?? "") : "";
-      if (!/^u[0-9a-f]{32}$/i.test(resolvedMid)) {
-        const profile = await api.line.getProfile(setupAccountId);
-        resolvedMid = profile.ok ? (profile.profile?.mid ?? "") : "";
-        if (resolvedMid)
-          useStore.setState((state) => ({ self: { ...state.self, mid: resolvedMid } }));
-      }
+      // self.mid はアカウント切替で前のアカウントの値が残ることがあるため、
+      // 必ずそのアカウントのプロフィールから MID を取得する
+      const profile = await api.line.getProfile(setupAccountId);
+      const resolvedMid = profile.ok ? (profile.profile?.mid ?? "") : "";
       if (!/^u[0-9a-f]{32}$/i.test(resolvedMid)) throw new Error("account MID unavailable");
+      useStore.setState((state) => ({ self: { ...state.self, mid: resolvedMid } }));
       const result = await api.settings.account(resolvedMid);
       if (!result.ok) throw new Error("setup status unavailable");
       if (cancelled) return;
@@ -103,7 +101,7 @@ export function VylineApp() {
     return () => {
       cancelled = true;
     };
-  }, [setupAccountId, accountId, mid]);
+  }, [setupAccountId, consented]);
 
   if (!initialized || loading) {
     return (

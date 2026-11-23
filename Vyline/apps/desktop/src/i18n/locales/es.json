@@ -819,5 +819,6 @@
   "セットアップ状態を確認しています…": "Comprobando el estado de configuración…",
   "ログインアカウントのプロフィールを確認できません。ネットワークを確認して再読み込みしてください。": "No se pudo verificar el perfil de la cuenta. Comprueba la red y vuelve a cargar.",
   "プロフィール取得中…": "Cargando perfil…",
-  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "No se pudo verificar la configuración. Comprueba la red y vuelve a cargar."
+  "セットアップ状態を確認できません。ネットワークを確認して再読み込みしてください。": "No se pudo verificar la configuración. Comprueba la red y vuelve a cargar.",
+  "LINE に保存": "Guardar en LINE"
 }
