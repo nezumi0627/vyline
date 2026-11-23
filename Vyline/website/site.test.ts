@@ -19,11 +19,18 @@ test("invalid blog metadata fails instead of silently hiding a post", () => {
   }
   expect(() => parseBlogPost(valid.replace('title: "Title"', "title:"), "post.md")).toThrow();
   expect(() => parseBlogPost(valid.replace("2026-11-23", "today"), "post.md")).toThrow();
-  for (const delimiter of ["----", "---extra", "--- trailing"]) {
+  for (const delimiter of ["----", "---extra", "--- trailing", "--- ", "--"]) {
     expect(() =>
       parseBlogPost(valid.replace("\n---\nBody", `\n${delimiter}\nBody`), "post.md"),
     ).toThrow();
+    expect(() =>
+      parseBlogPost(
+        valid.replace("\n---\nBody", `\n${delimiter}\nIntro\n\n---\n\nRest`),
+        "post.md",
+      ),
+    ).toThrow();
   }
+  expect(parseBlogPost(`${valid}\n\n---\n\nRest`, "post.md").body).toBe("Body\n\n---\n\nRest");
   expect(parseBlogPost(valid.replaceAll("\n", "\r\n"), "post.md").body).toBe("Body");
   expect(parseBlogPost(valid.replace("\nBody", ""), "post.md").body).toBe("");
 });
