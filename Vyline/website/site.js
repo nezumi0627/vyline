@@ -179,7 +179,9 @@ document.addEventListener("keydown", (event) => {
     if (!links.length) return;
     event.preventDefault();
     activeIndex =
-      (activeIndex + (event.key === "ArrowDown" ? 1 : -1) + links.length) % links.length;
+      activeIndex < 0
+        ? event.key === "ArrowDown" ? 0 : links.length - 1
+        : (activeIndex + (event.key === "ArrowDown" ? 1 : -1) + links.length) % links.length;
     links.forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
     links[activeIndex].focus();
     links[activeIndex].scrollIntoView({ block: "nearest" });
