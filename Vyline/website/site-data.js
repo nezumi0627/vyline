@@ -59,7 +59,7 @@ export const documents = [
   ],
   ["docs/developers/vyl-cli.md", "開発", "vyl CLIリファレンス", "開発・診断・登録コマンドを調べる"],
   ["docs/development.md", "開発", "開発環境とコマンド", "環境変数と日々の開発手順を確認する"],
-  ["docs/login-flow.md", "開発", "ログインの仕組み", "QR認証とセッション確立の流れを読む"],
+  ["docs/login-flow.md", "開発", "旧実装のログインフロー", "Go + Wails時代の記録。現行実装ではなく参考資料"],
   ["links/README.md", "開発", "関連リポジトリ", "Vyline本体と周辺repoの役割、依存関係"],
 ];
 
