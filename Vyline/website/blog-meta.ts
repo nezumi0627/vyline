@@ -1,5 +1,5 @@
 export function parseBlogPost(markdown: string, sourcePath: string) {
-  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  const match = markdown.match(/^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n|$)([\s\S]*)$/);
   if (!match) throw new Error(`Missing blog frontmatter: ${sourcePath}`);
   const fields = new Map(
     [...match[1].matchAll(/^([a-z]+):[ \t]*(.*)$/gm)].map((field) => [field[1], field[2].trim()]),
