@@ -2,7 +2,7 @@ import { resolve, relative, isAbsolute, sep, join } from "node:path";
 const root = resolve(import.meta.dir, "../../dist-landing");
 const base = "/vyline/";
 const server = Bun.serve({
-  hostname: "127.0.0.1",
+  hostname: "0.0.0.0",
   port: Number(process.env.SITE_PORT ?? 4187),
   async fetch(request) {
     const url = new URL(request.url);
