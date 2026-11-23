@@ -178,7 +178,9 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
     activeIndex =
       activeIndex < 0
-        ? event.key === "ArrowDown" ? 0 : links.length - 1
+        ? event.key === "ArrowDown"
+          ? 0
+          : links.length - 1
         : (activeIndex + (event.key === "ArrowDown" ? 1 : -1) + links.length) % links.length;
     links.forEach((link, index) => link.classList.toggle("is-active", index === activeIndex));
     links[activeIndex].focus();

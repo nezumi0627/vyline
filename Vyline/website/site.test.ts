@@ -8,9 +8,12 @@ import { parseBlogPost } from "./blog-meta.ts";
 const root = resolve(import.meta.dir, "../..");
 
 test("invalid blog metadata fails instead of silently hiding a post", () => {
-  const valid = '---\ntitle: "Title"\nsummary: Summary\ndate: 2026-11-23\ncategory: Notes\npublished: true\n---\nBody';
+  const valid =
+    '---\ntitle: "Title"\nsummary: Summary\ndate: 2026-11-23\ncategory: Notes\npublished: true\n---\nBody';
   expect(parseBlogPost(valid, "post.md").published).toBe(true);
-  expect(parseBlogPost(valid.replace("published: true", "published: false"), "post.md").published).toBe(false);
+  expect(
+    parseBlogPost(valid.replace("published: true", "published: false"), "post.md").published,
+  ).toBe(false);
   for (const value of ["published: tru", "published:", ""]) {
     expect(() => parseBlogPost(valid.replace("published: true", value), "post.md")).toThrow();
   }
@@ -32,8 +35,9 @@ test("search keeps original offsets through Japanese Unicode normalization", () 
   expect(findMatch("バックアップ", "")).toBeNull();
   expect(findMatch("ガイド", "存在しない語")).toBeNull();
   const content = "㍿の backup、設定の restore";
-  expect(matchRanges(content, "backup restore").map(({ start, end }) => content.slice(start, end)))
-    .toEqual(["backup", "restore"]);
+  expect(
+    matchRanges(content, "backup restore").map(({ start, end }) => content.slice(start, end)),
+  ).toEqual(["backup", "restore"]);
   expect(matchRanges("backup", "back backup")).toEqual([{ start: 0, end: 6 }]);
 });
 let output: string;

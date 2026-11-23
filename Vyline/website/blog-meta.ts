@@ -9,9 +9,16 @@ export function parseBlogPost(markdown: string, sourcePath: string) {
   const summary = value("summary");
   const date = value("date");
   const published = value("published");
-  if (!title || !summary || !/^\d{4}-\d{2}-\d{2}$/.test(date) || !value("category") ||
-      !["true", "false"].includes(published))
-    throw new Error(`Blog frontmatter requires title, summary, date, category, and published true/false: ${sourcePath}`);
+  if (
+    !title ||
+    !summary ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(date) ||
+    !value("category") ||
+    !["true", "false"].includes(published)
+  )
+    throw new Error(
+      `Blog frontmatter requires title, summary, date, category, and published true/false: ${sourcePath}`,
+    );
   const name = sourcePath.split(/[\\/]/).at(-1)!.replace(/\.md$/, "");
   if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name === "index")
     throw new Error(`Invalid blog filename: ${sourcePath}`);

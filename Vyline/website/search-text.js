@@ -22,10 +22,14 @@ export function findMatch(text, query) {
 }
 
 export function matchRanges(text, query) {
-  const matches = query.trim().split(/\s+/).flatMap((term) => {
-    const match = findMatch(text, term);
-    return match ? [match] : [];
-  }).sort((a, b) => a.start - b.start);
+  const matches = query
+    .trim()
+    .split(/\s+/)
+    .flatMap((term) => {
+      const match = findMatch(text, term);
+      return match ? [match] : [];
+    })
+    .sort((a, b) => a.start - b.start);
   const merged = [];
   for (const match of matches) {
     const previous = merged.at(-1);
