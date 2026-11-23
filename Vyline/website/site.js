@@ -155,6 +155,8 @@ $$("[data-scope]").forEach((button) =>
   }),
 );
 document.addEventListener("keydown", (event) => {
+  // IME candidate selection/confirmation must not navigate or close search.
+  if (event.isComposing || event.keyCode === 229) return;
   const typing =
     event.target instanceof HTMLElement &&
     (event.target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(event.target.tagName));
