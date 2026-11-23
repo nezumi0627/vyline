@@ -35,11 +35,11 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
+      - name: Build landing page
+        run: bun scripts/build-landing.ts dist-landing
       - name: Test website navigation and generated links
         working-directory: ${{ runner.temp }}
         run: bun test "$GITHUB_WORKSPACE/Vyline/website/navigation.test.js" "$GITHUB_WORKSPACE/Vyline/website/site-build.test.ts" "$GITHUB_WORKSPACE/Vyline/website/preview.test.ts"
-      - name: Build landing page
-        run: bun scripts/build-landing.ts dist-landing
       - uses: actions/upload-pages-artifact@v3
         with:
           path: dist-landing
