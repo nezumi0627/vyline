@@ -121,6 +121,8 @@ test("installation and navigation remain usable without JavaScript", () => {
     expect(install).toContain(`href="#${platform}"`);
   }
   expect(install).not.toContain('class="platform-panel" hidden');
+  expect(install).toContain('<a href="#platforms">環境を選ぶ</a>');
+  expect(install).not.toContain('<a href="#bun">環境を選ぶ</a>');
   for (const { html } of pages.values()) {
     if (html.includes('<aside class="toc">'))
       expect(html.match(/class="mobile-toc"/g)?.length).toBe(1);

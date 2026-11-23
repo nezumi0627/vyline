@@ -126,7 +126,7 @@ footer a { text-decoration: underline; text-underline-offset: 3px; }
 .page-heading > p { color: var(--text-secondary); font-size: 14px; line-height: 1.95; margin-top: 16px; }
 .notice { background: var(--surface); color: #4a636d; padding: 16px 20px; border-radius: 6px; font-size: 12px; line-height: 1.9; margin: 24px 0 32px; }
 .notice a { text-decoration: underline; text-underline-offset: 3px; }
-.platform-tabs { display: flex; flex-wrap: wrap; gap: 0 20px; border-bottom: 1px solid var(--border); margin-top: 36px; }
+.platform-tabs { display: flex; flex-wrap: wrap; gap: 0 20px; border-bottom: 1px solid var(--border); margin-top: 36px; scroll-margin-top: 120px; }
 .platform-tabs a { padding: 12px 0; font-size: 12px; border-bottom: 2px solid transparent; color: var(--text-secondary); white-space: nowrap; }
 .platform-tabs a[aria-current] { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .platform-panel { padding: 28px 0; scroll-margin-top: 120px; }

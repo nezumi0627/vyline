@@ -172,7 +172,7 @@ await page(
     "導入・インストール",
     "使う環境に合うVylineの起動方法を選び、ログインと初回設定を進めます。",
     "install",
-    `${crumbs("install")}${heading("Vyline をはじめる", `使う環境に合わせて、起動方法を選んでください。<br>現在の安定版は v${version} です。`)}<div class="notice">Vyline は LINE の非公式クライアントです。使い始める前に、<a href="${urlFor("docs/user-guide/privacy-and-data.md")}">保存されるデータとプライバシー</a>を確認してください。</div><div class="platform-tabs" aria-label="起動する環境">${Object.entries(
+    `${crumbs("install")}${heading("Vyline をはじめる", `使う環境に合わせて、起動方法を選んでください。<br>現在の安定版は v${version} です。`)}<div class="notice">Vyline は LINE の非公式クライアントです。使い始める前に、<a href="${urlFor("docs/user-guide/privacy-and-data.md")}">保存されるデータとプライバシー</a>を確認してください。</div><div class="platform-tabs" id="platforms" aria-label="起動する環境">${Object.entries(
       platforms,
     )
       .map(
@@ -181,7 +181,7 @@ await page(
       )
       .join("")}</div><div class="platform-panels">${panels}</div>${installSteps}`,
     {
-      toc: `<a href="#bun">環境を選ぶ</a><a href="#first-login">ログインと初回設定</a><a href="${urlFor("docs/user-guide/error-handling.md")}">起動に困ったとき</a>`,
+      toc: `<a href="#platforms">環境を選ぶ</a><a href="#first-login">ログインと初回設定</a><a href="${urlFor("docs/user-guide/error-handling.md")}">起動に困ったとき</a>`,
     },
   ),
 );
