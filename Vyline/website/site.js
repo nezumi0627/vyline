@@ -24,7 +24,7 @@ function getIndex() {
       .then((items) =>
         items.map((item) => ({
           ...item,
-          terms: normalize(`${item.title} ${item.summary} ${item.content}`),
+          terms: normalize(`${item.title} ${item.category} ${item.summary} ${item.content}`),
         })),
       )
       .catch((error) => {
