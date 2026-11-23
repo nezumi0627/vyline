@@ -194,7 +194,10 @@ const platformTabs = $$("[data-platform]");
 function selectPlatform() {
   if (!platformTabs.length) return;
   const id = location.hash.slice(1);
-  const selected = platformTabs.find((tab) => tab.dataset.platform === id) ?? platformTabs[0];
+  const selected =
+    platformTabs.find((tab) => tab.dataset.platform === id) ??
+    platformTabs.find((tab) => tab.hasAttribute("aria-current")) ??
+    platformTabs[0];
   platformTabs.forEach((tab) => {
     const active = tab === selected;
     if (active) tab.setAttribute("aria-current", "true");
