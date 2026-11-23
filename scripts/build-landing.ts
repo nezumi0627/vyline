@@ -57,6 +57,10 @@ const metadata = await Promise.all(
     const markdown = await readFile(join(root, path), "utf8");
     const content = Bun.markdown
       .html(markdown)
+      .replace(
+        /<img\b[^>]*\balt=(?:"([^"]*)"|'([^']*)')[^>]*>/gi,
+        (_, doubleQuoted, singleQuoted) => ` ${doubleQuoted ?? singleQuoted} `,
+      )
       .replace(/<[^>]*>/g, " ")
       .replace(
         /&(?:amp|lt|gt|quot|#39);/g,

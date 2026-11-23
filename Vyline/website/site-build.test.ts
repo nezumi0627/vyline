@@ -53,6 +53,13 @@ test("search includes real article bodies and identifies their section", async (
   );
 });
 
+test("search preserves diagram alternative text", async () => {
+  const index = JSON.parse(await readFile(join(output, "search.json"), "utf8"));
+  expect(index.find((doc: { path: string }) => doc.path === "links/README.md").content).toContain(
+    "依存関係図",
+  );
+});
+
 test("introduction links stay inside the preview and do not promise a removed tour", async () => {
   const intro = await readFile(join(output, "guide/docs/start-here.html"), "utf8");
   expect(intro).not.toContain("操作できる導入ツアー");
