@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="description" content="Vylineは、Windows・macOS・Linuxで使えるオープンソースの非公式LINEクライアントです。OS別の導入方法とドキュメントを案内します。">
-  <meta name="theme-color" content="#0b0b0c">
+  <meta name="theme-color" content="#0a0a09">
   <meta property="og:title" content="Vyline — PCで使うオープンソースLINEクライアント">
   <meta property="og:description" content="Windows・macOS・Linux・Dockerでの導入方法と、使い方のドキュメント。">
   <title>Vyline — PCで使うオープンソースLINEクライアント</title>
@@ -18,7 +18,7 @@
     <a class="brand" href="{{BASE}}" aria-label="Vyline ホーム"><img src="{{BASE}}assets/logo.svg" width="32" height="32" alt=""><span>Vyline</span></a>
     <button class="menu-toggle" type="button" aria-expanded="false" aria-controls="site-nav">メニュー</button>
     <nav class="site-nav" id="site-nav" aria-label="メインナビゲーション">
-      <a href="{{BASE}}#download" aria-current="page">ダウンロード</a>
+      <a href="{{BASE}}#download" aria-current="location">ダウンロード</a>
       <a href="{{BASE}}guide/">Docs</a>
       <a href="https://github.com/nezumi0627/vyline" target="_blank" rel="noreferrer">GitHub <span aria-hidden="true">↗</span></a>
     </nav>
@@ -26,52 +26,63 @@
 
   <main id="main" class="wrap home-main">
     <section class="hero" aria-labelledby="hero-title">
-      <p class="release-label">安定版 <a href="https://github.com/nezumi0627/vyline/releases/tag/v{{VERSION}}">{{VERSION}}</a></p>
-      <h1 id="hero-title">Vyline は、PCで使うオープンソースのLINEクライアントです。</h1>
-      <p class="hero-summary">Windows・macOS・Linuxにインストールするか、自分のサーバーで運用できます。LINEの公式アプリではありません。</p>
-      <div class="hero-actions">
-        <a class="button button-primary" href="#download">ダウンロード</a>
-        <a class="button button-secondary" href="{{BASE}}guide/">ドキュメントを読む</a>
+      <div class="hero-copy">
+        <p class="release-label"><span>最新安定版</span><a href="https://github.com/nezumi0627/vyline/releases/tag/v{{VERSION}}">{{VERSION}}</a></p>
+        <h1 id="hero-title">PCで使う、オープンソースのLINEクライアント。</h1>
+        <p class="hero-summary">VylineはWindows・macOS・Linuxで使える非公式クライアントです。Dockerを使ったWeb版のセルフホストにも対応しています。</p>
+        <div class="hero-actions">
+          <a class="button button-primary" href="#download">OS別の導入方法を見る <span aria-hidden="true">↓</span></a>
+          <a class="hero-docs-link" href="{{BASE}}guide/">ドキュメント <span aria-hidden="true">↗</span></a>
+        </div>
+        <p class="hero-note">LINE公式アプリではありません。<a href="{{BASE}}guide/docs/user-guide/privacy-and-data.html">利用前の注意とデータの扱い</a></p>
+      </div>
+      <div class="hero-visual" aria-hidden="true">
+        <img src="{{BASE}}assets/hero-stars.png" width="1536" height="1024" alt="" fetchpriority="high">
       </div>
     </section>
 
     <section id="download" class="content-section download-section" aria-labelledby="download-title">
       <div class="section-heading">
-        <h2 id="download-title">OSを選んで導入する</h2>
-        <a class="text-link" href="https://github.com/nezumi0627/vyline/releases/tag/v{{VERSION}}">すべての配布物とチェックサムを見る ↗</a>
+        <div>
+          <h2 id="download-title">使うOSから選ぶ</h2>
+          <p>配布物と導入手順は、OSごとのガイドで確認できます。</p>
+        </div>
+        <a class="text-link" href="https://github.com/nezumi0627/vyline/releases/tag/v{{VERSION}}">全配布物・チェックサム <span aria-hidden="true">↗</span></a>
       </div>
       <ul class="platform-list">
         <li class="platform-row">
           <div class="platform-name"><h3>Windows</h3><p>x64 · Setup / ポータブルZIP</p></div>
-          <div class="platform-actions"><a class="text-link" href="https://github.com/nezumi0627/vyline/releases/download/v{{VERSION}}/VylineSetup-{{VERSION}}.exe">Setupをダウンロード ↗</a><a href="{{BASE}}guide/docs/install/windows.html">導入手順</a></div>
+          <div class="platform-detail">インストール後、スタートメニューから起動</div>
+          <div class="platform-actions"><a class="text-link" href="https://github.com/nezumi0627/vyline/releases/download/v{{VERSION}}/VylineSetup-{{VERSION}}.exe">Setupをダウンロード <span aria-hidden="true">↗</span></a><a href="{{BASE}}guide/docs/install/windows.html">手順を見る</a></div>
         </li>
         <li class="platform-row">
           <div class="platform-name"><h3>macOS</h3><p>Apple Silicon / Intel · ZIP</p></div>
-          <div class="platform-actions"><a href="{{BASE}}guide/docs/install/macos.html">チップ別のダウンロードと導入手順</a></div>
+          <div class="platform-detail">Macのチップに合う配布物を選択</div>
+          <div class="platform-actions"><a href="{{BASE}}guide/docs/install/macos.html">ダウンロードと導入手順 <span aria-hidden="true">↗</span></a></div>
         </li>
         <li class="platform-row">
           <div class="platform-name"><h3>Linux</h3><p>x64 · tar.gz</p></div>
-          <div class="platform-actions"><a class="text-link" href="https://github.com/nezumi0627/vyline/releases/download/v{{VERSION}}/Vyline-linux-x64-{{VERSION}}.tar.gz">Linux版をダウンロード ↗</a><a href="{{BASE}}guide/docs/install/linux.html">導入手順</a></div>
+          <div class="platform-detail">展開してローカルアプリとして起動</div>
+          <div class="platform-actions"><a class="text-link" href="https://github.com/nezumi0627/vyline/releases/download/v{{VERSION}}/Vyline-linux-x64-{{VERSION}}.tar.gz">Linux版をダウンロード <span aria-hidden="true">↗</span></a><a href="{{BASE}}guide/docs/install/linux.html">手順を見る</a></div>
         </li>
         <li class="platform-row">
-          <div class="platform-name"><h3>Docker / Web</h3><p>amd64 / arm64 · ブラウザで利用</p></div>
-          <div class="platform-actions"><a href="{{BASE}}guide/docs/install/docker.html">Dockerでの導入手順</a></div>
+          <div class="platform-name"><h3>Docker / Web</h3><p>amd64 / arm64 · セルフホスト</p></div>
+          <div class="platform-detail">自分のサーバーでWeb版を運用</div>
+          <div class="platform-actions"><a href="{{BASE}}guide/docs/install/docker.html">Dockerの導入手順 <span aria-hidden="true">↗</span></a></div>
         </li>
       </ul>
-      <p class="download-note">バージョンごとの詳しい手順、データ保存先、確認事項は各導入ガイドに記載しています。</p>
     </section>
 
     <section id="docs" class="content-section docs-entry" aria-labelledby="docs-title">
       <div>
-        <p class="section-kicker">Docs</p>
-        <h2 id="docs-title">使い方と仕様を、目的から探せます。</h2>
-        <p>導入、機能、データの扱い、セルフホスト、開発者向け資料をMarkdownから生成したガイドで確認できます。</p>
+        <h2 id="docs-title">ドキュメント</h2>
+        <p>インストール、機能、データの扱い、セルフホスト、開発資料を目的や言葉から検索できます。</p>
       </div>
-      <a class="button button-secondary" href="{{BASE}}guide/">ドキュメント一覧と全文検索 <span aria-hidden="true">↗</span></a>
+      <a class="docs-entry-link" href="{{BASE}}guide/">ドキュメントを検索する <span aria-hidden="true">↗</span></a>
     </section>
 
     <section class="content-section notice-section" aria-label="利用上の注意">
-      <p>VylineはLINE株式会社およびLY Corporationとは関係のない非公式クライアントです。利用前に<a href="{{BASE}}guide/docs/user-guide/privacy-and-data.html">プライバシーとデータの扱い</a>をご確認ください。</p>
+      <p>データの保存先と、アプリが送信する情報の範囲は<a href="{{BASE}}guide/docs/user-guide/privacy-and-data.html">プライバシーとデータの扱い</a>で確認できます。</p>
     </section>
   </main>
 
