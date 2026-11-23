@@ -266,9 +266,12 @@ if (query) {
   input.value = query;
   openSearch();
 }
-if (
-  location.pathname === base.pathname &&
-  /^#(?:start|tour|explore|library|docs)(?:$|[/?])/.test(location.hash)
-) {
-  location.replace(new URL(/^#(?:start|tour)/.test(location.hash) ? "install/" : "docs/", base));
+const legacyRoute = location.hash.match(/^#\/?(start|tour|explore|library|docs)(?:$|[/?])/);
+if (location.pathname === base.pathname && legacyRoute) {
+  const installing = /^(?:start|tour)$/.test(legacyRoute[1]);
+  const destination = new URL(installing ? "install/" : "docs/", base);
+  const os = new URLSearchParams(location.search).get("os");
+  if (installing && ["bun", "windows", "linux", "macos", "docker"].includes(os))
+    destination.hash = os;
+  location.replace(destination);
 }
