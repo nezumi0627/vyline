@@ -101,6 +101,8 @@ test("installation and navigation remain usable without JavaScript", () => {
   }
   expect(install).not.toContain('class="platform-panel" hidden');
   for (const { html } of pages.values()) {
+    if (html.includes('<aside class="toc">'))
+      expect(html.match(/class="mobile-toc"/g)?.length).toBe(1);
     expect(html).toContain('<details class="mobile-nav">');
     expect(html).toContain('href="#main"');
     expect(html).toContain("CC BY 4.0");
