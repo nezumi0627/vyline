@@ -1,19 +1,25 @@
+import { YAML } from "bun";
+
 export function parseBlogPost(markdown: string, sourcePath: string) {
   const lines = markdown.split(/\r?\n/);
   const end = lines.indexOf("---", 1);
   if (lines[0] !== "---" || end < 1) throw new Error(`Missing blog frontmatter: ${sourcePath}`);
-  const fields = new Map<string, string>();
-  for (const line of lines.slice(1, end)) {
-    if (!line.trim() || line.trimStart().startsWith("#")) continue;
-    const field = line.match(/^([a-z]+):[ \t]*(.*)$/);
-    if (!field) throw new Error(`Invalid blog frontmatter line: ${sourcePath}`);
-    fields.set(field[1], field[2].trim());
+  let metadata: unknown;
+  try {
+    metadata = YAML.parse(lines.slice(1, end).join("\n"));
+  } catch (cause) {
+    throw new Error(`Invalid blog frontmatter: ${sourcePath}`, { cause });
   }
-  const value = (key: string) => (fields.get(key) ?? "").replace(/^["']|["']$/g, "");
+  if (!metadata || typeof metadata !== "object" || Array.isArray(metadata))
+    throw new Error(`Blog frontmatter must be one YAML mapping: ${sourcePath}`);
+  const fields = metadata as Record<string, unknown>;
+  const value = (key: string) =>
+    typeof fields[key] === "string" ? (fields[key] as string).trim() : "";
   const title = value("title");
   const summary = value("summary");
   const date = value("date");
-  const published = value("published");
+  const published =
+    typeof fields.published === "boolean" ? String(fields.published) : value("published");
   if (
     !title ||
     !summary ||

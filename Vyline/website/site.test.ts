@@ -33,6 +33,20 @@ test("invalid blog metadata fails instead of silently hiding a post", () => {
   expect(parseBlogPost(`${valid}\n\n---\n\nRest`, "post.md").body).toBe("Body\n\n---\n\nRest");
   expect(parseBlogPost(valid.replaceAll("\n", "\r\n"), "post.md").body).toBe("Body");
   expect(parseBlogPost(valid.replace("\nBody", ""), "post.md").body).toBe("");
+  for (const published of [true, false]) {
+    const post = parseBlogPost(
+      valid.replace("published: true", `tags:\n  - 開発\n  - 使い方\npublished: ${published}`),
+      "post.md",
+    );
+    expect(post.published).toBe(published);
+    expect(post.body).toBe("Body");
+  }
+  expect(
+    parseBlogPost(
+      valid.replace("summary: Summary", "summary: >\n  Summary\n  continued"),
+      "post.md",
+    ).summary,
+  ).toBe("Summary continued");
 });
 
 test("search keeps original offsets through Japanese Unicode normalization", () => {
