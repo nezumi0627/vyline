@@ -3,8 +3,20 @@ import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { findMatch, matchRanges } from "./search-text.js";
+import { parseBlogPost } from "./blog-meta.ts";
 
 const root = resolve(import.meta.dir, "../..");
+
+test("invalid blog metadata fails instead of silently hiding a post", () => {
+  const valid = '---\ntitle: "Title"\nsummary: Summary\ndate: 2026-11-23\ncategory: Notes\npublished: true\n---\nBody';
+  expect(parseBlogPost(valid, "post.md").published).toBe(true);
+  expect(parseBlogPost(valid.replace("published: true", "published: false"), "post.md").published).toBe(false);
+  for (const value of ["published: tru", "published:", ""]) {
+    expect(() => parseBlogPost(valid.replace("published: true", value), "post.md")).toThrow();
+  }
+  expect(() => parseBlogPost(valid.replace('title: "Title"', "title:"), "post.md")).toThrow();
+  expect(() => parseBlogPost(valid.replace("2026-11-23", "today"), "post.md")).toThrow();
+});
 
 test("search keeps original offsets through Japanese Unicode normalization", () => {
   for (const [text, query, expected] of [

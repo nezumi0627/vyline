@@ -1,6 +1,7 @@
 import { copyFile, mkdir, readdir, readFile, realpath, writeFile } from "node:fs/promises";
 import { dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { documents, platforms, repository, version } from "./site-data.js";
+import { parseBlogPost } from "./blog-meta.ts";
 
 const root = resolve(import.meta.dir, "../..");
 const source = import.meta.dir;
@@ -335,30 +336,19 @@ const posts = [];
 for (const file of await readdir(join(source, "blog"))) {
   if (!file.endsWith(".md") || file.startsWith("_") || file === "README.md") continue;
   const path = `Vyline/website/blog/${file}`;
-  const match = (await readFile(join(root, path), "utf8")).match(
-    /^---\r?\n([\s\S]*?)\r?\n---\r?\n([\s\S]*)$/,
-  );
-  if (!match) throw new Error(`Missing blog frontmatter: ${file}`);
-  const value = (key: string) =>
-    (match[1].match(new RegExp(`^${key}:\\s*(.+)$`, "m"))?.[1] ?? "")
-      .replace(/^["']|["']$/g, "")
-      .trim();
-  if (value("published") !== "true") continue;
-  const title = value("title");
-  const summary = value("summary");
-  const name = file.replace(/\.md$/, "");
-  if (!/^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(name) || name === "index")
-    throw new Error(`Invalid blog filename: ${file}`);
-  const rendered = renderMarkdown(match[2], path);
+  const post = parseBlogPost(await readFile(join(root, path), "utf8"), path);
+  if (!post.published) continue;
+  const { title, summary, date, name } = post;
+  const rendered = renderMarkdown(post.body, path);
   const url = `${base}blog/${name}/`;
-  posts.push({ title, summary, date: value("date"), url });
+  posts.push({ title, summary, date, url });
   await page(
     `blog/${name}/index.html`,
     shell(
       title,
       summary,
       "blog",
-      `${crumbs("blog")}<header class="page-heading"><p class="article-date">${escapeHtml(value("date"))}</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(summary)}</p></header><article class="prose">${rendered.html}</article>`,
+      `${crumbs("blog")}<header class="page-heading"><p class="article-date">${escapeHtml(date)}</p><h1>${escapeHtml(title)}</h1><p>${escapeHtml(summary)}</p></header><article class="prose">${rendered.html}</article>`,
       { toc: rendered.toc },
     ),
   );
