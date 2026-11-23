@@ -140,6 +140,9 @@ tr:last-child td, tr:last-child th { border-bottom: 0; }
 .dialog-form label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 6px; }
 .dialog-form input { width: 100%; min-width: 0; border: 1px solid var(--line); border-radius: 4px; background: var(--bg); padding: 10px 12px; font-size: 14px; }
 .dialog-results { overflow-y: auto; max-height: 440px; padding: 0 20px 20px; }
+.dialog-category { display: flex; gap: 12px; align-items: center; margin-top: 12px; }
+.dialog-category label { margin: 0; }
+.dialog-category select { min-width: 0; flex: 1; padding: 6px 8px; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; font-size: 12px; }
 .dialog-results > p { color: var(--muted); font-size: 12px; }
 .dialog-result { display: block; padding: 14px 8px; border-top: 1px solid var(--line); text-decoration: none; }
 .dialog-result:hover { background: var(--hover); }

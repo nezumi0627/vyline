@@ -2,7 +2,20 @@ export const normalizeSearch = (text) =>
   String(text)
     .normalize("NFKC")
     .toLocaleLowerCase("ja")
-    .replace(/[\u200b-\u200d\ufeff]/g, "");
+    .replace(/\u200b|\u200c|\u200d|\ufeff/g, "");
+
+export function legacySearchState(href, basePath) {
+  const url = new URL(href);
+  if (
+    url.pathname !== basePath ||
+    (!url.searchParams.has("q") && !url.searchParams.has("category"))
+  )
+    return null;
+  return {
+    query: url.searchParams.get("q") ?? "",
+    category: url.searchParams.get("category") ?? "all",
+  };
+}
 
 export function matchesDocument(doc, query, category = "all") {
   const terms = normalizeSearch(query).trim().split(/\s+/).filter(Boolean);

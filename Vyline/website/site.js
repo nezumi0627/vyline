@@ -1,7 +1,8 @@
-import { matchesDocument, searchExcerpt } from "./navigation.js";
+import { legacySearchState, matchesDocument, searchExcerpt } from "./navigation.js";
 
 document.documentElement.classList.add("js");
 const base = new URL("../", import.meta.url);
+const legacySearch = legacySearchState(location.href, base.pathname);
 
 // Native details remains usable without JavaScript; small screens start closed.
 const sidebar = document.querySelector(".sidebar-panel");
@@ -13,9 +14,9 @@ setSidebar();
 narrow.addEventListener("change", setSidebar);
 
 // Keep links to the previous single-page directory useful.
-if (location.pathname === base.pathname) {
-  if (location.hash === "#docs" || location.search) {
-    location.replace(new URL(`docs/${location.search}`, base));
+if (location.pathname === base.pathname && !legacySearch) {
+  if (location.hash === "#docs") {
+    location.replace(new URL("docs/", base));
   } else if (["#start", "#install"].includes(location.hash)) {
     location.replace(new URL("install/", base));
   }
@@ -75,9 +76,10 @@ if (query) {
 const dialog = document.createElement("dialog");
 dialog.className = "docs-search-dialog";
 dialog.setAttribute("aria-labelledby", "search-title");
-dialog.innerHTML = `<div class="dialog-heading"><h2 id="search-title">資料を検索</h2><button class="dialog-close" type="button">閉じる <kbd>Esc</kbd></button></div><div class="dialog-form"><label for="global-query">導入・インストールとドキュメントを全文検索</label><input id="global-query" type="search" autocomplete="off" placeholder="記事名、設定、エラーメッセージ…"></div><div class="dialog-results" aria-live="polite"></div>`;
+dialog.innerHTML = `<div class="dialog-heading"><h2 id="search-title">資料を検索</h2><button class="dialog-close" type="button">閉じる <kbd>Esc</kbd></button></div><div class="dialog-form"><label for="global-query">導入・インストールとドキュメントを全文検索</label><input id="global-query" type="search" autocomplete="off" placeholder="記事名、設定、エラーメッセージ…"><div class="dialog-category"><label for="global-category">分類</label><select id="global-category" disabled><option value="all">すべての分類</option></select></div></div><div class="dialog-results" aria-live="polite"></div>`;
 document.body.append(dialog);
 const globalQuery = dialog.querySelector("input");
+const globalCategory = dialog.querySelector("select");
 const results = dialog.querySelector(".dialog-results");
 let searchIndex;
 let searchRequest;
@@ -96,7 +98,7 @@ function renderResults() {
     status.textContent = "検索データを読み込んでいます…";
     return;
   }
-  if (!globalQuery.value.trim()) {
+  if (!globalQuery.value.trim() && globalCategory.value === "all") {
     status.textContent = "複数の語を空白で区切って絞り込めます。";
     return;
   }
@@ -104,6 +106,7 @@ function renderResults() {
     matchesDocument(
       { ...doc, search: `${doc.title} ${doc.summary} ${doc.category} ${doc.content}` },
       globalQuery.value,
+      globalCategory.value,
     ),
   );
   status.textContent = matches.length
@@ -142,6 +145,18 @@ async function openSearch() {
       });
     try {
       searchIndex = await searchRequest;
+      globalCategory.replaceChildren(
+        new Option("すべての分類", "all"),
+        ...[...new Set(searchIndex.map((doc) => doc.category))].map(
+          (category) => new Option(category, category),
+        ),
+      );
+      if (
+        legacySearch &&
+        [...globalCategory.options].some((option) => option.value === legacySearch.category)
+      )
+        globalCategory.value = legacySearch.category;
+      globalCategory.disabled = false;
     } catch {
       searchError = true;
     }
@@ -151,6 +166,7 @@ async function openSearch() {
 for (const trigger of document.querySelectorAll("[data-open-search]"))
   trigger.addEventListener("click", openSearch);
 globalQuery.addEventListener("input", renderResults);
+globalCategory.addEventListener("change", renderResults);
 dialog.querySelector(".dialog-close").addEventListener("click", () => dialog.close());
 // Search inputs consume Escape to clear their value in Chromium. Close the
 // modal first so its advertised shortcut works on the first keypress.
@@ -196,6 +212,11 @@ for (const code of document.querySelectorAll("pre > code")) {
     }, 2200);
   });
   code.parentElement.prepend(button);
+}
+
+if (legacySearch) {
+  globalQuery.value = legacySearch.query;
+  openSearch();
 }
 
 const toc = [...document.querySelectorAll(".article-toc a[href^='#']")];
