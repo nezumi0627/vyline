@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { mkdtemp, readdir, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
-import { findMatch } from "./search-text.js";
+import { findMatch, matchRanges } from "./search-text.js";
 
 const root = resolve(import.meta.dir, "../..");
 
@@ -19,6 +19,10 @@ test("search keeps original offsets through Japanese Unicode normalization", () 
   }
   expect(findMatch("バックアップ", "")).toBeNull();
   expect(findMatch("ガイド", "存在しない語")).toBeNull();
+  const content = "㍿の backup、設定の restore";
+  expect(matchRanges(content, "backup restore").map(({ start, end }) => content.slice(start, end)))
+    .toEqual(["backup", "restore"]);
+  expect(matchRanges("backup", "back backup")).toEqual([{ start: 0, end: 6 }]);
 });
 let output: string;
 const pages = new Map<string, { ids: Set<string>; links: string[]; html: string }>();

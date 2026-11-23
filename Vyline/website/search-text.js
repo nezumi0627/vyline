@@ -20,3 +20,17 @@ export function findMatch(text, query) {
     ? null
     : { start: offsets[start].start, end: offsets[start + needle.length - 1].end };
 }
+
+export function matchRanges(text, query) {
+  const matches = query.trim().split(/\s+/).flatMap((term) => {
+    const match = findMatch(text, term);
+    return match ? [match] : [];
+  }).sort((a, b) => a.start - b.start);
+  const merged = [];
+  for (const match of matches) {
+    const previous = merged.at(-1);
+    if (previous && match.start <= previous.end) previous.end = Math.max(previous.end, match.end);
+    else merged.push({ ...match });
+  }
+  return merged;
+}

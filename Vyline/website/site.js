@@ -1,4 +1,4 @@
-import { findMatch, normalize } from "./search-text.js";
+import { matchRanges, normalize } from "./search-text.js";
 
 document.documentElement.classList.add("js");
 const $ = (selector, parent = document) => parent.querySelector(selector);
@@ -35,16 +35,15 @@ function getIndex() {
 }
 function highlighted(text, query) {
   const fragment = document.createDocumentFragment();
-  const match = findMatch(text, query);
-  if (!match) {
-    fragment.append(text);
-    return fragment;
+  let cursor = 0;
+  for (const { start, end } of matchRanges(text, query)) {
+    fragment.append(text.slice(cursor, start));
+    const mark = document.createElement("mark");
+    mark.textContent = text.slice(start, end);
+    fragment.append(mark);
+    cursor = end;
   }
-  const { start, end } = match;
-  fragment.append(text.slice(0, start));
-  const mark = document.createElement("mark");
-  mark.textContent = text.slice(start, end);
-  fragment.append(mark, text.slice(end));
+  fragment.append(text.slice(cursor));
   return fragment;
 }
 function empty(title, detail) {
@@ -104,8 +103,7 @@ async function search() {
       const title = document.createElement("strong");
       title.append(highlighted(item.title, query));
       const description = document.createElement("p");
-      const first = tokens[0];
-      const position = first ? (findMatch(item.content, first)?.start ?? -1) : -1;
+      const position = matchRanges(item.content, query)[0]?.start ?? -1;
       const excerpt =
         position < 0
           ? item.summary
