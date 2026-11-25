@@ -427,7 +427,10 @@ export function mapMessage(
           name:
             typeof meta?.FILE_NAME === "string" && meta.FILE_NAME
               ? meta.FILE_NAME
-              : (sanitizeText(m.text) ?? "ファイル"),
+              : // keyMaterial 付きのファイルは FILE_NAME が無く、名前が fileName に入る
+                typeof meta?.fileName === "string" && meta.fileName
+                ? meta.fileName
+                : (sanitizeText(m.text) ?? "ファイル"),
           size: Number(meta?.FILE_SIZE) || undefined,
         }
       : undefined;
