@@ -75,6 +75,41 @@ test("does not expose the raw CHATEVENT marker when localized event data is abse
   expect(mapped.text).toBe("チャットイベント");
 });
 
+test("uses fileName as the file name when FILE_NAME is missing", () => {
+  const mapped = mapMessage(
+    lineMessage({ contentType: "FILE", contentMetadata: { fileName: "e2ee.pdf" } }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.file?.name).toBe("e2ee.pdf");
+});
+
+test("prefers FILE_NAME over fileName", () => {
+  const mapped = mapMessage(
+    lineMessage({
+      contentType: "FILE",
+      contentMetadata: { FILE_NAME: "plain.pdf", fileName: "e2ee.pdf" },
+    }),
+    "u-chat",
+    "account-1",
+  );
+
+  expect(mapped.file?.name).toBe("plain.pdf");
+});
+
+test("falls back to the message text and then to the default file label", () => {
+  const withText = mapMessage(
+    lineMessage({ contentType: "FILE", text: "text.pdf" }),
+    "u-chat",
+    "account-1",
+  );
+  const withoutText = mapMessage(lineMessage({ contentType: "FILE" }), "u-chat", "account-1");
+
+  expect(withText.file?.name).toBe("text.pdf");
+  expect(withoutText.file?.name).toBe("ファイル");
+});
+
 test("parses TYPE V call events as video calls", () => {
   const mapped = mapMessage(
     lineMessage({ contentType: "CALL", contentMetadata: { TYPE: "V" } }),
