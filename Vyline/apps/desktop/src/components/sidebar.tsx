@@ -193,6 +193,7 @@ function SidebarBase() {
   const readDisabledMids = useStore((s) => s.readDisabledMids);
 
   const accountId = useStore((s) => s.accountId);
+  const demoMode = useStore((s) => s.demoMode);
   const refreshChats = useStore((s) => s.refreshChats);
   const [tab, setTab] = useState<Tab>("all");
   const [squareEnabled, setSquareEnabled] = useState(false);
@@ -366,6 +367,7 @@ function SidebarBase() {
         const status = await api.line.squareStatus(accountId);
         if (
           status.enabled &&
+          !demoMode &&
           !hasBetaFeatureConsent(betaFeatureIdForSetting("betaOpenChatSquare"), "2")
         ) {
           await api.line.squareDisable(accountId);
@@ -403,7 +405,7 @@ function SidebarBase() {
       window.removeEventListener("vyline:square-changed", changed);
       document.removeEventListener("visibilitychange", visibilityChanged);
     };
-  }, [accountId, refreshSquareRooms]);
+  }, [accountId, demoMode, refreshSquareRooms]);
 
   useEffect(() => {
     if (!squareEnabled && tab === "openchat") setTab("all");
