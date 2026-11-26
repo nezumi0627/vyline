@@ -3,6 +3,8 @@ import { changeUiLanguage } from "@/i18n";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { ChatShell } from "@/components/chat-shell";
+import { SettingsSections } from "@/components/settings-sections";
+import { FloatNotice } from "@/components/float-notice";
 import { ThemeApplier } from "@/components/theme-applier";
 import { demoChats, demoMessages, demoSelf, demoSettings } from "@/demo/demoData";
 
@@ -11,7 +13,12 @@ const M_NEKO = "sqm0000000000000000000000000000002";
 const M_USA = "sqm0000000000000000000000000000003";
 const M_KUMA = "sqm0000000000000000000000000000004";
 
-const DEMO_ROOM = { id: "sqc0000000000000000000000000000001", name: "雑談ルーム" };
+const DEMO_SQUARE = { mid: "sqz0000000000000000000000000000001", name: "ねずみスクエア" };
+const DEMO_ROOM = {
+  id: "sqc0000000000000000000000000000001",
+  name: "雑談ルーム",
+  parentSquareId: DEMO_SQUARE.mid,
+};
 
 const day = 24 * 60 * 60 * 1000;
 const hour = 60 * 60 * 1000;
@@ -103,9 +110,14 @@ const DEMO_MEMBERS = [
 
 /** OpenChat(Square) の見た目確認用デモ。accountId は使わず API をモックに差し替える。 */
 export function SquareDemoPage() {
+  const screen = useStore((s) => s.screen);
+  const notice = useStore((s) => s.notice);
+
   useEffect(() => {
     const line = api.line as unknown as Record<string, unknown>;
     const original = {
+      squareStatus: line.squareStatus,
+      squareOverview: line.squareOverview,
       squareMessages: line.squareMessages,
       squareSendMessage: line.squareSendMessage,
       squareSendSticker: line.squareSendSticker,
@@ -159,6 +171,11 @@ export function SquareDemoPage() {
         });
         return { ok: true };
       },
+      squareStatus: async () => ({ enabled: true }),
+      squareOverview: async () => ({
+        squares: [{ mid: DEMO_SQUARE.mid, name: DEMO_SQUARE.name }],
+        rooms: [DEMO_ROOM],
+      }),
       squareMembers: async () => ({ members: DEMO_MEMBERS, continuationToken: null }),
       squareAnnouncements: async () => ({ announcements: [] }),
       squareInvitation: async () => ({ invitationURL: "https://line.me/ti/g2/demo" }),
@@ -167,6 +184,11 @@ export function SquareDemoPage() {
     const previous = {
       demoMode: useStore.getState().demoMode,
       accountId: useStore.getState().accountId,
+      screen: useStore.getState().screen,
+      activeChatId: useStore.getState().activeChatId,
+      chats: useStore.getState().chats,
+      messages: useStore.getState().messages,
+      self: useStore.getState().self,
       settings: useStore.getState().settings,
       showUpdateNote: useStore.getState().showUpdateNote,
     };
@@ -179,14 +201,21 @@ export function SquareDemoPage() {
         chats: demoChats,
         messages: demoMessages,
         self: demoSelf,
-        settings: { ...demoSettings, streamerMode: false },
+        settings: demoSettings,
         showUpdateNote: false,
+        profileDrawerOpen: false,
+        drafts: {},
+        draftSticons: {},
+        draftMentions: {},
+        replyToId: null,
+        blockedMids: [],
+        announcements: {},
       });
       // 本番と同じ導線で OpenChat を開く (ChatShell の vyline:square-room listener)
       setTimeout(() => {
         window.dispatchEvent(
           new CustomEvent("vyline:square-room", {
-            detail: { id: DEMO_ROOM.id, name: DEMO_ROOM.name, squareName: "ねずみスクエア" },
+            detail: { id: DEMO_ROOM.id, name: DEMO_ROOM.name, squareName: DEMO_SQUARE.name },
           }),
         );
       }, 50);
@@ -199,13 +228,14 @@ export function SquareDemoPage() {
   }, []);
 
   return (
-    <main className="pr-demo-stage relative h-dvh overflow-hidden text-[var(--vy-text)]">
+    <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
       <div className="pointer-events-none fixed right-6 top-5 z-50 rounded-full border border-emerald-300/30 bg-emerald-950/90 px-3 py-1.5 text-[0.65rem] font-semibold tracking-wide text-emerald-100 shadow-xl backdrop-blur">
         DEMO MODE ON · 仮データのみ · 実アカウント接続なし
       </div>
-      <div className="pr-demo-shell relative h-full overflow-hidden rounded-[22px] border border-white/15 bg-[var(--vy-bg)] shadow-[0_28px_80px_rgba(15,23,42,0.42)]">
-        <ChatShell />
+      {notice && <FloatNotice>{notice}</FloatNotice>}
+      <div className="vy-screen-enter h-full">
+        {screen === "settings" ? <SettingsSections /> : <ChatShell />}
       </div>
     </main>
   );

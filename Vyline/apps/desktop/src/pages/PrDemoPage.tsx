@@ -1,4 +1,6 @@
 import { useEffect } from "react";
+import { changeUiLanguage } from "@/i18n";
+import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { ChatShell } from "@/components/chat-shell";
 import { SettingsSections } from "@/components/settings-sections";
@@ -12,45 +14,56 @@ export function PrDemoPage() {
   const notice = useStore((s) => s.notice);
 
   useEffect(() => {
-    useStore.setState({
-      demoMode: true,
-      accountId: null,
-      screen: "chat",
-      activeChatId: "demo-chat-team",
-      chats: demoChats,
-      messages: demoMessages,
-      self: demoSelf,
-      settings: { ...demoSettings, streamerMode: false },
-      showUpdateNote: false,
-      profileDrawerOpen: false,
-      drafts: {},
-      draftSticons: {},
-      draftMentions: {},
-      replyToId: null,
-      blockedMids: [],
-      announcements: {},
+    const line = api.line as unknown as Record<string, unknown>;
+    const originalStatus = line.squareStatus;
+    // デモではバックエンドへ出さない（squareStore を作らせない）
+    line.squareStatus = async () => ({ enabled: false });
+    const previous = {
+      demoMode: useStore.getState().demoMode,
+      accountId: useStore.getState().accountId,
+      screen: useStore.getState().screen,
+      activeChatId: useStore.getState().activeChatId,
+      chats: useStore.getState().chats,
+      messages: useStore.getState().messages,
+      self: useStore.getState().self,
+      settings: useStore.getState().settings,
+      showUpdateNote: useStore.getState().showUpdateNote,
+    };
+    void changeUiLanguage("ja").then(() => {
+      useStore.setState({
+        demoMode: true,
+        accountId: "demo",
+        screen: "chat",
+        activeChatId: "demo-chat-team",
+        chats: demoChats,
+        messages: demoMessages,
+        self: demoSelf,
+        settings: demoSettings,
+        showUpdateNote: false,
+        profileDrawerOpen: false,
+        drafts: {},
+        draftSticons: {},
+        draftMentions: {},
+        replyToId: null,
+        blockedMids: [],
+        announcements: {},
+      });
     });
     return () => {
-      useStore.setState({
-        demoMode: false,
-        accountId: null,
-        activeChatId: null,
-        chats: [],
-        messages: [],
-        screen: "home",
-        showUpdateNote: false,
-      });
+      line.squareStatus = originalStatus;
+      useStore.setState(previous);
+      void changeUiLanguage(previous.settings.uiLanguage);
     };
   }, []);
 
   return (
-    <main className="pr-demo-stage relative h-dvh overflow-hidden text-[var(--vy-text)]">
+    <main className="min-h-dvh bg-[var(--vy-bg)] text-[var(--vy-text)]">
       <ThemeApplier />
       <div className="pointer-events-none fixed right-6 top-5 z-50 rounded-full border border-emerald-300/30 bg-emerald-950/90 px-3 py-1.5 text-[0.65rem] font-semibold tracking-wide text-emerald-100 shadow-xl backdrop-blur">
         DEMO MODE ON · 仮データのみ · 実アカウント接続なし
       </div>
       {notice && <FloatNotice>{notice}</FloatNotice>}
-      <div className="pr-demo-shell relative h-full overflow-hidden rounded-[22px] border border-white/15 bg-[var(--vy-bg)] shadow-[0_28px_80px_rgba(15,23,42,0.42)]">
+      <div className="vy-screen-enter h-full">
         {screen === "settings" ? <SettingsSections /> : <ChatShell />}
       </div>
     </main>
