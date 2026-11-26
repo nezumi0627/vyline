@@ -188,9 +188,11 @@ export async function createPrivateSquare(
       square.mid,
     );
     if (created.squareChatMember?.squareMemberMid) {
+      // member エンティティは (kind, id) で一意のため、ルーム参加情報は
+      // ルームIDを含む複合キーで保存し、作成者プロフィール(parent=squareMid)を上書きしない
       store.upsertEntity(
         "member",
-        created.squareChatMember.squareMemberMid,
+        `${room.squareChatMid}:${created.squareChatMember.squareMemberMid}`,
         created.squareChatMember,
         room.squareChatMid,
       );
