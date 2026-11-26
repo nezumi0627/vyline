@@ -106,25 +106,52 @@ export function SquareDemoPage() {
     const line = api.line as unknown as Record<string, unknown>;
     const original = {
       squareMessages: line.squareMessages,
+      squareSendMessage: line.squareSendMessage,
+      squareSendSticker: line.squareSendSticker,
       squareMembers: line.squareMembers,
       squareAnnouncements: line.squareAnnouncements,
       squareInvitation: line.squareInvitation,
       squareThreadContext: line.squareThreadContext,
     };
+    const messages = [...DEMO_MESSAGES];
     Object.assign(line, {
       squareMessages: async () => ({
         ok: true,
         roomId: DEMO_ROOM.id,
         mySquareMemberMid: MY_MID,
-        messages: DEMO_MESSAGES,
+        messages,
         continuationToken: null,
         threadMid: null,
       }),
+      squareSendMessage: async (
+        _accountId: string,
+        _roomId: string,
+        _operationId: string,
+        text: string,
+      ) => {
+        messages.push({
+          message: {
+            id: `demo-sent-${Date.now()}`,
+            from: MY_MID,
+            text,
+            createdTime: Date.now(),
+            contentType: "NONE",
+          },
+        });
+        return { ok: true };
+      },
+      squareSendSticker: async () => ({ ok: true }),
       squareMembers: async () => ({ members: DEMO_MEMBERS, continuationToken: null }),
       squareAnnouncements: async () => ({ announcements: [] }),
       squareInvitation: async () => ({ invitationURL: "https://line.me/ti/g2/demo" }),
       squareThreadContext: async () => ({ membershipState: 1 }),
     });
+    const previous = {
+      demoMode: useStore.getState().demoMode,
+      accountId: useStore.getState().accountId,
+      settings: useStore.getState().settings,
+      showUpdateNote: useStore.getState().showUpdateNote,
+    };
     useStore.setState({
       demoMode: true,
       accountId: "demo",
@@ -133,7 +160,7 @@ export function SquareDemoPage() {
     });
     return () => {
       Object.assign(line, original);
-      useStore.setState({ demoMode: false, accountId: null, showUpdateNote: false });
+      useStore.setState(previous);
     };
   }, []);
 
