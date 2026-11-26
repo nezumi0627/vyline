@@ -2,9 +2,9 @@ import { useEffect } from "react";
 import { changeUiLanguage } from "@/i18n";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
-import { SquareChatPane } from "@/components/square-chat-pane";
+import { ChatShell } from "@/components/chat-shell";
 import { ThemeApplier } from "@/components/theme-applier";
-import { demoSettings } from "@/demo/demoData";
+import { demoChats, demoMessages, demoSelf, demoSettings } from "@/demo/demoData";
 
 const MY_MID = "sqm0000000000000000000000000000001";
 const M_NEKO = "sqm0000000000000000000000000000002";
@@ -174,9 +174,22 @@ export function SquareDemoPage() {
       useStore.setState({
         demoMode: true,
         accountId: "demo",
+        screen: "chat",
+        activeChatId: null,
+        chats: demoChats,
+        messages: demoMessages,
+        self: demoSelf,
         settings: { ...demoSettings, streamerMode: false },
         showUpdateNote: false,
       });
+      // 本番と同じ導線で OpenChat を開く (ChatShell の vyline:square-room listener)
+      setTimeout(() => {
+        window.dispatchEvent(
+          new CustomEvent("vyline:square-room", {
+            detail: { id: DEMO_ROOM.id, name: DEMO_ROOM.name, squareName: "ねずみスクエア" },
+          }),
+        );
+      }, 50);
     });
     return () => {
       Object.assign(line, original);
@@ -192,7 +205,7 @@ export function SquareDemoPage() {
         DEMO MODE ON · 仮データのみ · 実アカウント接続なし
       </div>
       <div className="pr-demo-shell relative h-full overflow-hidden rounded-[22px] border border-white/15 bg-[var(--vy-bg)] shadow-[0_28px_80px_rgba(15,23,42,0.42)]">
-        <SquareChatPane room={DEMO_ROOM} squareName="ねずみスクエア" onBack={() => {}} />
+        <ChatShell />
       </div>
     </main>
   );
