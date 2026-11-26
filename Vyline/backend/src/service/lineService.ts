@@ -2936,7 +2936,10 @@ export function reconcileChatUnreadWithLocalRead(chat: Chat, readUpTo?: string):
 
 function chatFromMessageBox(
   box: any,
-  groupByMid: Map<string, { mid: string; name: string; raw?: Record<string, unknown> }>,
+  groupByMid: Map<
+    string,
+    { mid: string; name: string; raw?: Record<string, unknown>; detailMissing?: boolean }
+  >,
   userByMid: Map<
     string,
     {
@@ -2968,7 +2971,9 @@ function chatFromMessageBox(
       kind,
       lastMessageTime: meta.lastMessageTime,
       lastMessagePreview: meta.lastMessagePreview,
-      thumbnailUrl: pictureStatusToUrl(ps) ?? storedByMid?.get(mid)?.thumbnailUrl ?? "",
+      thumbnailUrl:
+        pictureStatusToUrl(ps) ??
+        (group?.detailMissing ? (storedByMid?.get(mid)?.thumbnailUrl ?? "") : ""),
       left,
     };
     if (typeof raw.notificationDisabled === "boolean") {
@@ -2994,7 +2999,7 @@ function chatFromMessageBox(
     kind: kind === "direct" ? "direct" : "unknown",
     lastMessageTime: meta.lastMessageTime,
     lastMessagePreview: meta.lastMessagePreview,
-    thumbnailUrl: user?.thumbnailUrl ?? "",
+    thumbnailUrl: user ? user.thumbnailUrl : (storedByMid?.get(mid)?.thumbnailUrl ?? ""),
   };
   if (user?.userType === 2) chat.isOfficial = true;
   if (user?.statusMessage && kind === "direct") chat.statusMessage = user.statusMessage;
@@ -3240,7 +3245,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
   const storedChatsByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
   const groupByMid = new Map<
     string,
-    { mid: string; name: string; raw?: Record<string, unknown> }
+    { mid: string; name: string; raw?: Record<string, unknown>; detailMissing?: boolean }
   >();
   for (const chat of joinedChats) {
     const raw = (chat as unknown as { raw?: Record<string, unknown> }).raw ?? {};
@@ -3249,6 +3254,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       mid: chat.mid,
       name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
       raw,
+      detailMissing: !chat.name,
     });
 
     // getChats(withMembers) で既に付いている memberMids をキャッシュへ
@@ -3370,7 +3376,9 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       kind: detectChatKind(chat.mid),
       lastMessageTime: 0,
       lastMessagePreview: "",
-      thumbnailUrl: pictureStatusToUrl(ps) ?? storedChatsByMid.get(chat.mid)?.thumbnailUrl ?? "",
+      thumbnailUrl:
+        pictureStatusToUrl(ps) ??
+        (chat.name ? "" : (storedChatsByMid.get(chat.mid)?.thumbnailUrl ?? "")),
       ...(typeof raw.notificationDisabled === "boolean"
         ? { notificationDisabled: raw.notificationDisabled }
         : {}),

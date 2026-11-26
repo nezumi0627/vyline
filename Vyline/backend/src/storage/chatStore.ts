@@ -1116,9 +1116,6 @@ export async function upsertChats(
             const nameIsFallback =
               !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
             if (nameIsFallback && existing.name) chat.name = existing.name;
-            if (!chat.thumbnailUrl && existing.thumbnailUrl) {
-              chat.thumbnailUrl = existing.thumbnailUrl;
-            }
           }
           writeStoredChat(accountId, chat);
           if (db) db.chats[chat.mid] = chat;
@@ -1156,9 +1153,6 @@ export async function upsertChats(
       ...incoming,
       name: incomingNameIsFallback && existing.name ? existing.name : incoming.name,
       kind: incomingKindIsFallback ? existing.kind : incoming.kind,
-      ...(!incoming.thumbnailUrl && existing.thumbnailUrl
-        ? { thumbnailUrl: existing.thumbnailUrl }
-        : {}),
       hasMessages: existing.hasMessages || incoming.hasMessages,
       lastMessageTime: Math.max(existingTime, incomingTime),
       ...(keepExistingLast && existing.lastMessageId
