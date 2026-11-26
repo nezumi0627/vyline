@@ -117,6 +117,7 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
       .then((status) => {
         if (
           status.enabled &&
+          !demoMode &&
           !isBetaFeatureConsentActive(betaFeatureIdForSetting("betaOpenChatSquare"), "2")
         ) {
           return api.line.squareDisable(accountId).then(() => {
