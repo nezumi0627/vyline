@@ -174,7 +174,7 @@ export function SquareDemoPage() {
       useStore.setState({
         demoMode: true,
         accountId: "demo",
-        settings: { ...demoSettings, uiLanguage: "ja", streamerMode: false },
+        settings: { ...demoSettings, streamerMode: false },
         showUpdateNote: false,
       });
     });
