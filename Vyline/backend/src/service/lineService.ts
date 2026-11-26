@@ -2973,7 +2973,7 @@ function chatFromMessageBox(
       lastMessagePreview: meta.lastMessagePreview,
       thumbnailUrl:
         pictureStatusToUrl(ps) ??
-        (group?.detailMissing ? (storedByMid?.get(mid)?.thumbnailUrl ?? "") : ""),
+        (!group || group.detailMissing ? (storedByMid?.get(mid)?.thumbnailUrl ?? "") : ""),
       left,
     };
     if (typeof raw.notificationDisabled === "boolean") {
