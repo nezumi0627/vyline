@@ -15,6 +15,9 @@ const PrDemoPage = lazy(() =>
 const UiCatalogPage = lazy(() =>
   import("./pages/UiCatalogPage.js").then((module) => ({ default: module.UiCatalogPage })),
 );
+const SquareDemoPage = lazy(() =>
+  import("./pages/SquareDemoPage.js").then((module) => ({ default: module.SquareDemoPage })),
+);
 
 export function App() {
   // Subscribe once at the router root so non-hook leaf components also refresh
@@ -25,6 +28,7 @@ export function App() {
       <Suspense fallback={null}>
         <Routes>
           <Route path="/pr-demo" element={<PrDemoPage />} />
+          <Route path="/square-demo" element={<SquareDemoPage />} />
           <Route path="/ui-catalog" element={<UiCatalogPage />} />
           <Route path="/login" element={<LoginPage />} />
           <Route path="/subdevice" element={<SubdevicePage />} />
