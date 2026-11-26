@@ -24,6 +24,13 @@ export function MessageContextMenu({
 }) {
   const ref = useRef<HTMLDivElement>(null);
   const [pos, setPos] = useState({ x, y });
+  // 子メニューのドリルダウン（stack の先頭が現在表示中の項目）
+  const [stack, setStack] = useState<MenuItem[][]>([items]);
+  const current = stack[stack.length - 1] ?? items;
+  const isRoot = stack.length === 1;
+  useEffect(() => {
+    setStack([items]);
+  }, [items]);
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -36,7 +43,7 @@ export function MessageContextMenu({
     if (nx < 8) nx = 8;
     if (ny < 8) ny = 8;
     setPos({ x: nx, y: ny });
-  }, [x, y, items.length]);
+  }, [x, y, stack.length, current.length]);
 
   useEffect(() => {
     // 開いた直後の同じ contextmenu / pointerdown で即閉じないよう遅延登録
@@ -68,21 +75,13 @@ export function MessageContextMenu({
 
   if (typeof document === "undefined") return null;
 
-  // 子メニューのドリルダウン（stack の先頭が現在表示中の項目）
-  const [stack, setStack] = useState<MenuItem[][]>([items]);
-  const current = stack[stack.length - 1] ?? items;
-  const isRoot = stack.length === 1;
-  useEffect(() => {
-    setStack([items]);
-  }, [items]);
-
   return createPortal(
     <div className="fixed inset-0 z-[100]" role="presentation">
       <div
         ref={ref}
         role="menu"
         aria-label={uiText("操作メニュー")}
-        className="vy-scale-in absolute min-w-52 overflow-hidden rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
+        className="vy-scale-in vy-scroll absolute min-w-52 max-h-[calc(100dvh-16px)] overflow-y-auto rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] py-1.5 shadow-2xl"
         style={{ left: pos.x, top: pos.y, transformOrigin: "top left" }}
         onContextMenu={(e) => e.preventDefault()}
       >
