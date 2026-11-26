@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { changeUiLanguage } from "@/i18n";
 import { api } from "@/api/client";
 import { useStore } from "@/lib/store";
 import { SquareChatPane } from "@/components/square-chat-pane";
@@ -119,7 +120,7 @@ export function SquareDemoPage() {
         ok: true,
         roomId: DEMO_ROOM.id,
         mySquareMemberMid: MY_MID,
-        messages,
+        messages: [...messages],
         continuationToken: null,
         threadMid: null,
       }),
@@ -140,7 +141,24 @@ export function SquareDemoPage() {
         });
         return { ok: true };
       },
-      squareSendSticker: async () => ({ ok: true }),
+      squareSendSticker: async (
+        _accountId: string,
+        _roomId: string,
+        _operationId: string,
+        _packageId: string,
+        stickerId: string,
+      ) => {
+        messages.push({
+          message: {
+            id: `demo-sticker-${Date.now()}`,
+            from: MY_MID,
+            createdTime: Date.now(),
+            contentType: "STICKER",
+            contentMetadata: { STKID: stickerId, STKPKGID: _packageId },
+          },
+        });
+        return { ok: true };
+      },
       squareMembers: async () => ({ members: DEMO_MEMBERS, continuationToken: null }),
       squareAnnouncements: async () => ({ announcements: [] }),
       squareInvitation: async () => ({ invitationURL: "https://line.me/ti/g2/demo" }),
@@ -152,15 +170,18 @@ export function SquareDemoPage() {
       settings: useStore.getState().settings,
       showUpdateNote: useStore.getState().showUpdateNote,
     };
-    useStore.setState({
-      demoMode: true,
-      accountId: "demo",
-      settings: { ...demoSettings, streamerMode: false },
-      showUpdateNote: false,
+    void changeUiLanguage("ja").then(() => {
+      useStore.setState({
+        demoMode: true,
+        accountId: "demo",
+        settings: { ...demoSettings, uiLanguage: "ja", streamerMode: false },
+        showUpdateNote: false,
+      });
     });
     return () => {
       Object.assign(line, original);
       useStore.setState(previous);
+      void changeUiLanguage(previous.settings.uiLanguage);
     };
   }, []);
 
