@@ -117,6 +117,8 @@ export function SquareDemoPage() {
     const line = api.line as unknown as Record<string, unknown>;
     const original = {
       squareStatus: line.squareStatus,
+      squareEnable: line.squareEnable,
+      squareDisable: line.squareDisable,
       squareOverview: line.squareOverview,
       squareMessages: line.squareMessages,
       squareSendMessage: line.squareSendMessage,
@@ -172,6 +174,8 @@ export function SquareDemoPage() {
         return { ok: true };
       },
       squareStatus: async () => ({ enabled: true }),
+      squareEnable: async () => ({ ok: true }),
+      squareDisable: async () => ({ ok: true }),
       squareOverview: async () => ({
         squares: [{ mid: DEMO_SQUARE.mid, name: DEMO_SQUARE.name }],
         rooms: [DEMO_ROOM],

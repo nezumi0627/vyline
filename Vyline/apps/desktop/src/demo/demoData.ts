@@ -250,7 +250,7 @@ export const demoMessages: Message[] = [
 ];
 
 export const demoSettings: Settings = {
-  uiLanguage: "ja",
+  uiLanguage: "system",
   animationMode: "vyline",
   readReceipts: true,
   showReaderList: true,
