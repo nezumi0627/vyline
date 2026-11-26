@@ -15,6 +15,7 @@ import {
   IconHeart,
   IconMore,
   IconPin,
+  IconPlus,
   IconSend,
   IconSmile,
   IconUsers,
@@ -43,8 +44,17 @@ type SquareRoomMember = {
   squareMemberMid: string;
   displayName: string;
   profileImageObsHash?: string;
+  thumbnailUrl?: string;
+  pictureUrl?: string;
   role: string | number;
 };
+
+/** 通常チャットと同じく、バックエンドが返した http(s) URL のみアバターに使う。
+ *  profileImageObsHash から URL を推測しない（スキーム未検証のため）。 */
+function squareMemberAvatarUrl(member: SquareRoomMember): string | undefined {
+  const candidate = member.thumbnailUrl ?? member.pictureUrl;
+  return candidate && /^https?:\/\//.test(candidate) ? candidate : undefined;
+}
 
 const SQUARE_REACTIONS = [
   ["NICE", "👍", "いいね"],
@@ -160,6 +170,7 @@ export function SquareChatPane({
   const [busy, setBusy] = useState(false);
   const [messageActionId, setMessageActionId] = useState<string | null>(null);
   const [menu, setMenu] = useState<{ x: number; y: number; messageId: string } | null>(null);
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [threadMid, setThreadMid] = useState<string | null>(null);
@@ -305,7 +316,10 @@ export function SquareChatPane({
   const memberByMid = useMemo(() => {
     const map = new Map<string, Member>();
     for (const member of members) {
-      map.set(member.squareMemberMid, mapMember(member.squareMemberMid, member.displayName));
+      map.set(
+        member.squareMemberMid,
+        mapMember(member.squareMemberMid, member.displayName, squareMemberAvatarUrl(member)),
+      );
     }
     return map;
   }, [members]);
@@ -611,9 +625,6 @@ export function SquareChatPane({
             {uiText("スレッドから戻る")}
           </button>
         )}
-        <span className="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-[10px] font-semibold text-indigo-300">
-          BETA
-        </span>
         {threadMid && threadMembershipState !== "loading" && !isThreadJoined && (
           <button
             type="button"
@@ -887,6 +898,7 @@ export function SquareChatPane({
                       )}
                     >
                       {timestamp > 0 && <time>{formatTime(timestamp)}</time>}
+                      {fromMe && <span className="opacity-60">{uiText("送信済み")}</span>}
                     </div>
                   </div>
                 </div>
@@ -931,6 +943,17 @@ export function SquareChatPane({
         <div className="vy-input-row mx-auto flex max-w-3xl items-end gap-1 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
           {!threadMid && (
             <IconButton
+              label={uiText("メニューを開く")}
+              active={Boolean(plusMenu)}
+              onClick={(event) =>
+                setPlusMenu((open) => (open ? null : { x: event.clientX, y: event.clientY - 8 }))
+              }
+            >
+              <IconPlus size={20} />
+            </IconButton>
+          )}
+          {!threadMid && (
+            <IconButton
               label={uiText("スタンプ")}
               active={stickerPickerOpen}
               onClick={() => setStickerPickerOpen((open) => !open)}
@@ -958,7 +981,7 @@ export function SquareChatPane({
             rows={1}
             maxLength={5000}
             disabled={busy}
-            placeholder={uiText("OpenChatにメッセージを送信")}
+            placeholder={text ? undefined : uiText("メッセージを入力")}
             aria-label={uiText("メッセージを入力")}
             className="vy-scroll vy-input-text max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1.5 leading-relaxed text-[var(--vy-text)] outline-none placeholder:text-[var(--vy-text-dim)]"
           />
@@ -973,6 +996,25 @@ export function SquareChatPane({
           </button>
         </div>
       </form>
+      {plusMenu && (
+        <MessageContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          items={[
+            {
+              label: uiText("スタンプ"),
+              icon: <IconSmile size={16} />,
+              onClick: () => setStickerPickerOpen(true),
+            },
+            {
+              label: uiText("招待リンクをコピー"),
+              icon: <IconCopy size={16} />,
+              onClick: () => void copyInvitation(),
+            },
+          ]}
+          onClose={() => setPlusMenu(null)}
+        />
+      )}
       {menu && menuMessage && (
         <MessageContextMenu
           x={menu.x}
@@ -1022,7 +1064,7 @@ function IconButton({
 }: {
   children: React.ReactNode;
   label: string;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
   active?: boolean;
 }) {
   return (
