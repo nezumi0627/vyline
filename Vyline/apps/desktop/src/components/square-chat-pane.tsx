@@ -254,7 +254,11 @@ export function SquareChatPane({
       setMembersLoading(true);
       try {
         const result = await api.line.squareMembers(accountId, room.id, cursor);
-        setMembers((current) => (cursor ? [...current, ...result.members] : result.members));
+        setMembers((current) => {
+          if (!cursor) return result.members;
+          const seen = new Set(current.map((member) => member.squareMemberMid));
+          return [...current, ...result.members.filter((m) => !seen.has(m.squareMemberMid))];
+        });
         setMemberCursor(result.continuationToken);
       } catch {
         setNotice(uiText("メンバー一覧を取得できませんでした"));
@@ -281,7 +285,10 @@ export function SquareChatPane({
         try {
           const result = await api.line.squareMembers(accountId, room.id, cursor);
           if (cancelled) return;
-          setMembers((current) => [...current, ...result.members]);
+          setMembers((current) => {
+            const seen = new Set(current.map((member) => member.squareMemberMid));
+            return [...current, ...result.members.filter((m) => !seen.has(m.squareMemberMid))];
+          });
           setMemberCursor(result.continuationToken);
           cursor = result.continuationToken ?? undefined;
           if (!cursor) break;
@@ -938,7 +945,12 @@ export function SquareChatPane({
               setText(event.target.value);
             }}
             onKeyDown={(event) => {
-              if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                settings.enterToSend &&
+                !event.nativeEvent.isComposing
+              ) {
                 event.preventDefault();
                 void send();
               }

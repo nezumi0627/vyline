@@ -187,6 +187,14 @@ export async function createPrivateSquare(
       },
       square.mid,
     );
+    if (created.squareChatMember?.squareMemberMid) {
+      store.upsertEntity(
+        "member",
+        created.squareChatMember.squareMemberMid,
+        created.squareChatMember,
+        room.squareChatMid,
+      );
+    }
     return {
       ok: true as const,
       square: { mid: square.mid, name: square.name },
