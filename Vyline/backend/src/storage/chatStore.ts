@@ -1111,6 +1111,12 @@ export async function upsertChats(
             accountId,
             reconcileStoredUnreadWithReadPosition(incoming, readUpTo),
           );
+          const existing = db?.chats[chat.mid] ?? readStoredChatById(accountId, chat.mid);
+          if (existing) {
+            const nameIsFallback =
+              !chat.name || chat.name === chat.mid || chat.name === "(No Name)";
+            if (nameIsFallback && existing.name) chat.name = existing.name;
+          }
           writeStoredChat(accountId, chat);
           if (db) db.chats[chat.mid] = chat;
         }

@@ -2936,7 +2936,10 @@ export function reconcileChatUnreadWithLocalRead(chat: Chat, readUpTo?: string):
 
 function chatFromMessageBox(
   box: any,
-  groupByMid: Map<string, { mid: string; name: string; raw?: Record<string, unknown> }>,
+  groupByMid: Map<
+    string,
+    { mid: string; name: string; raw?: Record<string, unknown>; detailMissing?: boolean }
+  >,
   userByMid: Map<
     string,
     {
@@ -2949,6 +2952,7 @@ function chatFromMessageBox(
   >,
   joinedChatsKnown = true,
   selfMid?: string,
+  storedByMid?: Map<string, { mid: string; name: string; thumbnailUrl?: string }>,
 ): Chat {
   const mid = String(box.id);
   const meta = boxMeta(box, selfMid);
@@ -2962,12 +2966,14 @@ function chatFromMessageBox(
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const chat: Chat = {
       mid,
-      name: group?.name ?? mid,
+      name: group?.name ?? storedByMid?.get(mid)?.name ?? mid,
       hasMessages: true,
       kind,
       lastMessageTime: meta.lastMessageTime,
       lastMessagePreview: meta.lastMessagePreview,
-      thumbnailUrl: pictureStatusToUrl(ps) ?? "",
+      thumbnailUrl:
+        pictureStatusToUrl(ps) ??
+        (!group || group.detailMissing ? (storedByMid?.get(mid)?.thumbnailUrl ?? "") : ""),
       left,
     };
     if (typeof raw.notificationDisabled === "boolean") {
@@ -2993,7 +2999,7 @@ function chatFromMessageBox(
     kind: kind === "direct" ? "direct" : "unknown",
     lastMessageTime: meta.lastMessageTime,
     lastMessagePreview: meta.lastMessagePreview,
-    thumbnailUrl: user?.thumbnailUrl ?? "",
+    thumbnailUrl: user ? user.thumbnailUrl : (storedByMid?.get(mid)?.thumbnailUrl ?? ""),
   };
   if (user?.userType === 2) chat.isOfficial = true;
   if (user?.statusMessage && kind === "direct") chat.statusMessage = user.statusMessage;
@@ -3236,13 +3242,20 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     });
   }
 
+  const storedChatsByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
   const groupByMid = new Map<
     string,
-    { mid: string; name: string; raw?: Record<string, unknown> }
+    { mid: string; name: string; raw?: Record<string, unknown>; detailMissing?: boolean }
   >();
   for (const chat of joinedChats) {
     const raw = (chat as unknown as { raw?: Record<string, unknown> }).raw ?? {};
-    groupByMid.set(chat.mid, { mid: chat.mid, name: chat.name, raw });
+    // 詳細取得に失敗した仮エントリ (名前空) は保存済みの名前を引き継ぐ
+    groupByMid.set(chat.mid, {
+      mid: chat.mid,
+      name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
+      raw,
+      detailMissing: !chat.name,
+    });
 
     // getChats(withMembers) で既に付いている memberMids をキャッシュへ
     try {
@@ -3258,7 +3271,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
         const thumb = pictureStatusToUrl(ps);
         void vylinePutGroup(accountId, {
           chatMid: chat.mid,
-          name: chat.name,
+          name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
           ...(thumb ? { thumbnailUrl: thumb } : {}),
           memberMids,
           members: memberMids.map((mid) => ({ mid, displayName: mid })),
@@ -3333,6 +3346,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       userByMid,
       !joinedChatsFetchFailed,
       client.base.profile?.mid,
+      storedChatsByMid,
     );
     const incomingId = storedIncomingIds[chat.mid] ?? historyIncomingIds.get(chat.mid);
     if (
@@ -3357,12 +3371,14 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     tail.push({
       mid: chat.mid,
-      name: chat.name,
+      name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
       hasMessages: activeBoxIds.has(chat.mid),
       kind: detectChatKind(chat.mid),
       lastMessageTime: 0,
       lastMessagePreview: "",
-      thumbnailUrl: pictureStatusToUrl(ps) ?? "",
+      thumbnailUrl:
+        pictureStatusToUrl(ps) ??
+        (chat.name ? "" : (storedChatsByMid.get(chat.mid)?.thumbnailUrl ?? "")),
       ...(typeof raw.notificationDisabled === "boolean"
         ? { notificationDisabled: raw.notificationDisabled }
         : {}),
