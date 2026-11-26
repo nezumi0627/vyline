@@ -2949,6 +2949,7 @@ function chatFromMessageBox(
   >,
   joinedChatsKnown = true,
   selfMid?: string,
+  storedByMid?: Map<string, { mid: string; name: string; thumbnailUrl?: string }>,
 ): Chat {
   const mid = String(box.id);
   const meta = boxMeta(box, selfMid);
@@ -2962,12 +2963,12 @@ function chatFromMessageBox(
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     const chat: Chat = {
       mid,
-      name: group?.name ?? mid,
+      name: group?.name ?? storedByMid?.get(mid)?.name ?? mid,
       hasMessages: true,
       kind,
       lastMessageTime: meta.lastMessageTime,
       lastMessagePreview: meta.lastMessagePreview,
-      thumbnailUrl: pictureStatusToUrl(ps) ?? "",
+      thumbnailUrl: pictureStatusToUrl(ps) ?? storedByMid?.get(mid)?.thumbnailUrl ?? "",
       left,
     };
     if (typeof raw.notificationDisabled === "boolean") {
@@ -3339,6 +3340,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
       userByMid,
       !joinedChatsFetchFailed,
       client.base.profile?.mid,
+      storedChatsByMid,
     );
     const incomingId = storedIncomingIds[chat.mid] ?? historyIncomingIds.get(chat.mid);
     if (
