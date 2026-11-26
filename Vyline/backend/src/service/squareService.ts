@@ -195,6 +195,12 @@ export async function createPrivateSquare(
   });
 }
 
+/** getJoinedSquareChats が保存する自分の SquareChatMember から、ルーム内の自分の squareMemberMid を返す。 */
+function readOwnSquareMemberMid(store: SquareStore, roomId: string): string | null {
+  const member = store.listEntities<LINE.SquareChatMember>("member", roomId)[0];
+  return member?.squareMemberMid ?? null;
+}
+
 /** Return a stale cache only while the same enabled session is still active. */
 export function readSquareCacheForGeneration(
   store: SquareStore,
@@ -206,6 +212,7 @@ export function readSquareCacheForGeneration(
   const result = roomId
     ? {
         ok: true as const,
+        mySquareMemberMid: readOwnSquareMemberMid(store, roomId),
         messages: threadMid
           ? store
               .listMessages<{
@@ -386,6 +393,7 @@ export async function listSquareMessages(
     return {
       ok: true as const,
       roomId,
+      mySquareMemberMid: readOwnSquareMemberMid(store, roomId),
       messages: threadMid
         ? store
             .listMessages<{
