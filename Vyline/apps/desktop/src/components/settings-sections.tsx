@@ -2238,6 +2238,7 @@ function AdvancedSection() {
 }
 
 function VylineBackupPanel({ accountId }: { accountId: string | null }) {
+  const demoMode = useStore((s) => s.demoMode);
   const [backups, setBackups] = useState<
     NonNullable<Awaited<ReturnType<typeof api.line.backupList>>["data"]>
   >([]);
@@ -2245,13 +2246,13 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const load = async () => {
-    if (!accountId) return;
+    if (!accountId || demoMode) return;
     const result = await api.line.backupList(accountId);
     if (result.ok) setBackups(result.data ?? []);
   };
   useEffect(() => {
     void load();
-  }, [accountId]);
+  }, [accountId, demoMode]);
   const create = async () => {
     if (!accountId) return;
     setBusy(true);
@@ -2299,7 +2300,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
         >
           <button
             type="button"
-            disabled={busy || !accountId}
+            disabled={busy || !accountId || demoMode}
             onClick={() => void create()}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
           >

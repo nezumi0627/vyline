@@ -973,5 +973,6 @@
   "回答を返しませんでした": "回答を返しませんでした",
   "AI機能は設定で無効になっています": "AI機能は設定で無効になっています",
   "ログインが必要です": "ログインが必要です",
-  "既読を送信": "Kirim tanda dibaca"
+  "既読を送信": "Kirim tanda dibaca",
+  "デモでは変更できません": "Tidak dapat diubah dalam mode demo."
 }
