@@ -1147,6 +1147,9 @@ export async function upsertChats(
       ...incoming,
       name: incomingNameIsFallback && existing.name ? existing.name : incoming.name,
       kind: incomingKindIsFallback ? existing.kind : incoming.kind,
+      ...(!incoming.thumbnailUrl && existing.thumbnailUrl
+        ? { thumbnailUrl: existing.thumbnailUrl }
+        : {}),
       hasMessages: existing.hasMessages || incoming.hasMessages,
       lastMessageTime: Math.max(existingTime, incomingTime),
       ...(keepExistingLast && existing.lastMessageId

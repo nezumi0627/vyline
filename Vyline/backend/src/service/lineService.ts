@@ -3236,13 +3236,19 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     });
   }
 
+  const storedChatsByMid = new Map(storedChats.map((chat) => [chat.mid, chat]));
   const groupByMid = new Map<
     string,
     { mid: string; name: string; raw?: Record<string, unknown> }
   >();
   for (const chat of joinedChats) {
     const raw = (chat as unknown as { raw?: Record<string, unknown> }).raw ?? {};
-    groupByMid.set(chat.mid, { mid: chat.mid, name: chat.name, raw });
+    // 詳細取得に失敗した仮エントリ (名前空) は保存済みの名前を引き継ぐ
+    groupByMid.set(chat.mid, {
+      mid: chat.mid,
+      name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
+      raw,
+    });
 
     // getChats(withMembers) で既に付いている memberMids をキャッシュへ
     try {
@@ -3258,7 +3264,7 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
         const thumb = pictureStatusToUrl(ps);
         void vylinePutGroup(accountId, {
           chatMid: chat.mid,
-          name: chat.name,
+          name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
           ...(thumb ? { thumbnailUrl: thumb } : {}),
           memberMids,
           members: memberMids.map((mid) => ({ mid, displayName: mid })),
@@ -3357,12 +3363,12 @@ async function fetchChatsInner(accountId: string, opts?: { light?: boolean }): P
     const ps = String(raw.pictureStatus ?? raw.picturePath ?? "");
     tail.push({
       mid: chat.mid,
-      name: chat.name,
+      name: chat.name || storedChatsByMid.get(chat.mid)?.name || "",
       hasMessages: activeBoxIds.has(chat.mid),
       kind: detectChatKind(chat.mid),
       lastMessageTime: 0,
       lastMessagePreview: "",
-      thumbnailUrl: pictureStatusToUrl(ps) ?? "",
+      thumbnailUrl: pictureStatusToUrl(ps) ?? storedChatsByMid.get(chat.mid)?.thumbnailUrl ?? "",
       ...(typeof raw.notificationDisabled === "boolean"
         ? { notificationDisabled: raw.notificationDisabled }
         : {}),
