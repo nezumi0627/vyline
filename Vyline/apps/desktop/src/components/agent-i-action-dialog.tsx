@@ -84,6 +84,10 @@ export function AgentIActionDialog({
     };
   }, [accountId, aiEnabled, prompt, sourceText]);
 
+  const errorText =
+    error === "upstream service unavailable"
+      ? uiText("AIサービスは現在利用できません。しばらくしてから再試行してください。")
+      : error;
   return (
     <div
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4"
@@ -149,13 +153,13 @@ export function AgentIActionDialog({
               <p className="whitespace-pre-wrap text-sm leading-relaxed">
                 {loading
                   ? "Agent I が処理中…"
-                  : error || result || "指示を入力して実行してください"}
+                  : errorText || result || "指示を入力して実行してください"}
               </p>
             </div>
           </div>
         ) : (
           <div className="mt-4 min-h-28 whitespace-pre-wrap rounded-xl bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed">
-            {loading ? "Agent I が処理中…" : error || result}
+            {loading ? "Agent I が処理中…" : errorText || result}
           </div>
         )}
         {!loading && !error && result && (

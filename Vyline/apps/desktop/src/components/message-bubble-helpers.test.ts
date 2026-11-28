@@ -21,3 +21,8 @@ test("call durations roll seconds into minutes and hours", () => {
   expect(formatCallDuration(3661)).toBe("1時間1分01秒");
   expect(formatCallDuration(90061)).toBe("25時間1分01秒");
 });
+
+test("formats call duration in Thai and English", () => {
+  expect(formatCallDuration(695, "th")).toBe("11 นาที 35 วินาที");
+  expect(formatCallDuration(61, "en")).toBe("1 minute 1 second");
+});

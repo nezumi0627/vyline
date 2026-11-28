@@ -1239,7 +1239,9 @@ export const MessageBubble = memo(
         return (
           <span className="flex items-center gap-1">
             <span style={{ color: count > 0 ? "var(--vy-accent)" : undefined }}>
-              {count > 0 ? `既読 ${count}` : "送信済み"}
+              {count > 0
+                ? uiText("既読 {{total}}", { total: count.toLocaleString(getIntlLocale()) })
+                : uiText("送信済み")}
             </span>
           </span>
         );

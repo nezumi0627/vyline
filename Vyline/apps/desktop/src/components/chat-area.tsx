@@ -1,4 +1,4 @@
-import { tr as uiText } from "@/i18n";
+import { getIntlLocale, tr as uiText } from "@/i18n";
 import {
   lazy,
   memo,
@@ -10,6 +10,7 @@ import {
   useCallback,
   type UIEvent,
 } from "react";
+import { useTranslation } from "react-i18next";
 import { useStore, displayName, shouldMaskStreamerAvatars, type Message } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { useCall } from "@/hooks/useCall";
@@ -111,6 +112,8 @@ function compareMessagesOldestFirst(left: Message, right: Message): number {
 }
 
 function ChatAreaBase() {
+  useTranslation();
+  const locale = getIntlLocale();
   const activeChatId = useStore((s) => s.activeChatId);
   const chats = useStore((s) => s.chats);
   const chatMessagesSelector = useMemo(() => {
@@ -200,7 +203,7 @@ function ChatAreaBase() {
     async (kind: "voice" | "video") => {
       if (!chat || !accountId) return;
       if (!canCall) {
-        setCallHint(directCallHint());
+        setCallHint(uiText(directCallHint()));
         return;
       }
       setCallHint(null);
@@ -281,7 +284,7 @@ function ChatAreaBase() {
 
   const rows = useMemo<VirtualRow<MsgRow>[]>(() => {
     const out: VirtualRow<MsgRow>[] = [];
-    const dayLabels = createChatDayLabels(chatMessages);
+    const dayLabels = createChatDayLabels(chatMessages, new Date(), locale);
     const unreadAnchorId = initialChatScrollPending ? null : initialChatScrollMessageId;
     let lastDay = "";
     const searching = search.open && search.q.trim().length > 0;
@@ -350,6 +353,7 @@ function ChatAreaBase() {
     highlightMessageId,
     initialChatScrollMessageId,
     initialChatScrollPending,
+    locale,
   ]);
   const messageRowKeyById = useMemo(() => buildChatMessageRowIndex(rows), [rows]);
 
@@ -694,14 +698,14 @@ function ChatAreaBase() {
 
   const panelItems: MenuItem[] = [
     {
-      label: "メッセージを検索",
+      label: uiText("メッセージを検索"),
       icon: <IconSearch size={16} />,
       onClick: () => setSearch((s) => ({ ...s, open: true })),
     },
     ...(agentEnabled
       ? [
           {
-            label: "今日の会話をAIで要約",
+            label: uiText("今日の会話をAIで要約"),
             icon: <IconMemo size={16} />,
             onClick: () =>
               setAgentPrompt(
@@ -713,22 +717,22 @@ function ChatAreaBase() {
         ]
       : []),
     {
-      label: "一番下へスクロール",
+      label: uiText("一番下へスクロール"),
       icon: <IconArrowDown size={16} />,
       onClick: () => scrollToBottom("smooth"),
     },
     {
-      label: chat.muted ? "ミュートを解除" : "通知をミュート",
+      label: uiText(chat.muted ? "ミュートを解除" : "通知をミュート"),
       icon: chat.muted ? <IconBell size={16} /> : <IconBellOff size={16} />,
       onClick: () => toggleMute(chat.id),
     },
     {
-      label: "VyTheme を開く",
+      label: uiText("VyTheme を開く"),
       icon: <IconPalette size={16} />,
       onClick: () => setScreen("settings"),
     },
     {
-      label: "プロフィールを表示",
+      label: uiText("プロフィールを表示"),
       icon: <IconMore size={16} />,
       onClick: () => setProfileDrawer(true),
     },
@@ -783,13 +787,13 @@ function ChatAreaBase() {
             </span>
           </button>
           <HeaderButton
-            label={canCall ? "音声通話" : directCallHint()}
+            label={canCall ? uiText("音声通話") : uiText(directCallHint())}
             onClick={() => void handleStartCall("voice")}
           >
             <IconPhone size={19} />
           </HeaderButton>
           <HeaderButton
-            label={canCall ? "ビデオ通話" : directCallHint()}
+            label={canCall ? uiText("ビデオ通話") : uiText(directCallHint())}
             onClick={() => void handleStartCall("video")}
           >
             <IconVideo size={19} />
@@ -815,7 +819,7 @@ function ChatAreaBase() {
                 ref={searchInputRef}
                 value={search.q}
                 onChange={(e) => setSearch((s) => ({ ...s, q: e.target.value, index: 0 }))}
-                placeholder={regexSearch ? "正規表現で検索" : "このトーク内を検索"}
+                placeholder={regexSearch ? uiText("正規表現で検索") : uiText("このトーク内を検索")}
                 aria-label={uiText("トーク内を検索")}
                 className="w-full bg-transparent text-sm outline-none placeholder:text-[var(--vy-text-dim)]"
               />
@@ -830,7 +834,7 @@ function ChatAreaBase() {
               onClick={() => setRegexSearch((enabled) => !enabled)}
               aria-pressed={regexSearch}
               aria-label={uiText("正規表現検索を切り替え")}
-              title={regexSearch ? "正規表現 ON" : "正規表現 OFF"}
+              title={regexSearch ? uiText("正規表現 ON") : uiText("正規表現 OFF")}
               className={cn(
                 "h-9 rounded-lg border px-2 font-mono text-xs",
                 regexSearch
@@ -972,14 +976,14 @@ function ChatAreaBase() {
                   className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)] transition-colors hover:text-[var(--vy-text)] disabled:cursor-wait disabled:opacity-70"
                 >
                   {olderState.loading
-                    ? "過去のメッセージを読み込み中…"
-                    : "↑ 過去のメッセージを読み込む"}
+                    ? uiText("過去のメッセージを読み込み中…")
+                    : uiText("↑ 過去のメッセージを読み込む")}
                 </button>
               ) : (
                 <span className="rounded-xl bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] px-4 py-2 text-center text-xs leading-relaxed text-[var(--vy-text-dim)]">
                   {chat.type === "group"
-                    ? "▲ ここがトークの一番上です"
-                    : "▲ ここから会話が始まります"}
+                    ? uiText("▲ ここがトークの一番上です")
+                    : uiText("▲ ここから会話が始まります")}
                 </span>
               )}
             </div>

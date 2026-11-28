@@ -26,6 +26,17 @@ test("adds the year to days outside the current year", () => {
   expect(labels).toEqual(["2022年11月5日", "11月5日"]);
 });
 
+test("localizes Thai chat day separators", () => {
+  const now = new Date(2026, 4, 20, 12);
+  const dates = [new Date(2026, 4, 20), new Date(2026, 4, 19), new Date(2026, 4, 18)];
+  const labels = createChatDayLabels(
+    dates.map((date) => ({ createdAt: +date })),
+    now,
+    "th",
+  );
+  expect(labels).toEqual(["วันนี้", "เมื่อวาน", "18 พฤษภาคม"]);
+});
+
 test("formats chat list timestamp for today, yesterday, within 7 days, and older dates", () => {
   const now = new Date(2026, 10, 3, 16, 30); // 2026-11-03 (Tue)
   expect(formatChatListTime(new Date(2026, 10, 3, 20, 8).getTime(), now, "ja")).toBe("20:08");

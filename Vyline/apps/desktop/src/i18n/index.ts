@@ -108,7 +108,7 @@ export async function changeUiLanguage(language: UiLanguage): Promise<void> {
 }
 
 export function getIntlLocale(): ResolvedUiLanguage {
-  return (i18n.resolvedLanguage as ResolvedUiLanguage | undefined) ?? "ja";
+  return (i18n.language as ResolvedUiLanguage | undefined) ?? "ja";
 }
 
 /** Japanese source text is also the stable fallback key for untranslated UI. */

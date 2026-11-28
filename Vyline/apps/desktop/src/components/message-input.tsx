@@ -755,7 +755,7 @@ export function MessageInput({ chatId }: { chatId: string }) {
                   disabled={sendingMediaBatch}
                   className="rounded-full bg-[var(--vy-accent)] px-4 py-1 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-60"
                 >
-                  {sendingMediaBatch ? "送信中…" : "まとめて送信"}
+                  {sendingMediaBatch ? uiText("送信中…") : uiText("まとめて送信")}
                 </button>
               </div>
               <ActionFeedback error={mediaBatchError} />
@@ -812,8 +812,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
             <IconButton
               label={
                 muteNext
-                  ? "ミュートメッセージ: 有効（通知なしで送信）"
-                  : "ミュートメッセージ: 無効（クリックで有効化）"
+                  ? uiText("ミュートメッセージ: 有効（通知なしで送信）")
+                  : uiText("ミュートメッセージ: 無効（クリックで有効化）")
               }
               active={muteNext}
               onClick={() => setMuteNext((m) => !m)}
@@ -867,8 +867,8 @@ export function MessageInput({ chatId }: { chatId: string }) {
                   draft
                     ? undefined
                     : muteNext
-                      ? "メッセージを入力（ミュート送信: 通知なし）"
-                      : "メッセージを入力"
+                      ? uiText("メッセージを入力（ミュート送信: 通知なし）")
+                      : uiText("メッセージを入力")
                 }
                 aria-label={uiText("メッセージを入力")}
                 className={cn(
@@ -884,9 +884,11 @@ export function MessageInput({ chatId }: { chatId: string }) {
               <button
                 type="button"
                 onClick={send}
-                aria-label={muteNext ? "ミュート送信（通知なし）" : "送信"}
+                aria-label={muteNext ? uiText("ミュート送信（通知なし）") : uiText("送信")}
                 title={
-                  muteNext ? "ミュートメッセージとして送信（相手に通知されません）" : undefined
+                  muteNext
+                    ? uiText("ミュートメッセージとして送信（相手に通知されません）")
+                    : undefined
                 }
                 className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
                 style={{
