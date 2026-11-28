@@ -114,7 +114,7 @@ export function VylineApp() {
           <div>
             <p className="text-sm font-medium">{uiText("バックエンドを起動中…")}</p>
             <p className="mt-1 text-xs text-[var(--vy-text-dim)]">
-              {error ? error : "接続できるまで待機しています"}
+              {error ? error : uiText("接続できるまで待機しています")}
             </p>
           </div>
         </div>

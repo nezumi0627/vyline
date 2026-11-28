@@ -26,6 +26,17 @@ test("adds the year to days outside the current year", () => {
   expect(labels).toEqual(["2022年11月5日", "11月5日"]);
 });
 
+test("localizes Thai chat day separators", () => {
+  const now = new Date(2026, 4, 20, 12);
+  const dates = [new Date(2026, 4, 20), new Date(2026, 4, 19), new Date(2026, 4, 18)];
+  const labels = createChatDayLabels(
+    dates.map((date) => ({ createdAt: +date })),
+    now,
+    "th",
+  );
+  expect(labels).toEqual(["วันนี้", "เมื่อวาน", "18 พฤษภาคม"]);
+});
+
 test("formats chat list timestamp for today, yesterday, within 7 days, and older dates", () => {
   const now = new Date(2026, 10, 3, 16, 30); // 2026-11-03 (Tue)
   expect(formatChatListTime(new Date(2026, 10, 3, 20, 8).getTime(), now, "ja")).toBe("20:08");
@@ -35,4 +46,15 @@ test("formats chat list timestamp for today, yesterday, within 7 days, and older
   expect(formatChatListTime(new Date(2026, 9, 30, 10, 0).getTime(), now, "en")).toBe("Fri");
   expect(formatChatListTime(new Date(2026, 9, 20, 10, 0).getTime(), now, "ja")).toBe("10/20");
   expect(formatChatListTime(new Date(2025, 9, 20, 10, 0).getTime(), now, "ja")).toBe("2025/10/20");
+});
+
+test("keeps the timeline aligned when a restored message has an invalid date", () => {
+  const now = new Date(2026, 4, 20, 12);
+  expect(
+    createChatDayLabels(
+      [{ createdAt: +now }, { createdAt: Number.MAX_SAFE_INTEGER }, { createdAt: +now }],
+      now,
+      "ja",
+    ),
+  ).toEqual(["今日", "日付不明", "今日"]);
 });

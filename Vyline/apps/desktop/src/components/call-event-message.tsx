@@ -1,28 +1,31 @@
 import { cn } from "@/lib/utils";
+import { getIntlLocale, tr as uiText } from "@/i18n";
 import type { CallMessageMeta } from "@/lib/store-types";
 import { IconPhone, IconVideo } from "@/components/icons";
 import { formatCallDuration } from "./message-bubble-helpers";
 
 function labelFor(meta: CallMessageMeta): { title: string; detail?: string } {
-  const kind = meta.group
-    ? meta.video
-      ? "グループビデオ通話"
-      : "グループ通話"
-    : meta.video
-      ? "ビデオ通話"
-      : "音声通話";
-  const dur = formatCallDuration(meta.durationSec);
+  const kind = uiText(
+    meta.group
+      ? meta.video
+        ? "グループビデオ通話"
+        : "グループ通話"
+      : meta.video
+        ? "ビデオ通話"
+        : "音声通話",
+  );
+  const dur = formatCallDuration(meta.durationSec, getIntlLocale());
   switch (meta.outcome) {
     case "missed":
-      return { title: `不在着信 · ${kind}` };
+      return { title: `${uiText("不在着信")} · ${kind}` };
     case "declined":
-      return { title: `拒否 · ${kind}` };
+      return { title: `${uiText("拒否")} · ${kind}` };
     case "busy":
-      return { title: `応答なし · ${kind}` };
+      return { title: `${uiText("応答なし")} · ${kind}` };
     default:
       return {
         title: kind,
-        detail: dur ? `通話時間 ${dur}` : "通話が終了しました",
+        detail: dur ? `${uiText("通話時間")} ${dur}` : uiText("通話が終了しました"),
       };
   }
 }
@@ -63,7 +66,7 @@ export function CallEventMessage({ meta, isMe }: { meta?: CallMessageMeta; isMe?
           <div className="text-sm font-semibold text-[var(--vy-text)]">{title}</div>
           {detail && (
             <div className="text-xs text-[var(--vy-text-dim)]">
-              {isMe ? `あなた · ${detail}` : detail}
+              {isMe ? `${uiText("あなた")} · ${detail}` : detail}
             </div>
           )}
         </div>

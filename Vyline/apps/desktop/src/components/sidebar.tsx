@@ -1,5 +1,6 @@
 import { tr as uiText } from "@/i18n";
 import { memo, useMemo, useState, useCallback, useRef, useEffect } from "react";
+import { useTranslation } from "react-i18next";
 import {
   useStore,
   displayName,
@@ -67,27 +68,35 @@ const SORTS: ChatSort[] = ["recent", "unread", "custom"];
 function buildPreviewMap(
   messages: ReturnType<typeof useStore.getState>["messages"],
   chats: Chat[],
-  prev?: Map<string, { text: string; time: number } | null>,
+  prev: Map<string, { text: string; time: number } | null>,
+  uiText: typeof import("@/i18n").tr,
 ): Map<string, { text: string; time: number } | null> {
   const previewForMessage = (m: (typeof messages)[number]): string => {
     if (m.messageState.startsWith("revoked")) {
-      if (m.revokedSnapshot) return `取り消し済み: ${previewForMessage(m.revokedSnapshot)}`;
+      if (m.revokedSnapshot)
+        return uiText("取り消し済み: {{preview}}", {
+          preview: previewForMessage(m.revokedSnapshot),
+        });
       const last = m.history
         ? [...m.history].reverse().find((h) => h.state === "normal" || h.state === "edited")
         : undefined;
-      return last?.text ? `取り消し済み: ${last.text}` : "取り消し済みのメッセージ";
+      return last?.text
+        ? uiText("取り消し済み: {{preview}}", { preview: last.text })
+        : uiText("取り消し済みのメッセージ");
     }
-    if (m.kind === "sticker") return m.altText || "[スタンプ]";
-    if (m.kind === "image") return "[画像]";
-    if (m.kind === "video") return "[動画]";
-    if (m.kind === "audio") return "[音声メッセージ]";
-    if (m.kind === "file") return `[${m.file?.name || "ファイル"}]`;
+    if (m.kind === "sticker") return m.altText || `[${uiText("スタンプ")}]`;
+    if (m.kind === "image") return `[${uiText("画像")}]`;
+    if (m.kind === "video") return `[${uiText("動画")}]`;
+    if (m.kind === "audio") return `[${uiText("音声メッセージ")}]`;
+    if (m.kind === "file") return `[${m.file?.name || uiText("ファイル")}]`;
     if (m.kind === "flex" || m.kind === "rich")
-      return m.altText || m.text || (m.kind === "flex" ? "[Flex]" : "[リッチメッセージ]");
-    if (m.kind === "call") return callPreviewLabel(m.callMeta);
-    if (m.kind === "emoji") return "[絵文字]";
-    if (m.kind === "location") return "[位置情報]";
-    if (m.kind === "contact") return "[連絡先]";
+      return (
+        m.altText || m.text || (m.kind === "flex" ? "[Flex]" : `[${uiText("リッチメッセージ")}]`)
+      );
+    if (m.kind === "call") return uiText(callPreviewLabel(m.callMeta));
+    if (m.kind === "emoji") return `[${uiText("絵文字")}]`;
+    if (m.kind === "location") return `[${uiText("位置情報")}]`;
+    if (m.kind === "contact") return `[${uiText("連絡先")}]`;
     if (m.kind === "system") return m.text ?? "";
     return m.text ?? "";
   };
@@ -115,7 +124,7 @@ function buildPreviewMap(
       continue;
     }
     let text = previewForMessage(last) || chat.lastMessagePreview || "";
-    if (last.authorId === "me" && text) text = `あなた: ${text}`;
+    if (last.authorId === "me" && text) text = uiText("あなた: {{preview}}", { preview: text });
     out.set(chat.id, stable(text, Math.max(last.createdAt, apiTime)));
   }
   return out;
@@ -133,6 +142,7 @@ function moveId(order: string[], fromId: string, toId: string): string[] {
 }
 
 function SidebarBase() {
+  const { t } = useTranslation();
   const chats = useStore((s) => s.chats);
   const messages = useStore((s) => s.messages);
   const [createGroupOpen, setCreateGroupOpen] = useState(false);
@@ -259,8 +269,11 @@ function SidebarBase() {
 
   const previewMapRef = useRef<Map<string, { text: string; time: number } | null>>(new Map());
   const previewMap = useMemo(
-    () => buildPreviewMap(messages, chats, previewMapRef.current),
-    [messages, chats],
+    () =>
+      buildPreviewMap(messages, chats, previewMapRef.current, (key, values) =>
+        t(key, { defaultValue: key, ...values }),
+      ),
+    [messages, chats, t],
   );
   useEffect(() => {
     previewMapRef.current = previewMap;
@@ -535,36 +548,36 @@ function SidebarBase() {
   const menuItems: MenuItem[] = menu
     ? [
         {
-          label: menu.chat.pinned ? "ピン留めを解除" : "ピン留め",
+          label: uiText(menu.chat.pinned ? "ピン留めを解除" : "ピン留め"),
           icon: <IconPin size={16} />,
           onClick: () => togglePin(menu.chat.id),
         },
         ...(menu.chat.unread > 0
           ? [
               {
-                label: "既読にする",
+                label: uiText("既読にする"),
                 icon: <IconCheck size={16} />,
                 onClick: () => markChatRead(menu.chat.id, { force: true }),
               },
             ]
           : []),
         {
-          label: readDisabledMids[menu.chat.id] ? "既読を有効にする" : "既読を無効化",
+          label: uiText(readDisabledMids[menu.chat.id] ? "既読を有効にする" : "既読を無効化"),
           icon: readDisabledMids[menu.chat.id] ? <IconEye size={16} /> : <IconEyeOff size={16} />,
           onClick: () => toggleChatReadDisabled(menu.chat.id),
         },
         {
-          label: menu.chat.muted ? "ミュートを解除" : "通知をミュート",
+          label: uiText(menu.chat.muted ? "ミュートを解除" : "通知をミュート"),
           icon: menu.chat.muted ? <IconBell size={16} /> : <IconBellOff size={16} />,
           onClick: () => toggleMute(menu.chat.id),
         },
         {
-          label: menu.chat.hidden ? "非表示を解除" : "非表示にする",
+          label: uiText(menu.chat.hidden ? "非表示を解除" : "非表示にする"),
           icon: menu.chat.hidden ? <IconEye size={16} /> : <IconEyeOff size={16} />,
           onClick: () => toggleHide(menu.chat.id),
         },
         {
-          label: menu.chat.type === "group" ? "GID をコピー" : "MID をコピー",
+          label: uiText(menu.chat.type === "group" ? "GID をコピー" : "MID をコピー"),
           icon: <IconCopy size={16} />,
           onClick: () => {
             void navigator.clipboard.writeText(menu.chat.id);
@@ -575,7 +588,7 @@ function SidebarBase() {
         !BLOCK_PROTECTED_MIDS.has(menu.chat.id)
           ? [
               {
-                label: isBlocked ? "ブロックを解除" : "ブロック",
+                label: uiText(isBlocked ? "ブロックを解除" : "ブロック"),
                 icon: <IconBlock size={16} />,
                 danger: !isBlocked,
                 onClick: () => {
@@ -666,8 +679,12 @@ function SidebarBase() {
             <button
               type="button"
               onClick={() => setScreen("updater")}
-              aria-label={`Vyline ${availableUpdate.latestVersion} に更新できます`}
-              title={`Vyline ${availableUpdate.latestVersion} の更新があります`}
+              aria-label={uiText("Vyline {{version}} に更新できます", {
+                version: availableUpdate.latestVersion,
+              })}
+              title={uiText("Vyline {{version}} の更新があります", {
+                version: availableUpdate.latestVersion,
+              })}
               className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent)] transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
             >
               <IconUpdate size={19} />
@@ -746,7 +763,7 @@ function SidebarBase() {
                     }}
                     className="flex w-full items-center justify-between px-3 py-2 text-left text-sm transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)]"
                   >
-                    {CHAT_SORT_LABELS[s]}
+                    {uiText(CHAT_SORT_LABELS[s])}
                     {sort === s && <IconCheck size={15} style={{ color: "var(--vy-accent)" }} />}
                   </button>
                 ))}
@@ -779,7 +796,9 @@ function SidebarBase() {
             <button
               type="button"
               onClick={() => setMidProfileOpen(true)}
-              aria-label={`${midProfile.displayName || "名前未設定"}のプロフィールを表示`}
+              aria-label={uiText("{{name}}のプロフィールを表示", {
+                name: midProfile.displayName || uiText("名前未設定"),
+              })}
               className="flex w-full items-center gap-3 rounded-lg text-left outline-none transition-colors hover:bg-[var(--vy-surface-2)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)]"
             >
               <Avatar
@@ -790,7 +809,7 @@ function SidebarBase() {
               />
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-sm font-semibold">
-                  {midProfile.displayName || "名前未設定"}
+                  {midProfile.displayName || uiText("名前未設定")}
                 </span>
                 <span className="block truncate font-mono text-[0.65rem] text-[var(--vy-text-dim)]">
                   {midProfile.mid}
@@ -830,7 +849,7 @@ function SidebarBase() {
             )}
             style={tab === t.key ? { background: "var(--vy-accent)" } : undefined}
           >
-            {t.label}
+            {uiText(t.label)}
           </button>
         ))}
       </div>
@@ -1011,7 +1030,7 @@ function SidebarBase() {
               <IconSearch size={22} />
             </span>
             <p className="text-sm text-[var(--vy-text-dim)]">
-              {query ? "一致するチャットがありません" : "ここにはチャットがありません"}
+              {uiText(query ? "一致するチャットがありません" : "ここにはチャットがありません")}
             </p>
           </div>
         ) : (
@@ -1241,7 +1260,9 @@ const ChatRow = memo(function ChatRow({
             {chat.isOfficial && <OfficialBadge />}
             {chat.left && (
               <span
-                title={chat.type === "friend" ? "アカウントは削除済みです" : "退出済み"}
+                title={
+                  chat.type === "friend" ? uiText("アカウントは削除済みです") : uiText("退出済み")
+                }
                 className={cn(
                   "shrink-0 rounded px-1 py-0.5 text-[0.65rem] font-medium",
                   active
@@ -1249,7 +1270,7 @@ const ChatRow = memo(function ChatRow({
                     : "bg-[color-mix(in_oklab,var(--vy-danger)_16%,transparent)] text-[var(--vy-danger)]",
                 )}
               >
-                {chat.type === "friend" ? "削除済み" : "退出済み"}
+                {chat.type === "friend" ? uiText("削除済み") : uiText("退出済み")}
               </span>
             )}
             {preview && preview.time > 0 && (
@@ -1313,7 +1334,7 @@ function AccountSwitcher() {
   const [busy, setBusy] = useState(false);
 
   const currentSession = sessions.find((s) => s.accountId === accountId);
-  const currentName = currentSession?.displayName || accountId || "未ログイン";
+  const currentName = currentSession?.displayName || accountId || uiText("未ログイン");
   const selfPremium = useStore((s) => s.self.premium?.active ?? false);
   const currentPremium = currentSession?.premium?.active ?? selfPremium;
 

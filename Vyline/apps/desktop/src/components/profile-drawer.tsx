@@ -268,12 +268,12 @@ export function ProfileDrawer({
     try {
       const res = await api.line.updateContactSetting(accountId, chat.id, next);
       if (!res.ok) {
-        setActionMsg(res.error ?? "表示名の同期に失敗しました（ローカルのみ保存）");
+        setActionMsg(res.error ?? uiText("表示名の同期に失敗しました（ローカルのみ保存）"));
       } else {
         useStore.setState((st) => ({
           chats: st.chats.map((c) => (c.id === chat.id ? { ...c, localName: next } : c)),
         }));
-        setActionMsg("友だち表示名を更新しました");
+        setActionMsg(uiText("友だち表示名を更新しました"));
       }
     } catch (err) {
       setActionMsg(err instanceof Error ? err.message : String(err));
@@ -432,7 +432,9 @@ export function ProfileDrawer({
               </button>
             )}
             <span className="truncate text-sm font-semibold">
-              {section === "profile" ? "プロフィール" : section === "note" ? "ノート" : "アルバム"}
+              {uiText(
+                section === "profile" ? "プロフィール" : section === "note" ? "ノート" : "アルバム",
+              )}
             </span>
           </div>
           <button
@@ -649,20 +651,22 @@ export function ProfileDrawer({
                           const result = res.results?.[0];
                           setVerifyMsg(
                             result?.status === "blocked"
-                              ? "ブロック中です"
+                              ? uiText("ブロック中です")
                               : result?.status === "not_blocked"
-                                ? "ブロックされていません"
-                                : (result?.reason ?? "確認できませんでした"),
+                                ? uiText("ブロックされていません")
+                                : (result?.reason ?? uiText("確認できませんでした")),
                           );
                         })
                         .catch((err) =>
-                          setVerifyMsg(err instanceof Error ? err.message : "確認に失敗しました"),
+                          setVerifyMsg(
+                            err instanceof Error ? err.message : uiText("確認に失敗しました"),
+                          ),
                         )
                         .finally(() => setVerifyBusy(false));
                     }}
                     className="w-full rounded-xl border border-[var(--vy-border)] px-3 py-2 text-sm transition-colors hover:bg-[var(--vy-surface-2)] disabled:opacity-50"
                   >
-                    {verifyBusy ? "ブロック状態を確認中…" : "ブロック状態を確認"}
+                    {verifyBusy ? uiText("ブロック状態を確認中…") : uiText("ブロック状態を確認")}
                   </button>
                   {verifyMsg && (
                     <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{verifyMsg}</p>
@@ -763,18 +767,18 @@ export function ProfileDrawer({
                   {chat.type === "group"
                     ? chat.left
                       ? busy
-                        ? "削除中…"
-                        : "一覧から削除"
+                        ? uiText("削除中…")
+                        : uiText("一覧から削除")
                       : busy
-                        ? "退出中…"
-                        : "グループを退出"
+                        ? uiText("退出中…")
+                        : uiText("グループを退出")
                     : isBlocked
                       ? busy
-                        ? "解除中…"
-                        : "ブロックを解除"
+                        ? uiText("解除中…")
+                        : uiText("ブロックを解除")
                       : busy
-                        ? "処理中…"
-                        : "ブロック"}
+                        ? uiText("処理中…")
+                        : uiText("ブロック")}
                 </button>
               )}
               {actionMsg && <p className="mt-2 text-xs text-[var(--vy-text-dim)]">{actionMsg}</p>}
@@ -784,7 +788,7 @@ export function ProfileDrawer({
       </aside>
       {agentPrompt && (
         <AgentIActionDialog
-          title={`${name}との会話の要約`}
+          title={uiText("{{name}}との会話の要約", { name })}
           prompt={agentPrompt}
           onClose={() => setAgentPrompt(null)}
         />
@@ -836,21 +840,21 @@ function InviteToGroupRow({
       .map((s) => s.trim())
       .filter((s) => s.startsWith("u"));
     if (list.length === 0) {
-      onDone("招待する mid（u…）を入力してください");
+      onDone(uiText("招待する mid（u…）を入力してください"));
       return;
     }
     setBusy(true);
     try {
       const res = await api.line.inviteIntoChat(accountId, chatMid, list);
       if (!res.ok) {
-        onDone(res.error || "招待に失敗しました");
+        onDone(res.error || uiText("招待に失敗しました"));
         return;
       }
-      onDone(`${list.length}人を招待しました`);
+      onDone(uiText("{{total}}人を招待しました", { total: list.length }));
       setMids("");
       setOpen(false);
     } catch (e) {
-      onDone(e instanceof Error ? e.message : "招待に失敗しました");
+      onDone(e instanceof Error ? e.message : uiText("招待に失敗しました"));
     } finally {
       setBusy(false);
     }
@@ -863,7 +867,7 @@ function InviteToGroupRow({
         onClick={() => setOpen((v) => !v)}
         className="text-xs font-medium text-[var(--vy-accent)]"
       >
-        {open ? "招待を閉じる" : "メンバーを招待"}
+        {uiText(open ? "招待を閉じる" : "メンバーを招待")}
       </button>
       {open && (
         <div className="mt-2 space-y-2 rounded-xl border border-[var(--vy-border)] p-3">
@@ -881,7 +885,7 @@ function InviteToGroupRow({
             className="w-full rounded-lg py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
             style={{ background: "var(--vy-accent)" }}
           >
-            {busy ? "招待中…" : "招待する"}
+            {uiText(busy ? "招待中…" : "招待する")}
           </button>
         </div>
       )}

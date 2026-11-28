@@ -22,11 +22,12 @@ export function AgentIActionDialog({
   const [result, setResult] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(true);
-  const [instruction, setInstruction] = useState("自然な文章に校正してください");
+  const defaultInstruction = "自然な文章に校正してください";
+  const [instruction, setInstruction] = useState<string | null>(null);
 
   const proofreadPrompt = () => {
     const source = sourceText?.trim().slice(0, 3000) ?? "";
-    const request = instruction.trim().slice(0, 400);
+    const request = (instruction ?? defaultInstruction).trim().slice(0, 400);
     return [
       "あなたは短文メッセージの編集者です。元の文章の意味を保ち、ユーザーの指示だけを実行してください。",
       "出力は変更後の文章だけにしてください。解説、前置き、箇条書き、引用符は不要です。",
@@ -43,7 +44,7 @@ export function AgentIActionDialog({
     void api.agentI
       .chat(accountId!, requestPrompt)
       .then((res) => {
-        if (!res.ok || !res.text) throw new Error(res.error ?? "回答を返しませんでした");
+        if (!res.ok || !res.text) throw new Error(res.error ?? uiText("回答を返しませんでした"));
         setResult(res.text);
       })
       .catch((caught) => setError(caught instanceof Error ? caught.message : String(caught)))
@@ -53,7 +54,7 @@ export function AgentIActionDialog({
   useEffect(() => {
     if (!aiEnabled) {
       setLoading(false);
-      setError("AI機能は設定で無効になっています");
+      setError(uiText("AI機能は設定で無効になっています"));
       return;
     }
     if (sourceText) {
@@ -62,7 +63,7 @@ export function AgentIActionDialog({
     }
     let cancelled = false;
     if (!accountId) {
-      setError("ログインが必要です");
+      setError(uiText("ログインが必要です"));
       setLoading(false);
       return;
     }
@@ -70,7 +71,7 @@ export function AgentIActionDialog({
       .chat(accountId, prompt)
       .then((res) => {
         if (cancelled) return;
-        if (!res.ok || !res.text) throw new Error(res.error ?? "回答を返しませんでした");
+        if (!res.ok || !res.text) throw new Error(res.error ?? uiText("回答を返しませんでした"));
         setResult(res.text);
       })
       .catch((caught) => {
@@ -84,6 +85,10 @@ export function AgentIActionDialog({
     };
   }, [accountId, aiEnabled, prompt, sourceText]);
 
+  const errorText =
+    error === "upstream service unavailable"
+      ? uiText("AIサービスは現在利用できません。しばらくしてから再試行してください。")
+      : error;
   return (
     <div
       className="fixed inset-0 z-[130] flex items-center justify-center bg-black/50 p-4"
@@ -117,19 +122,19 @@ export function AgentIActionDialog({
             <div className="mt-2 flex gap-2">
               <input
                 id="agent-i-edit-instruction"
-                value={instruction}
+                value={instruction ?? uiText(defaultInstruction)}
                 onChange={(event) => setInstruction(event.target.value)}
                 maxLength={400}
                 className="min-w-0 flex-1 rounded-lg border border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 text-sm"
               />
               <button
                 type="button"
-                disabled={loading || !instruction.trim() || !accountId}
+                disabled={loading || !(instruction ?? defaultInstruction).trim() || !accountId}
                 onClick={() => request(proofreadPrompt())}
                 className="rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
                 style={{ background: "var(--vy-accent)" }}
               >
-                {loading ? "処理中…" : "実行"}
+                {uiText(loading ? "処理中…" : "実行")}
               </button>
             </div>
           </div>
@@ -148,14 +153,14 @@ export function AgentIActionDialog({
               </p>
               <p className="whitespace-pre-wrap text-sm leading-relaxed">
                 {loading
-                  ? "Agent I が処理中…"
-                  : error || result || "指示を入力して実行してください"}
+                  ? uiText("Agent I が処理中…")
+                  : errorText || result || uiText("指示を入力して実行してください")}
               </p>
             </div>
           </div>
         ) : (
           <div className="mt-4 min-h-28 whitespace-pre-wrap rounded-xl bg-[var(--vy-surface-2)] p-3 text-sm leading-relaxed">
-            {loading ? "Agent I が処理中…" : error || result}
+            {loading ? uiText("Agent I が処理中…") : errorText || result}
           </div>
         )}
         {!loading && !error && result && (

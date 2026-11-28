@@ -23,6 +23,20 @@ describe("bundled UI locale catalogs", () => {
     }
   });
 
+  test("provides Thai UI copy without Japanese fallback and keeps interpolation variables", async () => {
+    const catalog = (await Bun.file(
+      new URL("./locales/th.json", import.meta.url),
+    ).json()) as Record<string, string>;
+    const variables = (copy: string) => copy.match(/\{\{\w+\}\}/g)?.sort() ?? [];
+
+    for (const [key, translation] of Object.entries(catalog)) {
+      expect(translation, key).not.toMatch(
+        /[\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}]/u,
+      );
+      expect(variables(translation), key).toEqual(variables(key));
+    }
+  });
+
   test("localizes optional URL hints and accurately describes credential redaction", async () => {
     const optionalUrlHints: Record<string, string> = {
       en: "https://… (optional)",

@@ -1,7 +1,7 @@
 import { tr as uiText } from "@/i18n";
 import { useState, useEffect, useCallback, useRef } from "react";
 import { api } from "@/api/client";
-import { useStore, UPDATE_NOTES } from "@/lib/store";
+import { CHAT_SORT_LABELS, useStore, UPDATE_NOTES } from "@/lib/store";
 import type { AnimationMode, UiLanguage } from "@/lib/store-types";
 import {
   BUILD_COMMIT_SHA,
@@ -406,7 +406,7 @@ export function SettingsSections() {
                 )}
                 style={section === n.key ? { background: "var(--vy-accent)" } : undefined}
               >
-                {n.label}
+                {uiText(n.label)}
               </button>
             ))}
           </div>
@@ -691,11 +691,7 @@ export function SettingsSections() {
                                 : undefined
                             }
                           >
-                            {opt === "recent"
-                              ? "最新順"
-                              : opt === "unread"
-                                ? "未読順"
-                                : "カスタム順"}
+                            {uiText(CHAT_SORT_LABELS[opt])}
                           </button>
                         ))}
                       </div>
@@ -957,9 +953,9 @@ function HandoffSection() {
     try {
       const result = await api.diagnostics.export(diagnosticMid);
       download("vyline-diagnostics.json", result.content, "application/json");
-      setMessage("サニタイズ済みログを出力しました");
+      setMessage(uiText("サニタイズ済みログを出力しました"));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "ログ出力に失敗しました");
+      setMessage(error instanceof Error ? error.message : uiText("ログ出力に失敗しました"));
     }
   };
   const loadLogs = async () => {
@@ -1076,8 +1072,11 @@ function HandoffSection() {
             title={uiText("ログをエクスポート")}
             desc={
               diagnosticStatus
-                ? `${diagnosticStatus.entryCount}件 · ${formatBytes(diagnosticStatus.sizeBytes)}。共有用にサニタイズ済みです`
-                : "共有用にサニタイズされたJSONを出力します"
+                ? uiText("{{total}}件 · {{size}}。共有用にサニタイズ済みです", {
+                    total: diagnosticStatus.entryCount.toLocaleString(getIntlLocale()),
+                    size: formatBytes(diagnosticStatus.sizeBytes),
+                  })
+                : uiText("共有用にサニタイズされたJSONを出力します")
             }
           >
             <button
@@ -1085,7 +1084,7 @@ function HandoffSection() {
               onClick={() => void exportLogs()}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs"
             >
-              {uiText("出力")}{" "}
+              {uiText("保存")}{" "}
             </button>
           </Row>
           <Row title={uiText("ログ一覧")} desc={uiText("共有前にサニタイズ済みの内容を確認します")}>
@@ -1145,7 +1144,7 @@ function HandoffSection() {
                 disabled={diagnosticLoading}
                 className="shrink-0 rounded-lg border border-[var(--vy-border)] px-3 py-1.5 disabled:opacity-50"
               >
-                {diagnosticLoading ? "確認中…" : "再試行"}
+                {diagnosticLoading ? uiText("確認中…") : uiText("再試行")}
               </button>
             )}
           </div>
@@ -1158,7 +1157,9 @@ function HandoffSection() {
             className="mt-3 rounded-lg px-3 py-2 text-xs font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-50"
             style={{ background: "var(--vy-accent)" }}
           >
-            {diagnosticSaving ? "有効化中…" : "状態を取得できないまま診断ログをONにする"}
+            {diagnosticSaving
+              ? uiText("有効化中…")
+              : uiText("状態を取得できないまま診断ログをONにする")}
           </button>
         )}
         {entries.length > 0 && (
@@ -1371,15 +1372,15 @@ function SubdevicesSection() {
               <div className="min-w-0">
                 <p className="truncate text-sm font-medium">
                   {device.name}
-                  {device.blocked ? "（ブロック中）" : ""}
+                  {device.blocked ? uiText("（ブロック中）") : ""}
                 </p>
                 <p className="text-xs text-[var(--vy-text-dim)]">
                   {device.platform} {uiText("·")}{" "}
                   {device.lastSeenAt
                     ? Date.now() - Date.parse(device.lastSeenAt) < 90_000
-                      ? "オンライン"
+                      ? uiText("オンライン")
                       : `オフライン · 最終接続 ${formatRelativeTime(Date.parse(device.lastSeenAt))}`
-                    : "オフライン"}
+                    : uiText("オフライン")}
                 </p>
               </div>
               <div className="flex shrink-0 gap-2">
@@ -1388,7 +1389,7 @@ function SubdevicesSection() {
                   onClick={() => void action(device.id, device.blocked ? "unblock" : "block")}
                   className="rounded-lg border border-[var(--vy-border)] px-2 py-1 text-xs"
                 >
-                  {device.blocked ? "解除" : "ブロック"}
+                  {device.blocked ? uiText("解除") : uiText("ブロック")}
                 </button>
                 <button
                   type="button"
@@ -1537,16 +1538,29 @@ type RestoreResult = Awaited<ReturnType<typeof api.line.restoreFromDesktop>>;
 type DesktopHistoryOptions = Awaited<ReturnType<typeof api.line.getDesktopHistoryOptions>>;
 type DesktopHistoryResult = Awaited<ReturnType<typeof api.line.restoreDesktopHistory>>;
 
+const SECONDS_PER_HOUR = 3600;
+const SECONDS_PER_DAY = 24 * SECONDS_PER_HOUR;
 const TOKEN_REFRESH_PRESETS = [
-  { seconds: 30 * 24 * 60 * 60, label: "30日前" },
-  { seconds: 7 * 24 * 60 * 60, label: "7日前" },
-  { seconds: 3 * 24 * 60 * 60, label: "3日前" },
-  { seconds: 24 * 60 * 60, label: "1日前" },
-  { seconds: 6 * 60 * 60, label: "6時間前" },
-  { seconds: 60 * 60, label: "1時間前" },
-] as const;
+  30 * SECONDS_PER_DAY,
+  7 * SECONDS_PER_DAY,
+  3 * SECONDS_PER_DAY,
+  SECONDS_PER_DAY,
+  6 * SECONDS_PER_HOUR,
+  SECONDS_PER_HOUR,
+];
 
-function formatTokenSchedule(timestamp: number): string {
+function formatTokenLead(seconds: number, locale: string): string {
+  const wholeDays = seconds >= SECONDS_PER_DAY && seconds % SECONDS_PER_DAY === 0;
+  const amount = Math.round(seconds / (wholeDays ? SECONDS_PER_DAY : SECONDS_PER_HOUR));
+  if (locale === "ja") return `${amount}${wholeDays ? "日" : "時間"}`;
+  return new Intl.NumberFormat(locale, {
+    style: "unit",
+    unit: wholeDays ? "day" : "hour",
+    unitDisplay: "long",
+  }).format(amount);
+}
+
+function formatTokenSchedule(timestamp: number, locale: string): string {
   const date = new Date(timestamp);
   const absolute = date.toLocaleString(getIntlLocale(), {
     month: "numeric",
@@ -1555,11 +1569,14 @@ function formatTokenSchedule(timestamp: number): string {
     minute: "2-digit",
   });
   const diff = timestamp - Date.now();
-  if (diff <= 0) return `${absolute}（次回の監視・起動時に更新）`;
+  if (diff <= 0) return uiText("{{time}}（次回の監視・起動時に更新）", { time: absolute });
   const days = Math.floor(diff / 86_400_000);
-  if (days >= 1) return `${absolute}（約${days}日後）`;
   const hours = Math.max(1, Math.floor(diff / 3_600_000));
-  return `${absolute}（約${hours}時間後）`;
+  const relative = new Intl.RelativeTimeFormat(locale).format(
+    days >= 1 ? days : hours,
+    days >= 1 ? "day" : "hour",
+  );
+  return uiText("{{time}}（約{{relative}}）", { time: absolute, relative });
 }
 
 function SessionSection() {
@@ -1596,17 +1613,20 @@ function SessionSection() {
       const res = await api.settings.saveAccount(mid, {
         auth: { ...accountSettings.auth, tokenRefreshLeadSeconds: seconds },
       });
-      if (!res.ok) throw new Error("設定の保存に失敗しました");
+      if (!res.ok) throw new Error(uiText("設定の保存に失敗しました"));
       setAccountSettings(res.settings);
-      setMessage("自動更新タイミングを保存しました");
+      setMessage(uiText("自動更新タイミングを保存しました"));
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : "設定の保存に失敗しました");
+      setMessage(error instanceof Error ? error.message : uiText("設定の保存に失敗しました"));
     } finally {
       setSaving(false);
     }
   };
 
-  const leadSeconds = accountSettings?.auth.tokenRefreshLeadSeconds ?? 7 * 24 * 60 * 60;
+  const language = getIntlLocale();
+  const locale = language === "en" || language === "th" ? language : "ja";
+  const leadSeconds = accountSettings?.auth.tokenRefreshLeadSeconds ?? 7 * SECONDS_PER_DAY;
+  const lead = formatTokenLead(leadSeconds, locale);
   const plannedRefreshAt = session?.tokenRefreshAt
     ? session.tokenRefreshAt - leadSeconds * 1000
     : null;
@@ -1625,30 +1645,32 @@ function SessionSection() {
             )}{" "}
           </p>
           <div className="mt-3 flex flex-wrap gap-2">
-            {TOKEN_REFRESH_PRESETS.map((preset) => (
+            {TOKEN_REFRESH_PRESETS.map((seconds) => (
               <button
-                key={preset.seconds}
+                key={seconds}
                 type="button"
                 disabled={saving || !accountSettings}
-                onClick={() => void saveRefreshLead(preset.seconds)}
+                onClick={() => void saveRefreshLead(seconds)}
                 className={cn(
                   "rounded-lg border px-3 py-1.5 text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                  leadSeconds === preset.seconds
+                  leadSeconds === seconds
                     ? "border-[var(--vy-accent)] bg-[color-mix(in_oklab,var(--vy-accent)_14%,transparent)] text-[var(--vy-accent)]"
                     : "border-[var(--vy-border)] hover:bg-[var(--vy-surface-2)]",
                 )}
               >
-                {preset.label}
+                {uiText("{{duration}}前", { duration: formatTokenLead(seconds, locale) })}
               </button>
             ))}
           </div>
         </div>
         <Row
           title={uiText("現在の設定")}
-          desc={`LINE の更新目安より ${TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? `${Math.round(leadSeconds / 3600)}時間前`} から更新を試します`}
+          desc={uiText("LINE の更新目安の{{duration}}前から更新を試します", { duration: lead })}
         >
           <span className="text-xs font-medium text-[var(--vy-text)]">
-            {TOKEN_REFRESH_PRESETS.find((p) => p.seconds === leadSeconds)?.label ?? "カスタム"}
+            {TOKEN_REFRESH_PRESETS.includes(leadSeconds)
+              ? uiText("{{duration}}前", { duration: lead })
+              : uiText("カスタム")}
           </span>
         </Row>
         <Row
@@ -1657,8 +1679,8 @@ function SessionSection() {
         >
           <span className="max-w-[260px] text-right text-xs text-[var(--vy-text-dim)]">
             {plannedRefreshAt
-              ? formatTokenSchedule(plannedRefreshAt)
-              : "更新時刻をまだ取得できていません"}
+              ? formatTokenSchedule(plannedRefreshAt, locale)
+              : uiText("更新時刻をまだ取得できていません")}
           </span>
         </Row>
         <Row
@@ -1666,7 +1688,7 @@ function SessionSection() {
           desc={uiText("端末認証が LINE 側で解除された場合のみ、再ログインが必要です")}
         >
           <span className="text-xs font-medium">
-            {session?.hasRefreshToken ? "自動更新できます" : "refresh token 未保存"}
+            {session?.hasRefreshToken ? uiText("自動更新できます") : uiText("refresh token 未保存")}
           </span>
         </Row>
       </Card>
@@ -1834,7 +1856,7 @@ function AdvancedSection() {
               disabled={syncing || (!accountId && !demoMode)}
               className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
             >
-              {syncing ? "同期中…" : "同期"}
+              {syncing ? uiText("同期中…") : uiText("同期")}
             </button>
           </div>
         </Row>
@@ -1853,7 +1875,7 @@ function AdvancedSection() {
             disabled={restoring || (!accountId && !demoMode)}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs font-medium transition-colors hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {restoring ? "復元中…" : "復元"}
+            {restoring ? uiText("復元中…") : uiText("復元")}
           </button>
         </Row>
         <div className="border-b border-[var(--vy-border)] py-4">
@@ -2196,7 +2218,7 @@ function AdvancedSection() {
             </div>
           ) : (
             <p className="text-[var(--vy-text)]">
-              {restoreResult.error ?? restoreResult.hint ?? "復元に失敗しました"}
+              {restoreResult.error ?? restoreResult.hint ?? uiText("復元に失敗しました")}
             </p>
           )}
         </div>
@@ -2281,7 +2303,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
             onClick={() => void create()}
             className="rounded-lg border border-[var(--vy-border)] px-3 py-1.5 text-xs disabled:opacity-50"
           >
-            {busy ? "処理中…" : "作成"}
+            {busy ? uiText("処理中…") : uiText("作成")}
           </button>
         </Row>
         <label className="flex items-center justify-between py-3 text-xs text-[var(--vy-text-dim)]">
@@ -2310,7 +2332,7 @@ function VylineBackupPanel({ accountId }: { accountId: string | null }) {
                   {backup.chatCount}
                   {uiText("チャット ·")} {backup.messageCount.toLocaleString(getIntlLocale())}
                   {uiText("件 ·")} {formatBytes(backup.sizeBytes)}
-                  {backup.includeMedia ? " · メディアあり" : ""}
+                  {backup.includeMedia ? ` ${uiText("· メディアあり")}` : ""}
                 </p>
               </div>
               <button
@@ -2396,7 +2418,7 @@ function StorageSection() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (success?: string) => {
     if (demoMode) {
       setStorage({
         ok: true,
@@ -2422,22 +2444,26 @@ function StorageSection() {
     if (!accountId) return;
     setLoading(true);
     setMsg(null);
+    const reportError = (error: string) => setMsg(success ? `${success} · ${error}` : error);
     try {
       const res = await api.line.getVylineStorageInfo(accountId);
-      if (res.ok) setStorage(res);
-      else setMsg(res.error ?? "取得に失敗しました");
+      if (res.ok) {
+        setStorage(res);
+        setMsg(success ?? null);
+      } else reportError(res.error ?? uiText("取得に失敗しました"));
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      reportError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
   };
 
   const clearType = async (
-    label: string,
+    labelKey: string,
     action: () => Promise<{ ok: boolean; removed?: number }>,
   ) => {
     if (!accountId && !demoMode) return;
+    const label = uiText(labelKey);
     if (
       !window.confirm(
         uiText("{{label}}を削除します。この操作は取り消せません。よろしいですか？", { label }),
@@ -2445,7 +2471,7 @@ function StorageSection() {
     )
       return;
     if (demoMode) {
-      setMsg(`${label}を削除しました（デモ）`);
+      setMsg(uiText("{{label}}を削除しました（デモ）", { label }));
       return;
     }
     setLoading(true);
@@ -2453,10 +2479,14 @@ function StorageSection() {
     try {
       const res = await action();
       if (res.ok) {
-        setMsg(`${label}を削除しました (${res.removed ?? 0} 件)`);
-        await load();
+        await load(
+          uiText("{{label}}を削除しました ({{total}} 件)", {
+            label,
+            total: new Intl.NumberFormat(getIntlLocale()).format(res.removed ?? 0),
+          }),
+        );
       } else {
-        setMsg("削除に失敗しました");
+        setMsg(uiText("削除に失敗しました"));
       }
     } catch (e) {
       setMsg(e instanceof Error ? e.message : String(e));
@@ -2543,7 +2573,7 @@ function StorageSection() {
                   className="flex min-w-0 items-center gap-2 text-[var(--vy-text-dim)]"
                 >
                   <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: s.color }} />
-                  <span className="min-w-0 truncate">{s.label}</span>
+                  <span className="min-w-0 truncate">{uiText(s.label)}</span>
                   <span className="ml-auto shrink-0 font-mono text-[var(--vy-text)]">
                     {formatBytes(s.size)}
                   </span>
@@ -2714,7 +2744,7 @@ function TypeCard({
                 />
               </div>
               <p className="shrink-0 text-xs text-[var(--vy-text-dim)]">
-                {hasData ? formatPercent(ratio * 100) : "データなし"}
+                {hasData ? formatPercent(ratio * 100) : uiText("データなし")}
               </p>
             </div>
             <p className="mt-1 text-xs text-[var(--vy-text-dim)]">{desc}</p>
@@ -2726,12 +2756,12 @@ function TypeCard({
           onClick={onDelete}
           disabled={disabled || !hasData}
           className={cn(
-            "inline-flex shrink-0 items-center justify-center gap-2 rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors sm:w-20",
+            "inline-flex min-w-0 items-center justify-center gap-2 break-words rounded-lg border border-[var(--vy-border)] px-3 py-2 text-xs font-medium transition-colors sm:min-w-20",
             "hover:bg-[var(--vy-surface-2)] disabled:cursor-not-allowed disabled:opacity-50",
           )}
         >
           <IconTrash size={14} />
-          {hasData ? "削除" : "データなし"}
+          {uiText(hasData ? "削除" : "データなし")}
         </button>
       </div>
     </div>
@@ -2846,8 +2876,12 @@ function InfoSection() {
               {!updateInfo.downloadUrl && (
                 <p className="mt-3 text-xs leading-relaxed text-[var(--vy-text-dim)]">
                   {updateInfo.isLocalInstall
-                    ? "この端末向けの公式配布ファイルはありません。リリースページで対応状況を確認してください。"
-                    : "リモートサーバーで実行中です。この画面からサーバーを更新しません。サーバー管理者がリリースページの手順で更新してください。"}
+                    ? uiText(
+                        "この端末向けの公式配布ファイルはありません。リリースページで対応状況を確認してください。",
+                      )
+                    : uiText(
+                        "リモートサーバーで実行中です。この画面からサーバーを更新しません。サーバー管理者がリリースページの手順で更新してください。",
+                      )}
                 </p>
               )}
               {updateInfo.body && (
@@ -2877,8 +2911,12 @@ function InfoSection() {
               )}
               <p className="mt-2 text-[0.65rem] leading-relaxed text-[var(--vy-text-dim)]">
                 {updateInfo.platform === "linux"
-                  ? "展開後に install.sh を実行してください。失敗時は旧パッケージに戻し、データ領域は維持します。"
-                  : "ダウンロード後にインストーラーをOS上で確認して実行してください。データ領域は更新対象に含まれません。"}
+                  ? uiText(
+                      "展開後に install.sh を実行してください。失敗時は旧パッケージに戻し、データ領域は維持します。",
+                    )
+                  : uiText(
+                      "ダウンロード後にインストーラーをOS上で確認して実行してください。データ領域は更新対象に含まれません。",
+                    )}
               </p>
             </div>
           )}
@@ -3237,7 +3275,7 @@ function PrivacySection() {
                   onClick={() => void loadBlocked()}
                   className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-xs disabled:opacity-50"
                 >
-                  {blockedLoading ? "取得中…" : "取得"}
+                  {blockedLoading ? uiText("取得中…") : uiText("取得")}
                 </button>
               </div>
               {blocked.length === 0 ? (
@@ -3271,7 +3309,7 @@ function PrivacySection() {
                         onClick={() => void handleUnblock(b.mid)}
                         className="shrink-0 rounded-lg border border-[var(--vy-border)] px-2.5 py-1 text-[0.65rem] font-medium text-[var(--vy-text-dim)] transition-colors hover:border-[var(--vy-danger)] hover:text-[var(--vy-danger)] disabled:opacity-40"
                       >
-                        {unblocking.has(b.mid) ? "…" : "解除"}
+                        {unblocking.has(b.mid) ? "…" : uiText("解除")}
                       </button>
                     </li>
                   ))}

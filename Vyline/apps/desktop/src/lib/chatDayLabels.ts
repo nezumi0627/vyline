@@ -1,4 +1,4 @@
-import { getIntlLocale, type ResolvedUiLanguage } from "../i18n/index.js";
+import { getIntlLocale, type ResolvedUiLanguage, tr as uiText } from "../i18n/index.js";
 
 export function formatChatListTime(
   ts: number,
@@ -37,6 +37,7 @@ export function formatChatListTime(
 export function createChatDayLabels(
   messages: readonly { createdAt: number }[],
   now = new Date(),
+  locale: ResolvedUiLanguage = getIntlLocale(),
 ): string[] {
   const today = now.getFullYear() * 10_000 + (now.getMonth() + 1) * 100 + now.getDate();
   const yesterdayDate = new Date(now);
@@ -46,20 +47,28 @@ export function createChatDayLabels(
     (yesterdayDate.getMonth() + 1) * 100 +
     yesterdayDate.getDate();
   const labels = new Map<number, string>();
+  const relative = new Intl.RelativeTimeFormat(locale, { numeric: "auto" });
+  const sameYear = new Intl.DateTimeFormat(locale, { month: "long", day: "numeric" });
+  const otherYear = new Intl.DateTimeFormat(locale, {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
+  });
 
   return messages.map((message) => {
     const date = new Date(message.createdAt);
+    if (!Number.isFinite(date.getTime())) return uiText("日付不明");
     const key = date.getFullYear() * 10_000 + (date.getMonth() + 1) * 100 + date.getDate();
     const cached = labels.get(key);
     if (cached) return cached;
     const label =
       key === today
-        ? "今日"
+        ? relative.format(0, "day")
         : key === yesterday
-          ? "昨日"
+          ? relative.format(-1, "day")
           : date.getFullYear() === now.getFullYear()
-            ? `${date.getMonth() + 1}月${date.getDate()}日`
-            : `${date.getFullYear()}年${date.getMonth() + 1}月${date.getDate()}日`;
+            ? sameYear.format(date)
+            : otherYear.format(date);
     labels.set(key, label);
     return label;
   });

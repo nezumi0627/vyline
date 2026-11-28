@@ -1,4 +1,5 @@
 import { create } from "zustand";
+import { tr as uiText } from "../i18n/index.js";
 import { persist } from "zustand/middleware";
 import { indexedDbPersistStorage } from "./indexedDbStorage.js";
 import { api, type Announcement } from "../api/client.js";
@@ -3847,10 +3848,10 @@ function initial(name: string): string {
 
 export function displayName(chat: Chat, streamerMode: boolean): string {
   if (streamerMode && useStore.getState().settings.streamerMaskNames)
-    return chat.type === "group" ? "グループ" : "友だち";
+    return uiText(chat.type === "group" ? "グループ" : "友だち");
   if (chat.isSelf) return "Keepメモ";
   const n = chat.localName || chat.name;
-  if (!n || looksLikeMid(n)) return chat.type === "group" ? "グループ" : "友だち";
+  if (!n || looksLikeMid(n)) return uiText(chat.type === "group" ? "グループ" : "友だち");
   return n;
 }
 
