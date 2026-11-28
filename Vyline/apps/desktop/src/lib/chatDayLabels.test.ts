@@ -47,3 +47,14 @@ test("formats chat list timestamp for today, yesterday, within 7 days, and older
   expect(formatChatListTime(new Date(2026, 9, 20, 10, 0).getTime(), now, "ja")).toBe("10/20");
   expect(formatChatListTime(new Date(2025, 9, 20, 10, 0).getTime(), now, "ja")).toBe("2025/10/20");
 });
+
+test("keeps the timeline aligned when a restored message has an invalid date", () => {
+  const now = new Date(2026, 4, 20, 12);
+  expect(
+    createChatDayLabels(
+      [{ createdAt: +now }, { createdAt: Number.MAX_SAFE_INTEGER }, { createdAt: +now }],
+      now,
+      "ja",
+    ),
+  ).toEqual(["今日", "日付不明", "今日"]);
+});

@@ -1562,7 +1562,7 @@ function formatTokenLead(seconds: number, locale: string): string {
 
 function formatTokenSchedule(timestamp: number, locale: string): string {
   const date = new Date(timestamp);
-  const absolute = date.toLocaleString(locale, {
+  const absolute = date.toLocaleString(getIntlLocale(), {
     month: "numeric",
     day: "numeric",
     hour: "2-digit",
@@ -2418,7 +2418,7 @@ function StorageSection() {
   const [loading, setLoading] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
-  const load = async () => {
+  const load = async (success?: string) => {
     if (demoMode) {
       setStorage({
         ok: true,
@@ -2444,12 +2444,15 @@ function StorageSection() {
     if (!accountId) return;
     setLoading(true);
     setMsg(null);
+    const reportError = (error: string) => setMsg(success ? `${success} · ${error}` : error);
     try {
       const res = await api.line.getVylineStorageInfo(accountId);
-      if (res.ok) setStorage(res);
-      else setMsg(res.error ?? uiText("取得に失敗しました"));
+      if (res.ok) {
+        setStorage(res);
+        setMsg(success ?? null);
+      } else reportError(res.error ?? uiText("取得に失敗しました"));
     } catch (e) {
-      setMsg(e instanceof Error ? e.message : String(e));
+      reportError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
@@ -2476,8 +2479,7 @@ function StorageSection() {
     try {
       const res = await action();
       if (res.ok) {
-        await load();
-        setMsg(
+        await load(
           uiText("{{label}}を削除しました ({{total}} 件)", {
             label,
             total: new Intl.NumberFormat(getIntlLocale()).format(res.removed ?? 0),

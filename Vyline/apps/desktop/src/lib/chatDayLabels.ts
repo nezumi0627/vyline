@@ -1,4 +1,4 @@
-import { getIntlLocale, type ResolvedUiLanguage } from "../i18n/index.js";
+import { getIntlLocale, type ResolvedUiLanguage, tr as uiText } from "../i18n/index.js";
 
 export function formatChatListTime(
   ts: number,
@@ -57,6 +57,7 @@ export function createChatDayLabels(
 
   return messages.map((message) => {
     const date = new Date(message.createdAt);
+    if (!Number.isFinite(date.getTime())) return uiText("日付不明");
     const key = date.getFullYear() * 10_000 + (date.getMonth() + 1) * 100 + date.getDate();
     const cached = labels.get(key);
     if (cached) return cached;

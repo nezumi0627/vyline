@@ -966,5 +966,13 @@
   "非表示を解除": "Unhide",
   "非表示にする": "Hide",
   "GID をコピー": "Copy GID",
-  "MID をコピー": "Copy MID"
+  "MID をコピー": "Copy MID",
+  "日付不明": "Unknown date",
+  "自然な文章に校正してください": "Please make the text sound natural.",
+  "実行": "Run",
+  "Agent I が処理中…": "Agent I is working…",
+  "指示を入力して実行してください": "Enter an instruction and select Run.",
+  "回答を返しませんでした": "The AI did not return a response.",
+  "AI機能は設定で無効になっています": "AI is turned off in Settings.",
+  "ログインが必要です": "Sign-in required"
 }
