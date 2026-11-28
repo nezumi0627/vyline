@@ -974,5 +974,7 @@
   "指示を入力して実行してください": "Enter an instruction and select Run.",
   "回答を返しませんでした": "The AI did not return a response.",
   "AI機能は設定で無効になっています": "AI is turned off in Settings.",
-  "ログインが必要です": "Sign-in required"
+  "ログインが必要です": "Sign-in required",
+  "既読を送信": "Send read receipt",
+  "デモでは変更できません": "Cannot change this in demo mode."
 }

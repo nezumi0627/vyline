@@ -100,6 +100,7 @@ export function BetaSection() {
 }
 
 function SquareBetaToggle({ accountId }: { accountId: string | null }) {
+  const demoMode = useStore((s) => s.demoMode);
   const [enabled, setEnabled] = useState(false);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -116,6 +117,7 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
       .then((status) => {
         if (
           status.enabled &&
+          !demoMode &&
           !isBetaFeatureConsentActive(betaFeatureIdForSetting("betaOpenChatSquare"), "2")
         ) {
           return api.line.squareDisable(accountId).then(() => {
@@ -141,6 +143,10 @@ function SquareBetaToggle({ accountId }: { accountId: string | null }) {
 
   const change = async (next: boolean) => {
     if (!accountId || busy || next === enabled) return;
+    if (demoMode) {
+      setMessage(uiText("デモでは変更できません"));
+      return;
+    }
     setBusy(true);
     setMessage("");
     try {

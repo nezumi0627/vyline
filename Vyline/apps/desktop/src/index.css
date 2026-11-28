@@ -2,21 +2,6 @@
 @tailwind components;
 @tailwind utilities;
 
-.pr-demo-stage {
-  padding: 18px;
-  background: radial-gradient(
-      circle at 18% 12%,
-      color-mix(in oklab, var(--vy-accent) 34%, transparent),
-      transparent 34%
-    ), radial-gradient(circle at 86% 88%, rgba(34, 197, 94, 0.2), transparent 30%),
-    linear-gradient(145deg, #111827, #0f172a 52%, #172554);
-}
-
-.pr-demo-shell > * {
-  height: 100%;
-  min-height: 0;
-}
-
 /*
   VyTheme (Telegram Night default). ThemeApplier が実行時に上書き。
   Tailwind v3 — @tailwind base/components/utilities

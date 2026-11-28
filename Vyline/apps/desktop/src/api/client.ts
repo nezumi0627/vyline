@@ -543,6 +543,7 @@ export const api = {
         ok: boolean;
         stale?: boolean;
         roomId: string;
+        mySquareMemberMid?: string | null;
         messages: Array<{
           message?: {
             id: string;

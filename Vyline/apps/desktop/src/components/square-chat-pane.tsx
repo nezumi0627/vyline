@@ -1,9 +1,26 @@
 import { tr as uiText } from "@/i18n";
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { api } from "@/api/client";
-import { useStore } from "@/lib/store";
+import { formatTime, useStore, type Member } from "@/lib/store";
+import { mapMember } from "@/lib/mappers";
+import { createChatDayLabels } from "@/lib/chatDayLabels";
+import { cn } from "@/lib/utils";
+import { copyText } from "@/utils/clipboard";
 import { Avatar } from "@/components/vy-ui";
-import { IconChevron, IconSticker } from "@/components/icons";
+import {
+  IconArrowLeft,
+  IconChat,
+  IconCheck,
+  IconCopy,
+  IconHeart,
+  IconMore,
+  IconPin,
+  IconPlus,
+  IconSend,
+  IconSmile,
+  IconUsers,
+} from "@/components/icons";
+import { MessageContextMenu, type MenuItem } from "@/components/message-context-menu";
 import { getSquareStickerUrl } from "@/lib/square-message";
 
 const StickerEmojiPanel = lazy(async () => ({
@@ -27,8 +44,26 @@ type SquareRoomMember = {
   squareMemberMid: string;
   displayName: string;
   profileImageObsHash?: string;
+  thumbnailUrl?: string;
+  pictureUrl?: string;
   role: string | number;
 };
+
+/** 通常チャットと同じく、バックエンドが返した http(s) URL のみアバターに使う。
+ *  profileImageObsHash から URL を推測しない（スキーム未検証のため）。 */
+function squareMemberAvatarUrl(member: SquareRoomMember): string | undefined {
+  const candidate = member.thumbnailUrl ?? member.pictureUrl;
+  return candidate && /^https?:\/\//.test(candidate) ? candidate : undefined;
+}
+
+const SQUARE_REACTIONS = [
+  ["NICE", "👍", "いいね"],
+  ["LOVE", "❤️", "大好き"],
+  ["FUN", "😂", "面白い"],
+  ["AMAZING", "😮", "すごい"],
+  ["SAD", "😢", "悲しい"],
+  ["OMG", "😱", "びっくり"],
+] as const;
 
 function getSquareMediaKind(
   value: string | number | undefined,
@@ -127,11 +162,15 @@ export function SquareChatPane({
   onBack: () => void;
 }) {
   const accountId = useStore((state) => state.accountId);
+  const settings = useStore((state) => state.settings);
   const [messages, setMessages] = useState<SquareMessage[]>([]);
+  const [myMid, setMyMid] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [messageActionId, setMessageActionId] = useState<string | null>(null);
+  const [menu, setMenu] = useState<{ x: number; y: number; messageId: string } | null>(null);
+  const [plusMenu, setPlusMenu] = useState<{ x: number; y: number } | null>(null);
   const [stickerPickerOpen, setStickerPickerOpen] = useState(false);
   const [notice, setNotice] = useState("");
   const [threadMid, setThreadMid] = useState<string | null>(null);
@@ -161,6 +200,7 @@ export function SquareChatPane({
           threadMid ?? undefined,
         );
         setMessages(result.messages as SquareMessage[]);
+        setMyMid(result.mySquareMemberMid ?? null);
         setNotice(result.stale ? uiText("接続できないため保存済みメッセージを表示しています") : "");
       } catch (error) {
         setNotice(
@@ -225,7 +265,11 @@ export function SquareChatPane({
       setMembersLoading(true);
       try {
         const result = await api.line.squareMembers(accountId, room.id, cursor);
-        setMembers((current) => (cursor ? [...current, ...result.members] : result.members));
+        setMembers((current) => {
+          if (!cursor) return result.members;
+          const seen = new Set(current.map((member) => member.squareMemberMid));
+          return [...current, ...result.members.filter((m) => !seen.has(m.squareMemberMid))];
+        });
         setMemberCursor(result.continuationToken);
       } catch {
         setNotice(uiText("メンバー一覧を取得できませんでした"));
@@ -241,6 +285,130 @@ export function SquareChatPane({
     setMemberCursor(null);
     setMembersOpen(false);
   }, [room.id]);
+
+  // 送信者名・アバター表示用に、開いた時点でメンバー一覧を取り込む（最大5ページ）
+  useEffect(() => {
+    if (!accountId) return;
+    let cancelled = false;
+    void (async () => {
+      let cursor: string | undefined;
+      for (let page = 0; page < 5 && !cancelled; page += 1) {
+        try {
+          const result = await api.line.squareMembers(accountId, room.id, cursor);
+          if (cancelled) return;
+          setMembers((current) => {
+            const seen = new Set(current.map((member) => member.squareMemberMid));
+            return [...current, ...result.members.filter((m) => !seen.has(m.squareMemberMid))];
+          });
+          setMemberCursor(result.continuationToken);
+          cursor = result.continuationToken ?? undefined;
+          if (!cursor) break;
+        } catch {
+          break;
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [accountId, room.id]);
+
+  const memberByMid = useMemo(() => {
+    const map = new Map<string, Member>();
+    for (const member of members) {
+      map.set(
+        member.squareMemberMid,
+        mapMember(member.squareMemberMid, member.displayName, squareMemberAvatarUrl(member)),
+      );
+    }
+    return map;
+  }, [members]);
+
+  const dayLabels = useMemo(
+    () =>
+      createChatDayLabels(
+        messages.map((item) => ({ createdAt: Number(item.message?.createdTime ?? 0) })),
+      ),
+    [messages],
+  );
+
+  const openMenu = (x: number, y: number, messageId: string) => setMenu({ x, y, messageId });
+  const longPressRef = useRef<{ timer: number; x: number; y: number } | null>(null);
+  const pressHandlers = (messageId: string) => ({
+    onContextMenu: (event: React.MouseEvent) => {
+      event.preventDefault();
+      openMenu(event.clientX, event.clientY, messageId);
+    },
+    onTouchStart: (event: React.TouchEvent) => {
+      const touch = event.touches[0];
+      if (!touch) return;
+      const { clientX, clientY } = touch;
+      longPressRef.current = {
+        x: clientX,
+        y: clientY,
+        timer: window.setTimeout(() => openMenu(clientX, clientY, messageId), 500),
+      };
+    },
+    onTouchMove: (event: React.TouchEvent) => {
+      const pending = longPressRef.current;
+      const touch = event.touches[0];
+      if (!pending || !touch) return;
+      if (Math.hypot(touch.clientX - pending.x, touch.clientY - pending.y) > 8) {
+        window.clearTimeout(pending.timer);
+        longPressRef.current = null;
+      }
+    },
+    onTouchEnd: () => {
+      if (longPressRef.current) {
+        window.clearTimeout(longPressRef.current.timer);
+        longPressRef.current = null;
+      }
+    },
+  });
+
+  const menuItemsFor = (item: SquareMessage): MenuItem[] => {
+    const message = item.message;
+    if (!message?.id) return [];
+    const items: MenuItem[] = [];
+    if (message.text?.trim()) {
+      items.push({
+        label: uiText("コピー"),
+        icon: <IconCopy size={16} />,
+        onClick: () => void copyText(message.text ?? ""),
+      });
+    }
+    items.push({
+      label: uiText("既読を送信"),
+      icon: <IconCheck size={16} />,
+      onClick: () => void markRead(message.id),
+    });
+    items.push({
+      label: uiText("リアクション"),
+      icon: <IconHeart size={16} />,
+      children: SQUARE_REACTIONS.map(([type, glyph, label]) => ({
+        label: uiText(label),
+        icon: <span aria-hidden="true">{glyph}</span>,
+        onClick: () => void react(message.id, type),
+      })),
+    });
+    if (!threadMid && message.text?.trim()) {
+      items.push({
+        label: uiText("アナウンスに設定"),
+        icon: <IconPin size={16} />,
+        onClick: () => void createAnnouncement(message.id),
+      });
+    }
+    if (!threadMid && item.threadInfo?.threadRoot && item.threadInfo.chatThreadMid) {
+      items.push({
+        label: uiText("スレッドを開く"),
+        icon: <IconChat size={16} />,
+        onClick: () => setThreadMid(item.threadInfo?.chatThreadMid ?? null),
+      });
+    }
+    return items;
+  };
+
+  const menuMessage = menu ? messages.find((item) => item.message?.id === menu.messageId) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -427,37 +595,36 @@ export function SquareChatPane({
 
   return (
     <section className="flex h-full min-w-0 flex-1 flex-col bg-[var(--vy-chat-bg)]">
-      <header className="flex h-[68px] shrink-0 items-center gap-3 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-4 pl-14">
+      <header className="vy-chat-header flex min-h-16 shrink-0 items-center gap-2 border-b border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2.5 md:gap-3 md:pl-12 md:pr-4">
         <button
           type="button"
-          className="mr-1 rounded-lg p-2 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] md:hidden"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-text-dim)] transition-colors hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] hover:text-[var(--vy-text)] focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none md:hidden"
           onClick={onBack}
           aria-label={uiText("戻る")}
         >
-          <IconChevron size={18} />
+          <IconArrowLeft size={20} />
         </button>
+        <div className="flex min-w-0 flex-1 items-center gap-3 text-left">
+          <Avatar glyph={(room.name ?? "O").slice(0, 1)} color="#635bff" size={40} />
+          <div className="min-w-0 flex-1">
+            <p className="vy-chat-header-title truncate font-semibold text-[var(--vy-text)]">
+              {room.name || uiText("名前未設定のルーム")}
+            </p>
+            <p className="truncate text-xs text-[var(--vy-text-dim)]">
+              {threadMid ? uiText("スレッド") : squareName || uiText("オープンチャット")} ·{" "}
+              {uiText("OpenChat")}
+            </p>
+          </div>
+        </div>
         {threadMid && (
           <button
             type="button"
-            className="rounded-lg px-2 py-1 text-xs text-[var(--vy-accent)] hover:bg-[var(--vy-surface-2)]"
+            className="rounded-full border border-[var(--vy-border)] px-3 py-1 text-xs text-[var(--vy-accent)] hover:bg-[var(--vy-surface-2)]"
             onClick={() => setThreadMid(null)}
           >
             {uiText("スレッドから戻る")}
           </button>
         )}
-        <Avatar glyph={(room.name ?? "O").slice(0, 1)} color="#635bff" size={40} />
-        <div className="min-w-0 flex-1">
-          <p className="truncate text-sm font-semibold text-[var(--vy-text)]">
-            {room.name || uiText("名前未設定のルーム")}
-          </p>
-          <p className="truncate text-xs text-[var(--vy-text-dim)]">
-            {threadMid ? uiText("スレッド") : squareName || uiText("オープンチャット")} ·{" "}
-            {uiText("OpenChat")}
-          </p>
-        </div>
-        <span className="rounded-full border border-indigo-400/30 bg-indigo-500/10 px-2 py-1 text-[10px] font-semibold text-indigo-300">
-          BETA
-        </span>
         {threadMid && threadMembershipState !== "loading" && !isThreadJoined && (
           <button
             type="button"
@@ -468,32 +635,32 @@ export function SquareChatPane({
             {joiningThread ? uiText("参加中…") : uiText("スレッドに参加")}
           </button>
         )}
-        <button
-          type="button"
+        <HeaderButton
+          label={uiText("メンバー")}
+          active={membersOpen}
           onClick={() => {
             const next = !membersOpen;
             setMembersOpen(next);
             if (next && members.length === 0) void loadMembers();
           }}
-          className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
         >
-          {uiText("メンバー")}
-        </button>
-        <button
-          type="button"
+          <IconUsers size={20} />
+        </HeaderButton>
+        <HeaderButton
+          label={uiText("グループ設定")}
+          active={roomToolsOpen}
           onClick={() => {
             const next = !roomToolsOpen;
             setRoomToolsOpen(next);
             if (next && announcements.length === 0) void loadAnnouncements();
           }}
-          className="rounded-lg border border-[var(--vy-border)] px-2.5 py-1.5 text-xs text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)]"
         >
-          {uiText("グループ設定")}
-        </button>
+          <IconMore size={20} />
+        </HeaderButton>
       </header>
 
-      <div className="vy-scroll flex-1 overflow-y-auto px-4 py-5">
-        <div className="mx-auto flex w-full max-w-4xl flex-col gap-3">
+      <div className="vy-scroll vy-chat-surface vy-chat-messages [overflow-anchor:none] flex-1 overflow-y-auto px-3 py-4 md:px-6">
+        <div className="mx-auto flex w-full max-w-3xl flex-col">
           {membersOpen && (
             <section className="mb-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-3">
               <h2 className="mb-2 text-xs font-semibold text-[var(--vy-text-dim)]">
@@ -612,105 +779,130 @@ export function SquareChatPane({
               {uiText("取得できるメッセージがありません")}
             </p>
           ) : null}
-          {messages.map((item) => {
+          {messages.map((item, index) => {
             const message = item.message;
             if (!message?.id) return null;
-            const fromMe = message.from === "me";
+            const fromMe = myMid ? message.from === myMid : message.from === "me";
             const timestamp = Number(message.createdTime ?? 0);
             const mediaKind = getSquareMediaKind(message.contentType);
             const stickerUrl = getSquareStickerUrl(message);
+            const author = message.from
+              ? (memberByMid.get(message.from) ?? mapMember(message.from))
+              : mapMember(message.id);
+            const previous = index > 0 ? messages[index - 1] : null;
+            const previousFromMe = previous?.message?.from
+              ? myMid
+                ? previous.message.from === myMid
+                : previous.message.from === "me"
+              : false;
+            const dayLabel = dayLabels[index];
+            const showDaySeparator = index === 0 || dayLabel !== dayLabels[index - 1];
+            const grouped =
+              !showDaySeparator &&
+              previous?.message?.from === message.from &&
+              previousFromMe === fromMe;
             return (
-              <article
-                key={`${room.id}:${message.id}`}
-                className={`flex ${fromMe ? "justify-end" : "justify-start"}`}
-              >
+              <div key={`${room.id}:${message.id}`} className="contents">
+                {showDaySeparator && timestamp > 0 && (
+                  <div className="my-3 flex justify-center">
+                    <span className="rounded-full bg-[color-mix(in_oklab,var(--vy-text)_12%,transparent)] px-3 py-1 text-[0.7rem] font-medium text-[var(--vy-text)] backdrop-blur">
+                      {dayLabel}
+                    </span>
+                  </div>
+                )}
                 <div
-                  className={`max-w-[min(78%,640px)] rounded-2xl px-3.5 py-2.5 ${fromMe ? "bg-[var(--vy-accent)] text-[var(--vy-accent-contrast)]" : "bg-[var(--vy-surface-2)] text-[var(--vy-text)]"}`}
+                  className={cn(
+                    "flex w-full gap-2 px-1",
+                    grouped ? "mt-0.5 vy-msg-stack-gap-tight" : "mt-3 vy-msg-stack-gap",
+                    fromMe ? "flex-row-reverse" : "flex-row",
+                  )}
                 >
-                  {item.threadInfo?.chatThreadMid &&
-                    (item.threadInfo.threadRoot && !threadMid ? (
-                      <button
-                        type="button"
-                        onClick={() => setThreadMid(item.threadInfo?.chatThreadMid ?? null)}
-                        className="mb-1 block text-left text-[10px] text-[var(--vy-accent)] underline-offset-2 hover:underline"
-                      >
-                        {uiText("スレッドを開く")}
-                      </button>
-                    ) : (
-                      <p className="mb-1 text-[10px] opacity-70">{uiText("スレッド返信")}</p>
-                    ))}
-                  {message.text ? (
-                    <p className="whitespace-pre-wrap break-words text-sm">{message.text}</p>
-                  ) : stickerUrl ? (
-                    <img
-                      src={stickerUrl}
-                      alt={uiText("スタンプ")}
-                      loading="lazy"
-                      referrerPolicy="no-referrer"
-                      className="max-h-40 max-w-40 object-contain"
-                    />
-                  ) : !mediaKind ? (
-                    <p className="whitespace-pre-wrap break-words text-sm">
-                      {uiText("テキスト以外のメッセージ（表示未対応）")}
-                    </p>
-                  ) : null}
-                  {mediaKind && accountId && (
-                    <SquareMediaPreview
-                      accountId={accountId}
-                      roomId={room.id}
-                      messageId={message.id}
-                      kind={mediaKind}
-                    />
+                  {!fromMe && (
+                    <div className="w-8 shrink-0 self-end">
+                      {!grouped && (
+                        <Avatar
+                          glyph={author.avatar}
+                          color={author.color}
+                          imageUrl={author.avatarUrl}
+                          size={32}
+                        />
+                      )}
+                    </div>
                   )}
-                  {timestamp > 0 && (
-                    <time className="mt-1 block text-right text-[10px] opacity-60">
-                      {new Date(timestamp).toLocaleTimeString()}
-                    </time>
-                  )}
-                  <div className="mt-1 flex items-center gap-1 border-t border-current/10 pt-1 opacity-80">
-                    {!threadMid && message.text?.trim() && (
-                      <button
-                        type="button"
-                        disabled={messageActionId !== null}
-                        onClick={() => void createAnnouncement(message.id)}
-                        className="rounded px-1.5 py-0.5 text-[10px] hover:bg-black/10 disabled:opacity-40"
-                      >
-                        {uiText("アナウンスに設定")}
-                      </button>
+                  <div
+                    className={cn(
+                      "flex min-w-0 max-w-[78%] flex-col md:max-w-[72%]",
+                      fromMe ? "items-end" : "items-start",
                     )}
-                    <button
-                      type="button"
-                      disabled={messageActionId !== null}
-                      onClick={() => void markRead(message.id)}
-                      className="rounded px-1.5 py-0.5 text-[10px] hover:bg-black/10 disabled:opacity-40"
-                    >
-                      {messageActionId === message.id ? uiText("処理中…") : uiText("既読")}
-                    </button>
-                    {(
-                      [
-                        ["NICE", "👍", "いいね"],
-                        ["LOVE", "❤️", "大好き"],
-                        ["FUN", "😂", "面白い"],
-                        ["AMAZING", "😮", "すごい"],
-                        ["SAD", "😢", "悲しい"],
-                        ["OMG", "😱", "びっくり"],
-                      ] as const
-                    ).map(([type, glyph, label]) => (
-                      <button
-                        key={type}
-                        type="button"
-                        aria-label={uiText(label)}
-                        title={uiText(label)}
-                        disabled={messageActionId !== null}
-                        onClick={() => void react(message.id, type)}
-                        className="rounded px-1 py-0.5 text-sm hover:bg-black/10 disabled:opacity-40"
+                  >
+                    {!fromMe && !grouped && (
+                      <span
+                        className="mb-1 px-1 text-xs font-semibold"
+                        style={{ color: author.color }}
                       >
-                        {glyph}
-                      </button>
-                    ))}
+                        {author.name}
+                      </span>
+                    )}
+                    <div
+                      {...pressHandlers(message.id)}
+                      className="vy-msg-enter relative select-none rounded-msg text-[length:inherit] leading-relaxed vy-bubble-pad shadow-sm"
+                      style={{
+                        background: fromMe ? "var(--vy-msg-out)" : "var(--vy-msg-in)",
+                        color: fromMe ? "var(--vy-msg-out-text)" : "var(--vy-msg-in-text)",
+                        borderTopRightRadius: fromMe && settings.bubbleTail ? 6 : undefined,
+                        borderTopLeftRadius: !fromMe && settings.bubbleTail ? 6 : undefined,
+                      }}
+                    >
+                      {item.threadInfo?.chatThreadMid &&
+                        (item.threadInfo.threadRoot && !threadMid ? (
+                          <button
+                            type="button"
+                            onClick={() => setThreadMid(item.threadInfo?.chatThreadMid ?? null)}
+                            className="mb-1 block text-left text-[10px] text-[var(--vy-accent)] underline-offset-2 hover:underline"
+                          >
+                            {uiText("スレッドを開く")}
+                          </button>
+                        ) : (
+                          <p className="mb-1 text-[10px] opacity-70">{uiText("スレッド返信")}</p>
+                        ))}
+                      {message.text ? (
+                        <p className="vy-msg-text whitespace-pre-wrap break-words">
+                          {message.text}
+                        </p>
+                      ) : stickerUrl ? (
+                        <img
+                          src={stickerUrl}
+                          alt={uiText("スタンプ")}
+                          loading="lazy"
+                          referrerPolicy="no-referrer"
+                          className="h-32 w-32 object-contain"
+                        />
+                      ) : !mediaKind ? (
+                        <p className="vy-msg-text whitespace-pre-wrap break-words">
+                          {uiText("テキスト以外のメッセージ（表示未対応）")}
+                        </p>
+                      ) : null}
+                      {mediaKind && accountId && (
+                        <SquareMediaPreview
+                          accountId={accountId}
+                          roomId={room.id}
+                          messageId={message.id}
+                          kind={mediaKind}
+                        />
+                      )}
+                    </div>
+                    <div
+                      className={cn(
+                        "mt-1 flex items-center gap-1.5 px-1 text-[0.7rem] text-[var(--vy-text-dim)]",
+                        fromMe && "flex-row-reverse",
+                      )}
+                    >
+                      {timestamp > 0 && <time>{formatTime(timestamp)}</time>}
+                      {fromMe && <span className="opacity-60">{uiText("送信済み")}</span>}
+                    </div>
                   </div>
                 </div>
-              </article>
+              </div>
             );
           })}
           <div ref={endRef} />
@@ -723,7 +915,7 @@ export function SquareChatPane({
         </p>
       )}
       <form
-        className="relative border-t border-[var(--vy-border)] p-3"
+        className="relative border-t border-[var(--vy-border)] bg-[var(--vy-surface)] px-3 py-2 md:px-6 md:py-3"
         onSubmit={(event) => {
           event.preventDefault();
           void send();
@@ -748,40 +940,147 @@ export function SquareChatPane({
             />
           </Suspense>
         )}
-        <div className="mx-auto flex max-w-4xl items-end gap-2 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface)] p-2">
+        <div className="vy-input-row mx-auto flex max-w-3xl items-end gap-1 rounded-2xl border border-[var(--vy-border)] bg-[var(--vy-surface-2)] px-2 py-1">
+          {!threadMid && (
+            <IconButton
+              label={uiText("メニューを開く")}
+              active={Boolean(plusMenu)}
+              onClick={(event) =>
+                setPlusMenu((open) => (open ? null : { x: event.clientX, y: event.clientY - 8 }))
+              }
+            >
+              <IconPlus size={20} />
+            </IconButton>
+          )}
+          {!threadMid && (
+            <IconButton
+              label={uiText("スタンプ")}
+              active={stickerPickerOpen}
+              onClick={() => setStickerPickerOpen((open) => !open)}
+            >
+              <IconSmile size={20} />
+            </IconButton>
+          )}
           <textarea
             value={text}
             onChange={(event) => {
               if (event.target.value !== text) operationIdRef.current = null;
               setText(event.target.value);
             }}
+            onKeyDown={(event) => {
+              if (
+                event.key === "Enter" &&
+                !event.shiftKey &&
+                settings.enterToSend &&
+                !event.nativeEvent.isComposing
+              ) {
+                event.preventDefault();
+                void send();
+              }
+            }}
             rows={1}
             maxLength={5000}
             disabled={busy}
-            placeholder={uiText("OpenChatにメッセージを送信")}
-            className="max-h-32 min-h-10 flex-1 resize-y bg-transparent px-2 py-2 text-sm text-[var(--vy-text)] outline-none"
+            placeholder={text ? undefined : uiText("メッセージを入力")}
+            aria-label={uiText("メッセージを入力")}
+            className="vy-scroll vy-input-text max-h-40 min-w-0 flex-1 resize-none bg-transparent py-1.5 leading-relaxed text-[var(--vy-text)] outline-none placeholder:text-[var(--vy-text-dim)]"
           />
-          {!threadMid && (
-            <button
-              type="button"
-              aria-label={uiText("スタンプ")}
-              title={uiText("スタンプ")}
-              disabled={busy}
-              onClick={() => setStickerPickerOpen((open) => !open)}
-              className="rounded-xl p-2 text-[var(--vy-text-dim)] hover:bg-[var(--vy-surface-2)] disabled:opacity-40"
-            >
-              <IconSticker size={20} />
-            </button>
-          )}
           <button
             type="submit"
+            aria-label={uiText("送信")}
             disabled={busy || !text.trim() || (Boolean(threadMid) && !isThreadJoined)}
-            className="rounded-xl bg-[var(--vy-accent)] px-4 py-2 text-sm font-semibold text-[var(--vy-accent-contrast)] disabled:opacity-40"
+            className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-[var(--vy-accent-contrast)] transition-transform hover:scale-105 active:scale-95 disabled:opacity-50 disabled:hover:scale-100 focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none"
+            style={{ background: "var(--vy-accent)" }}
           >
-            {busy ? uiText("送信中…") : uiText("送信")}
+            <IconSend size={18} />
           </button>
         </div>
       </form>
+      {plusMenu && (
+        <MessageContextMenu
+          x={plusMenu.x}
+          y={plusMenu.y}
+          items={[
+            {
+              label: uiText("スタンプ"),
+              icon: <IconSmile size={16} />,
+              onClick: () => setStickerPickerOpen(true),
+            },
+            {
+              label: uiText("招待リンクをコピー"),
+              icon: <IconCopy size={16} />,
+              onClick: () => void copyInvitation(),
+            },
+          ]}
+          onClose={() => setPlusMenu(null)}
+        />
+      )}
+      {menu && menuMessage && (
+        <MessageContextMenu
+          x={menu.x}
+          y={menu.y}
+          items={menuItemsFor(menuMessage)}
+          onClose={() => setMenu(null)}
+        />
+      )}
     </section>
+  );
+}
+
+function HeaderButton({
+  children,
+  label,
+  onClick,
+  active,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick?: () => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+        active
+          ? "bg-[color-mix(in_oklab,var(--vy-accent)_18%,transparent)] text-[var(--vy-accent)]"
+          : "text-[var(--vy-text-dim)] hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] hover:text-[var(--vy-text)]",
+      )}
+    >
+      {children}
+    </button>
+  );
+}
+
+function IconButton({
+  children,
+  label,
+  onClick,
+  active,
+}: {
+  children: React.ReactNode;
+  label: string;
+  onClick: (event: React.MouseEvent<HTMLButtonElement>) => void;
+  active?: boolean;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      aria-label={label}
+      aria-pressed={active}
+      className={cn(
+        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full transition-colors focus-visible:ring-2 focus-visible:ring-[var(--vy-accent)] focus-visible:outline-none",
+        active
+          ? "text-[var(--vy-accent)]"
+          : "text-[var(--vy-text-dim)] hover:bg-[color-mix(in_oklab,var(--vy-text)_10%,transparent)] hover:text-[var(--vy-text)]",
+      )}
+    >
+      {children}
+    </button>
   );
 }
